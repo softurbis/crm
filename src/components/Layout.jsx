@@ -7,6 +7,7 @@ import Logo from './Logo'
 const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
   { to: '/leads', label: 'Leads', icon: '🎯' },
+  { to: '/whatsapp', label: 'WhatsApp Bot', icon: '🤖', staff: true },
   { to: '/visitas', label: 'Visitas', icon: '📅' },
   { to: '/clientes', label: 'Clientes', icon: '👥' },
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️' },
@@ -42,7 +43,7 @@ export default function Layout() {
         </div>
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
-          {GLOBAL.filter(m => !m.admin || role === 'superuser').map(Item)}
+          {GLOBAL.filter(m => (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role))).map(Item)}
           <p className="menu-section">
             Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
           </p>

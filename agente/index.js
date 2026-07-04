@@ -181,6 +181,23 @@ async function manejarEntrante(jid, texto, pushName) {
   const corto = texto.trim().slice(0, 400)
   log('ENTRANTE de', phone, ':', corto.slice(0, 60))
 
+  // PALABRA DE SEGURIDAD: "mapero" reinicia el bot para este chat (modo prueba)
+  if (corto.toLowerCase() === 'mapero') {
+    const { data: convR } = await supabase.from('whatsapp_conversations').select('id, lead_id').eq('phone', phone).maybeSingle()
+    if (convR?.lead_id) {
+      await supabase.from('lead_activities').delete().eq('lead_id', convR.lead_id)
+      await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', convR.lead_id)
+      await supabase.from('leads').delete().eq('id', convR.lead_id)
+    }
+    if (convR) {
+      await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
+      await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
+    }
+    await enviar(phone, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte' })
+    log('RESET mapero para', phone)
+    return
+  }
+
   // guardar el mensaje entrante
   const conv = await estadoConv(phone)
   await supabase.from('whatsapp_messages').insert({
