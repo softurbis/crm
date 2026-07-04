@@ -103,8 +103,8 @@ export default function Payments() {
       const base = {
         project_id: (await supabase.from('projects').select('id').limit(1).single()).data.id,
         lot_id: lotId, client_id: clientId, date: fecha, amount: Number(monto),
-        operation_number: nroOp || 'SIN-REF', operation_type: opTipo,
-        financial_account_id: acctId || null, observation: obs, origin: 'sistema',
+        operation_number: (nroOp || 'SIN-REF').toUpperCase(), operation_type: opTipo,
+        financial_account_id: acctId || null, observation: obs.toUpperCase(), origin: 'sistema',
         registered_by: profile?.id, approved: true, approved_at: new Date().toISOString(),
       }
 
@@ -172,7 +172,7 @@ export default function Payments() {
 
   return (
     <>
-      <h1>Pagos diarios</h1>
+      <h1>Cuotas mensuales</h1>
 
       <div className="chips">
         {[['cuota', '💵 Cuota'], ['separacion', '📌 Separación'], ['inicial', '🏁 Pago inicial']].map(([v, l]) => (

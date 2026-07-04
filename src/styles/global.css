@@ -180,3 +180,25 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 /* ---- toolbar clientes ---- */
 .toolbar { display: flex; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .search { flex: 1; min-width: 220px; }
+
+/* ---- MAYUSCULAS en toda la app (el login queda normal) ---- */
+.shell, .shell input, .shell select, .shell textarea, .shell button, .modal-bg { text-transform: uppercase; }
+
+/* ---- lotes con cuotas vencidas ---- */
+.lot-cell.venc { box-shadow: 0 0 0 3px #e05252; position: relative; }
+.lot-cell.venc::after { content: '!'; position: absolute; top: -7px; right: -5px; background: #e05252; color: #fff; border-radius: 50%; width: 16px; height: 16px; font-size: 11px; line-height: 16px; }
+
+/* ---- estado de cuenta imprimible ---- */
+.print-area { background: #fff; color: #111; padding: 2rem; border-radius: var(--radius); max-width: 900px; margin: 0 auto; }
+.print-area h2, .print-area h3 { color: #1c2a18; }
+.print-area table { font-size: .85rem; }
+.print-area th { color: #333; border-bottom: 1px solid #999; }
+.print-area tr:hover td { background: transparent; }
+.print-area td { border-bottom: 1px solid #e5e5e5; }
+.print-modal { max-width: 960px; width: 96%; }
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; inset: 0; border-radius: 0; max-width: none; }
+  .no-print { display: none !important; }
+}

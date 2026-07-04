@@ -6,18 +6,20 @@ const CAMPOS = [
   ['phone', 'Celular'], ['address', 'Direccion'], ['district', 'Distrito'],
   ['province', 'Provincia'], ['department', 'Departamento'], ['civil_status', 'Estado civil'],
 ]
+const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
 export default function Clients() {
   const [list, setList] = useState([])
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(null)
   const [form, setForm] = useState({})
-  const [ventas, setVentas] = useState([])
   const [msg, setMsg] = useState(null)
   const [nuevo, setNuevo] = useState(false)
   const [busy, setBusy] = useState(false)
   const [fFrente, setFFrente] = useState(null)
   const [fReverso, setFReverso] = useState(null)
+  const [cta, setCta] = useState(null)       // cliente del estado de cuenta
+  const [ctaData, setCtaData] = useState(null)
 
   async function load() {
     const { data, error } = await supabase.from('clients')
@@ -27,13 +29,22 @@ export default function Clients() {
   }
   useEffect(() => { load() }, [])
 
+  // ---- estado de cuenta: ventas + cuotas + pagos con voucher ----
   useEffect(() => {
-    if (!sel?.id) { setVentas([]); return }
-    supabase.from('sales')
-      .select('id, total_sale_price, status, sale_date, lot:lots(mz,lt), installments(amount_paid)')
-      .eq('client_id', sel.id)
-      .then(({ data }) => setVentas(data || []))
-  }, [sel])
+    if (!cta) { setCtaData(null); return }
+    async function loadCta() {
+      const [v, p] = await Promise.all([
+        supabase.from('sales')
+          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt), installments(installment_number, due_date, amount, amount_paid, status)')
+          .eq('client_id', cta.id).order('sale_date'),
+        supabase.from('daily_income')
+          .select('date, amount, income_type, operation_number, voucher_url, observation, lot:lots(mz,lt), installment:installments(installment_number)')
+          .eq('client_id', cta.id).order('date'),
+      ])
+      setCtaData({ ventas: v.data || [], pagos: p.data || [] })
+    }
+    loadCta()
+  }, [cta])
 
   const filtrada = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -53,43 +64,44 @@ export default function Clients() {
     setFFrente(null); setFReverso(null); setMsg(null)
   }
 
-  async function subir(file, cara, doc) {
+  async function subirFoto(file, cara, doc) {
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
     const path = `dni/${doc}-${cara}-${Date.now()}.${ext}`
     const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-    if (error) throw new Error('No se pudo subir la foto (' + cara + '): ' + error.message + '. Verifica que exista el bucket urbis-files en Supabase Storage.')
+    if (error) throw new Error('No se pudo subir la foto (' + cara + '): ' + error.message + '. Verifica el bucket urbis-files en Supabase Storage.')
     return supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
   }
 
   async function guardar(e) {
     e.preventDefault()
     if (nuevo && (!fFrente || !fReverso)) {
-      setMsg({ ok: false, t: 'Obligatorio: sube la foto del DNI por ambas caras.' }); return
+      setMsg({ ok: false, t: 'OBLIGATORIO: sube la foto del DNI por ambas caras.' }); return
     }
     setBusy(true); setMsg(null)
     try {
-      const doc = form.doc_number.trim()
+      const doc = form.doc_number.trim().toUpperCase()
       let front = sel?.dni_front_url || null
       let back = sel?.dni_back_url || null
-      if (fFrente) front = await subir(fFrente, 'frente', doc)
-      if (fReverso) back = await subir(fReverso, 'reverso', doc)
+      if (fFrente) front = await subirFoto(fFrente, 'frente', doc)
+      if (fReverso) back = await subirFoto(fReverso, 'reverso', doc)
       const tel = (form.phone || '').replace(/\D/g, '')
-      const payload = {
-        ...form, doc_number: doc,
+      const payload = {}
+      for (const [k] of CAMPOS) payload[k] = (form[k] || '').toUpperCase().trim() || null
+      Object.assign(payload, {
+        doc_number: doc,
         dni_front_url: front, dni_back_url: back,
+        phone: form.phone || null,
         phone_valid: tel.length >= 9 && !tel.includes('999999999'),
         doc_type: /^\d{8}$/.test(doc) ? 'DNI' : (doc.startsWith('PEND') ? 'PEND' : (sel?.doc_type || 'DNI')),
-      }
+      })
       const r = nuevo
         ? await supabase.from('clients').insert(payload)
         : await supabase.from('clients').update(payload).eq('id', sel.id)
       if (r.error) throw new Error(r.error.message)
-      setMsg({ ok: true, t: 'Guardado correctamente' })
+      setMsg({ ok: true, t: 'GUARDADO CORRECTAMENTE' })
       await load()
       if (nuevo) setSel(null)
-    } catch (err) {
-      setMsg({ ok: false, t: err.message })
-    }
+    } catch (err) { setMsg({ ok: false, t: err.message }) }
     setBusy(false)
   }
 
@@ -105,7 +117,7 @@ export default function Clients() {
 
       {(pendientes > 0 || telInvalidos > 0) && (
         <p className="hint">
-          {pendientes > 0 && <>&#9888; {pendientes} cliente(s) con DNI pendiente. </>}
+          {pendientes > 0 && <>&#9888; {pendientes} con DNI pendiente. </>}
           {telInvalidos > 0 && <>&#128245; {telInvalidos} sin celular valido (WhatsApp bloqueado).</>}
         </p>
       )}
@@ -121,13 +133,18 @@ export default function Clients() {
                 <td>{c.phone_valid ? c.phone : <span className="bad">{c.phone || 'sin celular'}</span>}</td>
                 <td>{c.dni_front_url && c.dni_back_url ? <span className="ok">completo</span> : <span className="warn">falta</span>}</td>
                 <td>{c.sales?.length || 0}</td>
-                <td><button className="btn-ghost" onClick={() => abrir(c)}>ver / editar</button></td>
+                <td>
+                  <button className="btn-ghost" onClick={() => abrir(c)}>editar</button>{' '}
+                  {(c.sales?.length || 0) > 0 &&
+                    <button className="btn-ghost" onClick={() => setCta(c)}>estado de cuenta</button>}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
+      {/* ------- modal editar / nuevo ------- */}
       {sel !== null && (
         <div className="modal-bg" onClick={() => !busy && setSel(null)}>
           <div className="glass modal" onClick={e => e.stopPropagation()}>
@@ -135,7 +152,6 @@ export default function Clients() {
               <h2>{nuevo ? 'Nuevo cliente' : sel.full_name}</h2>
               <button className="btn-ghost" onClick={() => setSel(null)}>&#10005;</button>
             </div>
-
             <form onSubmit={guardar} className="form-grid">
               {CAMPOS.map(([k, label]) => (
                 <label key={k} className={k === 'full_name' || k === 'address' ? 'span2' : ''}>
@@ -144,7 +160,6 @@ export default function Clients() {
                     onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
                 </label>
               ))}
-
               <label>DNI - frente {nuevo && <b className="bad">(obligatorio)</b>}
                 <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />
                 {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer">ver actual</a>}
@@ -153,28 +168,87 @@ export default function Clients() {
                 <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />
                 {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer">ver actual</a>}
               </label>
-
               <div className="span2">
                 {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
                 <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Guardar'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
 
-            {!nuevo && ventas.length > 0 && (<>
-              <hr />
-              <h3 className="sub">Sus lotes</h3>
-              {ventas.map(v => {
-                const pagado = v.installments.reduce((s, i) => s + Number(i.amount_paid), 0)
-                const total = Number(v.total_sale_price)
-                const pct = total ? ((pagado / total) * 100).toFixed(0) : 0
+      {/* ------- estado de cuenta (imprimible / PDF) ------- */}
+      {cta && (
+        <div className="modal-bg" onClick={() => setCta(null)}>
+          <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head no-print">
+              <h2>Estado de cuenta</h2>
+              <button className="btn-primary" onClick={() => window.print()}>Exportar PDF</button>
+              <button className="btn-ghost" onClick={() => setCta(null)}>&#10005;</button>
+            </div>
+
+            <div className="print-area">
+              <h2>URBIS GROUP - ESTADO DE CUENTA</h2>
+              <p><b>{cta.full_name}</b> | {cta.doc_type} {cta.doc_number} | CEL: {cta.phone || '-'}</p>
+              <p className="small">EMITIDO: {new Date().toLocaleDateString('es-PE')} - LAS PRADERAS DE CASHIBO</p>
+
+              {!ctaData ? <p>Cargando...</p> : ctaData.ventas.map(v => {
+                const cuotasPag = v.installments.filter(i => i.status === 'pagado').length
+                const pagadoCuotas = v.installments.reduce((s, i) => s + Number(i.amount_paid), 0)
+                const totalPagado = pagadoCuotas + Number(v.initial_amount_paid)
+                const saldo = Number(v.total_sale_price) - totalPagado
+                const vencidas = v.installments.filter(i => i.status === 'vencido')
                 return (
-                  <p key={v.id}>
-                    <b>Mz {v.lot?.mz} Lt {v.lot?.lt}</b> - {v.status} - S/ {total.toLocaleString('es-PE')}
-                    <span className="muted"> | cuotas pagadas S/ {pagado.toLocaleString('es-PE')} ({pct}%)</span>
-                  </p>
+                  <div key={v.id}>
+                    <hr />
+                    <h3>LOTE MZ {v.lot?.mz} LT {v.lot?.lt} ({v.status})</h3>
+                    <p>
+                      PRECIO: <b>{soles(v.total_sale_price)}</b> | INICIAL: {soles(v.initial_amount_paid)} |
+                      PAGADO: <b>{soles(totalPagado)}</b> | SALDO: <b>{soles(saldo)}</b>
+                    </p>
+                    <p>
+                      CUOTAS: {cuotasPag} pagadas de {v.installments_count}
+                      {vencidas.length > 0 && <b> | {vencidas.length} VENCIDAS ({soles(vencidas.reduce((s, i) => s + Number(i.amount) - Number(i.amount_paid), 0))})</b>}
+                    </p>
+                    <table>
+                      <thead><tr><th>N</th><th>Vence</th><th>Monto</th><th>Pagado</th><th>Estado</th></tr></thead>
+                      <tbody>
+                        {v.installments.sort((a, b) => a.installment_number - b.installment_number).map(i => (
+                          <tr key={i.installment_number}>
+                            <td>{i.installment_number}</td>
+                            <td>{i.due_date}</td>
+                            <td>{soles(i.amount)}</td>
+                            <td>{Number(i.amount_paid) > 0 ? soles(i.amount_paid) : '-'}</td>
+                            <td>{i.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )
               })}
-            </>)}
+
+              {ctaData && ctaData.pagos.length > 0 && (<>
+                <hr />
+                <h3>HISTORIAL DE PAGOS ({ctaData.pagos.length})</h3>
+                <table>
+                  <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>N Operacion</th><th>Monto</th><th>Voucher</th></tr></thead>
+                  <tbody>
+                    {ctaData.pagos.map((p, i) => (
+                      <tr key={i}>
+                        <td>{p.date}</td>
+                        <td>{p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'}</td>
+                        <td>{p.income_type}{p.installment ? ' N' + p.installment.installment_number : ''}</td>
+                        <td>{p.operation_number}</td>
+                        <td>{soles(p.amount)}</td>
+                        <td>{p.voucher_url ? <a href={p.voucher_url} target="_blank" rel="noreferrer">VER</a> : <span className="no-print">pendiente</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p><b>TOTAL PAGADO: {soles(ctaData.pagos.reduce((s, p) => s + Number(p.amount), 0))}</b></p>
+              </>)}
+            </div>
           </div>
         </div>
       )}

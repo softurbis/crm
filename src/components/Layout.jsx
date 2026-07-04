@@ -9,7 +9,7 @@ const MENU = [
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️' },
   { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️' },
   { to: '/clientes', label: 'Clientes', icon: '👥' },
-  { to: '/pagos', label: 'Pagos diarios', icon: '💵' },
+  { to: '/pagos', label: 'Cuotas', icon: '💵' },
   { to: '/contratos', label: 'Contratos', icon: '📄' },
   { to: '/gastos', label: 'Gastos', icon: '🧾' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true },
