@@ -3,11 +3,28 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-const CAMPOS = [
-  ['name', 'Nombre del proyecto'], ['titular_name', 'Titular'], ['titular_dni', 'DNI titular'],
-  ['titular_phone', 'Telefono'], ['office_address', 'Direccion de oficina'],
-  ['late_penalty_rate', 'Mora S/ por dia'], ['info_url', 'Link de informacion'],
-]
+const hoyISO = () => new Date().toISOString().slice(0, 10)
+
+function diasPara(fecha) {
+  if (!fecha) return null
+  return Math.ceil((new Date(fecha + 'T12:00:00') - new Date(hoyISO() + 'T12:00:00')) / 86400000)
+}
+
+async function upload(path, file) {
+  const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
+  const full = `${path}-${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
+  if (error) throw new Error(error.message)
+  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
+}
+
+function LegalChip({ label, expiry, docUrl }) {
+  const d = diasPara(expiry)
+  if (!expiry || !docUrl) return <span className="chip-legal bad">&#9888; {label}: FALTA {!docUrl ? 'DOCUMENTO' : 'FECHA'}</span>
+  if (d < 0) return <span className="chip-legal bad">&#9940; {label}: VENCIDA HACE {Math.abs(d)} DIAS</span>
+  if (d <= 30) return <span className="chip-legal warn2">&#9888; {label}: VENCE EN {d} DIAS</span>
+  return <span className="chip-legal ok2">&#10004; {label}: VIGENTE ({d} dias)</span>
+}
 
 export default function Projects() {
   const { role } = useAuth()
@@ -15,10 +32,29 @@ export default function Projects() {
   const [projects, setProjects] = useState([])
   const [stats, setStats] = useState({})
   const [accounts, setAccounts] = useState([])
-  const [edit, setEdit] = useState(null)
+  const [edit, setEdit] = useState(null)       // id | 'nuevo' | null
   const [f, setF] = useState({})
-  const [na, setNa] = useState({})   // nueva cuenta
+  const [fLiteral, setFLiteral] = useState(null)
+  const [fPoder, setFPoder] = useState(null)
+  const [na, setNa] = useState({})
   const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const CAMPOS = [
+    ['name', 'Nombre del proyecto', true],
+    ['description', 'Descripcion del proyecto', true, 'span2'],
+    ['how_to_arrive', 'Como llegar (referencia escrita)', true, 'span2'],
+    ['latitude', 'Latitud (ej. -8.3456)', true],
+    ['longitude', 'Longitud (ej. -74.5678)', true],
+    ['maps_url', 'Link de Google Maps', true],
+    ['facebook_url', 'Link de Facebook', false],
+    ['instagram_url', 'Link de Instagram', false],
+    ['partida_number', 'Partida registral N.', true],
+    ['titular_name', 'Titular (vendedor en contratos)', true],
+    ['titular_dni', 'DNI del titular', true],
+    ['titular_phone', 'WhatsApp oficial', true],
+    ['office_address', 'Direccion de oficina', true, 'span2'],
+  ]
 
   async function load() {
     const [p, l, i, g, a] = await Promise.all([
@@ -38,21 +74,50 @@ export default function Projects() {
   }
   useEffect(() => { load() }, [])
 
-  async function guardar(e) {
-    e.preventDefault()
-    const payload = {}
-    for (const [k] of CAMPOS) payload[k] = k === 'late_penalty_rate' ? Number(f[k] || 0) : ((f[k] || '').toUpperCase().trim() || null)
-    const { error } = await supabase.from('projects').update(payload).eq('id', edit)
-    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'PROYECTO ACTUALIZADO' })
-    setEdit(null); load()
+  function abrirForm(p) {
+    setEdit(p ? p.id : 'nuevo')
+    const base = {}
+    for (const [k] of CAMPOS) base[k] = p?.[k] ?? ''
+    base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
+    base.poder_expiry = p?.poder_expiry ?? ''
+    setF(base); setFLiteral(null); setFPoder(null); setMsg(null)
   }
 
-  async function nuevoProyecto() {
-    const name = prompt('Nombre del nuevo proyecto:')
-    if (!name) return
-    const { error } = await supabase.from('projects').insert({ name: name.toUpperCase() })
-    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'PROYECTO CREADO' })
-    load()
+  async function guardar(e) {
+    e.preventDefault()
+    setBusy(true); setMsg(null)
+    try {
+      const p = edit !== 'nuevo' ? projects.find(x => x.id === edit) : null
+      if (!f.copia_literal_expiry) throw new Error('La fecha de vencimiento de la partida es obligatoria.')
+      if (edit === 'nuevo' && !fLiteral) throw new Error('Debes subir la copia literal / partida registral (documento obligatorio).')
+      if ((fPoder || p?.carta_poder_url) && !f.poder_expiry) throw new Error('Si hay carta poder, su vigencia es obligatoria.')
+
+      let literalUrl = p?.copia_literal_url || null
+      let poderUrl = p?.carta_poder_url || null
+      if (fLiteral) literalUrl = await upload('legal/partida', fLiteral)
+      if (fPoder) poderUrl = await upload('legal/poder', fPoder)
+
+      const payload = {}
+      for (const [k, , req] of CAMPOS) {
+        const v = (String(f[k] ?? '')).trim()
+        if (req && !v) throw new Error('Campo obligatorio: ' + k.replace(/_/g, ' '))
+        payload[k] = k.includes('url') || k === 'latitude' || k === 'longitude' ? (v || null) : (v.toUpperCase() || null)
+      }
+      payload.latitude = f.latitude ? Number(f.latitude) : null
+      payload.longitude = f.longitude ? Number(f.longitude) : null
+      payload.copia_literal_url = literalUrl
+      payload.copia_literal_expiry = f.copia_literal_expiry || null
+      payload.carta_poder_url = poderUrl
+      payload.poder_expiry = f.poder_expiry || null
+
+      const r = edit === 'nuevo'
+        ? await supabase.from('projects').insert(payload)
+        : await supabase.from('projects').update(payload).eq('id', edit)
+      if (r.error) throw new Error(r.error.message)
+      setMsg({ ok: true, t: edit === 'nuevo' ? 'PROYECTO CREADO' : 'PROYECTO ACTUALIZADO' })
+      setEdit(null); load()
+    } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
+    setBusy(false)
   }
 
   async function agregarCuenta(pid) {
@@ -66,14 +131,49 @@ export default function Projects() {
     setNa({}); load()
   }
 
-  return (
-    <>
-      <h1>Proyectos</h1>
-      <div className="toolbar">
-        <span className="hint">Vista general por proyecto: lotes, recaudo y gastos.</span>
-        {canEdit && <button className="btn-primary" onClick={nuevoProyecto}>+ Nuevo proyecto</button>}
+  const FORM = (
+    <form className="glass form-card" onSubmit={guardar}>
+      <p><b>{edit === 'nuevo' ? 'NUEVO PROYECTO' : 'EDITAR PROYECTO'}</b> — todos los campos marcados son obligatorios.</p>
+      <div className="form-grid">
+        {CAMPOS.map(([k, label, req, cls]) => (
+          <label key={k} className={cls || ''}>
+            {label} {req && <b className="bad">*</b>}
+            <input value={f[k] ?? ''} required={req}
+              style={k.includes('url') ? { textTransform: 'none' } : {}}
+              onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} />
+          </label>
+        ))}
+        <label>Partida / copia literal (PDF o foto) {edit === 'nuevo' && <b className="bad">*</b>}
+          <input type="file" accept="image/*,.pdf" onChange={e => setFLiteral(e.target.files[0] || null)} />
+        </label>
+        <label>Vencimiento de la partida <b className="bad">*</b>
+          <input type="date" value={f.copia_literal_expiry || ''} required
+            onChange={e => setF(x => ({ ...x, copia_literal_expiry: e.target.value }))} />
+        </label>
+        <label>Carta poder (si aplica)
+          <input type="file" accept="image/*,.pdf" onChange={e => setFPoder(e.target.files[0] || null)} />
+        </label>
+        <label>Vigencia del poder
+          <input type="date" value={f.poder_expiry || ''}
+            onChange={e => setF(x => ({ ...x, poder_expiry: e.target.value }))} />
+        </label>
       </div>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+      <div>
+        <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Guardar proyecto'}</button>{' '}
+        <button type="button" className="btn-ghost" onClick={() => setEdit(null)}>Cancelar</button>
+      </div>
+    </form>
+  )
+
+  return (
+    <>
+      <div className="toolbar">
+        <h1 style={{ margin: 0, flex: 1 }}>Proyectos</h1>
+        {canEdit && <button className="btn-primary" onClick={() => abrirForm(null)}>+ Nuevo proyecto</button>}
+      </div>
+      {msg && !edit && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+      {edit === 'nuevo' && FORM}
 
       {projects.map(p => {
         const s = stats[p.id] || { lotes: {}, ingresos: 0, gastos: 0, total: 0 }
@@ -81,12 +181,15 @@ export default function Projects() {
           <div className="glass form-card" key={p.id}>
             <div className="modal-head">
               <h2>{p.name}</h2>
-              {canEdit && <button className="btn-ghost" onClick={() => {
-                if (edit === p.id) { setEdit(null); return }
-                setEdit(p.id)
-                setF(Object.fromEntries(CAMPOS.map(([k]) => [k, p[k] ?? ''])))
-              }}>{edit === p.id ? 'Cerrar' : 'Editar'}</button>}
+              {canEdit && <button className="btn-ghost" onClick={() => edit === p.id ? setEdit(null) : abrirForm(p)}>{edit === p.id ? 'Cerrar' : 'Editar'}</button>}
             </div>
+
+            <p>
+              <LegalChip label="PARTIDA" expiry={p.copia_literal_expiry} docUrl={p.copia_literal_url} />{' '}
+              {(p.carta_poder_url || p.poder_expiry) && <LegalChip label="PODER" expiry={p.poder_expiry} docUrl={p.carta_poder_url} />}
+              {p.copia_literal_url && <> <a href={p.copia_literal_url} target="_blank" rel="noreferrer" className="small">VER PARTIDA</a></>}
+              {p.carta_poder_url && <> | <a href={p.carta_poder_url} target="_blank" rel="noreferrer" className="small">VER PODER</a></>}
+            </p>
 
             <div className="cards">
               <div className="card glass"><p className="muted">Recaudado</p><p className="kpi">{soles(s.ingresos)}</p></div>
@@ -101,19 +204,18 @@ export default function Projects() {
               <span style={{ color: '#9a6bc9' }}>&#9679; {s.lotes.expropiado || 0} expropiados</span>{' '}
               <span className="bad">&#9679; {s.lotes.invadido || 0} invadidos</span>
             </p>
-            <p className="muted small">Titular: {p.titular_name || '-'} | Mora: S/ {p.late_penalty_rate}/dia | Oficina: {p.office_address || '-'}</p>
+            {p.description && <p className="muted small">{p.description}</p>}
+            {p.how_to_arrive && <p className="muted small">COMO LLEGAR: {p.how_to_arrive}</p>}
+            <p className="small">
+              {p.maps_url && <a href={p.maps_url} target="_blank" rel="noreferrer">&#128205; MAPS</a>}
+              {p.facebook_url && <> | <a href={p.facebook_url} target="_blank" rel="noreferrer">FACEBOOK</a></>}
+              {p.instagram_url && <> | <a href={p.instagram_url} target="_blank" rel="noreferrer">INSTAGRAM</a></>}
+              {p.latitude && <span className="muted"> | {p.latitude}, {p.longitude}</span>}
+              {p.partida_number && <span className="muted"> | PARTIDA N. {p.partida_number}</span>}
+            </p>
+            <p className="muted small">TITULAR: {p.titular_name || '-'} (DNI {p.titular_dni || '-'}) | OFICINA: {p.office_address || '-'}</p>
 
-            {edit === p.id && (
-              <form className="form-grid" onSubmit={guardar}>
-                {CAMPOS.map(([k, label]) => (
-                  <label key={k} className={k === 'office_address' || k === 'info_url' ? 'span2' : ''}>
-                    {label}
-                    <input value={f[k] ?? ''} onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} />
-                  </label>
-                ))}
-                <div className="span2"><button className="btn-primary">Guardar proyecto</button></div>
-              </form>
-            )}
+            {edit === p.id && FORM}
 
             <hr />
             <p><b>CUENTAS DE COBRO:</b></p>

@@ -143,15 +143,28 @@ export default function Contracts() {
         const vendDni = p.titular_dni || '__________'
         const vendDom = p.office_address || 'Jr. Progreso N. 163, distrito de Calleria, provincia de Coronel Portillo, departamento de Ucayali'
         const nProy = p.name || 'LAS PRADERAS DE CASHIBO'
+        const hoyStr = new Date().toISOString().slice(0, 10)
+        const problemas = []
+        if (!p.copia_literal_url) problemas.push('FALTA SUBIR LA PARTIDA REGISTRAL (Proyectos > Editar)')
+        else if (!p.copia_literal_expiry || p.copia_literal_expiry < hoyStr) problemas.push('LA PARTIDA REGISTRAL ESTA VENCIDA O SIN FECHA DE VIGENCIA')
+        if (p.carta_poder_url && (!p.poder_expiry || p.poder_expiry < hoyStr)) problemas.push('LA VIGENCIA DE PODER ESTA VENCIDA O SIN FECHA')
+        const puedeFirmar = problemas.length === 0
         return (
           <div className="modal-bg" onClick={() => setGen(null)}>
             <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
               <div className="modal-head no-print">
                 <h2>Contrato - {c.full_name}</h2>
-                <button className="btn-primary" onClick={() => window.print()}>Imprimir / PDF</button>
+                {puedeFirmar && <button className="btn-primary" onClick={() => window.print()}>Imprimir / PDF</button>}
                 <button className="btn-ghost" onClick={() => setGen(null)}>&#10005;</button>
               </div>
 
+              {!puedeFirmar && (
+                <div className="chg-box no-print">
+                  <p className="bad"><b>&#9940; NO SE PUEDE FIRMAR ESTE CONTRATO:</b></p>
+                  {problemas.map((x, i) => <p key={i} className="bad">&#8226; {x}</p>)}
+                  <p className="muted small">Regulariza los documentos legales en PROYECTOS &#8594; EDITAR y vuelve a generar.</p>
+                </div>
+              )}
               <div className="print-area contract">
                 <h2 style={{ textAlign: 'center' }}>CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACIÓN URBANA PROGRESIVA CON RESERVA DE PROPIEDAD</h2>
                 <p>Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitación Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:</p>

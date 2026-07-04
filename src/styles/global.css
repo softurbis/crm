@@ -240,3 +240,9 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 11pt; white-space: normal; }
 .ctable.firmas td { border: none; }
 .muted-print { font-size: 10pt; font-style: italic; color: #555; }
+
+/* ---- chips legales ---- */
+.chip-legal { display: inline-block; padding: .3rem .7rem; border-radius: 14px; font-size: .8rem; font-weight: 600; margin-right: .4rem; }
+.chip-legal.bad { background: rgba(224,82,82,.18); color: var(--error); border: 1px solid rgba(224,82,82,.5); }
+.chip-legal.warn2 { background: rgba(224,178,63,.15); color: #e0b23f; border: 1px solid rgba(224,178,63,.5); }
+.chip-legal.ok2 { background: rgba(134,181,126,.15); color: var(--ok); border: 1px solid rgba(134,181,126,.4); }
