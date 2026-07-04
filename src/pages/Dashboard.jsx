@@ -22,7 +22,7 @@ export default function Dashboard() {
       const [lots, income, expenses, salesR, venc, seps] = await Promise.all([
         supabase.from('lots').select('project_id, status, total_price').in('project_id', ids),
         supabase.from('daily_income').select('project_id, amount, income_type, date, observation').in('project_id', ids),
-        supabase.from('expenses').select('project_id, amount, issue_date').in('project_id', ids),
+        supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status').in('project_id', ids),
         supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)'),
         supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),
         supabase.from('separations').select('amount, date, status, lot:lots!inner(project_id)'),
@@ -56,14 +56,15 @@ export default function Dashboard() {
     const recaudadoActivo = acept.reduce((s, i) => s + Number(i.amount), 0)
     const carteraDisp = lots.filter(l => l.status === 'disponible').reduce((s, l) => s + Number(l.total_price || 0), 0)
     const deudaVencida = venc.reduce((s, v) => s + Number(v.amount) - Number(v.amount_paid), 0)
-    const gastosT = expenses.reduce((s, g) => s + Number(g.amount), 0)
+    const gastosReales = expenses.filter(g => g.status !== 'solicitado')
+    const gastosT = gastosReales.reduce((s, g) => s + Number(g.amount), 0)
 
     // series mensuales
     const meses = {}
     const M = ym => (meses[ym] = meses[ym] || { rec: 0, pagos: 0, ventasN: 0, ventasS: 0, gastos: 0, seps: 0 })
     for (const i of acept) { const ym = (i.date || '').slice(0, 7); if (ym) { M(ym).rec += Number(i.amount); M(ym).pagos++ } }
     for (const v of sales) { const ym = (v.sale_date || '').slice(0, 7); if (ym) { M(ym).ventasN++; M(ym).ventasS += Number(v.total_sale_price) } }
-    for (const g of expenses) { const ym = (g.issue_date || '').slice(0, 7); if (ym) M(ym).gastos += Number(g.amount) }
+    for (const g of gastosReales) { const ym = (g.issue_date || g.reception_date || '').slice(0, 7); if (ym) M(ym).gastos += Number(g.amount) }
     for (const x of seps) { const ym = (x.date || '').slice(0, 7); if (ym) M(ym).seps++ }
     const mesesOrden = Object.keys(meses).sort().reverse()
 
@@ -107,6 +108,16 @@ export default function Dashboard() {
           generalLabel={role === 'admin' ? 'GENERAL (todos los proyectos)' : 'TOTAL (mis proyectos)'} />
       </div>
 
+      <div className="cards cards-big">
+        {cards.map(c => (
+          <div className="glass card" key={c.label}>
+            <p className="muted">{c.label}</p>
+            <p className="kpi kpi-big" style={c.bad ? { color: 'var(--error)' } : c.purple ? { color: '#b58ad9' } : {}}>{c.value}</p>
+            {c.sub && <p className="muted small">{c.sub}</p>}
+          </div>
+        ))}
+      </div>
+
       {m && (
         <div className="glass form-card mes-box">
           <h2 className="sub" style={{ margin: 0 }}>RESUMEN DE {mesLbl(fmes)}</h2>
@@ -119,16 +130,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
-      <div className="cards cards-big">
-        {cards.map(c => (
-          <div className="glass card" key={c.label}>
-            <p className="muted">{c.label}</p>
-            <p className="kpi kpi-big" style={c.bad ? { color: 'var(--error)' } : c.purple ? { color: '#b58ad9' } : {}}>{c.value}</p>
-            {c.sub && <p className="muted small">{c.sub}</p>}
-          </div>
-        ))}
-      </div>
 
       <h2 className="sub">Resumen mensual</h2>
       <div className="glass table-wrap">
