@@ -245,8 +245,16 @@ export default function Expenses() {
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
                 <td><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" /></td>
                 <td>
-                  {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) &&
-                    <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>}
+                  {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
+                    <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>{' '}
+                    {['admin', 'superuser'].includes(role) &&
+                      <button className="link-btn bad" onClick={async () => {
+                        if (!confirm(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`)) return
+                        const { error } = await supabase.from('expenses').delete().eq('id', g.id)
+                        setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'SOLICITUD ELIMINADA' })
+                        load()
+                      }}>eliminar</button>}
+                  </>)}
                 </td>
               </tr>
             ))}

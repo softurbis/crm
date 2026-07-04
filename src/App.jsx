@@ -11,6 +11,7 @@ import Bitacora from './pages/Bitacora'
 import Users from './pages/Users'
 import Projects from './pages/Projects'
 import Contracts from './pages/Contracts'
+import Leads from './pages/Leads'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
+        <Route path="leads" element={<Leads />} />
         <Route path="lotes" element={<Lots />} />
         <Route path="pagos" element={<Payments />} />
         <Route path="clientes" element={<Clients />} />

@@ -302,3 +302,13 @@ tr.row-sel td { background: rgba(140,155,122,.15); }
 /* ---- editor de plantilla ---- */
 .tok { background: rgba(140,155,122,.18); border: 1px solid rgba(140,155,122,.4); border-radius: 6px; padding: .1rem .4rem; margin: 0 .18rem; font-size: .75rem; text-transform: none; display: inline-block; }
 .tok2 { background: rgba(154,107,201,.15); border-color: rgba(154,107,201,.4); }
+
+/* ---- kanban de leads ---- */
+.kanban { display: flex; gap: .8rem; overflow-x: auto; align-items: flex-start; padding-bottom: 1rem; }
+.kcol { min-width: 235px; flex: 1; }
+.kcol-head { display: flex; align-items: center; gap: .45rem; font-size: .8rem; font-weight: 700; color: var(--muted); border-bottom: 2px solid; padding-bottom: .4rem; margin-bottom: .6rem; letter-spacing: .04em; }
+.kcard { padding: .8rem .9rem; margin-bottom: .6rem; cursor: grab; transition: transform .12s, box-shadow .12s; }
+.kcard:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.4); }
+.kcard:active { cursor: grabbing; }
+.kname { font-weight: 700; font-size: .95rem; }
+.kcard p { margin: .2rem 0; }
