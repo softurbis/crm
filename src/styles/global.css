@@ -206,3 +206,8 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 /* ---- miniaturas DNI ---- */
 .thumb { width: 140px; border-radius: 8px; border: 1px solid rgba(127,148,118,.35); display: block; margin-top: .3rem; }
 .thumb:hover { outline: 2px solid var(--accent); }
+
+/* ---- cambio de estado critico ---- */
+.chg-box { display: flex; flex-direction: column; gap: .7rem; border: 1px solid rgba(224,82,82,.5); border-radius: 10px; padding: 1rem; margin-top: .8rem; }
+.upload-btn.bad { color: var(--error); font-weight: 600; }
+.upload-btn.warn { color: #e0b23f; }

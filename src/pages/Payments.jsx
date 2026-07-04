@@ -13,6 +13,14 @@ function addMonths(dateStr, n) {
   return d.toISOString().slice(0, 10)
 }
 
+async function upload(path, file) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const full = `${path}-${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
+  if (error) throw new Error('Error al subir archivo: ' + error.message)
+  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
+}
+
 export default function Payments() {
   const { profile } = useAuth()
   const [tipo, setTipo] = useState('cuota')
@@ -23,12 +31,10 @@ export default function Payments() {
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  // filtros del historial
   const [fq, setFq] = useState('')
   const [ftipo, setFtipo] = useState('todos')
-  const [fsinv, setFsinv] = useState(false)
+  const [fdoc, setFdoc] = useState('todos') // todos | sin_voucher | sin_comprobante
 
-  // formulario
   const [lotId, setLotId] = useState('')
   const [clientId, setClientId] = useState('')
   const [monto, setMonto] = useState('')
@@ -40,6 +46,7 @@ export default function Payments() {
   const [precioVenta, setPrecioVenta] = useState('')
   const [meses, setMeses] = useState(48)
   const [venc, setVenc] = useState(addMonths(hoy(), 1))
+  const [fVoucher, setFVoucher] = useState(null)
   const [ctx, setCtx] = useState(null)
 
   async function loadBase() {
@@ -48,7 +55,7 @@ export default function Payments() {
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
       supabase.from('financial_accounts').select('id, name').eq('active', true),
       supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
+        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
         .order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setPagos(r.data || [])
@@ -61,7 +68,6 @@ export default function Payments() {
     return lots.filter(l => l.status === 'vendido')
   }, [lots, tipo])
 
-  // detectar contexto al elegir lote
   useEffect(() => {
     setCtx(null)
     if (!lotId) return
@@ -95,7 +101,6 @@ export default function Payments() {
     load()
   }, [lotId, tipo])
 
-  // reparto en cascada del monto entre cuotas pendientes
   const plan = useMemo(() => {
     if (tipo !== 'cuota' || !ctx?.pend || !monto) return null
     let rest = Math.round(Number(monto) * 100) / 100
@@ -112,18 +117,22 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy())
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null)
   }
 
   async function submit(e) {
     e.preventDefault()
+    if (!fVoucher) { setMsg({ ok: false, t: 'OBLIGATORIO: adjunta la foto del voucher del cliente.' }); return }
     setBusy(true); setMsg(null)
     try {
+      const op = (nroOp || 'SIN-REF').toUpperCase()
+      const voucherUrl = await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, fVoucher)
       const base = {
         project_id: (await supabase.from('projects').select('id').limit(1).single()).data.id,
         lot_id: lotId, client_id: clientId, date: fecha,
-        operation_number: (nroOp || 'SIN-REF').toUpperCase(), operation_type: opTipo,
+        operation_number: op, operation_type: opTipo,
         financial_account_id: acctId || null, observation: obs.toUpperCase(), origin: 'sistema',
+        voucher_url: voucherUrl,
         registered_by: profile?.id, approved: true, approved_at: new Date().toISOString(),
       }
 
@@ -167,8 +176,7 @@ export default function Payments() {
 
       if (tipo === 'cuota') {
         if (!plan || plan.parts.length === 0) throw new Error('Monto invalido')
-        if (plan.sobra > 0.01) throw new Error(`El monto excede la deuda total del lote en ${soles(plan.sobra)}. Reduce el monto.`)
-        // un registro por cada cuota alcanzada (mismo N de operacion = mismo voucher)
+        if (plan.sobra > 0.01) throw new Error(`El monto excede la deuda total del lote en ${soles(plan.sobra)}.`)
         for (const p of plan.parts) {
           const { error: e1 } = await supabase.from('daily_income').insert({
             ...base, amount: p.take, income_type: 'cuota', sale_id: ctx.sale.id, installment_id: p.q.id,
@@ -177,28 +185,27 @@ export default function Payments() {
         }
       }
 
-      setMsg({ ok: true, t: 'PAGO REGISTRADO CORRECTAMENTE' })
+      setMsg({ ok: true, t: 'PAGO REGISTRADO. RECUERDA SUBIR EL COMPROBANTE INTERNO CUANDO LO GENERES.' })
       reset(); loadBase()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + (err.message || err) }) }
     setBusy(false)
   }
 
-  async function subirVoucher(row, file) {
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `vouchers/${row.id}.${ext}`
-    const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-    if (error) { setMsg({ ok: false, t: 'ERROR AL SUBIR: ' + error.message }); return }
-    const { data } = supabase.storage.from('urbis-files').getPublicUrl(path)
-    await supabase.from('daily_income').update({ voucher_url: data.publicUrl }).eq('id', row.id)
-    setMsg({ ok: true, t: 'VOUCHER SUBIDO' }); loadBase()
+  async function subirDoc(row, file, campo) {
+    try {
+      const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
+      await supabase.from('daily_income').update({ [campo]: url }).eq('id', row.id)
+      setMsg({ ok: true, t: campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO' })
+      loadBase()
+    } catch (err) { setMsg({ ok: false, t: err.message }) }
   }
 
-  // historial filtrado
   const pagosFiltrados = useMemo(() => {
     const t = fq.trim().toLowerCase()
     return pagos.filter(p => {
       if (ftipo !== 'todos' && p.income_type !== ftipo) return false
-      if (fsinv && p.voucher_url) return false
+      if (fdoc === 'sin_voucher' && p.voucher_url) return false
+      if (fdoc === 'sin_comprobante' && p.receipt_url) return false
       if (!t) return true
       const lote = p.lot ? `${p.lot.mz}-${p.lot.lt}`.toLowerCase() : ''
       const lote2 = p.lot ? `mz ${p.lot.mz} lt ${p.lot.lt}`.toLowerCase() : ''
@@ -206,9 +213,10 @@ export default function Payments() {
         (p.client?.full_name || '').toLowerCase().includes(t) ||
         (p.operation_number || '').toLowerCase().includes(t)
     })
-  }, [pagos, fq, ftipo, fsinv])
+  }, [pagos, fq, ftipo, fdoc])
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = pagos.filter(p => !p.voucher_url).length
+  const sinComprobante = pagos.filter(p => !p.receipt_url).length
 
   return (
     <>
@@ -249,6 +257,9 @@ export default function Payments() {
               {['TRANSFERENCIA', 'DEPOSITO', 'BILLETERA DIGITAL', 'EFECTIVO'].map(t => <option key={t}>{t}</option>)}
             </select>
           </label>
+          <label className={fVoucher ? '' : 'req-file'}>Voucher del cliente <b className="bad">(obligatorio)</b>
+            <input type="file" accept="image/*,.pdf" required onChange={e => setFVoucher(e.target.files[0] || null)} />
+          </label>
           {tipo === 'separacion' && (
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
           )}
@@ -260,11 +271,9 @@ export default function Payments() {
         </div>
 
         {ctx?.error && <p className="error">{ctx.error}</p>}
-
         {tipo === 'cuota' && ctx?.pend && plan && plan.parts.length > 0 && (
           <div className="hint">
-            <p>CLIENTE: <b>{ctx.sale.client?.full_name}</b></p>
-            <p>SE APLICARA ASI:</p>
+            <p>CLIENTE: <b>{ctx.sale.client?.full_name}</b> - SE APLICARA ASI:</p>
             {plan.parts.map(p => (
               <p key={p.q.id}>
                 &#8594; CUOTA N {p.q.installment_number} ({p.q.status.toUpperCase()}, vence {p.q.due_date}): {soles(p.take)}
@@ -273,10 +282,10 @@ export default function Payments() {
                   : <b className="ok"> - QUEDA PAGADA</b>}
               </p>
             ))}
-            {plan.sobra > 0.01 && <p className="error">SOBRAN {soles(plan.sobra)}: EXCEDE LA DEUDA TOTAL DEL LOTE</p>}
+            {plan.sobra > 0.01 && <p className="error">SOBRAN {soles(plan.sobra)}: EXCEDE LA DEUDA TOTAL</p>}
           </div>
         )}
-        {tipo === 'inicial' && ctx?.sep && <p className="hint">Tiene separacion vigente de {soles(ctx.sep.amount)} ({ctx.sep.client?.full_name}). Se descuenta del financiado.</p>}
+        {tipo === 'inicial' && ctx?.sep && <p className="hint">Separacion vigente de {soles(ctx.sep.amount)} ({ctx.sep.client?.full_name}). Se descuenta del financiado.</p>}
         {tipo === 'inicial' && precioVenta && monto && (
           <p className="hint">Se generara la venta con <b>{meses} cuotas</b> de aprox. {soles((Number(precioVenta) - Number(monto) - (ctx?.sep ? Number(ctx.sep.amount) : 0)) / meses)}</p>
         )}
@@ -287,7 +296,11 @@ export default function Payments() {
         </button>
       </form>
 
-      <h2 className="sub">Historial de pagos ({pagosFiltrados.length} de {pagos.length} | {soles(totalFiltrado)} | sin voucher: {sinVoucher})</h2>
+      <h2 className="sub">
+        Historial ({pagosFiltrados.length} de {pagos.length} | {soles(totalFiltrado)})
+        {sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
+        {sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
+      </h2>
       <div className="toolbar">
         <input className="search" placeholder="Filtrar por lote (G-7), cliente o N operacion..."
           value={fq} onChange={e => setFq(e.target.value)} />
@@ -297,37 +310,47 @@ export default function Payments() {
           <option value="inicial">INICIALES</option>
           <option value="separacion">SEPARACIONES</option>
         </select>
-        <button className={`chip ${fsinv ? 'on' : ''}`} onClick={() => setFsinv(!fsinv)} type="button">
-          Solo sin voucher
-        </button>
+        <select value={fdoc} onChange={e => setFdoc(e.target.value)}>
+          <option value="todos">DOCS: TODOS</option>
+          <option value="sin_voucher">SIN VOUCHER</option>
+          <option value="sin_comprobante">SIN COMPROBANTE</option>
+        </select>
       </div>
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Concepto</th><th>Monto</th><th>N Op.</th><th>Banco</th><th>Voucher</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Monto</th><th>Voucher</th><th>Comprobante</th><th>Cliente</th><th>N Op.</th><th>Banco</th></tr></thead>
           <tbody>
             {pagosFiltrados.slice(0, 300).map(r => (
               <tr key={r.id}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td>{r.client?.full_name || '-'}</td>
                 <td>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</td>
                 <td>{soles(r.amount)}</td>
-                <td>{r.operation_number}</td>
-                <td>{r.account?.name || '-'}</td>
                 <td>
                   {r.voucher_url
                     ? <a href={r.voucher_url} target="_blank" rel="noreferrer">VER</a>
-                    : <label className="upload-btn">subir
+                    : <label className="upload-btn warn">subir
                         <input type="file" accept="image/*,.pdf" hidden
-                          onChange={e => e.target.files[0] && subirVoucher(r, e.target.files[0])} />
+                          onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'voucher_url')} />
                       </label>}
                 </td>
+                <td>
+                  {r.receipt_url
+                    ? <a href={r.receipt_url} target="_blank" rel="noreferrer">VER</a>
+                    : <label className="upload-btn bad">&#9888; falta
+                        <input type="file" accept="image/*,.pdf" hidden
+                          onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'receipt_url')} />
+                      </label>}
+                </td>
+                <td>{r.client?.full_name || '-'}</td>
+                <td>{r.operation_number}</td>
+                <td>{r.account?.name || '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {pagosFiltrados.length > 300 && <p className="muted small">Mostrando 300 de {pagosFiltrados.length} - usa el filtro para acotar.</p>}
+        {pagosFiltrados.length > 300 && <p className="muted small">Mostrando 300 de {pagosFiltrados.length} - usa los filtros.</p>}
       </div>
     </>
   )
