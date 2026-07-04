@@ -8,12 +8,31 @@ const FLOW = {
   completado:      { t: 'CALIFICADO',         c: '#7fbf7f' },
 }
 const TIPOS = [
-  { v: 'desactivado', t: 'DESACTIVADO (el bot nunca responde)', c: '#e07b7b' },
+  { v: 'desactivado', t: 'ADMINISTRATIVO (el bot nunca responde)', c: '#e07b7b' },
   { v: 'bot',         t: 'BOT (flujo de leads)',                c: '#8C9B7A' },
   { v: 'cliente',     t: 'CLIENTE (solo cobranza)',             c: '#b8a1d9' },
   { v: 'secretaria',  t: 'SECRETARIA (seguimiento, prox.)',     c: '#7ec8e3' },
 ]
 const fh = iso => iso ? new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+
+function ReplyBox({ phone, onSent }) {
+  const [txt, setTxt] = useState('')
+  const [mandando, setMandando] = useState(false)
+  const enviarMsg = async () => {
+    const body = txt.trim()
+    if (!body) return
+    setMandando(true)
+    await supabase.from('scheduled_messages').insert({ recipient_phone: phone, body, tipo: 'manual_panel', status: 'pendiente', scheduled_for: new Date().toISOString() })
+    setTxt(''); setMandando(false); onSent && onSent()
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+      <input value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribe y el bot lo envía desde el número de Urbis…"
+        style={{ flex: 1, textTransform: 'none' }} onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
+      <button className="btn" disabled={mandando} onClick={enviarMsg}>{mandando ? '...' : 'ENVIAR'}</button>
+    </div>
+  )
+}
 
 export default function Whatsapp() {
   const { role } = useAuth()
@@ -63,10 +82,10 @@ export default function Whatsapp() {
     if (!c) return
     const [ins, outs] = await Promise.all([
       supabase.from('whatsapp_messages').select('body, created_at, direction').eq('conversation_id', c.id).limit(500),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo').eq('recipient_phone', c.phone).in('status', ['enviado', 'fallido']).limit(500),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo').eq('recipient_phone', c.phone).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
     const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in' }))
-    const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido' }))
+    const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente' }))
     setMsgs([...a, ...b].filter(x => x.body).sort((x, y) => new Date(x.at) - new Date(y.at)))
   }
 
@@ -152,7 +171,7 @@ export default function Whatsapp() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                   <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
                   <span style={{ display: 'flex', gap: 4 }}>
-                    {tn && tn.tipo === 'desactivado' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e07b7b', color: '#e07b7b' }}>SILENCIADO</span>}
+                    {tn && tn.tipo === 'desactivado' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e07b7b', color: '#e07b7b' }}>ADMINISTRATIVO</span>}
                     {f && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
                     {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
                   </span>
@@ -171,11 +190,15 @@ export default function Whatsapp() {
                   <b>{nombreDe(sel)}</b> <span className="muted">· +{sel.phone}</span>
                   {sel.leads?.status && <span className="muted small"> · LEAD: {String(sel.leads.status).toUpperCase()}</span>}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {tipoDe(sel.phone)?.tipo === 'desactivado'
-                    ? <button className="btn-ghost" onClick={() => borrarNum(tipoDe(sel.phone).phone)}>🔔 REACTIVAR NÚMERO</button>
-                    : <button className="btn-ghost" onClick={() => guardarNum(sel.phone, 'desactivado', 'SILENCIADO DESDE EL PANEL')}>🔕 SILENCIAR NÚMERO</button>}
-                  <a className="btn" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">Responder en WhatsApp</a>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select value={tipoDe(sel.phone)?.tipo || 'bot'}
+                    onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
+                    <option value="bot">NUEVO LEAD (BOT)</option>
+                    <option value="cliente">CLIENTE (COBRANZA)</option>
+                    <option value="desactivado">ADMINISTRATIVO (SIN RESPUESTA)</option>
+                    <option value="secretaria">SECRETARIA (SEGUIMIENTO)</option>
+                  </select>
+                  <a className="btn-ghost" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">Abrir en WhatsApp</a>
                 </div>
               </div>
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
@@ -184,12 +207,13 @@ export default function Whatsapp() {
                   <div key={i} style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start', maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px' }}>
                     <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>
                     <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right' }}>
-                      {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : '🤖 BOT · ') : ''}{m.tipo && m.dir === 'out' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
+                      {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : '🤖 BOT · ') : ''}{m.tipo && m.dir === 'out' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
                     </div>
                   </div>
                 ))}
                 <div ref={endRef} />
               </div>
+              <ReplyBox phone={sel.phone} onSent={() => cargarMsgs(selRef.current)} />
             </>
           )}
         </div>

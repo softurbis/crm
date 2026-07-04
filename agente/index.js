@@ -207,15 +207,17 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     return
   }
 
-  if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
-  const tnum = await tipoNumero(phone)
-  if (tnum === 'desactivado' || tnum === 'secretaria') { log('NUMERO ' + tnum.toUpperCase() + ': sin respuesta a', phone); return }
-
-  // guardar el mensaje entrante
-  const conv = await estadoConv(phone)
+  // registrar SIEMPRE la conversacion y el mensaje entrante (aunque el bot no responda)
+  let conv = await estadoConv(phone)
+  if (!conv) { await setConv(phone, { wa_jid: jid }); conv = await estadoConv(phone) }
+  else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
   await supabase.from('whatsapp_messages').insert({
     conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
   }).then(() => {}).catch(() => {})
+
+  if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
+  const tnum = await tipoNumero(phone)
+  if (tnum === 'desactivado' || tnum === 'secretaria') { log('NUMERO ' + tnum.toUpperCase() + ': sin respuesta a', phone); return }
 
   // ¿es cliente?
   const p9 = phone.slice(-9)
@@ -328,9 +330,11 @@ async function iniciar() {
         const jid = m.key.remoteJid || ''
         if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue
         const texto = m.message?.conversation || m.message?.extendedTextMessage?.text || ''
-        const alt = String(m.key.remoteJidAlt || m.key.participantAlt || '')
+        const k = m.key || {}
+        let alt = String(k.remoteJidAlt || k.participantAlt || k.senderPn || k.participantPn || '')
+        if (alt && !alt.includes('@')) alt = alt + '@s.whatsapp.net'
         const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
-        if (!jidPN) log('AVISO: chat LID sin numero real visible:', jid)
+        if (!jidPN) log('AVISO LID sin numero real. key=', JSON.stringify(k))
         try { await manejarEntrante(jid, jidPN, texto, m.pushName) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
       } catch (e) { log('error procesando entrante:', e.message) }
     }
@@ -345,3 +349,23 @@ async function iniciar() {
 }
 
 iniciar()
+
+
+// ---------- SALIENTES DESDE EL PANEL ----------
+async function procesarSalientesPanel() {
+  if (!sock) return
+  const { data } = await supabase.from('scheduled_messages').select('id, recipient_phone, body').eq('tipo', 'manual_panel').eq('status', 'pendiente').order('scheduled_for').limit(10)
+  for (const m of (data || [])) {
+    try {
+      const { data: c } = await supabase.from('whatsapp_conversations').select('wa_jid').eq('phone', m.recipient_phone).maybeSingle()
+      const destino = c?.wa_jid || m.recipient_phone
+      await sock.sendMessage(String(destino).includes('@') ? destino : jidDe(destino), { text: m.body })
+      await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString() }).eq('id', m.id)
+      log('PANEL -> ENVIADO a', m.recipient_phone)
+    } catch (e) {
+      await supabase.from('scheduled_messages').update({ status: 'fallido', last_error: String(e.message || e) }).eq('id', m.id)
+      log('PANEL -> ERROR a', m.recipient_phone, String(e.message || e))
+    }
+  }
+}
+setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 5000)
