@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
+import Logo from './Logo'
 
 const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
@@ -35,7 +36,10 @@ export default function Layout() {
     <div className="shell">
       <button className="menu-toggle" onClick={() => setOpen(!open)}>☰</button>
       <aside className={`sidebar glass ${open ? 'open' : ''}`}>
-        <h2>URBIS <span className="accent">CONTROL</span></h2>
+        <div className="brand">
+          <span className="brand-badge"><Logo size={34} /></span>
+          <span><b>URBIS GROUP</b><br /><small>REAL ESTATE</small></span>
+        </div>
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
           {GLOBAL.filter(m => !m.admin || role === 'admin').map(Item)}

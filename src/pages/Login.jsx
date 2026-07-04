@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import Logo from '../components/Logo'
 
 export default function Login() {
   const { login } = useAuth()
@@ -22,6 +23,7 @@ export default function Login() {
   return (
     <div className="center-screen">
       <form className="glass login-card" onSubmit={onSubmit}>
+        <div className="login-logo"><Logo size={72} /></div>
         <h1>URBIS <span className="accent">CONTROL</span></h1>
         <p className="muted">Sistema de gestión inmobiliaria</p>
         <label>Correo

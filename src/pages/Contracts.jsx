@@ -47,7 +47,7 @@ export default function Contracts() {
   async function load() {
     if (!pidOp) return
     const { data } = await supabase.from('sales')
-      .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, separation_id, client:clients!sales_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
+      .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
       .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
       .order('sale_date', { ascending: false })
     setVentas(data || [])
@@ -111,7 +111,7 @@ export default function Contracts() {
             {filtradas.map(v => (
               <tr key={v.id}>
                 <td>{v.lot?.mz}-{v.lot?.lt}</td>
-                <td>{v.client?.full_name}</td>
+                <td>{v.client?.full_name}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
                 <td>{soles(v.total_sale_price)}</td>
                 <td>{v.sale_date}</td>
                 <td>
@@ -169,7 +169,7 @@ export default function Contracts() {
                 <h2 style={{ textAlign: 'center' }}>CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACIÓN URBANA PROGRESIVA CON RESERVA DE PROPIEDAD</h2>
                 <p>Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitación Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:</p>
                 <p><b>EL VENDEDOR:</b> {vendNombre}, identificada con DNI N.° {vendDni}, con domicilio en {vendDom}, a quien en adelante se denominará EL VENDEDOR; y de la otra parte:</p>
-                <p><b>EL COMPRADOR:</b> {c.full_name}, identificado/a con {c.doc_type} N.° {c.doc_number}, con domicilio en {domicilio}, a quien en adelante se denominará EL COMPRADOR.</p>
+                <p><b>EL COMPRADOR:</b> {c.full_name}, identificado/a con {c.doc_type} N.° {c.doc_number}{gen.co_client ? <>, y {gen.co_client.full_name}, identificado/a con {gen.co_client.doc_type} N.° {gen.co_client.doc_number}</> : null}, con domicilio en {domicilio}, a quien{gen.co_client ? 'es' : ''} en adelante se {gen.co_client ? 'les denominará conjuntamente' : 'denominará'} EL COMPRADOR.</p>
                 <p>Las partes celebran el presente contrato bajo los términos y condiciones siguientes:</p>
 
                 <h3>CLÁUSULA PRIMERA: ANTECEDENTES DEL PREDIO Y DEL PROYECTO</h3>
@@ -233,6 +233,10 @@ export default function Contracts() {
                         <b>EL COMPRADOR</b><br />
                         {c.full_name}<br />
                         {c.doc_type} N.° {c.doc_number}
+                        {gen.co_client && (<><br /><br />______________________________<br />
+                        <b>EL COMPRADOR (2)</b><br />
+                        {gen.co_client.full_name}<br />
+                        {gen.co_client.doc_type} N.° {gen.co_client.doc_number}</>)}
                       </td>
                       <td style={{ textAlign: 'center', paddingTop: '4em' }}>
                         ______________________________<br />

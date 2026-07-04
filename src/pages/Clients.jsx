@@ -16,6 +16,7 @@ export default function Clients() {
   const [msg, setMsg] = useState(null)
   const [nuevo, setNuevo] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [docType, setDocType] = useState('DNI')
   const [fFrente, setFFrente] = useState(null)
   const [fReverso, setFReverso] = useState(null)
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
@@ -61,6 +62,7 @@ export default function Clients() {
   function abrir(c) {
     setSel(c); setNuevo(!c.id)
     setForm(Object.fromEntries(CAMPOS.map(([k]) => [k, c[k] || ''])))
+    setDocType(['DNI', 'CE', 'PASAPORTE', 'RUC'].includes(c.doc_type) ? c.doc_type : 'DNI')
     setFFrente(null); setFReverso(null); setMsg(null)
   }
 
@@ -92,7 +94,7 @@ export default function Clients() {
         dni_front_url: front, dni_back_url: back,
         phone: form.phone || null,
         phone_valid: tel.length >= 9 && !tel.includes('999999999'),
-        doc_type: /^\d{8}$/.test(doc) ? 'DNI' : (doc.startsWith('PEND') ? 'PEND' : (sel?.doc_type || 'DNI')),
+        doc_type: doc.startsWith('PEND') ? 'PEND' : docType,
       })
       const r = nuevo
         ? await supabase.from('clients').insert(payload)
@@ -153,6 +155,14 @@ export default function Clients() {
               <button className="btn-ghost" onClick={() => setSel(null)}>&#10005;</button>
             </div>
             <form onSubmit={guardar} className="form-grid">
+              <label>Tipo de documento
+                <select value={docType} onChange={e => setDocType(e.target.value)}>
+                  <option value="DNI">DNI</option>
+                  <option value="CE">CARNET DE EXTRANJERIA</option>
+                  <option value="PASAPORTE">PASAPORTE</option>
+                  <option value="RUC">RUC</option>
+                </select>
+              </label>
               {CAMPOS.map(([k, label]) => (
                 <label key={k} className={k === 'full_name' || k === 'address' ? 'span2' : ''}>
                   {label}

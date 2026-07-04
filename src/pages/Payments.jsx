@@ -4,6 +4,17 @@ import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
+const estadoDe = r => {
+  const o = (r.observation || '').toUpperCase()
+  if (o.includes('EXPROP')) return 'EXPROPIADO'
+  if (o.includes('PERDIDA')) return 'PERDIDA'
+  return 'ACEPTADO'
+}
+const EstadoChip = ({ r }) => {
+  const e = estadoDe(r)
+  const cls = e === 'EXPROPIADO' ? 'st-exp' : e === 'PERDIDA' ? 'st-per' : 'st-ok'
+  return <span className={'st-chip ' + cls}>{e}</span>
+}
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
 function addMonths(dateStr, n) {
@@ -36,6 +47,9 @@ export default function Payments() {
   const [fq, setFq] = useState('')
   const [ftipo, setFtipo] = useState('todos')
   const [fdoc, setFdoc] = useState('todos') // todos | sin_voucher | sin_comprobante
+  const [fest, setFest] = useState('todos')
+  const [coId, setCoId] = useState('')
+  const [obsEdit, setObsEdit] = useState('')
 
   const [lotId, setLotId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -61,7 +75,7 @@ export default function Payments() {
       supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
+        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setPagos(r.data || [])
@@ -124,7 +138,7 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId('')
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId('')
   }
 
   async function submit(e) {
@@ -160,7 +174,7 @@ export default function Payments() {
         const financiado = precio - inicial - (ctx?.sep ? Number(ctx.sep.amount) : 0)
         const cuotaBase = Math.round(financiado / meses * 100) / 100
         const { data: sale, error: e1 } = await supabase.from('sales').insert({
-          lot_id: lotId, client_id: clientId, separation_id: ctx?.sep?.id || null, advisor_id: advId || ctx?.sep?.advisor_id || null,
+          lot_id: lotId, client_id: clientId, co_client_id: coId || null, separation_id: ctx?.sep?.id || null, advisor_id: advId || ctx?.sep?.advisor_id || null,
           total_sale_price: precio, initial_amount_paid: inicial,
           financed_amount: financiado, installments_count: meses,
           monthly_amount: cuotaBase, sale_date: fecha, status: 'en_proceso',
@@ -213,6 +227,7 @@ export default function Payments() {
       if (ftipo !== 'todos' && p.income_type !== ftipo) return false
       if (fdoc === 'sin_voucher' && p.voucher_url) return false
       if (fdoc === 'sin_comprobante' && p.receipt_url) return false
+      if (fest !== 'todos' && estadoDe(p) !== fest) return false
       if (!t) return true
       const lote = p.lot ? `${p.lot.mz}-${p.lot.lt}`.toLowerCase() : ''
       const lote2 = p.lot ? `mz ${p.lot.mz} lt ${p.lot.lt}`.toLowerCase() : ''
@@ -280,6 +295,12 @@ export default function Payments() {
           </label>
           </>)}
           {tipo === 'inicial' && (<>
+          <label>Co-comprador (opcional, para ventas de 2 personas)
+            <select value={coId} onChange={e => setCoId(e.target.value)}>
+              <option value="">- ninguno -</option>
+              {clients.filter(c => c.id !== clientId).map(c => <option key={c.id} value={c.id}>{c.full_name} ({c.doc_number})</option>)}
+            </select>
+          </label>
           <label>Vendedor (asesor)
             <select value={advId} onChange={e => setAdvId(e.target.value)} required>
               <option value="">- elegir -</option>
@@ -337,17 +358,24 @@ export default function Payments() {
           <option value="sin_voucher">SIN VOUCHER</option>
           <option value="sin_comprobante">SIN COMPROBANTE</option>
         </select>
+        <select value={fest} onChange={e => setFest(e.target.value)}>
+          <option value="todos">ESTADO: TODOS</option>
+          <option value="ACEPTADO">ACEPTADOS</option>
+          <option value="EXPROPIADO">EXPROPIADOS</option>
+          <option value="PERDIDA">PERDIDAS</option>
+        </select>
       </div>
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Monto</th><th>Voucher</th><th>Comprobante</th><th>Cliente</th><th>N Op.</th><th>Banco</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Estado</th><th>Monto</th><th>Voucher</th><th>Comprobante</th><th>Cliente</th><th>N Op.</th><th>Banco</th></tr></thead>
           <tbody>
             {pagosFiltrados.slice(0, 300).map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} className={'row-' + estadoDe(r).toLowerCase()}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td><button className="link-btn" title="Ver documentos" onClick={() => setView(r)}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
+                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || '') }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
+                <td><EstadoChip r={r} /></td>
                 <td>{soles(r.amount)}</td>
                 <td>
                   {r.voucher_url
@@ -386,7 +414,42 @@ export default function Payments() {
               </h2>
               <button className="btn-ghost" onClick={() => setView(null)}>&#10005;</button>
             </div>
-            <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | {view.account?.name || '-'}</p>
+            <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | {view.account?.name || '-'} | <EstadoChip r={view} /></p>
+            {(() => {
+              const hermanos = pagos.filter(x => x.id !== view.id && x.operation_number === view.operation_number && x.operation_number !== 'SIN-REF')
+              return hermanos.length > 0 && (
+                <p className="hint">&#128279; MISMA OPERACION ({view.operation_number}) cubre tambien:{' '}
+                  {hermanos.map(h => `${h.lot ? h.lot.mz + '-' + h.lot.lt : ''} ${h.income_type === 'cuota' && h.installment ? 'CUOTA ' + h.installment.installment_number : h.income_type} (${soles(h.amount)})`).join(' | ')}
+                </p>
+              )
+            })()}
+            <div className="form-grid">
+              <label className="span2">Observacion / comentario del pago
+                <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
+              </label>
+              <div>
+                <button type="button" className="btn-ghost" onClick={async () => {
+                  await supabase.from('daily_income').update({ observation: obsEdit.toUpperCase() }).eq('id', view.id)
+                  setMsg({ ok: true, t: 'OBSERVACION GUARDADA' }); loadBase()
+                  setView(v => ({ ...v, observation: obsEdit.toUpperCase() }))
+                }}>Guardar observacion</button>
+              </div>
+              <div>
+                {view.extra_url
+                  ? <a href={view.extra_url} target="_blank" rel="noreferrer">VER ANEXO ADICIONAL</a>
+                  : <label className="upload-btn">+ Adjuntar anexo adicional (2do voucher, boleta, etc.)
+                      <input type="file" accept="image/*,.pdf" hidden onChange={async e => {
+                        if (!e.target.files[0]) return
+                        try {
+                          const url = await upload(`anexos/${view.id}`, e.target.files[0])
+                          await supabase.from('daily_income').update({ extra_url: url }).eq('id', view.id)
+                          setMsg({ ok: true, t: 'ANEXO SUBIDO' }); loadBase()
+                          setView(v => ({ ...v, extra_url: url }))
+                        } catch (err) { setMsg({ ok: false, t: err.message }) }
+                      }} />
+                    </label>}
+              </div>
+            </div>
             <div className="docs-grid">
               {[['VOUCHER DEL CLIENTE', view.voucher_url], ['COMPROBANTE INTERNO', view.receipt_url]].map(([t, u]) => (
                 <div key={t} className="doc-panel">

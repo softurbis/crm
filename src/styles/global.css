@@ -246,3 +246,43 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .chip-legal.bad { background: rgba(224,82,82,.18); color: var(--error); border: 1px solid rgba(224,82,82,.5); }
 .chip-legal.warn2 { background: rgba(224,178,63,.15); color: #e0b23f; border: 1px solid rgba(224,178,63,.5); }
 .chip-legal.ok2 { background: rgba(134,181,126,.15); color: var(--ok); border: 1px solid rgba(134,181,126,.4); }
+
+/* ---- estados de pago ---- */
+.st-chip { padding: .2rem .55rem; border-radius: 12px; font-size: .75rem; font-weight: 700; }
+.st-chip.st-ok { background: rgba(134,181,126,.15); color: var(--ok); }
+.st-chip.st-exp { background: rgba(154,107,201,.2); color: #b58ad9; }
+.st-chip.st-per { background: rgba(224,82,82,.18); color: var(--error); }
+tr.row-expropiado td { background: rgba(154,107,201,.07); }
+tr.row-perdida td { background: rgba(224,82,82,.07); }
+
+/* ===== IDENTIDAD URBIS GROUP (logo) ===== */
+:root {
+  --accent: #8C9B7A;
+  --accent-strong: #A6B58F;
+  --leaf-dark: #3B4A32;
+  --radius: 16px;
+}
+body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
+h1, h2, h3, .kpi, .brand b { font-family: 'Montserrat', 'Segoe UI', sans-serif; letter-spacing: .02em; }
+
+.brand { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.4rem; justify-content: center; }
+.brand b { font-size: 1.02rem; letter-spacing: .04em; }
+.brand small { color: var(--muted); letter-spacing: .35em; font-size: .6rem; }
+.brand-badge { background: #fff; border-radius: 12px; padding: 5px 6px 2px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.login-logo { display: flex; justify-content: center; }
+.login-logo svg { background: #fff; border-radius: 18px; padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+
+/* modernizacion */
+.glass { border-radius: var(--radius); box-shadow: 0 6px 22px rgba(0,0,0,.25); }
+.card { transition: transform .15s ease, box-shadow .15s ease; }
+.card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+.btn-primary { background: linear-gradient(135deg, #A6B58F, #8C9B7A); border-radius: 10px; box-shadow: 0 4px 12px rgba(140,155,122,.25); transition: transform .12s, box-shadow .12s; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(140,155,122,.35); background: linear-gradient(135deg, #b2c19b, #97a685); }
+.nav-item.active { background: linear-gradient(135deg, #A6B58F, #7f9070); }
+.chip.on { background: linear-gradient(135deg, #A6B58F, #7f9070); }
+.sidebar { background: linear-gradient(180deg, rgba(59,74,50,.35), rgba(22,29,21,.9)); }
+input, select, textarea { border-radius: 10px; transition: outline .1s, border-color .1s; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(140,155,122,.35); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(140,155,122,.55); }
+::-webkit-scrollbar-track { background: transparent; }

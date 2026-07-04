@@ -63,7 +63,7 @@ export default function Lots() {
       let inst = []
       if (sale) {
         const { data } = await supabase.from('installments')
-          .select('installment_number, due_date, amount, amount_paid, status')
+          .select('id, installment_number, due_date, amount, amount_paid, status')
           .eq('sale_id', sale.id).order('installment_number')
         inst = data || []
       }
@@ -132,6 +132,7 @@ export default function Lots() {
       // expropiar tambien marca la venta activa como expropiada
       if (chgTo === 'expropiado' && detail?.sale) {
         await supabase.from('sales').update({ status: 'expropiado' }).eq('id', detail.sale.id)
+        await supabase.from('daily_income').update({ observation: 'EXPROPIADO' }).eq('sale_id', detail.sale.id)
       }
       setEmsg('ESTADO CAMBIADO A ' + chgTo.toUpperCase())
       await loadLots()
@@ -166,6 +167,19 @@ export default function Lots() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Mapa de lotes</h1>
         <ProjectPicker />
+        {role === 'admin' && (
+          <button className="btn-ghost" onClick={async () => {
+            const pct = Number(prompt('SUBIDA DE PRECIOS (solo lotes DISPONIBLES de este proyecto).\n\nPorcentaje de aumento (ej. 5 para +5%, -3 para bajar 3%):'))
+            if (!pct || isNaN(pct)) return
+            const disp = lots.filter(l => l.status === 'disponible')
+            if (!confirm(`Se actualizara el precio/m2 de ${disp.length} lotes disponibles en ${pct}%. Continuar?`)) return
+            for (const l of disp) {
+              await supabase.from('lots').update({ price_per_m2: Math.round(Number(l.price_per_m2) * (1 + pct / 100) * 100) / 100 }).eq('id', l.id)
+            }
+            alert(`${disp.length} LOTES ACTUALIZADOS (${pct > 0 ? '+' : ''}${pct}%)`)
+            loadLots()
+          }}>Precios % (admin)</button>
+        )}
       </div>
 
       <div className="chips">
@@ -304,6 +318,37 @@ export default function Lots() {
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
                     : <p className="error">Telefono no valido - actualizar en la ficha del cliente</p>}
+                  {role === 'admin' && detail.sale.status === 'en_proceso' && (
+                    <p><button className="btn-ghost" onClick={async () => {
+                      const sale = detail.sale
+                      const nuevo = Number(prompt('AJUSTE DE PRECIO DE ESTA VENTA (solo admin).\n\nPrecio actual: S/ ' + sale.total_sale_price + '\nNuevo precio total:'))
+                      if (!nuevo || isNaN(nuevo) || nuevo <= 0) return
+                      const motivo = prompt('Motivo del ajuste (obligatorio):')
+                      if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+                      const sepAmt = Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100
+                      const pagadoCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
+                      const pendientes = detail.inst.filter(i => i.status !== 'pagado')
+                      const restante = Math.round((nuevo - Number(sale.initial_amount_paid) - sepAmt - pagadoCuotas) * 100) / 100
+                      if (restante < 0) { alert('EL NUEVO PRECIO ES MENOR A LO YA PAGADO. NO PROCEDE.'); return }
+                      if (!pendientes.length) { alert('NO HAY CUOTAS PENDIENTES PARA REDISTRIBUIR.'); return }
+                      if (!confirm(`Nuevo precio: S/ ${nuevo}\nYa pagado: S/ ${(Number(sale.initial_amount_paid) + sepAmt + pagadoCuotas).toFixed(2)}\nSaldo a repartir en ${pendientes.length} cuotas: S/ ${restante.toFixed(2)} (aprox S/ ${(restante / pendientes.length).toFixed(2)} c/u)\n\nMOTIVO: ${motivo}\n\nConfirmar?`)) return
+                      const share = Math.floor(restante / pendientes.length * 100) / 100
+                      let acum = 0
+                      for (let i = 0; i < pendientes.length; i++) {
+                        const q = pendientes[i]
+                        const extra = i === pendientes.length - 1 ? Math.round((restante - acum) * 100) / 100 : share
+                        acum += extra
+                        await supabase.from('installments').update({ amount: Math.round((Number(q.amount_paid) + extra) * 100) / 100 }).eq('id', q.id)
+                      }
+                      await supabase.from('sales').update({
+                        total_sale_price: nuevo,
+                        financed_amount: Math.round((nuevo - Number(sale.initial_amount_paid) - sepAmt) * 100) / 100,
+                        monthly_amount: share,
+                      }).eq('id', sale.id)
+                      alert('PRECIO AJUSTADO. MOTIVO REGISTRADO EN BITACORA: ' + motivo.toUpperCase())
+                      setSel(x => ({ ...x }))
+                    }}>Ajustar precio de la venta (admin)</button></p>
+                  )}
                 </div>
               </>
             ) : detail && sel.status !== 'disponible' ? (
