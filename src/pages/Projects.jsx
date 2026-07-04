@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
+
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const hoyISO = () => new Date().toISOString().slice(0, 10)
 
@@ -79,6 +80,7 @@ export default function Projects() {
     const base = {}
     for (const [k] of CAMPOS) base[k] = p?.[k] ?? ''
     base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
+    base.bot_knowledge = p?.bot_knowledge ?? ''
     base.poder_expiry = p?.poder_expiry ?? ''
     setF(base); setFLiteral(null); setFPoder(null); setMsg(null)
   }
@@ -109,6 +111,7 @@ export default function Projects() {
       payload.copia_literal_expiry = f.copia_literal_expiry || null
       payload.carta_poder_url = poderUrl
       payload.poder_expiry = f.poder_expiry || null
+      payload.bot_knowledge = f.bot_knowledge || null
 
       const r = edit === 'nuevo'
         ? await supabase.from('projects').insert(payload)
@@ -157,6 +160,13 @@ export default function Projects() {
           <input type="date" value={f.poder_expiry || ''}
             onChange={e => setF(x => ({ ...x, poder_expiry: e.target.value }))} />
         </label>
+        {role === 'superuser' && (
+          <label className="span2">FICHA DEL BOT (conocimiento del agente WhatsApp para este proyecto — pega aqui el contenido segun docs/PLANTILLA-FICHA-BOT.md)
+            <textarea rows="12" value={f.bot_knowledge || ''} spellCheck="false"
+              style={{ textTransform: 'none', fontFamily: 'monospace', fontSize: '.82rem' }}
+              onChange={e => setF(x => ({ ...x, bot_knowledge: e.target.value }))} />
+          </label>
+        )}
       </div>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       <div>

@@ -4,3 +4,8 @@ dist
 .env.local
 *.log
 .DS_Store
+
+# agente whatsapp: secretos y sesion NUNCA al repo
+agente/.env
+agente/auth/
+agente/node_modules/

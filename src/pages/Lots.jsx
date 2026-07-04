@@ -302,6 +302,20 @@ export default function Lots() {
                 <hr />
                 <div className="ficha">
                   <p><span className="muted">Cliente:</span> <b>{detail.sale.client?.full_name}</b> ({detail.sale.client?.doc_number})</p>
+                  <p><span className="muted">Cobranza automatica (agente WhatsApp):</span>{' '}
+                    {detail.sale.auto_cobranza !== false
+                      ? <span className="st-chip st-ok">ACTIVA</span>
+                      : <span className="st-chip st-per">DESACTIVADA (gestion humana)</span>}
+                    {['admin', 'secretary', 'superuser'].includes(role) && (
+                      <>{' '}<button className="link-btn" onClick={async () => {
+                        const nuevoVal = detail.sale.auto_cobranza === false
+                        if (!confirm(nuevoVal ? 'Reactivar la cobranza automatica para esta venta?' : 'Desactivar la cobranza automatica? El agente dejara de escribirle y pasa a gestion humana.')) return
+                        await supabase.from('sales').update({ auto_cobranza: nuevoVal }).eq('id', detail.sale.id)
+                        setEmsg(nuevoVal ? 'COBRANZA AUTOMATICA REACTIVADA' : 'COBRANZA AUTOMATICA DESACTIVADA')
+                        setSel(x => ({ ...x }))
+                      }}>{detail.sale.auto_cobranza === false ? 'reactivar' : 'desactivar'}</button></>
+                    )}
+                  </p>
                   <p><span className="muted">Co-comprador:</span> {detail.sale.co_client?.full_name || '-'}
                     {['admin', 'secretary', 'superuser'].includes(role) && (
                       <>
