@@ -40,7 +40,7 @@ export default function Whatsapp() {
   const [sel, setSel] = useState(null)
   const [msgs, setMsgs] = useState([])
   const [busca, setBusca] = useState('')
-  const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true })
+  const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
@@ -120,6 +120,7 @@ export default function Whatsapp() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} labelOn="🤖 BOT: ACTIVO" labelOff="🤖 BOT: APAGADO" />
           <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} labelOn="💵 COBRANZA: ACTIVA" labelOff="💵 COBRANZA: APAGADA" />
+          <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} labelOn="🧠 IA: ACTIVA" labelOff="🧠 IA: APAGADA" />
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
         </div>
       </div>

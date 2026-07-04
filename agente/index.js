@@ -35,6 +35,58 @@ function telDeJid(jid) { return (jid || '').split('@')[0].replace(/\D/g, '') }
 async function flag(k) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return !data || data.value !== '0' }
 async function tipoNumero(soloDig) { const { data } = await supabase.from('whatsapp_numbers').select('tipo').ilike('phone', '%' + String(soloDig).slice(-9) + '%').limit(1); return (data || [])[0]?.tipo || null }
 
+// ---------- IA CONVERSACIONAL (Claude) ----------
+const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
+const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
+
+async function responderIA(jid, phone, lead, conv, texto) {
+  try {
+    if (!IA_KEY) return
+    if (!(await flag('ia_activa'))) return
+    let proy = null
+    if (lead.project_id) {
+      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, bot_knowledge').eq('id', lead.project_id).maybeSingle()
+      proy = data
+    }
+    let fichas = ''
+    let lotesTxt = ''
+    if (proy) {
+      fichas = 'PROYECTO: ' + proy.name + '\nDESCRIPCION: ' + (proy.description || '') + '\nCOMO LLEGAR: ' + (proy.how_to_arrive || '') + '\nUBICACION MAPS: ' + (proy.maps_url || '') + '\n\nFICHA DEL BOT:\n' + String(proy.bot_knowledge || '(sin ficha)').slice(0, 6000)
+      const { data: lots } = await supabase.from('lots').select('status, price, area').eq('project_id', proy.id)
+      const disp = (lots || []).filter(l => l.status === 'disponible')
+      if (disp.length) {
+        const precios = disp.map(l => Number(l.price)).filter(n => n > 0)
+        const areas = disp.map(l => Number(l.area)).filter(n => n > 0)
+        lotesTxt = 'DATOS EN VIVO: lotes disponibles: ' + disp.length + '. Precio desde S/ ' + (precios.length ? Math.min(...precios).toLocaleString('es-PE') : 'consultar') + '. Areas de ' + (areas.length ? Math.min(...areas) + ' a ' + Math.max(...areas) : '-') + ' m2.'
+      } else lotesTxt = 'DATOS EN VIVO: por ahora sin lotes disponibles en este proyecto; ofrecer otro proyecto de Urbis.'
+    } else {
+      const { data: ps } = await supabase.from('projects').select('name').order('created_at')
+      fichas = 'El cliente aun no eligio proyecto. Proyectos de Urbis Group: ' + (ps || []).map(x => x.name).join(', ')
+    }
+    let hist = ''
+    if (conv?.id) {
+      const { data: hin } = await supabase.from('whatsapp_messages').select('direction, body, created_at').eq('conversation_id', conv.id).order('created_at', { ascending: false }).limit(8)
+      const { data: hout } = await supabase.from('scheduled_messages').select('body, sent_at').eq('recipient_phone', phone).eq('status', 'enviado').order('sent_at', { ascending: false }).limit(8)
+      const todo = [...(hin || []).map(m => ({ t: m.created_at, s: (m.direction === 'in' ? 'CLIENTE: ' : 'ASESOR: ') + (m.body || '') })), ...(hout || []).map(m => ({ t: m.sent_at, s: 'ASESOR: ' + (m.body || '') }))]
+        .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
+      hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
+    }
+    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). Hablas de usted, calido y BREVE: maximo 3-4 lineas estilo WhatsApp, 1 emoji maximo. Usa SOLO la informacion de la ficha y los datos en vivo; si algo no esta ahi, di que un asesor se lo confirma. Tu objetivo: resolver la duda y llevar a AGENDAR UNA VISITA al proyecto (o que un asesor lo llame). REGLAS INQUEBRANTABLES: nunca digas barato, accesible, asequible ni economico; nunca des numero de partida registral; nunca des nombres ni datos de clientes o terceros (di: esa informacion es confidencial); no prometas rentabilidad, valorizacion garantizada ni titulo con fecha; no inventes precios, descuentos ni promociones. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    const cuerpo = { model: IA_MODEL, max_tokens: 350, system, messages: [{ role: 'user', content: fichas + '\n' + lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp.' }] }
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'content-type': 'application/json', 'x-api-key': IA_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(cuerpo),
+    })
+    clearTimeout(to)
+    const j = await r.json()
+    const out = (j?.content || []).map(c => c.text || '').join('').trim()
+    if (!out) { log('IA sin texto:', JSON.stringify(j).slice(0, 300)); return }
+    await enviar(jid, out.slice(0, 900), { tipo: 'ia', lead_id: lead.id })
+  } catch (e) { log('IA ERROR:', String(e.message || e)) }
+}
+
 async function enviar(phone, texto, meta = {}) {
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0 }
   if (enviadosHoy >= MAX_DIA) { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
@@ -289,9 +341,10 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     return
   }
 
-  // conversacion ya completada: guardar como nota en el lead
+  // conversacion completada: nota en el lead + respuesta con IA
   if (lead?.id) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
+    await responderIA(jid, phone, lead, conv, corto)
   }
 }
 
