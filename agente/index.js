@@ -4,7 +4,7 @@
 // Modulo 2: recepcion y filtro de leads entrantes
 // ============================================================
 require('dotenv').config()
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys')
 const { createClient } = require('@supabase/supabase-js')
 const cron = require('node-cron')
 const pino = require('pino')
@@ -258,7 +258,8 @@ async function manejarEntrante(jid, texto, pushName) {
 // ---------- CONEXION ----------
 async function iniciar() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
-  sock = makeWASocket({ auth: state, logger: pino({ level: 'silent' }) })
+  const { version } = await fetchLatestBaileysVersion()
+  sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS AGENTE', 'Chrome', '120.0'] })
 
   sock.ev.on('creds.update', saveCreds)
   sock.ev.on('connection.update', u => {
@@ -276,7 +277,7 @@ async function iniciar() {
     if (u.connection === 'close') {
       const code = u.lastDisconnect?.error?.output?.statusCode
       log('conexion cerrada, codigo', code)
-      if (code !== DisconnectReason.loggedOut) { log('reconectando...'); iniciar() }
+      if (code !== DisconnectReason.loggedOut) { log('reconectando...'); setTimeout(iniciar, 5000) }
       else log('SESION CERRADA DESDE EL TELEFONO. Borra la carpeta auth/ y vuelve a escanear.')
     }
   })
