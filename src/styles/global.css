@@ -221,3 +221,8 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .link-btn { background: none; border: none; color: var(--accent); text-decoration: underline; padding: 0; font-size: inherit; text-transform: uppercase; }
 .link-btn:hover { color: var(--accent-strong); }
 @media (max-width: 720px) { .docs-grid { grid-template-columns: 1fr; } }
+
+/* ---- bitacora / usuarios ---- */
+.json-box { background: var(--panel-2); border-radius: 8px; padding: 1rem; font-size: .8rem; overflow-x: auto; text-transform: none; max-height: 60vh; }
+.inline-check { display: inline-flex; flex-direction: row; align-items: center; gap: .35rem; margin-right: .8rem; }
+.inline-check input { width: auto; }

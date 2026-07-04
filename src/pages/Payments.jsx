@@ -49,17 +49,20 @@ export default function Payments() {
   const [fVoucher, setFVoucher] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [view, setView] = useState(null)
+  const [advisors, setAdvisors] = useState([])
+  const [advId, setAdvId] = useState('')
 
   async function loadBase() {
-    const [l, c, a, r] = await Promise.all([
+    const [l, c, a, adv, r] = await Promise.all([
       supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').order('mz').order('lt'),
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
       supabase.from('financial_accounts').select('id, name').eq('active', true),
+      supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('daily_income')
         .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
         .order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
-    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setPagos(r.data || [])
+    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setPagos(r.data || [])
   }
   useEffect(() => { loadBase() }, [])
 
@@ -90,10 +93,11 @@ export default function Payments() {
       }
       if (tipo === 'inicial') {
         const { data: sep } = await supabase.from('separations')
-          .select('id, client_id, amount, client:clients(full_name)')
+          .select('id, client_id, amount, advisor_id, client:clients(full_name)')
           .eq('lot_id', lotId).eq('status', 'vigente').maybeSingle()
         setCtx({ sep })
         if (sep) setClientId(sep.client_id)
+        if (sep?.advisor_id) setAdvId(sep.advisor_id)
         setMonto(String(lote?.initial_payment_default ?? 500))
         setPrecioVenta(String(lote?.total_price ?? ''))
       }
@@ -118,7 +122,7 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null)
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId('')
   }
 
   async function submit(e) {
@@ -140,7 +144,7 @@ export default function Payments() {
       if (tipo === 'separacion') {
         const { data: sep, error: e1 } = await supabase.from('separations').insert({
           lot_id: lotId, client_id: clientId, amount: Number(monto),
-          date: fecha, expiration_date: venc, status: 'vigente',
+          date: fecha, expiration_date: venc, status: 'vigente', advisor_id: advId || null,
         }).select().single()
         if (e1) throw e1
         const { error: e2 } = await supabase.from('daily_income').insert({ ...base, amount: Number(monto), income_type: 'separacion', separation_id: sep.id })
@@ -154,7 +158,7 @@ export default function Payments() {
         const financiado = precio - inicial - (ctx?.sep ? Number(ctx.sep.amount) : 0)
         const cuotaBase = Math.round(financiado / meses * 100) / 100
         const { data: sale, error: e1 } = await supabase.from('sales').insert({
-          lot_id: lotId, client_id: clientId, separation_id: ctx?.sep?.id || null,
+          lot_id: lotId, client_id: clientId, separation_id: ctx?.sep?.id || null, advisor_id: advId || ctx?.sep?.advisor_id || null,
           total_sale_price: precio, initial_amount_paid: inicial,
           financed_amount: financiado, installments_count: meses,
           monthly_amount: cuotaBase, sale_date: fecha, status: 'en_proceso',
@@ -261,10 +265,22 @@ export default function Payments() {
           <label className={fVoucher ? '' : 'req-file'}>Voucher del cliente <b className="bad">(obligatorio)</b>
             <input type="file" accept="image/*,.pdf" required onChange={e => setFVoucher(e.target.files[0] || null)} />
           </label>
-          {tipo === 'separacion' && (
+          {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
-          )}
+          <label>Vendedor (asesor)
+            <select value={advId} onChange={e => setAdvId(e.target.value)} required>
+              <option value="">- elegir -</option>
+              {advisors.map(a => <option key={a.id} value={a.id}>{a.code}{a.full_name && a.full_name !== a.code ? ' - ' + a.full_name : ''}</option>)}
+            </select>
+          </label>
+          </>)}
           {tipo === 'inicial' && (<>
+          <label>Vendedor (asesor)
+            <select value={advId} onChange={e => setAdvId(e.target.value)} required>
+              <option value="">- elegir -</option>
+              {advisors.map(a => <option key={a.id} value={a.id}>{a.code}{a.full_name && a.full_name !== a.code ? ' - ' + a.full_name : ''}</option>)}
+            </select>
+          </label>
             <label>Precio de venta S/ <input type="number" step="0.01" value={precioVenta} onChange={e => setPrecioVenta(e.target.value)} required /></label>
             <label>Meses <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(Number(e.target.value))} required /></label>
           </>)}
