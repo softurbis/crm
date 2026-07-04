@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const COLORS = {
   disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
@@ -21,6 +22,7 @@ async function upload(path, file) {
 
 export default function Lots() {
   const { role, profile } = useAuth()
+  const { pidOp } = useProject()
   const [lots, setLots] = useState([])
   const [vencidos, setVencidos] = useState(new Set())
   const [filter, setFilter] = useState('todos')
@@ -41,14 +43,15 @@ export default function Lots() {
   const [chgBusy, setChgBusy] = useState(false)
 
   async function loadLots() {
-    const { data } = await supabase.from('lots').select('*').order('mz').order('lt')
+    if (!pidOp) return
+    const { data } = await supabase.from('lots').select('*').eq('project_id', pidOp).order('mz').order('lt')
     setLots(data || [])
   }
   useEffect(() => {
     loadLots()
     supabase.from('installments').select('sales!inner(lot_id, status)').eq('status', 'vencido')
       .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso').map(r => r.sales.lot_id))))
-  }, [])
+  }, [pidOp])
 
   useEffect(() => {
     if (!sel) { setDetail(null); setHistorial([]); return }
@@ -160,7 +163,10 @@ export default function Lots() {
 
   return (
     <>
-      <h1>Mapa de lotes</h1>
+      <div className="toolbar">
+        <h1 style={{ margin: 0, flex: 1 }}>Mapa de lotes</h1>
+        <ProjectPicker />
+      </div>
 
       <div className="chips">
         {['todos', 'disponible', 'separado', 'vendido', 'invadido', 'expropiado'].map(s => (

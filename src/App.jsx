@@ -10,6 +10,7 @@ import Expenses from './pages/Expenses'
 import Bitacora from './pages/Bitacora'
 import Users from './pages/Users'
 import Projects from './pages/Projects'
+import Contracts from './pages/Contracts'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="pagos" element={<Payments />} />
         <Route path="clientes" element={<Clients />} />
         <Route path="gastos" element={<Expenses />} />
+        <Route path="contratos" element={<Contracts />} />
         <Route path="proyectos" element={<Projects />} />
         <Route path="usuarios" element={<Users />} />
         <Route path="bitacora" element={<Bitacora />} />

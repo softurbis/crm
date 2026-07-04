@@ -226,3 +226,17 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .json-box { background: var(--panel-2); border-radius: 8px; padding: 1rem; font-size: .8rem; overflow-x: auto; text-transform: none; max-height: 60vh; }
 .inline-check { display: inline-flex; flex-direction: row; align-items: center; gap: .35rem; margin-right: .8rem; }
 .inline-check input { width: auto; }
+
+/* ---- navegacion por proyecto ---- */
+.menu-section { font-size: .72rem; letter-spacing: .08em; color: var(--muted); margin: .9rem 0 .3rem .4rem; border-bottom: 1px dashed rgba(127,148,118,.25); padding-bottom: .2rem; }
+.project-picker { max-width: 280px; }
+
+/* ---- contrato (Times New Roman justificado) ---- */
+.contract { font-family: 'Times New Roman', Times, serif; text-align: justify; text-transform: none; font-size: 12pt; line-height: 1.5; }
+.contract h2 { font-size: 13pt; }
+.contract h3 { margin-top: 1em; font-size: 12pt; }
+.contract p { margin: .5em 0; }
+.ctable { width: 100%; border-collapse: collapse; margin: .6em 0; }
+.ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 11pt; white-space: normal; }
+.ctable.firmas td { border: none; }
+.muted-print { font-size: 10pt; font-style: italic; color: #555; }

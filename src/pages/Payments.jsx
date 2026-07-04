@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -23,6 +24,7 @@ async function upload(path, file) {
 
 export default function Payments() {
   const { profile } = useAuth()
+  const { pidOp } = useProject()
   const [tipo, setTipo] = useState('cuota')
   const [lots, setLots] = useState([])
   const [clients, setClients] = useState([])
@@ -54,17 +56,17 @@ export default function Payments() {
 
   async function loadBase() {
     const [l, c, a, adv, r] = await Promise.all([
-      supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').order('mz').order('lt'),
+      supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').eq('project_id', pidOp).order('mz').order('lt'),
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
-      supabase.from('financial_accounts').select('id, name').eq('active', true),
+      supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('daily_income')
         .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
-        .order('date', { ascending: false }).order('created_at', { ascending: false }),
+        .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setPagos(r.data || [])
   }
-  useEffect(() => { loadBase() }, [])
+  useEffect(() => { if (pidOp) loadBase() }, [pidOp])
 
   const lotesFiltrados = useMemo(() => {
     if (tipo === 'separacion') return lots.filter(l => l.status === 'disponible')
@@ -133,7 +135,7 @@ export default function Payments() {
       const op = (nroOp || 'SIN-REF').toUpperCase()
       const voucherUrl = await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, fVoucher)
       const base = {
-        project_id: (await supabase.from('projects').select('id').limit(1).single()).data.id,
+        project_id: pidOp,
         lot_id: lotId, client_id: clientId, date: fecha,
         operation_number: op, operation_type: opTipo,
         financial_account_id: acctId || null, observation: obs.toUpperCase(), origin: 'sistema',
@@ -225,7 +227,10 @@ export default function Payments() {
 
   return (
     <>
-      <h1>Cuotas mensuales</h1>
+      <div className="toolbar">
+        <h1 style={{ margin: 0, flex: 1 }}>Cuotas mensuales</h1>
+        <ProjectPicker />
+      </div>
 
       <div className="chips">
         {[['cuota', 'Cuota'], ['separacion', 'Separacion'], ['inicial', 'Pago inicial']].map(([v, l]) => (

@@ -1,24 +1,35 @@
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useProject } from '../context/ProjectContext'
 
-const MENU = [
+const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
   { to: '/leads', label: 'Leads', icon: '🎯' },
   { to: '/visitas', label: 'Visitas', icon: '📅' },
-  { to: '/proyectos', label: 'Proyectos', icon: '🏗️' },
-  { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️' },
   { to: '/clientes', label: 'Clientes', icon: '👥' },
-  { to: '/pagos', label: 'Cuotas', icon: '💵' },
-  { to: '/contratos', label: 'Contratos', icon: '📄' },
-  { to: '/gastos', label: 'Gastos', icon: '🧾' },
+  { to: '/proyectos', label: 'Proyectos', icon: '🏗️' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true },
   { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true },
+]
+const PROYECTO = [
+  { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️' },
+  { to: '/pagos', label: 'Cuotas', icon: '💵' },
+  { to: '/gastos', label: 'Gastos', icon: '🧾' },
+  { to: '/contratos', label: 'Contratos', icon: '📄' },
 ]
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
+  const { current, projects } = useProject()
   const [open, setOpen] = useState(false)
+
+  const Item = m => (
+    <NavLink key={m.to} to={m.to} end={m.end}
+      className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+      <span>{m.icon}</span> {m.label}
+    </NavLink>
+  )
 
   return (
     <div className="shell">
@@ -26,16 +37,16 @@ export default function Layout() {
       <aside className={`sidebar glass ${open ? 'open' : ''}`}>
         <h2>URBIS <span className="accent">CONTROL</span></h2>
         <nav onClick={() => setOpen(false)}>
-          {MENU.filter(m => !m.admin || role === 'admin').map(m => (
-            <NavLink key={m.to} to={m.to} end={m.end}
-              className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-              <span>{m.icon}</span> {m.label}
-            </NavLink>
-          ))}
+          <p className="menu-section">General</p>
+          {GLOBAL.filter(m => !m.admin || role === 'admin').map(Item)}
+          <p className="menu-section">
+            Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
+          </p>
+          {PROYECTO.map(Item)}
         </nav>
         <div className="sidebar-footer">
           <p className="muted">{profile?.full_name}</p>
-          <p className="muted small">{role}</p>
+          <p className="muted small">{role === 'manager' ? 'GERENCIA (solo ver)' : role}</p>
           <button className="btn-ghost" onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
