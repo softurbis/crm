@@ -162,11 +162,11 @@ export default function Clients() {
               ))}
               <label>DNI - frente {nuevo && <b className="bad">(obligatorio)</b>}
                 <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />
-                {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer">ver actual</a>}
+                {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
               </label>
               <label>DNI - reverso {nuevo && <b className="bad">(obligatorio)</b>}
                 <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />
-                {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer">ver actual</a>}
+                {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
               </label>
               <div className="span2">
                 {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}

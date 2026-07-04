@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 const COLORS = {
   disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
@@ -11,6 +12,10 @@ const LBL = {
 }
 
 export default function Lots() {
+  const { role } = useAuth()
+  const [edit, setEdit] = useState(false)
+  const [ef, setEf] = useState({})
+  const [emsg, setEmsg] = useState(null)
   const [lots, setLots] = useState([])
   const [vencidos, setVencidos] = useState(new Set())
   const [filter, setFilter] = useState('todos')
@@ -105,7 +110,7 @@ export default function Lots() {
               <button key={l.id} className={`lot-cell ${vencidos.has(l.id) ? 'venc' : ''}`}
                 style={{ background: COLORS[l.status] }}
                 title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]}${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
-                onClick={() => setSel(l)}>
+                onClick={() => { setSel(l); setEdit(false); setEmsg(null) }}>
                 {l.lt}
               </button>
             ))}
@@ -133,6 +138,45 @@ export default function Lots() {
                 </p>
               )}
             </div>
+
+            {['admin', 'secretary'].includes(role) && (
+              <div className="ficha">
+                {!edit ? (
+                  <button className="btn-ghost" onClick={() => { setEdit(true); setEf({ area_m2: sel.area_m2, price_per_m2: sel.price_per_m2, status: sel.status, associated_to: sel.associated_to || '', initial_payment_default: sel.initial_payment_default }) }}>Editar lote</button>
+                ) : (
+                  <form className="form-grid" onSubmit={async e => {
+                    e.preventDefault()
+                    const payload = {
+                      area_m2: Number(ef.area_m2), price_per_m2: Number(ef.price_per_m2),
+                      status: ef.status, associated_to: (ef.associated_to || '').toUpperCase() || null,
+                      initial_payment_default: Number(ef.initial_payment_default),
+                    }
+                    const { error } = await supabase.from('lots').update(payload).eq('id', sel.id)
+                    if (error) { setEmsg('ERROR: ' + error.message); return }
+                    setEmsg('LOTE ACTUALIZADO')
+                    const { data } = await supabase.from('lots').select('*').order('mz').order('lt')
+                    setLots(data || [])
+                    setSel(x => ({ ...x, ...payload, total_price: payload.area_m2 * payload.price_per_m2 }))
+                    setEdit(false)
+                  }}>
+                    <label>Area m2 <input type="number" step="0.01" value={ef.area_m2} onChange={e => setEf(f => ({ ...f, area_m2: e.target.value }))} required /></label>
+                    <label>Precio por m2 <input type="number" step="0.01" value={ef.price_per_m2} onChange={e => setEf(f => ({ ...f, price_per_m2: e.target.value }))} required /></label>
+                    <label>Estado
+                      <select value={ef.status} onChange={e => setEf(f => ({ ...f, status: e.target.value }))}>
+                        {Object.keys(COLORS).map(s => <option key={s} value={s}>{LBL[s]}</option>)}
+                      </select>
+                    </label>
+                    <label>Separacion default S/ <input type="number" step="0.01" value={ef.initial_payment_default} onChange={e => setEf(f => ({ ...f, initial_payment_default: e.target.value }))} /></label>
+                    <label className="span2">Asociado a (vacio = ninguno) <input value={ef.associated_to} onChange={e => setEf(f => ({ ...f, associated_to: e.target.value }))} /></label>
+                    <div className="span2">
+                      <button className="btn-primary">Guardar lote</button>{' '}
+                      <button type="button" className="btn-ghost" onClick={() => setEdit(false)}>Cancelar</button>
+                    </div>
+                  </form>
+                )}
+                {emsg && <p className={emsg.startsWith('ERROR') ? 'error' : 'ok'}>{emsg}</p>}
+              </div>
+            )}
 
             {detail?.sale ? (
               <>

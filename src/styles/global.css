@@ -202,3 +202,7 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
   .print-area { position: absolute; inset: 0; border-radius: 0; max-width: none; }
   .no-print { display: none !important; }
 }
+
+/* ---- miniaturas DNI ---- */
+.thumb { width: 140px; border-radius: 8px; border: 1px solid rgba(127,148,118,.35); display: block; margin-top: .3rem; }
+.thumb:hover { outline: 2px solid var(--accent); }
