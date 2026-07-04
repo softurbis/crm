@@ -32,9 +32,16 @@ function jidDe(phone) {
 }
 function telDeJid(jid) { return (jid || '').split('@')[0].replace(/\D/g, '') }
 
+async function flag(k) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return !data || data.value !== '0' }
+async function tipoNumero(soloDig) { const { data } = await supabase.from('whatsapp_numbers').select('tipo').ilike('phone', '%' + String(soloDig).slice(-9) + '%').limit(1); return (data || [])[0]?.tipo || null }
+
 async function enviar(phone, texto, meta = {}) {
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0 }
   if (enviadosHoy >= MAX_DIA) { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
+  const soloDig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
+  if (!ADMIN || soloDig !== String(ADMIN)) {
+    if ((await tipoNumero(soloDig)) === 'desactivado') { log('NUMERO DESACTIVADO, no se envia a', soloDig); return false }
+  }
   try {
     await sock.sendMessage(String(phone).includes('@') ? String(phone) : jidDe(phone), { text: texto })
     enviadosHoy++
@@ -91,6 +98,7 @@ function msjC(nombre, lote, proy, nVenc, deudaTotal) {
 }
 
 async function cobranza() {
+  if (!(await flag('bot_activo')) || !(await flag('cobranza_activa'))) { log('COBRANZA DESACTIVADA desde el panel'); return }
   log('=== BARRIDO DE COBRANZA (4 NIVELES) ===')
   try { await supabase.rpc('mark_overdue_installments') } catch (e) { log('mark_overdue:', e.message) }
   const hoyISO = new Date().toISOString().slice(0, 10)
@@ -171,8 +179,8 @@ async function estadoConv(phone) {
 }
 async function setConv(phone, campos) {
   const existe = await estadoConv(phone)
-  if (existe) await supabase.from('whatsapp_conversations').update({ ...campos, last_message_at: new Date().toISOString() }).eq('phone', phone)
-  else await supabase.from('whatsapp_conversations').insert({ phone, ...campos, last_message_at: new Date().toISOString() })
+  if (existe) { const { error } = await supabase.from('whatsapp_conversations').update({ ...campos, last_message_at: new Date().toISOString() }).eq('phone', phone); if (error) log('DB conv upd:', error.message) }
+  else { const { error } = await supabase.from('whatsapp_conversations').insert({ phone, ...campos, last_message_at: new Date().toISOString() }); if (error) log('DB conv ins:', error.message) }
 }
 
 async function manejarEntrante(jid, jidPN, texto, pushName) {
@@ -184,10 +192,11 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   // PALABRA DE SEGURIDAD: "mapero" reinicia el bot para este chat (modo prueba)
   if (corto.toLowerCase() === 'mapero') {
     const { data: convR } = await supabase.from('whatsapp_conversations').select('id, lead_id').eq('phone', phone).maybeSingle()
-    if (convR?.lead_id) {
-      await supabase.from('lead_activities').delete().eq('lead_id', convR.lead_id)
-      await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', convR.lead_id)
-      await supabase.from('leads').delete().eq('id', convR.lead_id)
+    const { data: leadsR } = await supabase.from('leads').select('id').ilike('phone', `%${phone.slice(-9)}%`)
+    for (const L of (leadsR || [])) {
+      await supabase.from('lead_activities').delete().eq('lead_id', L.id)
+      await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', L.id)
+      await supabase.from('leads').delete().eq('id', L.id)
     }
     if (convR) {
       await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
@@ -197,6 +206,10 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     log('RESET mapero para', phone)
     return
   }
+
+  if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
+  const tnum = await tipoNumero(phone)
+  if (tnum === 'desactivado' || tnum === 'secretaria') { log('NUMERO ' + tnum.toUpperCase() + ': sin respuesta a', phone); return }
 
   // guardar el mensaje entrante
   const conv = await estadoConv(phone)
@@ -208,6 +221,7 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   const p9 = phone.slice(-9)
   const { data: clientes } = await supabase.from('clients').select('id, full_name').ilike('phone', `%${p9}%`).limit(1)
   const cliente = (clientes || [])[0]
+  if (tnum === 'cliente' && !cliente) return
   if (cliente) {
     if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto)) {
       await enviar(jid, `¡Gracias ${cliente.full_name.split(' ')[0]}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
@@ -235,7 +249,7 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   }
 
   if (estado === 'espera_nombre') {
-    const nombre = corto.replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
+    const nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
     if (nombre.length >= 3) {
       await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id)
       const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
@@ -263,6 +277,13 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       const { data: l2 } = await supabase.from('leads').select('full_name, phone').eq('id', lead.id).single()
       await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅\nNombre: ${l2?.full_name}\nTel: ${l2?.phone}\nProyecto: ${nombreProy}\n\n→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
     }
+    return
+  }
+
+  if (!estado && lead?.id) {
+    // lead huerfano (sin flujo activo): reiniciar el flujo guiado
+    await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead.id })
+    await enviar(jid, '¡Hola de nuevo! 👋 Gracias por escribir a *Urbis Group Real Estate* 🌳\n\nPara atenderle mejor, ¿me indica su *nombre completo* por favor?', { tipo: 'lead_flujo', lead_id: lead.id })
     return
   }
 
@@ -310,7 +331,7 @@ async function iniciar() {
         const alt = String(m.key.remoteJidAlt || m.key.participantAlt || '')
         const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
         if (!jidPN) log('AVISO: chat LID sin numero real visible:', jid)
-        await manejarEntrante(jid, jidPN, texto, m.pushName)
+        try { await manejarEntrante(jid, jidPN, texto, m.pushName) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
       } catch (e) { log('error procesando entrante:', e.message) }
     }
   })
