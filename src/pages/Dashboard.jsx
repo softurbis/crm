@@ -13,6 +13,7 @@ export default function Dashboard() {
   const { projects, pid } = useProject()
   const [raw, setRaw] = useState(null)
   const [fmes, setFmes] = useState('todos')
+  const [verDetalle, setVerDetalle] = useState(false)
   const conGeneral = role !== 'secretary'
 
   useEffect(() => {
@@ -81,6 +82,17 @@ export default function Dashboard() {
     }
   }, [raw])
 
+  const det = useMemo(() => {
+    if (fmes === 'todos' || !raw) return null
+    const enMes = f => (f || '').slice(0, 7) === fmes
+    return {
+      pagos: raw.income.filter(i => enMes(i.date) && estadoDe(i.observation) === 'ACEPTADO').sort((a, b) => (a.date < b.date ? -1 : 1)),
+      ventas: raw.sales.filter(v => enMes(v.sale_date)),
+      seps: raw.seps.filter(x => enMes(x.date)),
+      gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
+    }
+  }, [raw, fmes])
+
   if (!D) return <p className="muted">Cargando indicadores...</p>
 
   const cards = [
@@ -95,17 +107,6 @@ export default function Dashboard() {
   ]
 
   const m = fmes !== 'todos' ? D.meses[fmes] : null
-  const [verDetalle, setVerDetalle] = useState(false)
-  const det = useMemo(() => {
-    if (!m || !raw) return null
-    const enMes = f => (f || '').slice(0, 7) === fmes
-    return {
-      pagos: raw.income.filter(i => enMes(i.date) && estadoDe(i.observation) === 'ACEPTADO').sort((a, b) => (a.date < b.date ? -1 : 1)),
-      ventas: raw.sales.filter(v => enMes(v.sale_date)),
-      seps: raw.seps.filter(x => enMes(x.date)),
-      gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
-    }
-  }, [m, raw, fmes])
 
   return (
     <>
