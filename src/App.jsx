@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Lots from './pages/Lots'
 import Payments from './pages/Payments'
+import Clients from './pages/Clients'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -21,9 +22,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="lotes" element={<Lots />} />
         <Route path="pagos" element={<Payments />} />
-        {/* Próximos módulos:
-            /proyectos, /clientes, /pagos, /contratos,
-            /gastos, /usuarios, /bitacora, /leads, /visitas */}
+        <Route path="clientes" element={<Clients />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

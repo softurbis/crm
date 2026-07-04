@@ -176,3 +176,7 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
   .sidebar.open { left: 0; }
   .content { padding: 4rem 1rem 1rem; }
 }
+
+/* ---- toolbar clientes ---- */
+.toolbar { display: flex; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.search { flex: 1; min-width: 220px; }
