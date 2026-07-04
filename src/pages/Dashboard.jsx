@@ -21,11 +21,11 @@ export default function Dashboard() {
       if (!ids.length) return
       const [lots, income, expenses, salesR, venc, seps] = await Promise.all([
         supabase.from('lots').select('project_id, status, total_price').in('project_id', ids),
-        supabase.from('daily_income').select('project_id, amount, income_type, date, observation').in('project_id', ids),
-        supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status').in('project_id', ids),
-        supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)'),
+        supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number)').in('project_id', ids),
+        supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status, type, recipient, description').in('project_id', ids),
+        supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
         supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),
-        supabase.from('separations').select('amount, date, status, lot:lots!inner(project_id)'),
+        supabase.from('separations').select('amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)'),
       ])
       setRaw({
         ids,
@@ -95,6 +95,17 @@ export default function Dashboard() {
   ]
 
   const m = fmes !== 'todos' ? D.meses[fmes] : null
+  const [verDetalle, setVerDetalle] = useState(false)
+  const det = useMemo(() => {
+    if (!m || !raw) return null
+    const enMes = f => (f || '').slice(0, 7) === fmes
+    return {
+      pagos: raw.income.filter(i => enMes(i.date) && estadoDe(i.observation) === 'ACEPTADO').sort((a, b) => (a.date < b.date ? -1 : 1)),
+      ventas: raw.sales.filter(v => enMes(v.sale_date)),
+      seps: raw.seps.filter(x => enMes(x.date)),
+      gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
+    }
+  }, [m, raw, fmes])
 
   return (
     <>
@@ -128,6 +139,70 @@ export default function Dashboard() {
             <div className="glass card"><p className="muted">GASTOS DEL MES</p><p className="kpi">{soles(m.gastos)}</p></div>
             <div className="glass card"><p className="muted">BALANCE DEL MES</p><p className="kpi">{soles(m.rec - m.gastos)}</p></div>
           </div>
+          <div><button className="btn-ghost" onClick={() => setVerDetalle(!verDetalle)}>{verDetalle ? 'Ocultar desglosado' : 'Ver desglosado del mes'}</button></div>
+
+          {verDetalle && det && (<>
+            <h3 className="sub">PAGOS DEL MES ({det.pagos.length})</h3>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Concepto</th><th>N Op.</th><th>Monto</th></tr></thead>
+                <tbody>
+                  {det.pagos.map((x, i) => (
+                    <tr key={i}>
+                      <td>{x.date}</td>
+                      <td>{x.lot ? `${x.lot.mz}-${x.lot.lt}` : '-'}</td>
+                      <td>{x.client?.full_name || '-'}</td>
+                      <td>{x.income_type === 'cuota' && x.installment ? `CUOTA N ${x.installment.installment_number}` : x.income_type}</td>
+                      <td>{x.operation_number}</td>
+                      <td>{soles(x.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {det.ventas.length > 0 && (<>
+              <h3 className="sub">VENTAS NUEVAS DEL MES ({det.ventas.length})</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Precio</th><th>Estado</th></tr></thead>
+                  <tbody>
+                    {det.ventas.map((x, i) => (
+                      <tr key={i}><td>{x.sale_date}</td><td>{x.lot?.mz}-{x.lot?.lt}</td><td>{x.client?.full_name || '-'}</td><td>{soles(x.total_sale_price)}</td><td>{x.status}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>)}
+
+            {det.seps.length > 0 && (<>
+              <h3 className="sub">SEPARACIONES DEL MES ({det.seps.length})</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Monto</th><th>Estado</th></tr></thead>
+                  <tbody>
+                    {det.seps.map((x, i) => (
+                      <tr key={i}><td>{x.date}</td><td>{x.lot?.mz}-{x.lot?.lt}</td><td>{x.client?.full_name || '-'}</td><td>{soles(x.amount)}</td><td>{x.status}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>)}
+
+            {det.gastos.length > 0 && (<>
+              <h3 className="sub">GASTOS DEL MES ({det.gastos.length})</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Tipo</th><th>Receptor</th><th>Descripcion</th><th>Monto</th></tr></thead>
+                  <tbody>
+                    {det.gastos.map((x, i) => (
+                      <tr key={i}><td>{x.issue_date || x.reception_date}</td><td>{x.type}</td><td>{x.recipient || '-'}</td><td style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.description || '-'}</td><td>{soles(x.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>)}
+          </>)}
         </div>
       )}
 
