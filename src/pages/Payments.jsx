@@ -48,6 +48,7 @@ export default function Payments() {
   const [venc, setVenc] = useState(addMonths(hoy(), 1))
   const [fVoucher, setFVoucher] = useState(null)
   const [ctx, setCtx] = useState(null)
+  const [view, setView] = useState(null)
 
   async function loadBase() {
     const [l, c, a, r] = await Promise.all([
@@ -325,7 +326,7 @@ export default function Payments() {
               <tr key={r.id}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</td>
+                <td><button className="link-btn" title="Ver documentos" onClick={() => setView(r)}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
                 <td>{soles(r.amount)}</td>
                 <td>
                   {r.voucher_url
@@ -352,6 +353,34 @@ export default function Payments() {
         </table>
         {pagosFiltrados.length > 300 && <p className="muted small">Mostrando 300 de {pagosFiltrados.length} - usa los filtros.</p>}
       </div>
+
+      {view && (
+        <div className="modal-bg" onClick={() => setView(null)}>
+          <div className="glass modal docs-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>
+                {view.lot ? `MZ ${view.lot.mz} LT ${view.lot.lt}` : ''} |{' '}
+                {view.income_type === 'cuota' && view.installment ? `CUOTA N ${view.installment.installment_number}` : view.income_type} |{' '}
+                <span className="accent">{soles(view.amount)}</span>
+              </h2>
+              <button className="btn-ghost" onClick={() => setView(null)}>&#10005;</button>
+            </div>
+            <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | {view.account?.name || '-'}</p>
+            <div className="docs-grid">
+              {[['VOUCHER DEL CLIENTE', view.voucher_url], ['COMPROBANTE INTERNO', view.receipt_url]].map(([t, u]) => (
+                <div key={t} className="doc-panel">
+                  <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}</p>
+                  {!u
+                    ? <p className="bad big-alert">&#9888; NO SUBIDO</p>
+                    : u.toLowerCase().includes('.pdf')
+                      ? <iframe src={u} title={t} />
+                      : <img src={u} alt={t} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

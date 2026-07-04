@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Lots from './pages/Lots'
 import Payments from './pages/Payments'
 import Clients from './pages/Clients'
+import Expenses from './pages/Expenses'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="lotes" element={<Lots />} />
         <Route path="pagos" element={<Payments />} />
         <Route path="clientes" element={<Clients />} />
+        <Route path="gastos" element={<Expenses />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
