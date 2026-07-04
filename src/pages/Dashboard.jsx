@@ -20,10 +20,11 @@ export default function Dashboard() {
     async function load() {
       const ids = pid === 'general' ? projects.map(p => p.id) : [pid]
       if (!ids.length) return
-      const [lots, income, expenses, salesR, venc, seps] = await Promise.all([
+      let expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status, type, recipient, description').in('project_id', ids)
+      if (expensesRes.error) expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, type, recipient, description').in('project_id', ids)
+      const [lots, income, salesR, venc, seps] = await Promise.all([
         supabase.from('lots').select('project_id, status, total_price').in('project_id', ids),
         supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number)').in('project_id', ids),
-        supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status, type, recipient, description').in('project_id', ids),
         supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
         supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),
         supabase.from('separations').select('amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)'),
@@ -32,7 +33,7 @@ export default function Dashboard() {
         ids,
         lots: lots.data || [],
         income: income.data || [],
-        expenses: expenses.data || [],
+        expenses: expensesRes.data || [],
         sales: (salesR.data || []).filter(s => ids.includes(s.lot?.project_id)),
         venc: (venc.data || []).filter(v => v.sales?.status === 'en_proceso' && ids.includes(v.sales?.lot?.project_id)),
         seps: (seps.data || []).filter(x => ids.includes(x.lot?.project_id)),
@@ -96,7 +97,7 @@ export default function Dashboard() {
   if (!D) return <p className="muted">Cargando indicadores...</p>
 
   const cards = [
-    { label: 'RECAUDADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})` },
+    { label: 'COBRADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})` },
     { label: 'GASTOS', value: soles(D.gastosT), sub: `BALANCE: ${soles(D.recaudado - D.gastosT)}` },
     { label: 'LOTES VENDIDOS', value: `${D.nv} (${D.pctVendido.toFixed(1)}%)`, sub: `de ${D.nLotes} lotes | ${D.ns} separados` },
     { label: 'POR VENDER', value: D.nd, sub: `cartera disponible: ${soles(D.carteraDisp)}` },
@@ -134,7 +135,7 @@ export default function Dashboard() {
         <div className="glass form-card mes-box">
           <h2 className="sub" style={{ margin: 0 }}>RESUMEN DE {mesLbl(fmes)}</h2>
           <div className="cards">
-            <div className="glass card"><p className="muted">RECAUDADO EN EL MES</p><p className="kpi">{soles(m.rec)}</p><p className="muted small">{m.pagos} pagos registrados</p></div>
+            <div className="glass card"><p className="muted">COBRADO EN EL MES</p><p className="kpi">{soles(m.rec)}</p><p className="muted small">{m.pagos} pagos registrados</p></div>
             <div className="glass card"><p className="muted">VENTAS NUEVAS</p><p className="kpi">{m.ventasN}</p><p className="muted small">por {soles(m.ventasS)}</p></div>
             <div className="glass card"><p className="muted">SEPARACIONES</p><p className="kpi">{m.seps}</p></div>
             <div className="glass card"><p className="muted">GASTOS DEL MES</p><p className="kpi">{soles(m.gastos)}</p></div>
@@ -210,7 +211,7 @@ export default function Dashboard() {
       <h2 className="sub">Resumen mensual</h2>
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Mes</th><th>Recaudado</th><th>Pagos</th><th>Ventas nuevas</th><th>Valor vendido</th><th>Separaciones</th><th>Gastos</th><th>Balance</th></tr></thead>
+          <thead><tr><th>Mes</th><th>Cobrado</th><th>Pagos</th><th>Ventas nuevas</th><th>Precio total vendido</th><th>Separaciones</th><th>Gastos</th><th>Balance</th></tr></thead>
           <tbody>
             {D.mesesOrden.map(ym => {
               const x = D.meses[ym]

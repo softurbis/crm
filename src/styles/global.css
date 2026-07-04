@@ -292,3 +292,13 @@ input, select, textarea { border-radius: 10px; transition: outline .1s, border-c
 .kpi-big { font-size: 2.2rem; line-height: 1.1; }
 .mes-box { border: 1px solid rgba(166,181,143,.45); }
 tr.row-sel td { background: rgba(140,155,122,.15); }
+
+/* ---- panel del mes: ancho completo, fondo solido, tablas legibles ---- */
+.mes-box { max-width: none; background: var(--panel); border: 1px solid rgba(166,181,143,.5); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.mes-box .cards { grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); }
+.mes-box .table-wrap { background: var(--panel-2); border-radius: 10px; }
+.mes-box table td, .mes-box table th { padding: .55rem .9rem; }
+
+/* ---- editor de plantilla ---- */
+.tok { background: rgba(140,155,122,.18); border: 1px solid rgba(140,155,122,.4); border-radius: 6px; padding: .1rem .4rem; margin: 0 .18rem; font-size: .75rem; text-transform: none; display: inline-block; }
+.tok2 { background: rgba(154,107,201,.15); border-color: rgba(154,107,201,.4); }

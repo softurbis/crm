@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
-// numero a letras (soles)
 function letras(num) {
   const U = ['','UNO','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE','DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISEIS','DIECISIETE','DIECIOCHO','DIECINUEVE','VEINTE']
   const D = ['','','VEINTI','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA']
@@ -35,37 +35,86 @@ function letras(num) {
   return out.trim() + ' CON ' + String(cent).padStart(2, '0') + '/100'
 }
 
+const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_FECHA','INICIAL','FECHA_VENTA','SALDO','NUM_CUOTAS','CUOTA','MORA','PARTIDA','DIA','MES','ANIO']
+const BLOQUES = ['TABLA_LOTE','TABLA_CUENTA','FIRMAS','ANEXO_CRONOGRAMA','ANEXO_FICHA']
+
+const DEFAULT_TEMPLATE = `CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACION URBANA PROGRESIVA CON RESERVA DE PROPIEDAD
+
+Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitacion Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:
+EL VENDEDOR: {{VENDEDOR}}, identificada con DNI N. {{VENDEDOR_DNI}}, con domicilio en {{VENDEDOR_DOMICILIO}}, a quien en adelante se denominara EL VENDEDOR; y de la otra parte:
+EL COMPRADOR: {{COMPRADORES}}, con domicilio en {{COMPRADOR_DOMICILIO}}, a quien en adelante se denominara EL COMPRADOR.
+Las partes celebran el presente contrato bajo los terminos y condiciones siguientes:
+
+CLAUSULA PRIMERA: ANTECEDENTES DEL PREDIO Y DEL PROYECTO
+1.1. EL VENDEDOR declara tener derechos suficientes sobre el predio matriz inscrito en la Partida N. {{PARTIDA}} del Registro de Predios, sobre el cual se desarrolla la Habilitacion Urbana Progresiva denominada "{{PROYECTO}}" (en adelante, EL PROYECTO).
+1.2. Las partes reconocen que el presente contrato no constituye, por si solo, licencia de habilitacion urbana, titulo individual independizado ni transferencia definitiva inscrita. Su finalidad es reservar y comprometer la futura transferencia del lote descrito en este contrato.
+
+CLAUSULA SEGUNDA: OBJETO DEL CONTRATO Y DESCRIPCION DEL LOTE
+2.1. Por el presente contrato, EL VENDEDOR otorga a favor de EL COMPRADOR la separacion, reserva y compromiso de futura transferencia del lote identificado como:
+{{TABLA_LOTE}}
+2.2. Las medidas y linderos indicados son referenciales y estan sujetos a los ajustes tecnicos, municipales y registrales que resulten del expediente aprobado y de la independizacion definitiva.
+
+CLAUSULA TERCERA: PRECIO Y FORMA DE PAGO
+3.1. El precio total del lote se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagara asi: Separacion: {{SEPARACION}}, pagada en fecha {{SEPARACION_FECHA}}. Inicial: {{INICIAL}}, pagada en fecha {{FECHA_VENTA}}. Saldo financiado: {{SALDO}}, en {{NUM_CUOTAS}} cuotas mensuales de {{CUOTA}}, conforme al cronograma del Anexo 1.
+3.2. Los pagos se realizaran mediante deposito o transferencia a la cuenta designada por EL VENDEDOR:
+{{TABLA_CUENTA}}
+3.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) dias habiles siguientes al deposito, por el canal oficial.
+
+CLAUSULA CUARTA: MORA, COBRANZA Y REPROGRAMACION
+4.1. Las cuotas se pagan en las fechas del Anexo 1, con plazo de gracia de cinco (5) dias habiles. Vencido dicho plazo, se devengara una penalidad moratoria de S/ {{MORA}} por cada dia calendario de atraso, hasta la fecha efectiva de pago.
+
+CLAUSULA QUINTA: INCUMPLIMIENTO Y RESOLUCION
+5.1. Constituyen causales de incumplimiento grave: no pagar dos (2) cuotas consecutivas o tres (3) acumuladas; negarse a regularizar documentos; realizar construcciones u ocupaciones no autorizadas; ceder o revender derechos sin autorizacion escrita; usar el lote para fines incompatibles. El procedimiento de notificaciones formales y resolucion se rige por el modelo integral del proyecto.
+
+CLAUSULA SEXTA: RESERVA DE PROPIEDAD
+6.1. Al amparo del articulo 1583 del Codigo Civil, las partes pactan reserva de propiedad a favor de EL VENDEDOR hasta que EL COMPRADOR haya pagado la totalidad del precio y conceptos pendientes, y se encuentre habilitada la documentacion legal y registral para la transferencia definitiva.
+
+— El presente documento incorpora por referencia las demas clausulas del modelo integral de contrato del proyecto, que las partes declaran conocer. —
+
+CLAUSULA FINAL: ACEPTACION
+Leido el presente contrato por las partes y encontrandolo conforme a su voluntad, lo suscriben por duplicado en la ciudad de Pucallpa, a los {{DIA}} dias del mes de {{MES}} de {{ANIO}}.
+{{FIRMAS}}
+
+{{ANEXO_CRONOGRAMA}}
+{{ANEXO_FICHA}}`
+
 export default function Contracts() {
-  const { pidOp, current, projects } = useProject()
-  const proj = current || projects.find(p => p.id === pidOp)
+  const { role } = useAuth()
+  const { pidOp } = useProject()
+  const [proyecto, setProyecto] = useState(null)
   const [ventas, setVentas] = useState([])
   const [q, setQ] = useState('')
-  const [gen, setGen] = useState(null)   // venta a generar
-  const [data, setData] = useState(null) // datos completos del contrato
+  const [gen, setGen] = useState(null)
+  const [data, setData] = useState(null)
   const [msg, setMsg] = useState(null)
+  const [tplOpen, setTplOpen] = useState(false)
+  const [tplText, setTplText] = useState('')
 
   async function load() {
     if (!pidOp) return
-    const { data } = await supabase.from('sales')
-      .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
-      .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
-      .order('sale_date', { ascending: false })
-    setVentas(data || [])
+    const [v, p] = await Promise.all([
+      supabase.from('sales')
+        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
+        .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
+        .order('sale_date', { ascending: false }),
+      supabase.from('projects').select('*').eq('id', pidOp).single(),
+    ])
+    setVentas(v.data || []); setProyecto(p.data || null)
+    setTplText((p.data?.contract_template) || DEFAULT_TEMPLATE)
   }
   useEffect(() => { load() }, [pidOp])
 
   useEffect(() => {
     if (!gen) { setData(null); return }
     async function loadData() {
-      const [inst, sep, acct, pr] = await Promise.all([
+      const [inst, sep, acct] = await Promise.all([
         supabase.from('installments').select('installment_number, due_date, amount, status').eq('sale_id', gen.id).order('installment_number'),
         gen.separation_id
           ? supabase.from('separations').select('amount, date').eq('id', gen.separation_id).single()
           : Promise.resolve({ data: null }),
         supabase.from('financial_accounts').select('*').eq('project_id', pidOp).eq('active', true),
-        supabase.from('projects').select('*').eq('id', pidOp).single(),
       ])
-      setData({ inst: inst.data || [], sep: sep.data, accts: acct.data || [], proyecto: pr.data })
+      setData({ inst: inst.data || [], sep: sep.data, accts: acct.data || [] })
     }
     loadData()
   }, [gen])
@@ -88,6 +137,12 @@ export default function Contracts() {
     setMsg({ ok: true, t: 'CONTRATO FIRMADO SUBIDO' }); load()
   }
 
+  async function guardarPlantilla() {
+    const { error } = await supabase.from('projects').update({ contract_template: tplText }).eq('id', pidOp)
+    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'PLANTILLA GUARDADA PARA ESTE PROYECTO' })
+    load()
+  }
+
   const hoy = new Date()
   const sinFirmar = ventas.filter(v => !v.signed_contract_url).length
 
@@ -96,7 +151,31 @@ export default function Contracts() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Contratos</h1>
         <ProjectPicker />
+        {role === 'superuser' && (
+          <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
+            {tplOpen ? 'Cerrar plantilla' : 'Plantilla del contrato (superusuario)'}
+          </button>
+        )}
       </div>
+
+      {tplOpen && role === 'superuser' && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p><b>PLANTILLA DEL CONTRATO — {proyecto?.name}</b></p>
+          <p className="muted small">
+            Cada proyecto tiene su propia plantilla. Escribe el texto libremente y usa variables entre dobles llaves.
+            Lineas que empiezan con "CLAUSULA" o "ANEXO" salen como titulos.
+          </p>
+          <p className="small">VARIABLES: {VARIABLES.map(v => <code key={v} className="tok">{'{{' + v + '}}'}</code>)}</p>
+          <p className="small">BLOQUES (tablas automaticas, en linea propia): {BLOQUES.map(v => <code key={v} className="tok tok2">{'{{' + v + '}}'}</code>)}</p>
+          <textarea rows="22" value={tplText} spellCheck="false"
+            style={{ textTransform: 'none', fontFamily: 'monospace', fontSize: '.85rem' }}
+            onChange={e => setTplText(e.target.value)} />
+          <div>
+            <button className="btn-primary" onClick={guardarPlantilla}>Guardar plantilla</button>{' '}
+            <button className="btn-ghost" onClick={() => setTplText(DEFAULT_TEMPLATE)}>Restaurar plantilla base</button>
+          </div>
+        </div>
+      )}
 
       <div className="toolbar">
         <input className="search" placeholder="Buscar por cliente o lote..." value={q} onChange={e => setQ(e.target.value)} />
@@ -131,24 +210,123 @@ export default function Contracts() {
       {gen && data && (() => {
         const c = gen.client || {}
         const l = gen.lot || {}
-        const p = data.proyecto || {}
+        const p = proyecto || {}
         const b = l.boundaries || {}
         const med = b.medidas || {}
         const col = b.colindancias || {}
         const banco = data.accts.find(a => a.type === 'bank' && a.account_number) || data.accts[0] || {}
         const domicilio = [c.address, c.district, c.province, c.department].filter(Boolean).join(', ') || '____________________'
-        const sepMonto = data.sep ? soles(data.sep.amount) : 'S/ 0.00'
-        const sepFecha = data.sep?.date || '-'
-        const vendNombre = p.titular_name || 'URBIS GROUP'
-        const vendDni = p.titular_dni || '__________'
-        const vendDom = p.office_address || 'Jr. Progreso N. 163, distrito de Calleria, provincia de Coronel Portillo, departamento de Ucayali'
-        const nProy = p.name || 'LAS PRADERAS DE CASHIBO'
+        const compradores = `${c.full_name}, identificado/a con ${c.doc_type} N. ${c.doc_number}` +
+          (gen.co_client ? `, y ${gen.co_client.full_name}, identificado/a con ${gen.co_client.doc_type} N. ${gen.co_client.doc_number}` : '')
+
         const hoyStr = new Date().toISOString().slice(0, 10)
         const problemas = []
         if (!p.copia_literal_url) problemas.push('FALTA SUBIR LA PARTIDA REGISTRAL (Proyectos > Editar)')
         else if (!p.copia_literal_expiry || p.copia_literal_expiry < hoyStr) problemas.push('LA PARTIDA REGISTRAL ESTA VENCIDA O SIN FECHA DE VIGENCIA')
         if (p.carta_poder_url && (!p.poder_expiry || p.poder_expiry < hoyStr)) problemas.push('LA VIGENCIA DE PODER ESTA VENCIDA O SIN FECHA')
         const puedeFirmar = problemas.length === 0
+
+        const vars = {
+          PROYECTO: p.name || '', VENDEDOR: p.titular_name || 'URBIS GROUP',
+          VENDEDOR_DNI: p.titular_dni || '__________',
+          VENDEDOR_DOMICILIO: p.office_address || '____________________',
+          COMPRADORES: compradores, COMPRADOR_DOMICILIO: domicilio,
+          MZ: l.mz, LT: l.lt, AREA: l.area_m2,
+          PRECIO: soles(gen.total_sale_price), PRECIO_LETRAS: letras(Number(gen.total_sale_price)),
+          SEPARACION: data.sep ? soles(data.sep.amount) : 'S/ 0.00',
+          SEPARACION_FECHA: data.sep?.date || '-',
+          INICIAL: soles(gen.initial_amount_paid), FECHA_VENTA: gen.sale_date,
+          SALDO: soles(gen.financed_amount), NUM_CUOTAS: gen.installments_count,
+          CUOTA: soles(gen.monthly_amount), MORA: Number(p.late_penalty_rate || 1.5).toFixed(2),
+          PARTIDA: p.partida_number || '__________',
+          DIA: hoy.getDate(), MES: MESES[hoy.getMonth()], ANIO: hoy.getFullYear(),
+        }
+        const fill = t => t.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] !== undefined ? String(vars[k]) : m)
+
+        const TablaLote = (
+          <table className="ctable" key="tl"><tbody>
+            <tr><td><b>Manzana</b></td><td>{l.mz}</td></tr>
+            <tr><td><b>Lote</b></td><td>{l.lt}</td></tr>
+            <tr><td><b>Area aproximada</b></td><td>{l.area_m2} m2</td></tr>
+            <tr><td><b>Frente</b></td><td>{med.frente || '-'} colindando con {col.frente || '-'}</td></tr>
+            <tr><td><b>Derecha</b></td><td>{med.derecha || '-'} colindando con {col.derecha || '-'}</td></tr>
+            <tr><td><b>Izquierda</b></td><td>{med.izquiera || med.izquierda || '-'} colindando con {col.izquiera || col.izquierda || '-'}</td></tr>
+            <tr><td><b>Fondo</b></td><td>{med.fondo || '-'} colindando con {col.fondo || '-'}</td></tr>
+          </tbody></table>
+        )
+        const TablaCuenta = (
+          <table className="ctable" key="tc"><tbody>
+            <tr><td><b>Banco</b></td><td>{banco.name || '-'}</td></tr>
+            <tr><td><b>N. de cuenta</b></td><td>{banco.account_number || '-'}</td></tr>
+            <tr><td><b>CCI</b></td><td>{banco.cci || '-'}</td></tr>
+            <tr><td><b>Titular</b></td><td>{banco.holder_name || vars.VENDEDOR}</td></tr>
+            <tr><td><b>WhatsApp oficial</b></td><td>{p.titular_phone || '-'}</td></tr>
+          </tbody></table>
+        )
+        const Firmas = (
+          <table className="ctable firmas" key="fi"><tbody><tr>
+            <td style={{ textAlign: 'center', paddingTop: '4em' }}>
+              ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type} N. {c.doc_number}
+              {gen.co_client && (<><br /><br />______________________________<br /><b>EL COMPRADOR (2)</b><br />{gen.co_client.full_name}<br />{gen.co_client.doc_type} N. {gen.co_client.doc_number}</>)}
+            </td>
+            <td style={{ textAlign: 'center', paddingTop: '4em' }}>
+              ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI N. {vars.VENDEDOR_DNI}
+            </td>
+          </tr></tbody></table>
+        )
+        const Anexo1 = (
+          <div key="a1">
+            <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 1: CRONOGRAMA DE PAGOS</h3>
+            <table className="ctable">
+              <thead><tr><th>N.</th><th>Concepto</th><th>Monto</th><th>Vencimiento</th><th>Estado</th></tr></thead>
+              <tbody>
+                {data.sep && <tr><td>-</td><td>Separacion</td><td>{soles(data.sep.amount)}</td><td>{data.sep.date}</td><td>PAGADA</td></tr>}
+                <tr><td>-</td><td>Inicial</td><td>{soles(gen.initial_amount_paid)}</td><td>{gen.sale_date}</td><td>PAGADA</td></tr>
+                {data.inst.map(i => (
+                  <tr key={i.installment_number}>
+                    <td>{i.installment_number}</td>
+                    <td>Cuota N. {String(i.installment_number).padStart(2, '0')}</td>
+                    <td>{soles(i.amount)}</td>
+                    <td>{i.due_date}</td>
+                    <td>{i.status === 'pagado' ? 'PAGADA' : '[  ]'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+        const Anexo2 = (
+          <div key="a2">
+            <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 2: FICHA TECNICA DE H.U.P. Y CALIDAD DE OBRAS</h3>
+            <table className="ctable">
+              <thead><tr><th>Componente</th><th>Estado proyectado</th><th>Condicion</th></tr></thead>
+              <tbody>
+                <tr><td>Naturaleza del proyecto</td><td>Habilitacion Urbana Progresiva</td><td>Sujeta a expediente y aprobacion municipal</td></tr>
+                <tr><td>Modalidad de licencia</td><td>C/D segun expediente</td><td>Determina la autoridad competente</td></tr>
+                <tr><td>Tipo de obras</td><td>Tipo E o equivalente tecnico</td><td>No implica asfalto ni vereda completa</td></tr>
+                <tr><td>Vias</td><td>Apertura y afirmado/enripiado por etapas</td><td>Conforme al diseno tecnico</td></tr>
+                <tr><td>Aceras/veredas</td><td>Diseno o ejecucion progresiva</td><td>Conforme a secciones viales aprobadas</td></tr>
+                <tr><td>Solucion sanitaria</td><td>Pozo septico (opcion biodigestor)</td><td>Segun clausula del modelo integral</td></tr>
+                <tr><td>Energia electrica</td><td>Publica y domiciliaria</td><td>Conforme a factibilidad</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )
+        const BLOQ = { TABLA_LOTE: TablaLote, TABLA_CUENTA: TablaCuenta, FIRMAS: Firmas, ANEXO_CRONOGRAMA: Anexo1, ANEXO_FICHA: Anexo2 }
+
+        const tpl = p.contract_template || DEFAULT_TEMPLATE
+        const lineas = tpl.split('\n')
+        let primera = true
+        const cuerpo = lineas.map((ln, i) => {
+          const t = ln.trim()
+          if (!t) return null
+          const mb = t.match(/^\{\{(\w+)\}\}$/)
+          if (mb && BLOQ[mb[1]]) return <div key={i}>{BLOQ[mb[1]]}</div>
+          if (primera) { primera = false; return <h2 key={i} style={{ textAlign: 'center' }}>{fill(t)}</h2> }
+          if (/^(CLAUSULA|CLÁUSULA|ANEXO)/i.test(t)) return <h3 key={i}>{fill(t)}</h3>
+          return <p key={i}>{fill(t)}</p>
+        })
+
         return (
           <div className="modal-bg" onClick={() => setGen(null)}>
             <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
@@ -157,7 +335,6 @@ export default function Contracts() {
                 {puedeFirmar && <button className="btn-primary" onClick={() => window.print()}>Imprimir / PDF</button>}
                 <button className="btn-ghost" onClick={() => setGen(null)}>&#10005;</button>
               </div>
-
               {!puedeFirmar && (
                 <div className="chg-box no-print">
                   <p className="bad"><b>&#9940; NO SE PUEDE FIRMAR ESTE CONTRATO:</b></p>
@@ -166,120 +343,8 @@ export default function Contracts() {
                 </div>
               )}
               <div className="print-area contract">
-                <h2 style={{ textAlign: 'center' }}>CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACIÓN URBANA PROGRESIVA CON RESERVA DE PROPIEDAD</h2>
-                <p>Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitación Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:</p>
-                <p><b>EL VENDEDOR:</b> {vendNombre}, identificada con DNI N.° {vendDni}, con domicilio en {vendDom}, a quien en adelante se denominará EL VENDEDOR; y de la otra parte:</p>
-                <p><b>EL COMPRADOR:</b> {c.full_name}, identificado/a con {c.doc_type} N.° {c.doc_number}{gen.co_client ? <>, y {gen.co_client.full_name}, identificado/a con {gen.co_client.doc_type} N.° {gen.co_client.doc_number}</> : null}, con domicilio en {domicilio}, a quien{gen.co_client ? 'es' : ''} en adelante se {gen.co_client ? 'les denominará conjuntamente' : 'denominará'} EL COMPRADOR.</p>
-                <p>Las partes celebran el presente contrato bajo los términos y condiciones siguientes:</p>
-
-                <h3>CLÁUSULA PRIMERA: ANTECEDENTES DEL PREDIO Y DEL PROYECTO</h3>
-                <p>1.1. EL VENDEDOR declara tener derechos suficientes sobre el predio matriz denominado "FINCA NATALIA", Sector Cashibo Cocha, UU.CC. 037936, con un área matriz aproximada de 8.2544 hectáreas (82,544 m²), ubicado en el distrito de Yarinacocha, provincia de Coronel Portillo, departamento de Ucayali, inscrito en la Partida N.° 11139962 del Registro de Predios de la Zona Registral N.° VI – Sede Pucallpa.</p>
-                <p>1.2. Sobre el predio matriz se viene desarrollando la Habilitación Urbana Progresiva denominada "{nProy}" (en adelante, EL PROYECTO), la cual comprende la lotización, apertura de vías, ejecución progresiva de obras de habilitación urbana, obtención de autorizaciones, recepción de obras, independización y futura transferencia de lotes resultantes, conforme a la normativa aplicable.</p>
-                <p>1.3. Las partes reconocen que el presente contrato no constituye, por sí solo, licencia de habilitación urbana, título individual independizado ni transferencia definitiva inscrita. Su finalidad es reservar y comprometer la futura transferencia del lote descrito en este contrato, dentro del proceso de formalización y ejecución de EL PROYECTO.</p>
-
-                <h3>CLÁUSULA CUARTA: OBJETO DEL CONTRATO Y DESCRIPCIÓN DEL LOTE</h3>
-                <p>4.1. Por el presente contrato, EL VENDEDOR otorga a favor de EL COMPRADOR la separación, reserva y compromiso de futura transferencia del lote identificado como:</p>
-                <table className="ctable">
-                  <tbody>
-                    <tr><td><b>Manzana</b></td><td>{l.mz}</td></tr>
-                    <tr><td><b>Lote</b></td><td>{l.lt}</td></tr>
-                    <tr><td><b>Área aproximada</b></td><td>{l.area_m2} m²</td></tr>
-                    <tr><td><b>Frente</b></td><td>{med.frente || '-'} colindando con {col.frente || '-'}</td></tr>
-                    <tr><td><b>Derecha</b></td><td>{med.derecha || '-'} colindando con {col.derecha || '-'}</td></tr>
-                    <tr><td><b>Izquierda</b></td><td>{med.izquiera || med.izquierda || '-'} colindando con {col.izquiera || col.izquierda || '-'}</td></tr>
-                    <tr><td><b>Fondo</b></td><td>{med.fondo || '-'} colindando con {col.fondo || '-'}</td></tr>
-                  </tbody>
-                </table>
-                <p>4.2. Las medidas y linderos indicados son referenciales y están sujetos a los ajustes técnicos, municipales y registrales que resulten del expediente aprobado y de la independización definitiva.</p>
-
-                <h3>CLÁUSULA QUINTA: PRECIO, FORMA DE PAGO Y DESTINO DE LOS INGRESOS</h3>
-                <p>5.1. El precio total del lote materia del presente contrato se fija en la suma de {soles(gen.total_sale_price)} ({letras(Number(gen.total_sale_price))} SOLES), que EL COMPRADOR pagará de la siguiente manera:</p>
-                <p style={{ marginLeft: '2em' }}>
-                  • Separación: {sepMonto}, pagada en fecha {sepFecha}.<br />
-                  • Inicial: {soles(gen.initial_amount_paid)}, pagada en fecha {gen.sale_date}.<br />
-                  • Saldo financiado: {soles(gen.financed_amount)}, en {gen.installments_count} cuotas mensuales de {soles(gen.monthly_amount)}, conforme al cronograma del Anexo 1.
-                </p>
-                <p>5.2. Los pagos se realizarán mediante depósito o transferencia bancaria a la cuenta designada por EL VENDEDOR:</p>
-                <table className="ctable">
-                  <tbody>
-                    <tr><td><b>Banco</b></td><td>{banco.name || '-'}</td></tr>
-                    <tr><td><b>N.° de cuenta</b></td><td>{banco.account_number || '-'}</td></tr>
-                    <tr><td><b>CCI</b></td><td>{banco.cci || '-'}</td></tr>
-                    <tr><td><b>Titular</b></td><td>{banco.holder_name || vendNombre}</td></tr>
-                    <tr><td><b>WhatsApp oficial</b></td><td>{p.titular_phone || '-'}</td></tr>
-                  </tbody>
-                </table>
-                <p>5.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) días hábiles siguientes al depósito o transferencia mediante el canal oficial.</p>
-
-                <h3>CLÁUSULA SEXTA: MORA, COBRANZA Y REPROGRAMACIÓN</h3>
-                <p>6.1. Las cuotas deberán pagarse en las fechas establecidas en el Anexo 1. EL COMPRADOR tendrá un plazo de gracia de cinco (5) días hábiles. Vencido dicho plazo, se devengará una penalidad moratoria de S/ {Number(p.late_penalty_rate || 1.5).toFixed(2)} por cada día calendario de atraso, hasta la fecha efectiva de pago.</p>
-
-                <h3>CLÁUSULA SÉPTIMA: INCUMPLIMIENTO Y RESOLUCIÓN</h3>
-                <p>7.1. Constituyen causales de incumplimiento grave: no pagar dos (2) cuotas consecutivas o tres (3) acumuladas; negarse a regularizar documentos; realizar construcciones u ocupaciones no autorizadas; ceder o revender derechos sin autorización escrita; usar el lote para fines incompatibles. El procedimiento de notificaciones formales y resolución se rige por el modelo integral del proyecto.</p>
-
-                <h3>CLÁUSULA OCTAVA: RESERVA DE PROPIEDAD</h3>
-                <p>8.1. Al amparo del artículo 1583 del Código Civil, las partes pactan reserva de propiedad a favor de EL VENDEDOR hasta que EL COMPRADOR haya pagado la totalidad del precio y conceptos pendientes, y se encuentre habilitada la documentación legal y registral para la transferencia definitiva.</p>
-
-                <p className="muted-print">— El presente resumen impreso incorpora por referencia las cláusulas segunda, tercera, novena a decimonovena del modelo integral de contrato del proyecto, que las partes declaran conocer. —</p>
-
-                <h3>CLÁUSULA VIGÉSIMA: ACEPTACIÓN FINAL</h3>
-                <p>Leído que fue el presente contrato por las partes y encontrándolo conforme a su voluntad, lo suscriben por duplicado en la ciudad de Pucallpa, a los {hoy.getDate()} días del mes de {MESES[hoy.getMonth()]} de {hoy.getFullYear()}.</p>
-
-                <table className="ctable firmas">
-                  <tbody>
-                    <tr>
-                      <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-                        ______________________________<br />
-                        <b>EL COMPRADOR</b><br />
-                        {c.full_name}<br />
-                        {c.doc_type} N.° {c.doc_number}
-                        {gen.co_client && (<><br /><br />______________________________<br />
-                        <b>EL COMPRADOR (2)</b><br />
-                        {gen.co_client.full_name}<br />
-                        {gen.co_client.doc_type} N.° {gen.co_client.doc_number}</>)}
-                      </td>
-                      <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-                        ______________________________<br />
-                        <b>EL VENDEDOR</b><br />
-                        {vendNombre}<br />
-                        DNI N.° {vendDni}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p style={{ textAlign: 'center' }}>Pucallpa, Ucayali, Perú — {hoy.getFullYear()}</p>
-
-                <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 1: CRONOGRAMA DE PAGOS</h3>
-                <table className="ctable">
-                  <thead><tr><th>N.°</th><th>Concepto</th><th>Monto</th><th>Vencimiento</th><th>Estado</th></tr></thead>
-                  <tbody>
-                    {data.sep && <tr><td>-</td><td>Separación</td><td>{sepMonto}</td><td>{sepFecha}</td><td>PAGADA</td></tr>}
-                    <tr><td>-</td><td>Inicial</td><td>{soles(gen.initial_amount_paid)}</td><td>{gen.sale_date}</td><td>PAGADA</td></tr>
-                    {data.inst.map(i => (
-                      <tr key={i.installment_number}>
-                        <td>{i.installment_number}</td>
-                        <td>Cuota N.° {String(i.installment_number).padStart(2, '0')}</td>
-                        <td>{soles(i.amount)}</td>
-                        <td>{i.due_date}</td>
-                        <td>{i.status === 'pagado' ? 'PAGADA' : '[  ]'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 2: FICHA TÉCNICA DE H.U.P. Y CALIDAD DE OBRAS</h3>
-                <table className="ctable">
-                  <thead><tr><th>Componente</th><th>Estado proyectado</th><th>Condición</th></tr></thead>
-                  <tbody>
-                    <tr><td>Naturaleza del proyecto</td><td>Habilitación Urbana Progresiva</td><td>Sujeta a expediente y aprobación municipal</td></tr>
-                    <tr><td>Modalidad de licencia</td><td>C/D según expediente</td><td>Determina la autoridad competente</td></tr>
-                    <tr><td>Tipo de obras</td><td>Tipo E o equivalente técnico</td><td>No implica asfalto ni vereda completa</td></tr>
-                    <tr><td>Vías</td><td>Apertura y afirmado/enripiado por etapas</td><td>Conforme al diseño técnico</td></tr>
-                    <tr><td>Aceras/veredas</td><td>Diseño o ejecución progresiva</td><td>Conforme a secciones viales aprobadas</td></tr>
-                    <tr><td>Solución sanitaria</td><td>Pozo séptico (opción biodigestor)</td><td>Según cláusula décima del modelo integral</td></tr>
-                    <tr><td>Energía eléctrica</td><td>Pública y domiciliaria</td><td>Conforme a factibilidad</td></tr>
-                  </tbody>
-                </table>
+                {cuerpo}
+                <p style={{ textAlign: 'center' }}>Pucallpa, Ucayali, Peru — {hoy.getFullYear()}</p>
               </div>
             </div>
           </div>
