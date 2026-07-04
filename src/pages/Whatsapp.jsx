@@ -20,7 +20,7 @@ export default function Whatsapp() {
 
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
-      .select('*, leads(full_name, lead_status), clients(full_name)')
+      .select('*, leads(full_name, status), clients(full_name)')
       .order('last_message_at', { ascending: false, nullsFirst: false }).limit(300)
     setConvs(data || [])
   }
@@ -91,7 +91,7 @@ export default function Whatsapp() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 10, marginBottom: 10 }}>
                 <div>
                   <b>{nombreDe(sel)}</b> <span className="muted">· +{sel.phone}</span>
-                  {sel.leads?.lead_status && <span className="muted small"> · LEAD: {String(sel.leads.lead_status).toUpperCase()}</span>}
+                  {sel.leads?.status && <span className="muted small"> · LEAD: {String(sel.leads.status).toUpperCase()}</span>}
                 </div>
                 <a className="btn" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">Responder en WhatsApp</a>
               </div>

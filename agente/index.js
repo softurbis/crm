@@ -36,10 +36,10 @@ async function enviar(phone, texto, meta = {}) {
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0 }
   if (enviadosHoy >= MAX_DIA) { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
   try {
-    await sock.sendMessage(jidDe(phone), { text: texto })
+    await sock.sendMessage(String(phone).includes('@') ? String(phone) : jidDe(phone), { text: texto })
     enviadosHoy++
     await supabase.from('scheduled_messages').insert({
-      recipient_phone: String(phone), body: texto, tipo: meta.tipo || 'manual',
+      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
       installment_id: meta.installment_id || null, client_id: meta.client_id || null,
       lead_id: meta.lead_id || null, scheduled_for: new Date().toISOString(),
       status: 'enviado', sent_at: new Date().toISOString(),
@@ -49,7 +49,7 @@ async function enviar(phone, texto, meta = {}) {
   } catch (e) {
     log('ERROR enviando a', phone, e.message)
     await supabase.from('scheduled_messages').insert({
-      recipient_phone: String(phone), body: texto, tipo: meta.tipo || 'manual',
+      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
       scheduled_for: new Date().toISOString(), status: 'fallido', last_error: e.message,
     })
     return false
@@ -175,8 +175,8 @@ async function setConv(phone, campos) {
   else await supabase.from('whatsapp_conversations').insert({ phone, ...campos, last_message_at: new Date().toISOString() })
 }
 
-async function manejarEntrante(jid, texto, pushName) {
-  const phone = telDeJid(jid)
+async function manejarEntrante(jid, jidPN, texto, pushName) {
+  const phone = telDeJid(jidPN || jid)
   if (!texto || phone === ADMIN) return
   const corto = texto.trim().slice(0, 400)
   log('ENTRANTE de', phone, ':', corto.slice(0, 60))
@@ -193,7 +193,7 @@ async function manejarEntrante(jid, texto, pushName) {
       await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
       await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
     }
-    await enviar(phone, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte' })
+    await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte' })
     log('RESET mapero para', phone)
     return
   }
@@ -210,14 +210,14 @@ async function manejarEntrante(jid, texto, pushName) {
   const cliente = (clientes || [])[0]
   if (cliente) {
     if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto)) {
-      await enviar(phone, `¡Gracias ${cliente.full_name.split(' ')[0]}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
+      await enviar(jid, `¡Gracias ${cliente.full_name.split(' ')[0]}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
       if (ADMIN) await enviar(ADMIN, `🤖 CLIENTE *${cliente.full_name}* (${phone}) escribió:\n"${corto}"\n\n→ Posible pago por verificar en CUOTAS.`, { tipo: 'aviso_admin' })
     }
     return // clientes: no aplicar flujo de leads
   }
 
   // ¿lead existente o nuevo? — flujo guiado
-  const { data: leadsEx } = await supabase.from('leads').select('id, full_name, lead_status').ilike('phone', `%${p9}%`).limit(1)
+  const { data: leadsEx } = await supabase.from('leads').select('id, full_name, status').ilike('phone', `%${p9}%`).limit(1)
   let lead = (leadsEx || [])[0]
   const estado = conv?.flow_state || null
 
@@ -225,11 +225,11 @@ async function manejarEntrante(jid, texto, pushName) {
     // primer contacto: crear lead + preguntar nombre
     const { data: nuevoLead } = await supabase.from('leads').insert({
       full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
-      source: 'whatsapp', lead_status: 'nuevo', optin_whatsapp: true, optin_date: new Date().toISOString(),
+      source: 'whatsapp', status: 'nuevo', optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
     await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead?.id })
-    await enviar(phone, `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate* 🌳\n\nPara atenderle mejor, ¿me indica su *nombre completo* por favor?`, { tipo: 'lead_flujo', lead_id: lead?.id })
+    await enviar(jid, `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate* 🌳\n\nPara atenderle mejor, ¿me indica su *nombre completo* por favor?`, { tipo: 'lead_flujo', lead_id: lead?.id })
     if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD por WhatsApp: ${phone} ("${corto.slice(0, 50)}"). Ya está en el KANBAN.`, { tipo: 'aviso_admin' })
     return
   }
@@ -241,9 +241,9 @@ async function manejarEntrante(jid, texto, pushName) {
       const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
       const lista = (proys || []).map((r, i) => `*${i + 1}*. ${r.name}`).join('\n')
       await setConv(phone, { flow_state: 'espera_proyecto' })
-      await enviar(phone, `¡Un gusto, ${nombre.split(' ')[0]}! 😊\n\n¿Qué proyecto le interesa? Responda con el número:\n${lista}\n*0*. Aún no estoy seguro`, { tipo: 'lead_flujo', lead_id: lead.id })
+      await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊\n\n¿Qué proyecto le interesa? Responda con el número:\n${lista}\n*0*. Aún no estoy seguro`, { tipo: 'lead_flujo', lead_id: lead.id })
     } else {
-      await enviar(phone, 'Disculpe, no logré leer su nombre. ¿Me lo escribe por favor? 🙏', { tipo: 'lead_flujo', lead_id: lead.id })
+      await enviar(jid, 'Disculpe, no logré leer su nombre. ¿Me lo escribe por favor? 🙏', { tipo: 'lead_flujo', lead_id: lead.id })
     }
     return
   }
@@ -258,7 +258,7 @@ async function manejarEntrante(jid, texto, pushName) {
       nombreProy = pr.name
     }
     await setConv(phone, { flow_state: 'completado' })
-    await enviar(phone, `¡Excelente! ✅ Registré su interés en *${nombreProy}*.\n\nEn breve uno de nuestros asesores le escribirá con toda la información: precios, ubicación y facilidades de pago. ¡Gracias por confiar en Urbis Group! 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*.\n\nEn breve uno de nuestros asesores le escribirá con toda la información: precios, ubicación y facilidades de pago. ¡Gracias por confiar en Urbis Group! 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
     if (ADMIN) {
       const { data: l2 } = await supabase.from('leads').select('full_name, phone').eq('id', lead.id).single()
       await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅\nNombre: ${l2?.full_name}\nTel: ${l2?.phone}\nProyecto: ${nombreProy}\n\n→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
@@ -307,7 +307,10 @@ async function iniciar() {
         const jid = m.key.remoteJid || ''
         if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue
         const texto = m.message?.conversation || m.message?.extendedTextMessage?.text || ''
-        await manejarEntrante(jid, texto, m.pushName)
+        const alt = String(m.key.remoteJidAlt || m.key.participantAlt || '')
+        const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
+        if (!jidPN) log('AVISO: chat LID sin numero real visible:', jid)
+        await manejarEntrante(jid, jidPN, texto, m.pushName)
       } catch (e) { log('error procesando entrante:', e.message) }
     }
   })
