@@ -19,7 +19,7 @@ export default function Bitacora() {
   const [det, setDet] = useState(null)
 
   useEffect(() => {
-    if (role !== 'admin') return
+    if (role !== 'superuser') return
     supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(1500)
       .then(({ data }) => setRows(data || []))
     supabase.from('projects').select('id, name').then(({ data }) => setProjects(data || []))
@@ -61,7 +61,7 @@ export default function Bitacora() {
 
   const tablas = useMemo(() => [...new Set(rows.map(r => r.entity_type))].sort(), [rows])
 
-  if (role !== 'admin') return <p className="error">Solo el administrador puede ver la bitacora.</p>
+  if (role !== 'superuser') return <p className="error">Solo el SUPERUSUARIO puede ver la bitacora.</p>
 
   return (
     <>

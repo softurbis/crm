@@ -42,7 +42,7 @@ export default function Layout() {
         </div>
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
-          {GLOBAL.filter(m => !m.admin || role === 'admin').map(Item)}
+          {GLOBAL.filter(m => !m.admin || role === 'superuser').map(Item)}
           <p className="menu-section">
             Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
           </p>
@@ -50,7 +50,7 @@ export default function Layout() {
         </nav>
         <div className="sidebar-footer">
           <p className="muted">{profile?.full_name}</p>
-          <p className="muted small">{role === 'manager' ? 'GERENCIA (solo ver)' : role}</p>
+          <p className="muted small">{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
           <button className="btn-ghost" onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>

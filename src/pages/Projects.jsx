@@ -28,7 +28,7 @@ function LegalChip({ label, expiry, docUrl }) {
 
 export default function Projects() {
   const { role } = useAuth()
-  const canEdit = role === 'admin'
+  const canEdit = ['admin', 'superuser'].includes(role)
   const [projects, setProjects] = useState([])
   const [stats, setStats] = useState({})
   const [accounts, setAccounts] = useState([])

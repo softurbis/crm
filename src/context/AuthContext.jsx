@@ -20,7 +20,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!session?.user) { setProfile(null); return }
     supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      .then(({ data }) => setProfile(data))
+      .then(({ data }) => {
+        if (data && data.active === false) { supabase.auth.signOut(); setProfile(null); return }
+        setProfile(data)
+      })
   }, [session])
 
   const login = (email, password) => supabase.auth.signInWithPassword({ email, password })

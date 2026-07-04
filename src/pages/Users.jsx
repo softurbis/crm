@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../context/AuthContext'
 
 const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } }
 )
-import { useAuth } from '../context/AuthContext'
 
-const ROLES = [['admin', 'ADMINISTRADOR (todo)'], ['secretary', 'SECRETARIA (opera)'], ['manager', 'GERENCIA (solo ver)']]
+const ROLES = [
+  ['superuser', 'SUPERUSUARIO (control total)'],
+  ['admin', 'ADMINISTRADOR (edita todo, sin usuarios)'],
+  ['secretary', 'SECRETARIA (opera)'],
+  ['manager', 'GERENCIA (solo ver)'],
+]
 
 export default function Users() {
   const { role, profile } = useAuth()
@@ -27,9 +32,9 @@ export default function Users() {
     ])
     setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || [])
   }
-  useEffect(() => { if (role === 'admin') load() }, [role])
+  useEffect(() => { if (role === 'superuser') load() }, [role])
 
-  if (role !== 'admin') return <p className="error">Solo el administrador puede gestionar usuarios.</p>
+  if (role !== 'superuser') return <p className="error">Solo el SUPERUSUARIO puede gestionar usuarios.</p>
 
   async function crearUsuario(e) {
     e.preventDefault()
@@ -49,15 +54,24 @@ export default function Users() {
     setBusy(false)
   }
 
+  async function cambiarRol(u, r) {
+    const { error } = await supabase.from('profiles').update({ role: r }).eq('id', u.id)
+    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `ROL DE ${u.email} ACTUALIZADO` })
+    load()
+  }
+
   async function cambiarNombre(u, name) {
     if (!name || name === u.full_name) return
     await supabase.from('profiles').update({ full_name: name.toUpperCase() }).eq('id', u.id)
     load()
   }
 
-  async function cambiarRol(u, r) {
-    const { error } = await supabase.from('profiles').update({ role: r }).eq('id', u.id)
-    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `ROL DE ${u.email} → ${r.toUpperCase()}` })
+  async function toggleActivo(u) {
+    if (u.id === profile?.id) return
+    const accion = u.active === false ? 'REACTIVAR' : 'DESACTIVAR'
+    if (!confirm(`${accion} a ${u.email}?\n\n${accion === 'DESACTIVAR' ? 'Perdera el acceso al sistema de inmediato.' : 'Recuperara el acceso.'}`)) return
+    const { error } = await supabase.from('profiles').update({ active: u.active === false }).eq('id', u.id)
+    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `${u.email} ${accion === 'DESACTIVAR' ? 'DESACTIVADO' : 'REACTIVADO'}` })
     load()
   }
 
@@ -70,6 +84,9 @@ export default function Users() {
   return (
     <>
       <h1>Usuarios y permisos</h1>
+      <p className="muted small">Jerarquia: SUPERUSUARIO (tu) &#8594; ADMINISTRADOR (edita todo, sin acceso a usuarios ni bitacora) &#8594; SECRETARIA (opera) &#8594; GERENCIA (solo ver).</p>
+      {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+
       <form className="glass form-card" onSubmit={crearUsuario}>
         <p><b>CREAR USUARIO NUEVO</b></p>
         <div className="form-grid">
@@ -83,16 +100,15 @@ export default function Users() {
           </label>
         </div>
         <button className="btn-primary" disabled={busy}>{busy ? 'Creando...' : 'Crear usuario'}</button>
-        <p className="muted small">Si sale "Email not confirmed" al entrar: Supabase &#8594; Authentication &#8594; Sign In / Providers &#8594; Email &#8594; desactivar "Confirm email".</p>
+        <p className="muted small">Si al entrar sale "Email not confirmed": Supabase &#8594; Authentication &#8594; Sign In / Providers &#8594; Email &#8594; desactivar "Confirm email".</p>
       </form>
-      {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Proyectos asignados (gerencia)</th></tr></thead>
+          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Proyectos asignados</th></tr></thead>
           <tbody>
             {users.map(u => (
-              <tr key={u.id}>
+              <tr key={u.id} className={u.active === false ? 'row-perdida' : ''}>
                 <td>{u.email}{u.id === profile?.id && <b className="accent"> (TU)</b>}</td>
                 <td><input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} /></td>
                 <td>
@@ -100,6 +116,13 @@ export default function Users() {
                     onChange={e => cambiarRol(u, e.target.value)}>
                     {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
+                </td>
+                <td>
+                  {u.id === profile?.id
+                    ? <span className="ok">ACTIVO</span>
+                    : <button className={u.active === false ? 'btn-ghost' : 'link-btn bad'} onClick={() => toggleActivo(u)}>
+                        {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
+                      </button>}
                 </td>
                 <td>
                   {projects.map(p => {
@@ -116,6 +139,7 @@ export default function Users() {
             ))}
           </tbody>
         </table>
+        <p className="muted small">DESACTIVAR corta el acceso al instante (queda en la lista por historial). Para borrarlo definitivamente: Supabase &#8594; Authentication &#8594; usuario &#8594; Delete.</p>
       </div>
     </>
   )

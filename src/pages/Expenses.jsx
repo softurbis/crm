@@ -184,7 +184,7 @@ export default function Expenses() {
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
                 <td><UpBtn g={g} campo="voucher_url" carpeta="constancias" label="subir" /></td>
                 <td>
-                  {g.status === 'solicitado' && ['admin', 'secretary'].includes(role) &&
+                  {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) &&
                     <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>}
                 </td>
               </tr>

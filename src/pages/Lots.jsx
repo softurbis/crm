@@ -171,7 +171,7 @@ export default function Lots() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Mapa de lotes</h1>
         <ProjectPicker />
-        {role === 'admin' && (
+        {['admin', 'superuser'].includes(role) && (
           <button className="btn-ghost" onClick={async () => {
             const pct = Number(prompt('SUBIDA DE PRECIOS (solo lotes DISPONIBLES de este proyecto).\n\nPorcentaje de aumento (ej. 5 para +5%, -3 para bajar 3%):'))
             if (!pct || isNaN(pct)) return
@@ -235,13 +235,13 @@ export default function Lots() {
               )}
             </div>
 
-            {['admin', 'secretary'].includes(role) && (
+            {['admin', 'secretary', 'superuser'].includes(role) && (
               <div className="ficha">
                 {!edit ? (
                   <p>
                     <button className="btn-ghost" onClick={() => { setEdit(true); setChg(false); setEf({ area_m2: sel.area_m2, price_per_m2: sel.price_per_m2, associated_to: sel.associated_to || '', initial_payment_default: sel.initial_payment_default }) }}>Editar datos</button>
                     {' '}
-                    {role === 'admin' && (
+                    {['admin', 'superuser'].includes(role) && (
                       <button className="btn-ghost" onClick={() => { setChg(!chg); setEdit(false) }}>Cambiar estado (admin)</button>
                     )}
                   </p>
@@ -258,7 +258,7 @@ export default function Lots() {
                   </form>
                 )}
 
-                {chg && role === 'admin' && (
+                {chg && ['admin', 'superuser'].includes(role) && (
                   <form onSubmit={cambiarEstado} className="chg-box">
                     <p className="bad"><b>CAMBIO DE ESTADO - REQUIERE JUSTIFICACION</b></p>
                     <label>Nuevo estado
@@ -303,7 +303,7 @@ export default function Lots() {
                 <div className="ficha">
                   <p><span className="muted">Cliente:</span> <b>{detail.sale.client?.full_name}</b> ({detail.sale.client?.doc_number})</p>
                   <p><span className="muted">Co-comprador:</span> {detail.sale.co_client?.full_name || '-'}
-                    {['admin', 'secretary'].includes(role) && (
+                    {['admin', 'secretary', 'superuser'].includes(role) && (
                       <>
                         {' '}<select value={coSel} onChange={e => setCoSel(e.target.value)} style={{ maxWidth: 220 }}>
                           <option value="">- elegir -</option>
@@ -339,7 +339,7 @@ export default function Lots() {
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
                     : <p className="error">Telefono no valido - actualizar en la ficha del cliente</p>}
-                  {role === 'admin' && detail.sale.status === 'en_proceso' && (
+                  {['admin', 'superuser'].includes(role) && detail.sale.status === 'en_proceso' && (
                     <p><button className="btn-ghost" onClick={async () => {
                       const sale = detail.sale
                       const nuevo = Number(prompt('AJUSTE DE PRECIO DE ESTA VENTA (solo admin).\n\nPrecio actual: S/ ' + sale.total_sale_price + '\nNuevo precio total:'))
