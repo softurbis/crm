@@ -56,5 +56,7 @@
 - Secundario: enviar ubicacion (Maps) + rango de precios y cuotas.
 - Cierre: "¿Le parece si un asesor lo llama hoy para coordinar su visita?"
 
-## 10. OTROS PROYECTOS PARA OFRECER
-- [Completar cuando se carguen: El Encanto de Campo Verde, El Triunfo de Neshuya, RUTA 27, etc.]
+## 10. OTROS PROYECTOS PARA OFRECER (cross-sell)
+- LAS BRISAS DE CASHIBO (vecino, mismo corredor): solo 70 lotes selectos, lo mas cercano al agua — doble frente que termina en la orilla; para quien quiere estar frente a la laguna.
+- EL ENCANTO DE CAMPO VERDE: preventa patrimonial en el Km 31 (a 1 km de la pista), lotes de 300 m2 cerca del centro urbano de Campo Verde — "donde la ciudad se encuentra con la naturaleza".
+- EL TRIUNFO DE NESHUYA: Km 64 C.F.B., POSESION INMEDIATA para cercar y construir desde el dia 1; inicial desde S/ 500 y cuotas desde S/ 208.
