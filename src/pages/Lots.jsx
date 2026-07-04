@@ -24,6 +24,8 @@ export default function Lots() {
   const { role, profile } = useAuth()
   const { pidOp } = useProject()
   const [lots, setLots] = useState([])
+  const [clientes, setClientes] = useState([])
+  const [coSel, setCoSel] = useState('')
   const [vencidos, setVencidos] = useState(new Set())
   const [filter, setFilter] = useState('todos')
   const [sel, setSel] = useState(null)
@@ -49,6 +51,8 @@ export default function Lots() {
   }
   useEffect(() => {
     loadLots()
+    supabase.from('clients').select('id, full_name, doc_number').order('full_name')
+      .then(({ data }) => setClientes(data || []))
     supabase.from('installments').select('sales!inner(lot_id, status)').eq('status', 'vencido')
       .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso').map(r => r.sales.lot_id))))
   }, [pidOp])
@@ -57,7 +61,7 @@ export default function Lots() {
     if (!sel) { setDetail(null); setHistorial([]); return }
     async function load() {
       const { data: sale } = await supabase.from('sales')
-        .select('*, client:clients!sales_client_id_fkey(full_name, phone, phone_valid, doc_number), advisor:advisors(code)')
+        .select('*, client:clients!sales_client_id_fkey(full_name, phone, phone_valid, doc_number), co_client:clients!sales_co_client_id_fkey(full_name), advisor:advisors(code)')
         .eq('lot_id', sel.id).in('status', ['en_proceso', 'pagado'])
         .maybeSingle()
       let inst = []
@@ -298,6 +302,23 @@ export default function Lots() {
                 <hr />
                 <div className="ficha">
                   <p><span className="muted">Cliente:</span> <b>{detail.sale.client?.full_name}</b> ({detail.sale.client?.doc_number})</p>
+                  <p><span className="muted">Co-comprador:</span> {detail.sale.co_client?.full_name || '-'}
+                    {['admin', 'secretary'].includes(role) && (
+                      <>
+                        {' '}<select value={coSel} onChange={e => setCoSel(e.target.value)} style={{ maxWidth: 220 }}>
+                          <option value="">- elegir -</option>
+                          <option value="QUITAR">(QUITAR CO-COMPRADOR)</option>
+                          {clientes.filter(c => c.id !== detail.sale.client_id).map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+                        </select>{' '}
+                        <button className="link-btn" onClick={async () => {
+                          if (!coSel) return
+                          await supabase.from('sales').update({ co_client_id: coSel === 'QUITAR' ? null : coSel }).eq('id', detail.sale.id)
+                          setEmsg('CO-COMPRADOR ACTUALIZADO'); setCoSel('')
+                          setSel(x => ({ ...x }))
+                        }}>guardar</button>
+                      </>
+                    )}
+                  </p>
                   <p><span className="muted">Asesor:</span> {detail.sale.advisor?.code} | <span className="muted">Precio venta:</span> S/ {Number(detail.sale.total_sale_price).toLocaleString('es-PE')}</p>
                   {(() => {
                     const pagado = detail.inst.reduce((s, i) => s + Number(i.amount_paid), 0) + Number(detail.sale.initial_amount_paid)

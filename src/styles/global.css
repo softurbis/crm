@@ -286,3 +286,9 @@ input, select, textarea { border-radius: 10px; transition: outline .1s, border-c
 ::-webkit-scrollbar-thumb { background: rgba(140,155,122,.35); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(140,155,122,.55); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- dashboard grande ---- */
+.cards-big { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.kpi-big { font-size: 2.2rem; line-height: 1.1; }
+.mes-box { border: 1px solid rgba(166,181,143,.45); }
+tr.row-sel td { background: rgba(140,155,122,.15); }
