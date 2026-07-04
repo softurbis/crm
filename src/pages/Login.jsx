@@ -16,8 +16,13 @@ export default function Login() {
     setBusy(true); setError('')
     const { error } = await login(email, password)
     setBusy(false)
-    if (error) setError('Credenciales incorrectas')
-    else nav('/')
+    if (error) {
+      const m = (error.message || '').toLowerCase()
+      if (m.includes('invalid login')) setError('Correo o contraseña incorrectos')
+      else if (m.includes('not confirmed')) setError('CORREO SIN CONFIRMAR: pide al administrador confirmar tu correo en Supabase')
+      else if (m.includes('disabled') || m.includes('banned')) setError('USUARIO DESACTIVADO')
+      else setError(error.message)
+    } else nav('/')
   }
 
   return (
