@@ -30,6 +30,8 @@ export default function Lots() {
   const [filter, setFilter] = useState('todos')
   const [sel, setSel] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [desg, setDesg] = useState(false)
+  const [pagosDesg, setPagosDesg] = useState(null)
   const [historial, setHistorial] = useState([])
 
   // edicion normal (sin estado)
@@ -350,6 +352,12 @@ export default function Lots() {
                       </>
                     )
                   })()}
+                  <p><button className="btn-ghost" onClick={async () => {
+                    const { data } = await supabase.from('daily_income')
+                      .select('date, amount, income_type, operation_number, voucher_url, observation')
+                      .eq('sale_id', detail.sale.id).order('date')
+                    setPagosDesg(data || []); setDesg(true)
+                  }}>📑 Ver desglosado de pagos</button></p>
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
                     : <p className="error">Telefono no valido - actualizar en la ficha del cliente</p>}
@@ -389,6 +397,69 @@ export default function Lots() {
             ) : detail && sel.status !== 'disponible' ? (
               <p className="muted">Sin venta activa registrada.</p>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {desg && detail?.sale && (
+        <div className="modal-bg" onClick={() => setDesg(false)}>
+          <div className="modal glass" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, width: '95%', maxHeight: '86vh', overflowY: 'auto' }}>
+            <div className="modal-head">
+              <b>DESGLOSADO DE PAGOS — MZ {sel?.mz} LT {sel?.lt}</b>
+              <button className="btn-ghost" onClick={() => setDesg(false)}>✕</button>
+            </div>
+            <p><span className="muted">Cliente:</span> <b>{detail.sale.client?.full_name}</b>{detail.sale.co_client?.full_name ? ' + ' + detail.sale.co_client.full_name : ''}</p>
+            {(() => {
+              const sale = detail.sale
+              const pagCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
+              const sepAmt = Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100
+              const pagado = pagCuotas + Number(sale.initial_amount_paid) + sepAmt
+              const saldo = Math.round((Number(sale.total_sale_price) - pagado) * 100) / 100
+              const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+              return (
+                <p>
+                  <span className="muted">Precio:</span> <b>{f(sale.total_sale_price)}</b> · <span className="muted">Separación:</span> {f(sepAmt)} · <span className="muted">Inicial:</span> {f(sale.initial_amount_paid)} · <span className="muted">Cuotas pagadas:</span> {f(pagCuotas)} · <span className="muted">SALDO:</span> <b className={saldo > 0 ? 'warn' : 'ok'}>{f(saldo)}</b>
+                </p>
+              )
+            })()}
+            <h4 style={{ margin: '10px 0 4px' }}>CRONOGRAMA DE CUOTAS ({detail.inst.length})</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
+              <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th></tr></thead>
+              <tbody>
+                {detail.inst.map(q => (
+                  <tr key={q.id} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                    <td>{q.installment_number}</td>
+                    <td>{q.due_date?.split('-').reverse().join('/')}</td>
+                    <td>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                    <td>S/ {Number(q.amount_paid).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                    <td><span className={q.status === 'pagado' ? 'ok' : q.status === 'vencido' ? 'bad' : 'warn'}>&#9679; {q.status.toUpperCase()}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <h4 style={{ margin: '14px 0 4px' }}>PAGOS REGISTRADOS ({(pagosDesg || []).length})</h4>
+            {!pagosDesg?.length && <p className="muted">Sin pagos registrados para esta venta.</p>}
+            {!!pagosDesg?.length && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
+                <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>MONTO</th><th>OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
+                <tbody>
+                  {pagosDesg.map((p2, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                      <td>{p2.date?.split('-').reverse().join('/')}</td>
+                      <td>{(p2.income_type || '').toUpperCase()}</td>
+                      <td>S/ {Number(p2.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td style={{ textTransform: 'none' }}>{p2.operation_number}</td>
+                      <td>{p2.voucher_url ? <a href={p2.voucher_url} target="_blank" rel="noreferrer">ver</a> : <span className="bad">falta</span>}</td>
+                      <td style={{ maxWidth: 170, textTransform: 'none' }}>{p2.observation || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
+                    <td colSpan="2">TOTAL PAGOS</td>
+                    <td colSpan="4">S/ {pagosDesg.reduce((x, y) => x + Number(y.amount), 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
