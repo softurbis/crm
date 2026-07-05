@@ -222,6 +222,16 @@ async function cobranza() {
   if (!(await flag('bot_activo')) || !(await flag('cobranza_activa'))) { log('COBRANZA DESACTIVADA desde el panel'); return }
   log('=== BARRIDO DE COBRANZA (4 NIVELES) ===')
   try { await supabase.rpc('mark_overdue_installments') } catch (e) { log('mark_overdue:', e.message) }
+  // tolerancia de redondeo: cuotas con faltante <= S/2 se consideran pagadas (condonacion de residuo)
+  try {
+    const { data: casi } = await supabase.from('installments').select('id, amount, amount_paid').neq('status', 'pagado').gt('amount_paid', 0)
+    let cur = 0
+    for (const q of (casi || [])) {
+      const falta = Number(q.amount) - Number(q.amount_paid)
+      if (falta > 0 && falta <= 2) { await supabase.from('installments').update({ status: 'pagado', amount: q.amount_paid }).eq('id', q.id); cur++ }
+    }
+    if (cur) log('TOLERANCIA: ' + cur + ' cuotas con residuo <= S/2 marcadas como pagadas')
+  } catch (e) { log('tolerancia:', String(e.message || e)) }
   const hoyISO = new Date().toISOString().slice(0, 10)
 
   const { data: ventas, error } = await supabase.from('sales')

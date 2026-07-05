@@ -354,7 +354,7 @@ export default function Lots() {
                   })()}
                   <p><button className="btn-ghost" onClick={async () => {
                     const { data } = await supabase.from('daily_income')
-                      .select('date, amount, income_type, operation_number, voucher_url, observation')
+                      .select('date, amount, income_type, operation_number, voucher_url, observation, installment_id')
                       .eq('sale_id', detail.sale.id).order('date')
                     setPagosDesg(data || []); setDesg(true)
                   }}>📑 Ver desglosado de pagos</button></p>
@@ -441,12 +441,13 @@ export default function Lots() {
             {!pagosDesg?.length && <p className="muted">Sin pagos registrados para esta venta.</p>}
             {!!pagosDesg?.length && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
-                <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>MONTO</th><th>OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
+                <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>CUOTA</th><th>MONTO</th><th>OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
                 <tbody>
                   {pagosDesg.map((p2, i) => (
                     <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
                       <td>{p2.date?.split('-').reverse().join('/')}</td>
                       <td>{(p2.income_type || '').toUpperCase()}</td>
+                      <td>{p2.installment_id ? ('N° ' + (detail.inst.find(q => q.id === p2.installment_id)?.installment_number ?? '?')) : '-'}</td>
                       <td>S/ {Number(p2.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                       <td style={{ textTransform: 'none' }}>{p2.operation_number}</td>
                       <td>{p2.voucher_url ? <a href={p2.voucher_url} target="_blank" rel="noreferrer">ver</a> : <span className="bad">falta</span>}</td>
@@ -454,7 +455,7 @@ export default function Lots() {
                     </tr>
                   ))}
                   <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
-                    <td colSpan="2">TOTAL PAGOS</td>
+                    <td colSpan="3">TOTAL PAGOS</td>
                     <td colSpan="4">S/ {pagosDesg.reduce((x, y) => x + Number(y.amount), 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tbody>
