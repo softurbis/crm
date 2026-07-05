@@ -39,13 +39,27 @@ async function tipoNumero(soloDig) { const { data } = await supabase.from('whats
 const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 
+async function enviarArchivo(jid, url, clase, caption) {
+  try {
+    await espera(2500 + Math.floor(Math.random() * 2500))
+    const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
+    const low = String(url).toLowerCase()
+    if (clase === 'video') await sock.sendMessage(dest, { video: { url }, caption: caption || undefined })
+    else if (clase === 'plano' && low.includes('.pdf')) await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined })
+    else await sock.sendMessage(dest, { image: { url }, caption: caption || undefined })
+    enviadosHoy++
+    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: (clase === 'video' ? '🎬 VIDEO ENVIADO' : clase === 'plano' ? '🗺️ PLANO ENVIADO' : '📷 FOTO ENVIADA') + (caption ? ': ' + caption : ''), tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
+    log('MEDIA [' + clase + '] enviada a', telDeJid(dest))
+  } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
+}
+
 async function responderIA(jid, phone, lead, conv, texto) {
   try {
     if (!IA_KEY) return
     if (!(await flag('ia_activa'))) return
     let proy = null
     if (lead.project_id) {
-      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, facebook_url, instagram_url, bot_knowledge').eq('id', lead.project_id).maybeSingle()
+      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, facebook_url, instagram_url, bot_knowledge, plano_url, foto1_url, foto2_url, foto3_url, video_url').eq('id', lead.project_id).maybeSingle()
       proy = data
     }
     let fichas = ''
@@ -53,6 +67,12 @@ async function responderIA(jid, phone, lead, conv, texto) {
     if (proy) {
       fichas = 'PROYECTO: ' + proy.name + '\nDESCRIPCION: ' + (proy.description || '') + '\nCOMO LLEGAR: ' + (proy.how_to_arrive || '') + '\nUBICACION MAPS: ' + (proy.maps_url || '') + '\n\nFICHA DEL BOT:\n' + String(proy.bot_knowledge || '(sin ficha)').slice(0, 6000)
       fichas += '\nREDES DEL PROYECTO: Facebook: ' + (proy.facebook_url || 'no disponible') + ' | Instagram: ' + (proy.instagram_url || 'no disponible')
+      const mat = []
+      if (proy.plano_url) mat.push('PLANO')
+      const fotosArr = [proy.foto1_url, proy.foto2_url, proy.foto3_url].filter(Boolean)
+      if (fotosArr.length) mat.push('FOTOS(' + fotosArr.length + ')')
+      if (proy.video_url) mat.push('VIDEO')
+      fichas += '\nMATERIAL DISPONIBLE PARA ENVIAR: ' + (mat.length ? mat.join(', ') : 'ninguno')
       const { data: lots } = await supabase.from('lots').select('status, total_price, area_m2').eq('project_id', proy.id)
       const disp = (lots || []).filter(l => l.status === 'disponible')
       if (disp.length) {
@@ -72,7 +92,7 @@ async function responderIA(jid, phone, lead, conv, texto) {
         .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
       hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
     }
-    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 4-5 lineas estilo WhatsApp, 1-2 emojis maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. ESTRATEGIA DE VENTA: primero INFORME con generosidad — entregue toda la informacion que pidan (precio desde, separacion, inicial, cuotas, medidas de lote, cuantos disponibles, ubicacion con link, papeles, redes) sin apurar el cierre. Termine cada mensaje con una pregunta que invite a seguir conversando sobre SU necesidad (zona, tamano, uso: vivienda o negocio, presupuesto) — NO ofrezca la visita en cada mensaje. SOLO cuando el cliente ya recibio bastante informacion y muestra interes real (pregunta como separar, como pagar, como visitar, o lleva varias preguntas seguidas), ofrezca el CIERRE preguntando cual prefiere: agendar una VISITA al proyecto o que un asesor lo LLAME para darle el detalle. Cuando pidan ubicacion o como llegar, envie el link de Maps tal cual aparece en la ficha; si quieren ver fotos, otros proyectos o saber mas de Urbis, comparta los links de REDES DEL PROYECTO. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones; NUNCA diga cuantos lotes quedan disponibles (si preguntan disponibilidad, diga que hay opciones y que puede verificar el lote que le interese); DOSIFIQUE: maximo 2 datos nuevos por mensaje, nunca entregue toda la informacion de golpe. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 4-5 lineas estilo WhatsApp, 1-2 emojis maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. ESTRATEGIA DE VENTA: primero INFORME con generosidad — entregue toda la informacion que pidan (precio desde, separacion, inicial, cuotas, medidas de lote, cuantos disponibles, ubicacion con link, papeles, redes) sin apurar el cierre. Termine cada mensaje con una pregunta que invite a seguir conversando sobre SU necesidad (zona, tamano, uso: vivienda o negocio, presupuesto) — NO ofrezca la visita en cada mensaje. SOLO cuando el cliente ya recibio bastante informacion y muestra interes real (pregunta como separar, como pagar, como visitar, o lleva varias preguntas seguidas), ofrezca el CIERRE preguntando cual prefiere: agendar una VISITA al proyecto o que un asesor lo LLAME para darle el detalle. Cuando pidan ubicacion o como llegar, envie el link de Maps tal cual aparece en la ficha; si quieren ver fotos, otros proyectos o saber mas de Urbis, comparta los links de REDES DEL PROYECTO. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones; NUNCA diga cuantos lotes quedan disponibles (si preguntan disponibilidad, diga que hay opciones y que puede verificar el lote que le interese); DOSIFIQUE: maximo 2 datos nuevos por mensaje, nunca entregue toda la informacion de golpe. MATERIAL MULTIMEDIA: si el cliente pide el plano, agregue al FINAL de su mensaje el codigo [ENVIAR_PLANO]; si pide fotos o quiere ver como es el proyecto, agregue [ENVIAR_FOTOS]; si pide video, agregue [ENVIAR_VIDEO]. Use cada codigo SOLO si ese material figura en MATERIAL DISPONIBLE, maximo un tipo por mensaje, y jamas mencione los codigos en el texto visible. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 350, system, messages: [{ role: 'user', content: fichas + '\n' + lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp.' }] }
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -84,7 +104,20 @@ async function responderIA(jid, phone, lead, conv, texto) {
     const j = await r.json()
     const out = (j?.content || []).map(c => c.text || '').join('').trim()
     if (!out) { log('IA sin texto:', JSON.stringify(j).slice(0, 300)); return }
-    await enviar(jid, out.slice(0, 900), { tipo: 'ia', lead_id: lead.id })
+    let textoOut = out.slice(0, 900)
+    const wantPlano = /\[ENVIAR_PLANO\]/i.test(textoOut)
+    const wantFotos = /\[ENVIAR_FOTOS\]/i.test(textoOut)
+    const wantVideo = /\[ENVIAR_VIDEO\]/i.test(textoOut)
+    textoOut = textoOut.replace(/\[ENVIAR_(PLANO|FOTOS|VIDEO)\]/gi, '').trim()
+    if (textoOut) await enviar(jid, textoOut, { tipo: 'ia', lead_id: lead.id })
+    if (proy) {
+      if (wantPlano && proy.plano_url) await enviarArchivo(jid, proy.plano_url, 'plano', 'Plano actualizado — ' + proy.name)
+      if (wantFotos) {
+        const fs = [proy.foto1_url, proy.foto2_url, proy.foto3_url].filter(Boolean)
+        for (let i = 0; i < fs.length; i++) await enviarArchivo(jid, fs[i], 'foto', i === 0 ? proy.name : '')
+      }
+      if (wantVideo && proy.video_url) await enviarArchivo(jid, proy.video_url, 'video', proy.name)
+    }
   } catch (e) { log('IA ERROR:', String(e.message || e)) }
 }
 

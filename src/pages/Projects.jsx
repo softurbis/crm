@@ -37,6 +37,11 @@ export default function Projects() {
   const [f, setF] = useState({})
   const [fLiteral, setFLiteral] = useState(null)
   const [fPoder, setFPoder] = useState(null)
+  const [fPlano, setFPlano] = useState(null)
+  const [fFoto1, setFFoto1] = useState(null)
+  const [fFoto2, setFFoto2] = useState(null)
+  const [fFoto3, setFFoto3] = useState(null)
+  const [fVideo, setFVideo] = useState(null)
   const [na, setNa] = useState({})
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -82,7 +87,7 @@ export default function Projects() {
     base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
     base.bot_knowledge = p?.bot_knowledge ?? ''
     base.poder_expiry = p?.poder_expiry ?? ''
-    setF(base); setFLiteral(null); setFPoder(null); setMsg(null)
+    setF(base); setFLiteral(null); setFPoder(null); setFPlano(null); setFFoto1(null); setFFoto2(null); setFFoto3(null); setFVideo(null); setMsg(null)
   }
 
   async function guardar(e) {
@@ -99,6 +104,18 @@ export default function Projects() {
       if (fLiteral) literalUrl = await upload('legal/partida', fLiteral)
       if (fPoder) poderUrl = await upload('legal/poder', fPoder)
 
+      let planoUrl = p?.plano_url || null
+      let foto1 = p?.foto1_url || null, foto2 = p?.foto2_url || null, foto3 = p?.foto3_url || null
+      let videoUrl = p?.video_url || null
+      if (fPlano) planoUrl = await upload('bot/plano', fPlano)
+      if (fFoto1) foto1 = await upload('bot/foto1', fFoto1)
+      if (fFoto2) foto2 = await upload('bot/foto2', fFoto2)
+      if (fFoto3) foto3 = await upload('bot/foto3', fFoto3)
+      if (fVideo) {
+        if (fVideo.size > 15 * 1024 * 1024) throw new Error('El video debe pesar maximo 15 MB para WhatsApp.')
+        videoUrl = await upload('bot/video', fVideo)
+      }
+
       const payload = {}
       for (const [k, , req] of CAMPOS) {
         const v = (String(f[k] ?? '')).trim()
@@ -112,6 +129,11 @@ export default function Projects() {
       payload.carta_poder_url = poderUrl
       payload.poder_expiry = f.poder_expiry || null
       payload.bot_knowledge = f.bot_knowledge || null
+      payload.plano_url = planoUrl
+      payload.foto1_url = foto1
+      payload.foto2_url = foto2
+      payload.foto3_url = foto3
+      payload.video_url = videoUrl
 
       const r = edit === 'nuevo'
         ? await supabase.from('projects').insert(payload)
@@ -133,6 +155,8 @@ export default function Projects() {
     setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'CUENTA AGREGADA' })
     setNa({}); load()
   }
+
+  const pcur = edit && edit !== 'nuevo' ? projects.find(x => x.id === edit) : null
 
   const FORM = (
     <form className="glass form-card" onSubmit={guardar}>
@@ -159,6 +183,22 @@ export default function Projects() {
         <label>Vigencia del poder
           <input type="date" value={f.poder_expiry || ''}
             onChange={e => setF(x => ({ ...x, poder_expiry: e.target.value }))} />
+        </label>
+        <p className="span2" style={{ margin: '8px 0 0' }}><b>📎 MATERIAL DEL BOT (WhatsApp)</b> — el agente lo envía en la conversación cuando el cliente pide plano, fotos o video.</p>
+        <label>Plano actualizado (imagen o PDF) {pcur?.plano_url && <a href={pcur.plano_url} target="_blank" rel="noreferrer" style={{ textTransform: 'none' }}>ver actual</a>}
+          <input type="file" accept="image/*,.pdf" onChange={e => setFPlano(e.target.files[0] || null)} />
+        </label>
+        <label>Foto 1 {pcur?.foto1_url && <a href={pcur.foto1_url} target="_blank" rel="noreferrer">ver</a>}
+          <input type="file" accept="image/*" onChange={e => setFFoto1(e.target.files[0] || null)} />
+        </label>
+        <label>Foto 2 {pcur?.foto2_url && <a href={pcur.foto2_url} target="_blank" rel="noreferrer">ver</a>}
+          <input type="file" accept="image/*" onChange={e => setFFoto2(e.target.files[0] || null)} />
+        </label>
+        <label>Foto 3 {pcur?.foto3_url && <a href={pcur.foto3_url} target="_blank" rel="noreferrer">ver</a>}
+          <input type="file" accept="image/*" onChange={e => setFFoto3(e.target.files[0] || null)} />
+        </label>
+        <label>Video (MP4, máx. 15 MB) {pcur?.video_url && <a href={pcur.video_url} target="_blank" rel="noreferrer">ver</a>}
+          <input type="file" accept="video/mp4,video/*" onChange={e => setFVideo(e.target.files[0] || null)} />
         </label>
         {role === 'superuser' && (
           <label className="span2">FICHA DEL BOT (conocimiento del agente WhatsApp para este proyecto — pega aqui el contenido segun docs/PLANTILLA-FICHA-BOT.md)
