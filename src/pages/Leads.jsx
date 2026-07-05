@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
 const ETAPAS = [
-  ['nuevo', 'NUEVO', '#8C9B7A'],
+  ['nuevo', 'NUEVO', '#9ccb86'],
   ['contactado', 'CONTACTADO', '#7fa3c2'],
   ['interesado', 'INTERESADO', '#e0b23f'],
   ['visita_agendada', 'VISITA AGENDADA', '#b58ad9'],

@@ -9,7 +9,7 @@ const FLOW = {
 }
 const TIPOS = [
   { v: 'desactivado', t: 'ADMINISTRATIVO (el bot nunca responde)', c: '#e07b7b' },
-  { v: 'bot',         t: 'BOT (flujo de leads)',                c: '#8C9B7A' },
+  { v: 'bot',         t: 'BOT (flujo de leads)',                c: '#9ccb86' },
   { v: 'cliente',     t: 'CLIENTE (solo cobranza)',             c: '#b8a1d9' },
   { v: 'secretaria',  t: 'SECRETARIA (seguimiento, prox.)',     c: '#7ec8e3' },
 ]
