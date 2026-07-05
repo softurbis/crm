@@ -28,6 +28,7 @@ export default function Lots() {
   const [coSel, setCoSel] = useState('')
   const [vencidos, setVencidos] = useState(new Set())
   const [filter, setFilter] = useState('todos')
+  const [vista, setVista] = useState('plano')
   const [sel, setSel] = useState(null)
   const [detail, setDetail] = useState(null)
   const [desg, setDesg] = useState(false)
@@ -252,23 +253,53 @@ export default function Lots() {
           onClick={() => setFilter('vencidas')}>
           <span className="dot" /> Con vencidas ({counts.vencidas})
         </button>
+        <span style={{ flex: 1 }} />
+        <button className={`chip ${vista === 'plano' ? 'on' : ''}`} onClick={() => setVista('plano')}>🗺️ Plano</button>
+        <button className={`chip ${vista === 'lista' ? 'on' : ''}`} onClick={() => setVista('lista')}>☰ Lista</button>
       </div>
 
-      {Object.entries(byMz).map(([mz, arr]) => (
-        <section key={mz} className="mz-block">
-          <h3>Manzana {mz}</h3>
-          <div className="lot-grid">
-            {arr.map(l => (
-              <button key={l.id} className={`lot-cell ${vencidos.has(l.id) ? 'venc' : ''}`}
-                style={{ background: COLORS[l.status] }}
-                title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]}${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
-                onClick={() => abrirLote(l)}>
-                {l.lt}
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
+      {vista === 'plano' ? (
+        <div className="plano-wrap">
+          {Object.entries(byMz).map(([mz, arr]) => {
+            const mitad = arr.length > 4 ? Math.ceil(arr.length / 2) : arr.length
+            const filas = [arr.slice(0, mitad), arr.slice(mitad).reverse()].filter(f => f.length)
+            return (
+              <section key={mz} className="mz-plano">
+                <span className="mz-tag">Mz. {mz}</span>
+                {filas.map((fila, i) => (
+                  <div key={i} className="fila-lotes">
+                    {fila.map(l => (
+                      <button key={l.id} className={`parcela ${vencidos.has(l.id) ? 'venc' : ''}`}
+                        style={{ '--st': COLORS[l.status] }}
+                        title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]} - ${l.area_m2} m2${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
+                        onClick={() => abrirLote(l)}>
+                        <b>{l.lt}</b>
+                        <small>{Math.round(l.area_m2)} m²</small>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </section>
+            )
+          })}
+        </div>
+      ) : (
+        Object.entries(byMz).map(([mz, arr]) => (
+          <section key={mz} className="mz-block">
+            <h3>Manzana {mz}</h3>
+            <div className="lot-grid">
+              {arr.map(l => (
+                <button key={l.id} className={`lot-cell ${vencidos.has(l.id) ? 'venc' : ''}`}
+                  style={{ background: COLORS[l.status] }}
+                  title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]}${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
+                  onClick={() => abrirLote(l)}>
+                  {l.lt}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))
+      )}
 
       {sel && (
         <div className="modal-bg" onClick={() => setSel(null)}>
