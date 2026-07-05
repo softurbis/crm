@@ -40,6 +40,8 @@ export default function Whatsapp() {
   const [sel, setSel] = useState(null)
   const [msgs, setMsgs] = useState([])
   const [busca, setBusca] = useState('')
+  const [vista, setVista] = useState('lista')
+  const [filtro, setFiltro] = useState('todos')
   const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
@@ -102,9 +104,16 @@ export default function Whatsapp() {
   if (!['admin', 'superuser'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Solo administración puede ver las conversaciones del bot.</div>
 
   const lista = convs.filter(c => {
-    if (!busca) return true
-    const q = busca.toLowerCase()
-    return (c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q)
+    if (busca) {
+      const q = busca.toLowerCase()
+      if (!((c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q))) return false
+    }
+    if (filtro === 'calificados') return c.flow_state === 'completado'
+    if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto'].includes(c.flow_state)
+    if (filtro === 'clientes') return !!c.clients
+    if (filtro === 'humanos') return c.flow_state === 'humano'
+    if (filtro === 'silenciados') return !!nums.find(n => c.phone && n.tipo === 'desactivado' && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
+    return true
   })
   const nombreDe = c => c.clients?.full_name || c.leads?.full_name || 'SIN NOMBRE'
   const tipoDe = phone => nums.find(n => phone && (phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(phone).slice(-9))))
@@ -157,10 +166,19 @@ export default function Whatsapp() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: vista === 'cuadros' ? 'minmax(340px, 500px) 1fr' : 'minmax(240px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
         <div className="glass" style={{ padding: 10, maxHeight: '70vh', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+            {[['todos', 'TODOS'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['clientes', 'CLIENTES'], ['humanos', 'CON ASESOR'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
+              <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
+                style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
+            ))}
+            <button className="btn-ghost" title="Cambiar vista" onClick={() => setVista(vista === 'lista' ? 'cuadros' : 'lista')}
+              style={{ fontSize: 10, padding: '3px 8px', marginLeft: 'auto' }}>{vista === 'lista' ? '⊞ CUADROS' : '☰ LISTA'}</button>
+          </div>
           <input placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => setBusca(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
           {lista.length === 0 && <p className="muted" style={{ padding: 8 }}>Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.</p>}
+          <div style={vista === 'cuadros' ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 } : {}}>
           {lista.map(c => {
             const f = FLOW[c.flow_state]
             const tn = tipoDe(c.phone)
@@ -182,6 +200,7 @@ export default function Whatsapp() {
               </div>
             )
           })}
+          </div>
         </div>
 
         <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
@@ -190,8 +209,27 @@ export default function Whatsapp() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 10, marginBottom: 10 }}>
                 <div>
-                  <b>{nombreDe(sel)}</b> <span className="muted">· +{sel.phone}</span>
-                  {sel.leads?.status && <span className="muted small"> · LEAD: {String(sel.leads.status).toUpperCase()}</span>}
+                  <b>{nombreDe(sel)}</b>
+                  {sel.lead_id && (
+                    <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12 }} onClick={async () => {
+                      const nuevo = prompt('Nombre del lead:', nombreDe(sel))
+                      if (!nuevo || !nuevo.trim()) return
+                      await supabase.from('leads').update({ full_name: nuevo.trim().toUpperCase() }).eq('id', sel.lead_id)
+                      cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), full_name: nuevo.trim().toUpperCase() } }))
+                    }}>✎</button>
+                  )}
+                  <span className="muted"> · +{sel.phone}</span>
+                  {sel.lead_id && (
+                    <span className="muted small"> · LEAD:{' '}
+                      <select value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '1px 4px' }} onChange={async e => {
+                        const st = e.target.value
+                        await supabase.from('leads').update({ status: st }).eq('id', sel.lead_id)
+                        cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), status: st } }))
+                      }}>
+                        {['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion', 'ganado', 'perdido'].map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
+                      </select>
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <select value={tipoDe(sel.phone)?.tipo || 'bot'}

@@ -32,6 +32,7 @@ export default function Lots() {
   const [detail, setDetail] = useState(null)
   const [desg, setDesg] = useState(false)
   const [pagosDesg, setPagosDesg] = useState(null)
+  const [simu, setSimu] = useState(null)
   const [historial, setHistorial] = useState([])
 
   // edicion normal (sin estado)
@@ -81,6 +82,53 @@ export default function Lots() {
     }
     load()
   }, [sel])
+
+  async function calcularSimulacro() {
+    setSimu({ cargando: true })
+    const soles = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+    const { data: ventas } = await supabase.from('sales')
+      .select('id, auto_cobranza, client:clients!sales_client_id_fkey(full_name, phone), lot:lots!inner(mz, lt, project_id)')
+      .eq('status', 'en_proceso').eq('lot.project_id', pidOp)
+    const ids = (ventas || []).map(v => v.id)
+    const { data: insts } = ids.length ? await supabase.from('installments')
+      .select('sale_id, installment_number, due_date, amount, amount_paid, status')
+      .in('sale_id', ids).order('installment_number') : { data: [] }
+    const porVenta = {}
+    for (const q of (insts || [])) (porVenta[q.sale_id] = porVenta[q.sale_id] || []).push(q)
+    const dias = d => Math.floor((hoy - new Date(d + 'T00:00:00')) / 86400000)
+    const envios = []; const humanos = []; let pausadas = 0; let sinAccion = 0
+    for (const v of (ventas || [])) {
+      const nombre = (v.client?.full_name || '').split(' ')[0]
+      const lote = 'Mz ' + v.lot.mz + ' Lt ' + v.lot.lt
+      if (v.auto_cobranza === false) { pausadas++; continue }
+      const qs = porVenta[v.id] || []
+      const vencidas = qs.filter(q => q.status !== 'pagado' && dias(q.due_date) > 0 && (Number(q.amount) - Number(q.amount_paid)) > 2)
+      const deuda = vencidas.reduce((x, q) => x + Number(q.amount) - Number(q.amount_paid), 0)
+      const nV = vencidas.length
+      const base = { cliente: v.client?.full_name, tel: v.client?.phone, lote, nV, deuda }
+      if (nV >= 3) {
+        envios.push({ ...base, nivel: 'C', msj: '⚠️ *AVISO IMPORTANTE - URBIS GROUP* ⚠️\n\nSr(a). ' + nombre + ': su lote *' + lote + '* acumula *' + nV + ' cuotas vencidas* por *' + soles(deuda) + '*.\n\nConforme a su contrato, la acumulación de cuotas impagas es causal de resolución y puede derivar en la *pérdida/expropiación del lote* y de los montos pagados.\n\n*Es urgente que se comunique con nosotros HOY* para regularizar o llegar a un acuerdo por escrito. 📞' })
+      } else if (nV === 2) {
+        envios.push({ ...base, nivel: 'B', msj: 'Hola ' + nombre + ', le saludamos de *Urbis Group*.\n\nSu lote *' + lote + '* registra *2 cuotas vencidas* por un total de *' + soles(deuda) + '*.\n\nLe pedimos regularizar sus pagos para evitar mayores penalidades por mora. Si necesita una reprogramación, escríbanos y lo coordinamos. 🙏' })
+      } else if (nV === 1) {
+        const q = vencidas[0]; const dd = dias(q.due_date)
+        if (dd >= 5) humanos.push({ ...base, dd, monto: Number(q.amount) - Number(q.amount_paid), vence: q.due_date })
+        else if (dd === 2 || dd === 4) envios.push({ ...base, nivel: 'INSISTENCIA', msj: 'Hola ' + nombre + ', le saludamos de *Urbis Group*.\n\nSu cuota N° ' + q.installment_number + ' del lote *' + lote + '* por *' + soles(Number(q.amount) - Number(q.amount_paid)) + '* venció hace ' + dd + ' días.\n\nSi ya realizó el pago, envíenos el voucher por aquí; si tuvo un inconveniente, escríbanos para regularizar. 🙏' })
+        else sinAccion++
+      } else {
+        const prox = qs.find(q => q.status !== 'pagado' && [-5, -3, 0].includes(dias(q.due_date)))
+        if (prox) {
+          const dp = -dias(prox.due_date); const falta = Number(prox.amount) - Number(prox.amount_paid)
+          const cuerpo = dp === 0
+            ? '*Hoy vence* su cuota N° ' + prox.installment_number + ' del lote *' + lote + '* por *' + soles(falta) + '*. Cuando pague, envíe la *foto de su voucher por este chat*. 📄✅'
+            : 'Su cuota N° ' + prox.installment_number + ' del lote *' + lote + '* por *' + soles(falta) + '* vence en ' + dp + ' días, el *' + prox.due_date + '*. 🙌'
+          envios.push({ ...base, nivel: dp === 0 ? 'A - HOY' : 'A - ' + dp + ' DÍAS', msj: 'Hola ' + nombre + ' 👋 le saludamos de *Urbis Group*.\n\n' + cuerpo })
+        } else sinAccion++
+      }
+    }
+    setSimu({ envios, humanos, pausadas, sinAccion, fecha: new Date().toLocaleString('es-PE') })
+  }
 
   const byMz = useMemo(() => {
     const g = {}
@@ -185,6 +233,9 @@ export default function Lots() {
             alert(`${disp.length} LOTES ACTUALIZADOS (${pct > 0 ? '+' : ''}${pct}%)`)
             loadLots()
           }}>Precios % (admin)</button>
+        )}
+        {['admin', 'superuser', 'secretary'].includes(role) && (
+          <button className="btn-ghost" onClick={calcularSimulacro}>🧪 Simulacro cobranza</button>
         )}
       </div>
 
@@ -397,6 +448,54 @@ export default function Lots() {
             ) : detail && sel.status !== 'disponible' ? (
               <p className="muted">Sin venta activa registrada.</p>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {simu && (
+        <div className="modal-bg" onClick={() => setSimu(null)}>
+          <div className="modal glass" onClick={e => e.stopPropagation()} style={{ maxWidth: 900, width: '96%', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div className="modal-head">
+              <b>🧪 SIMULACRO DE COBRANZA — {simu.fecha || ''}</b>
+              <button className="btn-ghost" onClick={() => setSimu(null)}>✕</button>
+            </div>
+            {simu.cargando ? <p className="muted">Calculando…</p> : (
+              <>
+                <p className="muted" style={{ fontSize: '.85rem' }}>Referencial: lo que el agente enviaría en el próximo barrido de las 9:00 con la data ACTUAL. No envía nada. (El agente además aplica dedupe: no repite el mismo aviso del mismo día.)</p>
+                <p>
+                  <span className="bad">&#9679; NIVEL C: {simu.envios.filter(x => x.nivel === 'C').length}</span>{' '}
+                  <span className="warn">&#9679; NIVEL B: {simu.envios.filter(x => x.nivel === 'B').length}</span>{' '}
+                  <span className="warn">&#9679; INSISTENCIAS: {simu.envios.filter(x => x.nivel === 'INSISTENCIA').length}</span>{' '}
+                  <span className="ok">&#9679; RECORDATORIOS A: {simu.envios.filter(x => String(x.nivel).startsWith('A')).length}</span>{' '}
+                  <span className="muted">| GESTIÓN HUMANA: {simu.humanos.length} | PAUSADAS: {simu.pausadas} | SIN ACCIÓN HOY: {simu.sinAccion}</span>
+                </p>
+                <h4 style={{ margin: '10px 0 4px' }}>MENSAJES QUE SALDRÍAN ({simu.envios.length})</h4>
+                {!simu.envios.length && <p className="muted">Ninguno con la data actual.</p>}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
+                  <tbody>
+                    {simu.envios.map((e2, i) => (
+                      <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)', verticalAlign: 'top' }}>
+                        <td style={{ whiteSpace: 'nowrap', paddingRight: 8 }}>
+                          <span className={e2.nivel === 'C' ? 'bad' : e2.nivel === 'B' || e2.nivel === 'INSISTENCIA' ? 'warn' : 'ok'}>&#9679; {e2.nivel}</span>
+                        </td>
+                        <td style={{ paddingRight: 8 }}><b>{e2.cliente}</b><br /><span className="muted">{e2.tel} · {e2.lote} · {e2.nV} venc. · S/ {Number(e2.deuda).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span></td>
+                        <td>
+                          <details>
+                            <summary style={{ cursor: 'pointer' }}>ver mensaje</summary>
+                            <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: '.82rem', background: 'rgba(59,74,50,.35)', borderRadius: 8, padding: '8px 10px', marginTop: 4 }}>{e2.msj.replace(/\\n/g, '\n')}</div>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <h4 style={{ margin: '14px 0 4px' }}>REQUIEREN GESTIÓN HUMANA ({simu.humanos.length}) — el bot ya no les escribe</h4>
+                {!simu.humanos.length && <p className="muted">Ninguno.</p>}
+                {simu.humanos.map((h, i) => (
+                  <p key={i} style={{ margin: '2px 0' }}>• <b>{h.cliente}</b> — {h.lote} · S/ {Number(h.monto).toLocaleString('es-PE', { minimumFractionDigits: 2 })} · venció {h.vence} (hace {h.dd} días) <span className="muted">→ llamada del asesor</span></p>
+                ))}
+              </>
+            )}
           </div>
         </div>
       )}
