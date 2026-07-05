@@ -22,7 +22,7 @@ let diaActual = new Date().toDateString()
 
 const log = (...a) => console.log(new Date().toLocaleString('es-PE'), '|', ...a)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-const espera = ms => new Promise(r => setTimeout(r, ms))
+const espera = ms => new Promise(r => setTimeout(r, process.env.SIMULACRO === '1' ? 5 : ms))
 const delayAleatorio = () => 20000 + Math.floor(Math.random() * 25000) // 20-45 s
 
 function jidDe(phone) {
@@ -45,10 +45,10 @@ async function enviarArchivo(jid, url, clase, caption) {
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
     const low = String(url).toLowerCase()
     if (clase === 'video') await sock.sendMessage(dest, { video: { url }, caption: caption || undefined })
-    else if (clase === 'plano' && low.includes('.pdf')) await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined })
+    else if ((clase === 'plano' || clase === 'brochure') && low.includes('.pdf')) await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: clase === 'brochure' ? 'BROCHURE.pdf' : 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined })
     else await sock.sendMessage(dest, { image: { url }, caption: caption || undefined })
     enviadosHoy++
-    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: (clase === 'video' ? '🎬 VIDEO ENVIADO' : clase === 'plano' ? '🗺️ PLANO ENVIADO' : '📷 FOTO ENVIADA') + (caption ? ': ' + caption : ''), tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
+    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: (clase === 'video' ? '🎬 VIDEO ENVIADO' : clase === 'plano' ? '🗺️ PLANO ENVIADO' : clase === 'brochure' ? '📘 BROCHURE ENVIADO' : '📷 FOTO ENVIADA') + (caption ? ': ' + caption : ''), tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     log('MEDIA [' + clase + '] enviada a', telDeJid(dest))
   } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
 }
@@ -59,7 +59,7 @@ async function responderIA(jid, phone, lead, conv, texto) {
     if (!(await flag('ia_activa'))) return
     let proy = null
     if (lead.project_id) {
-      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, facebook_url, instagram_url, bot_knowledge, plano_url, foto1_url, foto2_url, foto3_url, video_url').eq('id', lead.project_id).maybeSingle()
+      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, facebook_url, instagram_url, vista360_url, bot_knowledge, plano_url, brochure_url, foto1_url, foto2_url, foto3_url, video_url').eq('id', lead.project_id).maybeSingle()
       proy = data
     }
     let fichas = ''
@@ -69,9 +69,11 @@ async function responderIA(jid, phone, lead, conv, texto) {
       fichas += '\nREDES DEL PROYECTO: Facebook: ' + (proy.facebook_url || 'no disponible') + ' | Instagram: ' + (proy.instagram_url || 'no disponible')
       const mat = []
       if (proy.plano_url) mat.push('PLANO')
+      if (proy.brochure_url) mat.push('BROCHURE')
       const fotosArr = [proy.foto1_url, proy.foto2_url, proy.foto3_url].filter(Boolean)
       if (fotosArr.length) mat.push('FOTOS(' + fotosArr.length + ')')
       if (proy.video_url) mat.push('VIDEO')
+      fichas += '\nVISTA 360 (tour virtual): ' + (proy.vista360_url || 'no disponible')
       fichas += '\nMATERIAL DISPONIBLE PARA ENVIAR: ' + (mat.length ? mat.join(', ') : 'ninguno')
       const { data: lots } = await supabase.from('lots').select('status, total_price, area_m2').eq('project_id', proy.id)
       const disp = (lots || []).filter(l => l.status === 'disponible')
@@ -92,8 +94,13 @@ async function responderIA(jid, phone, lead, conv, texto) {
         .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
       hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
     }
-    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 4-5 lineas estilo WhatsApp, 1-2 emojis maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. ESTRATEGIA DE VENTA: primero INFORME con generosidad — entregue toda la informacion que pidan (precio desde, separacion, inicial, cuotas, medidas de lote, cuantos disponibles, ubicacion con link, papeles, redes) sin apurar el cierre. Termine cada mensaje con una pregunta que invite a seguir conversando sobre SU necesidad (zona, tamano, uso: vivienda o negocio, presupuesto) — NO ofrezca la visita en cada mensaje. SOLO cuando el cliente ya recibio bastante informacion y muestra interes real (pregunta como separar, como pagar, como visitar, o lleva varias preguntas seguidas), ofrezca el CIERRE preguntando cual prefiere: agendar una VISITA al proyecto o que un asesor lo LLAME para darle el detalle. Cuando pidan ubicacion o como llegar, envie el link de Maps tal cual aparece en la ficha; si quieren ver fotos, otros proyectos o saber mas de Urbis, comparta los links de REDES DEL PROYECTO. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones; NUNCA diga cuantos lotes quedan disponibles (si preguntan disponibilidad, diga que hay opciones y que puede verificar el lote que le interese); DOSIFIQUE: maximo 2 datos nuevos por mensaje, nunca entregue toda la informacion de golpe. MATERIAL MULTIMEDIA: si el cliente pide el plano, agregue al FINAL de su mensaje el codigo [ENVIAR_PLANO]; si pide fotos o quiere ver como es el proyecto, agregue [ENVIAR_FOTOS]; si pide video, agregue [ENVIAR_VIDEO]. Use cada codigo SOLO si ese material figura en MATERIAL DISPONIBLE, maximo un tipo por mensaje, y jamas mencione los codigos en el texto visible. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
-    const cuerpo = { model: IA_MODEL, max_tokens: 350, system, messages: [{ role: 'user', content: fichas + '\n' + lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp.' }] }
+    const system = 'Eres el asistente de calificacion de URBIS GROUP REAL ESTATE (lotes en Ucayali, Peru). Atiendes por WhatsApp a leads de anuncios. NO cierras la venta: CALIFICAS y preparas el pase a un asesor humano. OBJETIVO: el lead queda LISTO cuando (a) conocio los 9 datos clave y (b) capturaste su perfil; recien ahi ofreces pasarlo con el asesor; si pide asesor antes, jamas te opongas. LOS 9 DATOS (dosificados, a cambio de sus respuestas, maximo 2 datos nuevos por mensaje): 1 precio desde (usa DATOS EN VIVO) 2 separacion e inicial 3 cuota mensual 4 plazo 5 tipo de proyecto y modalidad legal 6 ubicacion (envia el link de Maps tal cual) 7 referencias cercanas reales 8 potencial de la zona sin prometer cifras 9 documentos para separar. PERFIL A CAPTURAR: nombre, uso o motivo (vivienda, inversion, negocio u hospedaje), presupuesto disponible para la inicial, capacidad de cuota mensual, horizonte (ahora, 1-3 meses o explorando), tamano buscado, interes en la zona, proyecto sugerido. FLUJO GUIA (adaptalo, no lo recites; UNA sola pregunta por mensaje): tras el nombre pregunta el USO; segun el uso presenta el proyecto que calza con su ubicacion y potencial y pregunta si la zona le interesa; luego presupuesto para la inicial y capacidad de cuota; con presupuesto claro entrega precio, inicial, cuota y plazo; confirma modalidad y documentos; verifica interes real y si el perfil esta completo haz el HANDOFF. CROSS-SELL: nunca pierdas un lead por tamano o presupuesto sin ofrecer otro proyecto de Urbis que si calce. ESTILO: 2 a 4 lineas, tono calido peruano, espejo (tutea si te tutean, de usted si le hablan de usted), maximo 1 emoji y no siempre, no repitas datos ya dados, no re-saludes, si da varios datos juntos agradece y avanza. MATERIAL MULTIMEDIA: si pide el plano agrega al FINAL el codigo [ENVIAR_PLANO]; brochure o catalogo [ENVIAR_BROCHURE]; fotos o ver el proyecto [ENVIAR_FOTOS]; video [ENVIAR_VIDEO]; usa cada codigo SOLO si figura en MATERIAL DISPONIBLE, maximo un tipo por mensaje y nunca los menciones en el texto visible; recorrido virtual: envia el link de VISTA 360 tal cual; mas fotos y novedades: REDES DEL PROYECTO. HANDOFF: cuando el lead conocio los 9 datos, tienes el perfil, su presupuesto calza y quiere avanzar, despidete tipo: con gusto te paso con un asesor que te ayuda a reservar y ver los lotes disponibles, te escribe en breve 🙌 — y agrega al final, en una linea aparte, exactamente este bloque (el sistema lo captura, el lead no debe notarlo): <ESTADO_LEAD>{"calificado": true, "nombre": "...", "uso": "...", "presupuesto_inicial": "...", "capacidad_cuota": "...", "horizonte": "...", "tamano_buscado": "...", "zona_interes": "...", "proyecto_sugerido": "...", "motivo_handoff": "calificado"}</ESTADO_LEAD>. ESCALA DE INMEDIATO con el mismo bloque y el motivo_handoff que corresponda (pidio_asesor, molesto, duda_legal o negociacion) si: pide humano o asesor, esta molesto o desconfiado a nivel de queja, hay duda legal compleja (herencia, copropiedad, poder), quiere negociar precio fuera de lista, o menciona cobranza de un lote ya comprado (ese tema NO es tuyo). OBJECIONES: pregunta consultiva primero y responde despues con el dato real (lejos comparado con que; que tendrias disponible para la inicial; que te genera duda de la legalidad; duda puntual o solo tiempo). PROHIBICIONES DURAS: nunca inventes ni redondees cifras (si el dato no esta en la ficha ni en DATOS EN VIVO, di que el asesor lo confirma con el detalle exacto); nunca digas barato, accesible, asequible ni economico (la accesibilidad se comunica con: solo con tu DNI, sin bancos y con cuotas sin intereses); nunca des el numero de partida registral; NUNCA digas cuantos lotes quedan (di que hay opciones y que puedes verificar el que le interese); nunca des nombres ni datos de clientes o terceros (di: esa informacion es confidencial); no prometas aprobacion de credito, titulacion con fecha, plazos de obra ni rentabilidad; sin urgencia falsa; no hables de la competencia; nada de cobranza ni cuotas atrasadas aqui. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    const cuerpo = { model: IA_MODEL, max_tokens: 300,
+      system: [
+        { type: 'text', text: system, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: fichas, cache_control: { type: 'ephemeral' } },
+      ],
+      messages: [{ role: 'user', content: lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp (agrega el bloque ESTADO_LEAD unicamente si corresponde handoff o escalado).' }] }
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: ctl.signal,
@@ -104,14 +111,32 @@ async function responderIA(jid, phone, lead, conv, texto) {
     const j = await r.json()
     const out = (j?.content || []).map(c => c.text || '').join('').trim()
     if (!out) { log('IA sin texto:', JSON.stringify(j).slice(0, 300)); return }
-    let textoOut = out.slice(0, 900)
+    let textoOut = out.slice(0, 1600)
+    const mEstado = textoOut.match(/<ESTADO_LEAD>([\s\S]*?)<\/ESTADO_LEAD>/i)
+    if (mEstado) {
+      textoOut = textoOut.replace(mEstado[0], '').trim()
+      try {
+        const est = JSON.parse(mEstado[1])
+        const presu = parseFloat(String(est.presupuesto_inicial || '').replace(/[^0-9.]/g, '')) || null
+        const upd = { temperature: 'caliente' }
+        if (presu) upd.budget_estimate = presu
+        if (est.motivo_handoff === 'calificado') upd.status = 'negociacion'
+        await supabase.from('leads').update(upd).eq('id', lead.id)
+        await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('PERFIL BOT: uso=' + (est.uso || '-') + ' | inicial=' + (est.presupuesto_inicial || '-') + ' | cuota=' + (est.capacidad_cuota || '-') + ' | horizonte=' + (est.horizonte || '-') + ' | tamano=' + (est.tamano_buscado || '-') + ' | zona=' + (est.zona_interes || '-') + ' | proyecto=' + (est.proyecto_sugerido || '-') + ' | motivo=' + (est.motivo_handoff || '-')).toUpperCase().slice(0, 500) })
+        if (est.motivo_handoff && est.motivo_handoff !== 'calificado') await setConv(phone, { flow_state: 'humano' })
+        if (ADMIN) await enviar(ADMIN, (est.motivo_handoff === 'calificado' ? '🔥 LEAD CALIFICADO (perfil completo)' : '⚠️ REQUIERE ASESOR YA (' + (est.motivo_handoff || '-') + ')') + '\nNombre: ' + (est.nombre || lead.full_name || '-') + '\nTel: ' + phone + '\nUso: ' + (est.uso || '-') + '\nInicial disp.: ' + (est.presupuesto_inicial || '-') + ' | Cuota: ' + (est.capacidad_cuota || '-') + '\nHorizonte: ' + (est.horizonte || '-') + ' | Proyecto: ' + (est.proyecto_sugerido || '-'), { tipo: 'aviso_admin' })
+      } catch (e) { log('ESTADO_LEAD parse:', String(e.message || e)) }
+    }
+    textoOut = textoOut.slice(0, 900)
     const wantPlano = /\[ENVIAR_PLANO\]/i.test(textoOut)
     const wantFotos = /\[ENVIAR_FOTOS\]/i.test(textoOut)
     const wantVideo = /\[ENVIAR_VIDEO\]/i.test(textoOut)
-    textoOut = textoOut.replace(/\[ENVIAR_(PLANO|FOTOS|VIDEO)\]/gi, '').trim()
+    const wantBrochure = /\[ENVIAR_BROCHURE\]/i.test(textoOut)
+    textoOut = textoOut.replace(/\[ENVIAR_(PLANO|FOTOS|VIDEO|BROCHURE)\]/gi, '').trim()
     if (textoOut) await enviar(jid, textoOut, { tipo: 'ia', lead_id: lead.id })
     if (proy) {
       if (wantPlano && proy.plano_url) await enviarArchivo(jid, proy.plano_url, 'plano', 'Plano actualizado — ' + proy.name)
+      if (wantBrochure && proy.brochure_url) await enviarArchivo(jid, proy.brochure_url, 'brochure', 'Brochure — ' + proy.name)
       if (wantFotos) {
         const fs = [proy.foto1_url, proy.foto2_url, proy.foto3_url].filter(Boolean)
         for (let i = 0; i < fs.length; i++) await enviarArchivo(jid, fs[i], 'foto', i === 0 ? proy.name : '')
@@ -122,8 +147,13 @@ async function responderIA(jid, phone, lead, conv, texto) {
 }
 
 async function enviar(phone, texto, meta = {}) {
+  if (process.env.SIMULACRO === '1') {
+    const dig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone)
+    log('[SIM] ' + dig + ' | ' + (meta.tipo || 'msj') + ' | ' + String(texto).replace(/\n+/g, ' ⏎ '))
+    return true
+  }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0 }
-  if (enviadosHoy >= MAX_DIA) { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
+  if (enviadosHoy >= MAX_DIA && process.env.SIMULACRO !== '1') { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
   const soloDig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
   if (!ADMIN || soloDig !== String(ADMIN)) {
     if ((await tipoNumero(soloDig)) === 'desactivado') { log('NUMERO DESACTIVADO, no se envia a', soloDig); return false }
@@ -344,15 +374,15 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   if (estado === 'espera_nombre') {
     const nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
     if (nombre.length >= 3) {
-      await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id)
+      await supabase.from('leads').update({ full_name: nombre, status: 'contactado' }).eq('id', lead.id)
       const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
       if ((proys || []).length === 1) {
         const unico = proys[0]
-        await supabase.from('leads').update({ project_id: unico.id, temperature: 'tibio' }).eq('id', lead.id)
+        await supabase.from('leads').update({ project_id: unico.id, temperature: 'tibio', status: 'interesado' }).eq('id', lead.id)
         await setConv(phone, { flow_state: 'completado' })
         if (IA_KEY && (await flag('ia_activa'))) {
           const leadIA = { ...lead, full_name: nombre, project_id: unico.id }
-          await responderIA(jid, phone, leadIA, conv, 'INSTRUCCION INTERNA (esto no lo escribio el cliente): salude por su primer nombre UNA sola vez, presente el proyecto en una frase con su gancho principal, y de SOLO 3 datos: lote desde (precio de DATOS EN VIVO), cuota mensual referencial y tamano de lote desde. Nada mas. Cierre con UNA pregunta sobre su necesidad (por ejemplo: para casa de campo, para vivir o como inversion).')
+          await responderIA(jid, phone, leadIA, conv, 'INSTRUCCION INTERNA (esto no lo escribio el cliente): salude por su primer nombre UNA sola vez, mencione el proyecto en una frase con su gancho principal y pregunte SOLO el USO o motivo (vivienda, inversion o un negocio como hospedaje). Todavia NO de precios.')
         } else {
           await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 Un asesor le compartirá precios y condiciones de *${unico.name}*. ¿Qué le gustaría saber primero?`, { tipo: 'lead_flujo', lead_id: lead.id })
         }
@@ -382,7 +412,7 @@ Proyecto: ${unico.name}
     let pr = (!isNaN(n) && n >= 1 && n <= (proys || []).length) ? proys[n - 1] : null
     if (!pr) pr = (proys || []).find(x => x.name.toLowerCase().split(/\s+/).some(w => w.length > 3 && !['las', 'los'].includes(w) && txt.includes(w))) || null
     if (pr) {
-      await supabase.from('leads').update({ project_id: pr.id, temperature: 'tibio' }).eq('id', lead.id)
+      await supabase.from('leads').update({ project_id: pr.id, temperature: 'tibio', status: 'interesado' }).eq('id', lead.id)
       nombreProy = pr.name
       proyElegido = pr.id
     }
@@ -391,7 +421,7 @@ Proyecto: ${unico.name}
       if (proyElegido) await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
       const leadIA = { ...lead, project_id: proyElegido || lead.project_id }
       const inst = proyElegido
-        ? 'INSTRUCCION INTERNA (esto no lo escribio el cliente): acaba de elegir este proyecto. Presente el proyecto en una frase con su gancho y de SOLO 3 datos: lote desde (precio de DATOS EN VIVO), cuota mensual referencial y tamano de lote desde. Nada mas. Cierre con UNA pregunta sobre su necesidad.'
+        ? 'INSTRUCCION INTERNA (esto no lo escribio el cliente): acaba de elegir este proyecto. Confirmelo en una frase con su gancho principal y pregunte SOLO el USO o motivo (vivienda, inversion o negocio). Todavia NO de precios.'
         : 'INSTRUCCION INTERNA (esto no lo escribio el cliente): no quedo claro que proyecto le interesa. Preguntele con calidez que zona o proyecto prefiere, mencionando brevemente los disponibles.'
       await responderIA(jid, phone, leadIA, conv, inst)
     } else {
@@ -411,9 +441,22 @@ Proyecto: ${unico.name}
     return
   }
 
-  // conversacion completada: nota en el lead + respuesta con IA
+  if (estado === 'humano') {
+    if (lead?.id) await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
+    return
+  }
+
+  // conversacion completada: nota + IA (con cortes sin IA)
   if (lead?.id) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
+    const trivial = corto.length < 3 || /^(gracias|grasias|ok|okey|oki|ya|listo|dale|de acuerdo|👍|🙏)[.!\s]*$/i.test(corto)
+    if (trivial) return
+    if (/asesor|humano|persona real|hablar con alguien|que me llamen/i.test(corto)) {
+      await setConv(phone, { flow_state: 'humano' })
+      await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis para el detalle. Le escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id })
+      if (ADMIN) await enviar(ADMIN, '⚠️ REQUIERE ASESOR YA (pidio humano)\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nUltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })
+      return
+    }
     await responderIA(jid, phone, lead, conv, corto)
   }
 }
@@ -471,7 +514,16 @@ async function iniciar() {
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
 }
 
-iniciar()
+if (process.env.SIMULACRO === '1') {
+  (async () => {
+    log('=== SIMULACRO DE COBRANZA (no se envia nada) ===')
+    try { await cobranza() } catch (e) { log('ERROR simulacro:', String(e.message || e)) }
+    log('=== FIN DEL SIMULACRO ===')
+    process.exit(0)
+  })()
+} else {
+  iniciar()
+}
 
 
 // ---------- SALIENTES DESDE EL PANEL ----------
