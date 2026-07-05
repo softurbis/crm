@@ -45,13 +45,14 @@ async function responderIA(jid, phone, lead, conv, texto) {
     if (!(await flag('ia_activa'))) return
     let proy = null
     if (lead.project_id) {
-      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, bot_knowledge').eq('id', lead.project_id).maybeSingle()
+      const { data } = await supabase.from('projects').select('id, name, description, how_to_arrive, maps_url, facebook_url, instagram_url, bot_knowledge').eq('id', lead.project_id).maybeSingle()
       proy = data
     }
     let fichas = ''
     let lotesTxt = ''
     if (proy) {
       fichas = 'PROYECTO: ' + proy.name + '\nDESCRIPCION: ' + (proy.description || '') + '\nCOMO LLEGAR: ' + (proy.how_to_arrive || '') + '\nUBICACION MAPS: ' + (proy.maps_url || '') + '\n\nFICHA DEL BOT:\n' + String(proy.bot_knowledge || '(sin ficha)').slice(0, 6000)
+      fichas += '\nREDES DEL PROYECTO: Facebook: ' + (proy.facebook_url || 'no disponible') + ' | Instagram: ' + (proy.instagram_url || 'no disponible')
       const { data: lots } = await supabase.from('lots').select('status, total_price, area_m2').eq('project_id', proy.id)
       const disp = (lots || []).filter(l => l.status === 'disponible')
       if (disp.length) {
@@ -71,7 +72,7 @@ async function responderIA(jid, phone, lead, conv, texto) {
         .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
       hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
     }
-    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 3-4 lineas estilo WhatsApp, 1 emoji maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. Objetivo: resolver la duda y AGENDAR UNA VISITA al proyecto. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 4-5 lineas estilo WhatsApp, 1-2 emojis maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. ESTRATEGIA DE VENTA: primero INFORME con generosidad — entregue toda la informacion que pidan (precio desde, separacion, inicial, cuotas, medidas de lote, cuantos disponibles, ubicacion con link, papeles, redes) sin apurar el cierre. Termine cada mensaje con una pregunta que invite a seguir conversando sobre SU necesidad (zona, tamano, uso: vivienda o negocio, presupuesto) — NO ofrezca la visita en cada mensaje. SOLO cuando el cliente ya recibio bastante informacion y muestra interes real (pregunta como separar, como pagar, como visitar, o lleva varias preguntas seguidas), ofrezca el CIERRE preguntando cual prefiere: agendar una VISITA al proyecto o que un asesor lo LLAME para darle el detalle. Cuando pidan ubicacion o como llegar, envie el link de Maps tal cual aparece en la ficha; si quieren ver fotos, otros proyectos o saber mas de Urbis, comparta los links de REDES DEL PROYECTO. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 350, system, messages: [{ role: 'user', content: fichas + '\n' + lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp.' }] }
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -94,8 +95,13 @@ async function enviar(phone, texto, meta = {}) {
   if (!ADMIN || soloDig !== String(ADMIN)) {
     if ((await tipoNumero(soloDig)) === 'desactivado') { log('NUMERO DESACTIVADO, no se envia a', soloDig); return false }
   }
+  const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
+  if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
+    try { await sock.sendPresenceUpdate('composing', destJid) } catch (e) {}
+    await espera(4000 + Math.floor(Math.random() * 8000))
+  }
   try {
-    await sock.sendMessage(String(phone).includes('@') ? String(phone) : jidDe(phone), { text: texto })
+    await sock.sendMessage(destJid, { text: texto })
     enviadosHoy++
     await supabase.from('scheduled_messages').insert({
       recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
@@ -307,9 +313,27 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     if (nombre.length >= 3) {
       await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id)
       const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
-      const lista = (proys || []).map((r, i) => `*${i + 1}*. ${r.name}`).join('\n')
-      await setConv(phone, { flow_state: 'espera_proyecto' })
-      await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊\n\n¿Qué proyecto le interesa? Responda con el número:\n${lista}\n*0*. Aún no estoy seguro`, { tipo: 'lead_flujo', lead_id: lead.id })
+      if ((proys || []).length === 1) {
+        const unico = proys[0]
+        await supabase.from('leads').update({ project_id: unico.id, temperature: 'tibio' }).eq('id', lead.id)
+        await setConv(phone, { flow_state: 'completado' })
+        if (IA_KEY && (await flag('ia_activa'))) {
+          const leadIA = { ...lead, full_name: nombre, project_id: unico.id }
+          await responderIA(jid, phone, leadIA, conv, 'INSTRUCCION INTERNA (esto no lo escribio el cliente): salude por su primer nombre una sola vez y presentele calidamente el proyecto: precio desde, separacion, inicial, cuotas sin intereses, tamanos de lote y cuantos disponibles quedan; incluya el link de Maps si existe; cierre con una pregunta abierta para seguir conversando.')
+        } else {
+          await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 Un asesor le compartirá precios y condiciones de *${unico.name}*. ¿Qué le gustaría saber primero?`, { tipo: 'lead_flujo', lead_id: lead.id })
+        }
+        if (ADMIN) await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅
+Nombre: ${nombre}
+Tel: ${phone}
+Proyecto: ${unico.name}
+
+→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
+      } else {
+        const lista = (proys || []).map(r => `*${r.name}*`).join(', ')
+        await setConv(phone, { flow_state: 'espera_proyecto' })
+        await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 ¿Cuál de nuestros proyectos le interesa? Tenemos ${lista}. Y si aún no está seguro, cuénteme qué zona le queda mejor y le oriento.`, { tipo: 'lead_flujo', lead_id: lead.id })
+      }
     } else {
       await enviar(jid, 'Disculpe, no logré leer su nombre. ¿Me lo escribe por favor? 🙏', { tipo: 'lead_flujo', lead_id: lead.id })
     }
@@ -317,16 +341,29 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   }
 
   if (estado === 'espera_proyecto') {
-    const n = parseInt(corto.replace(/\D/g, ''), 10)
     const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
     let nombreProy = 'por definir'
-    if (!isNaN(n) && n >= 1 && n <= (proys || []).length) {
-      const pr = proys[n - 1]
+    let proyElegido = null
+    const txt = corto.toLowerCase()
+    const n = parseInt(corto.replace(/\D/g, ''), 10)
+    let pr = (!isNaN(n) && n >= 1 && n <= (proys || []).length) ? proys[n - 1] : null
+    if (!pr) pr = (proys || []).find(x => x.name.toLowerCase().split(/\s+/).some(w => w.length > 3 && !['las', 'los'].includes(w) && txt.includes(w))) || null
+    if (pr) {
       await supabase.from('leads').update({ project_id: pr.id, temperature: 'tibio' }).eq('id', lead.id)
       nombreProy = pr.name
+      proyElegido = pr.id
     }
     await setConv(phone, { flow_state: 'completado' })
-    await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*.\n\nEn breve uno de nuestros asesores le escribirá con toda la información: precios, ubicación y facilidades de pago. ¡Gracias por confiar en Urbis Group! 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+    if (IA_KEY && (await flag('ia_activa'))) {
+      if (proyElegido) await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+      const leadIA = { ...lead, project_id: proyElegido || lead.project_id }
+      const inst = proyElegido
+        ? 'INSTRUCCION INTERNA (esto no lo escribio el cliente): acaba de elegir este proyecto. Presentele en UN solo mensaje lo esencial para enganchar: precio desde, separacion, inicial, cuotas sin intereses, tamanos de lote y cuantos disponibles quedan; si hay link de Maps incluyalo; y cierre con una pregunta abierta para seguir conversando.'
+        : 'INSTRUCCION INTERNA (esto no lo escribio el cliente): no quedo claro que proyecto le interesa. Preguntele con calidez que zona o proyecto prefiere, mencionando brevemente los disponibles.'
+      await responderIA(jid, phone, leadIA, conv, inst)
+    } else {
+      await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*.\n\nEn breve uno de nuestros asesores le escribirá con toda la información: precios, ubicación y facilidades de pago. ¡Gracias por confiar en Urbis Group! 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+    }
     if (ADMIN) {
       const { data: l2 } = await supabase.from('leads').select('full_name, phone').eq('id', lead.id).single()
       await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅\nNombre: ${l2?.full_name}\nTel: ${l2?.phone}\nProyecto: ${nombreProy}\n\n→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
