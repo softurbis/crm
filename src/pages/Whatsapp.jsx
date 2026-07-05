@@ -80,9 +80,11 @@ export default function Whatsapp() {
   }
   const cargarMsgs = async c => {
     if (!c) return
+    const lid = String(c.wa_jid || '').split('@')[0].replace(/\D/g, '')
+    const dests = lid && lid !== c.phone ? [c.phone, lid] : [c.phone]
     const [ins, outs] = await Promise.all([
       supabase.from('whatsapp_messages').select('body, created_at, direction').eq('conversation_id', c.id).limit(500),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo').eq('recipient_phone', c.phone).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo').in('recipient_phone', dests).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
     const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in' }))
     const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente' }))
