@@ -52,11 +52,11 @@ async function responderIA(jid, phone, lead, conv, texto) {
     let lotesTxt = ''
     if (proy) {
       fichas = 'PROYECTO: ' + proy.name + '\nDESCRIPCION: ' + (proy.description || '') + '\nCOMO LLEGAR: ' + (proy.how_to_arrive || '') + '\nUBICACION MAPS: ' + (proy.maps_url || '') + '\n\nFICHA DEL BOT:\n' + String(proy.bot_knowledge || '(sin ficha)').slice(0, 6000)
-      const { data: lots } = await supabase.from('lots').select('status, price, area').eq('project_id', proy.id)
+      const { data: lots } = await supabase.from('lots').select('status, total_price, area_m2').eq('project_id', proy.id)
       const disp = (lots || []).filter(l => l.status === 'disponible')
       if (disp.length) {
-        const precios = disp.map(l => Number(l.price)).filter(n => n > 0)
-        const areas = disp.map(l => Number(l.area)).filter(n => n > 0)
+        const precios = disp.map(l => Number(l.total_price)).filter(n => n > 0)
+        const areas = disp.map(l => Number(l.area_m2)).filter(n => n > 0)
         lotesTxt = 'DATOS EN VIVO: lotes disponibles: ' + disp.length + '. Precio desde S/ ' + (precios.length ? Math.min(...precios).toLocaleString('es-PE') : 'consultar') + '. Areas de ' + (areas.length ? Math.min(...areas) + ' a ' + Math.max(...areas) : '-') + ' m2.'
       } else lotesTxt = 'DATOS EN VIVO: por ahora sin lotes disponibles en este proyecto; ofrecer otro proyecto de Urbis.'
     } else {
@@ -71,7 +71,7 @@ async function responderIA(jid, phone, lead, conv, texto) {
         .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
       hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
     }
-    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). Hablas de usted, calido y BREVE: maximo 3-4 lineas estilo WhatsApp, 1 emoji maximo. Usa SOLO la informacion de la ficha y los datos en vivo; si algo no esta ahi, di que un asesor se lo confirma. Tu objetivo: resolver la duda y llevar a AGENDAR UNA VISITA al proyecto (o que un asesor lo llame). REGLAS INQUEBRANTABLES: nunca digas barato, accesible, asequible ni economico; nunca des numero de partida registral; nunca des nombres ni datos de clientes o terceros (di: esa informacion es confidencial); no prometas rentabilidad, valorizacion garantizada ni titulo con fecha; no inventes precios, descuentos ni promociones. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    const system = 'Eres el asesor virtual de WhatsApp de URBIS GROUP REAL ESTATE (venta de lotes en Ucayali, Peru). ESTILO: SIEMPRE trate de USTED (le, su; JAMAS tutee). NO vuelva a saludar si ya hay conversacion previa: nada de repetir Hola + nombre en cada mensaje; continue la conversacion con naturalidad. Maximo 3-4 lineas estilo WhatsApp, 1 emoji maximo. USE LOS DATOS: cuando pregunten precios o condiciones, responda con las cifras concretas de la FICHA y de DATOS EN VIVO (precio desde, separacion, inicial, cuota mensual, plazos) y recien despues invite a la visita; NO sea evasivo si el dato existe. Solo si un dato no esta en la ficha ni en DATOS EN VIVO, diga que un asesor se lo confirma. Objetivo: resolver la duda y AGENDAR UNA VISITA al proyecto. REGLAS INQUEBRANTABLES: nunca diga barato, accesible, asequible ni economico; nunca de el numero de partida registral; nunca de nombres ni datos de clientes o terceros (diga: esa informacion es confidencial); no prometa rentabilidad, valorizacion garantizada ni titulo con fecha; no invente precios, descuentos ni promociones. Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 350, system, messages: [{ role: 'user', content: fichas + '\n' + lotesTxt + '\n\nCONVERSACION PREVIA:\n' + hist + '\n\nNUEVO MENSAJE DEL CLIENTE: ' + texto + '\n\nResponde SOLO con el texto del mensaje de WhatsApp.' }] }
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
     const r = await fetch('https://api.anthropic.com/v1/messages', {
