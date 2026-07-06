@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import Logo from '../components/Logo'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -85,6 +86,7 @@ export default function Contracts() {
   const [ventas, setVentas] = useState([])
   const [q, setQ] = useState('')
   const [gen, setGen] = useState(null)
+  const [editDoc, setEditDoc] = useState(false)
   const [data, setData] = useState(null)
   const [msg, setMsg] = useState(null)
   const [tplOpen, setTplOpen] = useState(false)
@@ -328,12 +330,13 @@ export default function Contracts() {
         })
 
         return (
-          <div className="modal-bg" onClick={() => setGen(null)}>
+          <div className="modal-bg" onClick={() => { setGen(null); setEditDoc(false) }}>
             <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
               <div className="modal-head no-print">
                 <h2>Contrato - {c.full_name}</h2>
-                {puedeFirmar && <button className="btn-primary" onClick={() => window.print()}>Imprimir / PDF</button>}
-                <button className="btn-ghost" onClick={() => setGen(null)}>&#10005;</button>
+                <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
+                {puedeFirmar && <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => window.print(), 100) }}>Imprimir / PDF</button>}
+                <button className="btn-ghost" onClick={() => { setGen(null); setEditDoc(false) }}>&#10005;</button>
               </div>
               {!puedeFirmar && (
                 <div className="chg-box no-print">
@@ -342,7 +345,16 @@ export default function Contracts() {
                   <p className="muted small">Regulariza los documentos legales en PROYECTOS &#8594; EDITAR y vuelve a generar.</p>
                 </div>
               )}
-              <div className="print-area contract">
+              {editDoc && <p className="no-print" style={{ color: '#e0b34c', fontSize: 12, margin: '0 0 8px' }}>✎ MODO EDICIÓN: haz clic sobre el texto y corrige lo que necesites. Los cambios aplican a esta impresión.</p>}
+              <div className="print-area contract" contentEditable={editDoc} suppressContentEditableWarning
+                style={editDoc ? { outline: '2px dashed #e0b34c', outlineOffset: 4 } : undefined}>
+                <div className="contract-head" contentEditable={false}>
+                  <Logo size={64} />
+                  <div>
+                    <div className="ch-name">URBIS GROUP REAL ESTATE</div>
+                    <div className="ch-sub">GESTIÓN INMOBILIARIA — PUCALLPA, UCAYALI</div>
+                  </div>
+                </div>
                 {cuerpo}
                 <p style={{ textAlign: 'center' }}>Pucallpa, Ucayali, Peru — {hoy.getFullYear()}</p>
               </div>

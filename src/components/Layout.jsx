@@ -19,6 +19,7 @@ const PROYECTO = [
   { to: '/pagos', label: 'Cuotas', icon: '💵', color: '#4fc3a1' },
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c' },
   { to: '/contratos', label: 'Contratos', icon: '📄', color: '#c9a97f' },
+  { to: '/comisiones', label: 'Comisiones', icon: '🪙', roles: ['superuser', 'admin', 'manager'], color: '#e8b04f' },
 ]
 
 export default function Layout() {
@@ -50,7 +51,7 @@ export default function Layout() {
           <p className="menu-section">
             Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
           </p>
-          {PROYECTO.map(Item)}
+          {PROYECTO.filter(m => !m.roles || m.roles.includes(role)).map(Item)}
         </nav>
         <div className="sidebar-footer">
           <p className="muted">{profile?.full_name}</p>

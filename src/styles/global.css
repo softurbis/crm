@@ -391,3 +391,12 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 .sw.on .knob { left: 18px; }
 .sw.off .st { color: var(--error); }
 .sw.on .st { color: var(--ok); }
+
+/* ---- contrato: cabecera con logo y presentacion ---- */
+.contract-head { display: flex; align-items: center; justify-content: center; gap: 14px; padding-bottom: 10px; margin-bottom: 16px; border-bottom: 3px double #1c2a18; }
+.contract-head svg { background: #fff; }
+.contract-head .ch-name { font-family: 'Montserrat', 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: .08em; color: #1c2a18; }
+.contract-head .ch-sub { font-size: .68rem; letter-spacing: .3em; color: #555; }
+.print-area.contract p { text-align: justify; line-height: 1.55; }
+.print-area.contract h3 { margin-top: 14px; }
+@page { margin: 18mm 16mm; }

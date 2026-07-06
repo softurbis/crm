@@ -15,6 +15,7 @@ import Whatsapp from './pages/Whatsapp'
 import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
 import Visitas from './pages/Visitas'
+import Commissions from './pages/Commissions'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="clientes" element={<Clients />} />
         <Route path="gastos" element={<Expenses />} />
         <Route path="contratos" element={<Contracts />} />
+        <Route path="comisiones" element={<Commissions />} />
         <Route path="proyectos" element={<Projects />} />
         <Route path="usuarios" element={<Users />} />
         <Route path="bitacora" element={<Bitacora />} />

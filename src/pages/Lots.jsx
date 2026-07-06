@@ -48,6 +48,12 @@ export default function Lots() {
   const [chgFile, setChgFile] = useState(null)
   const [chgBusy, setChgBusy] = useState(false)
 
+  // creacion masiva de lotes (admin)
+  const [crear, setCrear] = useState(false)
+  const [cf, setCf] = useState({ mz: '', desde: 1, hasta: 10, area: '', ppm2: '', inicial: 500 })
+  const [cBusy, setCBusy] = useState(false)
+  const [cMsg, setCMsg] = useState(null)
+
   async function loadLots() {
     if (!pidOp) return
     const { data } = await supabase.from('lots').select('*').eq('project_id', pidOp).order('mz').order('lt')
@@ -197,6 +203,46 @@ export default function Lots() {
     setChgBusy(false)
   }
 
+
+  // creacion masiva de lotes (admin)
+  async function crearLotes(e) {
+    e.preventDefault()
+    const mz = cf.mz.trim().toUpperCase()
+    const d = parseInt(cf.desde), h = parseInt(cf.hasta)
+    if (!mz || isNaN(d) || isNaN(h) || h < d) { setCMsg('ERROR: REVISA MANZANA Y RANGO (DESDE <= HASTA).'); return }
+    if (h - d + 1 > 200) { setCMsg('ERROR: MAXIMO 200 LOTES POR TANDA.'); return }
+    const existentes = new Set(lots.filter(l => String(l.mz).toUpperCase() === mz).map(l => String(l.lt)))
+    const rows = []
+    const saltados = []
+    for (let n = d; n <= h; n++) {
+      if (existentes.has(String(n))) { saltados.push(n); continue }
+      rows.push({
+        project_id: pidOp, mz, lt: String(n), status: 'disponible',
+        area_m2: Number(cf.area), price_per_m2: Number(cf.ppm2),
+        initial_payment_default: Number(cf.inicial || 0),
+      })
+    }
+    if (!rows.length) { setCMsg('ERROR: TODOS ESOS LOTES YA EXISTEN EN LA MZ ' + mz + '.'); return }
+    setCBusy(true); setCMsg(null)
+    const { data, error } = await supabase.from('lots').insert(rows).select('id, total_price, area_m2, price_per_m2')
+    if (error) { setCMsg('ERROR: ' + error.message); setCBusy(false); return }
+    const sinTotal = (data || []).filter(r => r.total_price === null || r.total_price === undefined)
+    for (const r of sinTotal) {
+      await supabase.from('lots').update({ total_price: Number(r.area_m2) * Number(r.price_per_m2) }).eq('id', r.id)
+    }
+    setCMsg('OK: ' + rows.length + ' LOTES CREADOS EN MZ ' + mz + (saltados.length ? ' | YA EXISTIAN (saltados): ' + saltados.join(', ') : ''))
+    setCBusy(false)
+    loadLots()
+  }
+
+  async function borrarLote() {
+    if (sel.status !== 'disponible') return
+    if (!confirm('Eliminar el lote Mz ' + sel.mz + ' Lt ' + sel.lt + '? Solo se permite si esta DISPONIBLE.')) return
+    const { error } = await supabase.from('lots').delete().eq('id', sel.id).eq('status', 'disponible')
+    if (error) { setEmsg('NO SE PUDO ELIMINAR: TIENE SEPARACIONES, VENTAS O PAGOS HISTORICOS ASOCIADOS.'); return }
+    setSel(null); loadLots()
+  }
+
   function waMessage() {
     const { sale, inst } = detail
     const overdue = inst.filter(i => i.status === 'vencido')
@@ -224,6 +270,9 @@ export default function Lots() {
         <ProjectPicker />
         {['admin', 'superuser', 'secretary'].includes(role) && (
           <button className="btn-ghost" onClick={calcularSimulacro}>🧪 Simulacro cobranza</button>
+        )}
+        {['admin', 'superuser'].includes(role) && (
+          <button className="btn-ghost" onClick={() => { setCrear(true); setCMsg(null) }}>➕ Crear lotes</button>
         )}
       </div>
 
@@ -288,6 +337,32 @@ export default function Lots() {
         ))
       )}
 
+      {crear && (
+        <div className="modal-bg" onClick={() => setCrear(false)}>
+          <form className="glass modal" onClick={e => e.stopPropagation()} onSubmit={crearLotes}>
+            <div className="modal-head">
+              <h2>Crear lotes por manzana</h2>
+              <button type="button" className="btn-ghost" onClick={() => setCrear(false)}>&#10005;</button>
+            </div>
+            <p className="muted small">Crea los lotes en tanda para el proyecto actual. Los numeros que ya existan en la manzana se saltan. Luego puedes editar area/precio de cada lote individual.</p>
+            <div className="form-grid">
+              <label>Manzana <input value={cf.mz} onChange={e => setCf(f => ({ ...f, mz: e.target.value }))} placeholder="A" required /></label>
+              <label>Lote desde <input type="number" min="1" value={cf.desde} onChange={e => setCf(f => ({ ...f, desde: e.target.value }))} required /></label>
+              <label>Lote hasta <input type="number" min="1" value={cf.hasta} onChange={e => setCf(f => ({ ...f, hasta: e.target.value }))} required /></label>
+              <label>Area (m2) <input type="number" step="0.01" min="1" value={cf.area} onChange={e => setCf(f => ({ ...f, area: e.target.value }))} required /></label>
+              <label>Precio por m2 (S/) <input type="number" step="0.01" min="0.01" value={cf.ppm2} onChange={e => setCf(f => ({ ...f, ppm2: e.target.value }))} required /></label>
+              <label>Pago inicial por defecto (S/) <input type="number" step="0.01" min="0" value={cf.inicial} onChange={e => setCf(f => ({ ...f, inicial: e.target.value }))} /></label>
+            </div>
+            {cf.area && cf.ppm2 && (
+              <p className="hint">Cada lote: {Number(cf.area)} m2 x S/ {Number(cf.ppm2).toFixed(2)} = <b>S/ {(Number(cf.area) * Number(cf.ppm2)).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b>
+                {' '}| Se crearan <b>{Math.max(0, (parseInt(cf.hasta) || 0) - (parseInt(cf.desde) || 0) + 1)}</b> lotes en la Mz {cf.mz.toUpperCase() || '?'}</p>
+            )}
+            {cMsg && <p className={cMsg.startsWith('OK') ? 'ok' : 'error'}>{cMsg}</p>}
+            <button className="btn-primary" disabled={cBusy}>{cBusy ? 'Creando...' : 'Crear lotes'}</button>
+          </form>
+        </div>
+      )}
+
       {sel && (
         <div className="modal-bg" onClick={() => setSel(null)}>
           <div className="glass modal" onClick={e => e.stopPropagation()}>
@@ -314,6 +389,9 @@ export default function Lots() {
                     {' '}
                     {['admin', 'superuser'].includes(role) && (
                       <button className="btn-ghost" onClick={() => { setChg(!chg); setEdit(false) }}>Cambiar estado (admin)</button>
+                    )}
+                    {['admin', 'superuser'].includes(role) && sel.status === 'disponible' && (
+                      <>{' '}<button className="btn-ghost bad" onClick={borrarLote}>&#128465; Eliminar lote</button></>
                     )}
                   </p>
                 ) : (

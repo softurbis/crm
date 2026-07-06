@@ -34,7 +34,7 @@ async function upload(path, file) {
 }
 
 export default function Payments() {
-  const { profile } = useAuth()
+  const { profile, role } = useAuth()
   const { pidOp } = useProject()
   const [tipo, setTipo] = useState('cuota')
   const [lots, setLots] = useState([])
@@ -50,6 +50,7 @@ export default function Payments() {
   const [fest, setFest] = useState('todos')
   const [coId, setCoId] = useState('')
   const [obsEdit, setObsEdit] = useState('')
+  const [opEdit, setOpEdit] = useState('')
 
   const [lotId, setLotId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -67,6 +68,7 @@ export default function Payments() {
   const [view, setView] = useState(null)
   const [advisors, setAdvisors] = useState([])
   const [advId, setAdvId] = useState('')
+  const [comision, setComision] = useState('')
 
   async function loadBase() {
     const [l, c, a, adv, r] = await Promise.all([
@@ -75,7 +77,7 @@ export default function Payments() {
       supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
+        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setPagos(r.data || [])
@@ -138,7 +140,7 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId('')
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision('')
   }
 
   async function submit(e) {
@@ -193,6 +195,13 @@ export default function Payments() {
         if (e3) throw e3
         await supabase.from('lots').update({ status: 'vendido' }).eq('id', lotId)
         if (ctx?.sep) await supabase.from('separations').update({ status: 'completada' }).eq('id', ctx.sep.id)
+        const advFinal = advId || ctx?.sep?.advisor_id || null
+        if (advFinal) {
+          const { error: e4 } = await supabase.from('commissions').insert({
+            sale_id: sale.id, advisor_id: advFinal, amount: Number(comision || 0), status: 'pendiente',
+          })
+          if (e4) setMsg({ ok: false, t: 'VENTA OK, PERO NO SE REGISTRO LA COMISION: ' + e4.message })
+        }
       }
 
       if (tipo === 'cuota') {
@@ -219,6 +228,55 @@ export default function Payments() {
       setMsg({ ok: true, t: campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO' })
       loadBase()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
+  }
+
+  // ---- correcciones del SUPERUSUARIO ----
+  async function quitarDoc(campo) {
+    if (!confirm('¿Quitar este documento del pago? (podrás subir otro)')) return
+    const { error } = await supabase.from('daily_income').update({ [campo]: null }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: error.message }); return }
+    setMsg({ ok: true, t: 'DOCUMENTO QUITADO' })
+    setView(v => ({ ...v, [campo]: null })); loadBase()
+  }
+  async function editarFecha() {
+    const nueva = prompt('NUEVA FECHA del pago (AAAA-MM-DD):', view.date)
+    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) alert('Formato inválido. Ej: 2026-06-15'); return }
+    const { error } = await supabase.from('daily_income').update({ date: nueva, observation: ((view.observation || '') + ' | FECHA CORREGIDA POR SUPERUSUARIO (antes ' + view.date + ')').slice(0, 400) }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: error.message }); return }
+    setMsg({ ok: true, t: 'FECHA CORREGIDA' }); setView(v => ({ ...v, date: nueva })); loadBase()
+  }
+  async function borrarPago() {
+    if (!confirm('¿ELIMINAR ESTE PAGO de ' + soles(view.amount) + '?\n\nSi está aplicado a una cuota, la cuota se revierte (vuelve a deber ese monto). Esta acción no se puede deshacer.')) return
+    if (view.installment_id) {
+      const { data: q } = await supabase.from('installments').select('id, amount, amount_paid').eq('id', view.installment_id).maybeSingle()
+      if (q) {
+        const nuevoPagado = Math.max(0, Number(q.amount_paid) - Number(view.amount))
+        await supabase.from('installments').update({
+          amount_paid: nuevoPagado,
+          status: nuevoPagado <= 0.01 ? 'pendiente' : (Number(q.amount) - nuevoPagado) <= 2 ? 'pagado' : 'pendiente',
+          paid_date: nuevoPagado <= 0.01 ? null : undefined,
+        }).eq('id', q.id)
+      }
+    }
+    const { error } = await supabase.from('daily_income').delete().eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: error.message }); return }
+    setMsg({ ok: true, t: 'PAGO ELIMINADO Y CUOTA REVERTIDA' }); setView(null); loadBase()
+  }
+
+  async function guardarNroOp() {
+    const nuevo = (opEdit || '').trim().toUpperCase() || 'SIN-REF'
+    const anterior = view.operation_number
+    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL N DE OPERACION' }); return }
+    const { error } = await supabase.from('daily_income').update({ operation_number: nuevo }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'daily_income',
+      user_email: profile?.email || null,
+      details: { cambio: 'operation_number', antes: anterior, despues: nuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, monto: view.amount, project_id: pidOp },
+    })
+    setMsg({ ok: true, t: 'N DE OPERACION CORREGIDO: ' + anterior + ' -> ' + nuevo + ' (QUEDA EN BITACORA)' })
+    setView(v => ({ ...v, operation_number: nuevo }))
+    loadBase()
   }
 
   const pagosFiltrados = useMemo(() => {
@@ -308,6 +366,7 @@ export default function Payments() {
             </select>
           </label>
             <label>Precio de venta S/ <input type="number" step="0.01" value={precioVenta} onChange={e => setPrecioVenta(e.target.value)} required /></label>
+            <label>Comision del asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
             <label>Meses <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(Number(e.target.value))} required /></label>
           </>)}
           <label className="span2">Observacion <input value={obs} onChange={e => setObs(e.target.value)} /></label>
@@ -374,7 +433,7 @@ export default function Payments() {
               <tr key={r.id} className={'row-' + estadoDe(r).toLowerCase()}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || '') }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
+                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || '') }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
                 <td><EstadoChip r={r} /></td>
                 <td>{soles(r.amount)}</td>
                 <td>
@@ -427,6 +486,14 @@ export default function Payments() {
               <label className="span2">Observacion / comentario del pago
                 <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
               </label>
+              {role === 'superuser' && (
+                <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
+                  <span style={{ display: 'flex', gap: '.4rem' }}>
+                    <input value={opEdit} onChange={e => setOpEdit(e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="btn-ghost" onClick={guardarNroOp}>Corregir N Op.</button>
+                  </span>
+                </label>
+              )}
               <div>
                 <button type="button" className="btn-ghost" onClick={async () => {
                   await supabase.from('daily_income').update({ observation: obsEdit.toUpperCase() }).eq('id', view.id)
@@ -451,6 +518,18 @@ export default function Payments() {
               </div>
             </div>
             <div className="docs-grid">
+              {role === 'superuser' && (
+                <div className="chg-box" style={{ marginBottom: 10 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700 }}>🛠 CORRECCIONES (SUPERUSUARIO)</p>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={editarFecha}>📅 CORREGIR FECHA</button>
+                    {view.voucher_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('voucher_url')}>🗑 QUITAR VOUCHER</button>}
+                    {view.receipt_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('receipt_url')}>🗑 QUITAR COMPROBANTE</button>}
+                    <button className="btn-ghost" style={{ fontSize: 12, color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarPago}>🗑 ELIMINAR PAGO</button>
+                  </div>
+                  <p className="muted" style={{ fontSize: 10 }}>El N° de operación se corrige arriba. Al eliminar un pago de cuota, la cuota vuelve a deber ese monto.</p>
+                </div>
+              )}
               {[['VOUCHER DEL CLIENTE', view.voucher_url], ['COMPROBANTE INTERNO', view.receipt_url]].map(([t, u]) => (
                 <div key={t} className="doc-panel">
                   <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}</p>
