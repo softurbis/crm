@@ -276,7 +276,24 @@ export default function Commissions() {
                 </td>
                 <td>{r.status === 'pagada' ? <span className="st-chip st-ok">PAGADA</span> : <span className="st-chip st-per">PENDIENTE</span>}</td>
                 <td>
-                  {r.rh_number ? <>{r.rh_number}{r.rh_url && <>{' '}<a href={r.rh_url} target="_blank" rel="noreferrer">VER</a></>}<br /><span className="muted small">{r.paid_date || ''}</span></> : '-'}
+                  {r.rh_number ? <>
+                    {r.rh_number}{' '}
+                    {r.rh_url
+                      ? <a href={r.rh_url} target="_blank" rel="noreferrer">VER</a>
+                      : canPay && <label className="upload-btn warn">subir archivo
+                          <input type="file" accept="image/*,.pdf" hidden onChange={async e => {
+                            const f = e.target.files[0]; if (!f) return
+                            try {
+                              const url = await subirRH(r.id, f)
+                              await supabase.from('commissions').update({ rh_url: url }).eq('id', r.id)
+                              setMsg({ ok: true, t: 'ARCHIVO DEL RH SUBIDO' }); load()
+                            } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
+                          }} />
+                        </label>}
+                    <br /><span className="muted small">{r.paid_date || ''}</span>
+                  </> : r.status === 'pagada' && canPay
+                    ? <button className="link-btn warn" onClick={() => { setPay(r); setPayExtra([]); setRhNum(''); setPayDate(r.paid_date || hoy()) }}>&#9888; registrar RH</button>
+                    : '-'}
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {canPay && r.status !== 'pagada' &&
