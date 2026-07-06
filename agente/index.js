@@ -245,6 +245,122 @@ function msjC(nombre, lote, proy, nVenc, deudaTotal) {
   return `⚠️ *AVISO IMPORTANTE - URBIS GROUP* ⚠️\n\nSr(a). ${nombre}: su lote *${lote}* (${proy}) acumula *${nVenc} cuotas vencidas* por *${soles(deudaTotal)}*.\n\nConforme a su contrato, la acumulación de cuotas impagas es causal de resolución y puede derivar en la *pérdida/expropiación del lote* y de los montos pagados.\n\n*Es urgente que se comunique con nosotros HOY* para regularizar o llegar a un acuerdo por escrito. Estamos para ayudarle a conservar su inversión. 📞`
 }
 
+// ==================== SECRETARIAS (control de actividades) ====================
+const SEC_TZ = { timeZone: 'America/Lima' }
+const secHoy = () => new Date().toLocaleDateString('en-CA', SEC_TZ)
+const secHora = () => new Date().toLocaleTimeString('en-GB', { ...SEC_TZ, hour: '2-digit', minute: '2-digit' })
+const secDow = () => { const d = new Date(new Date().toLocaleString('en-US', SEC_TZ)).getDay(); return d === 0 ? 7 : d }
+async function ajuste(k, def) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return (data && data.value) || def }
+async function setAjuste(k, v) { await supabase.from('bot_settings').upsert({ key: k, value: v, updated_at: new Date().toISOString() }) }
+
+function secTpl(md, tag, vars, def) {
+  let s = null
+  if (md) { const m = md.match(new RegExp('^##\\s*' + tag + '\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)', 'mi')); if (m && m[1].trim()) s = m[1].trim() }
+  if (!s) s = def
+  for (const [k, v] of Object.entries(vars)) s = s.split('{' + k + '}').join(v)
+  return s
+}
+
+async function secretariaTick() {
+  try {
+    if (!(await flag('bot_activo'))) return
+    const hoy = secHoy(), hhmm = secHora(), dow = secDow()
+    const md = await brain('secretaria')
+    const { data: secs } = await supabase.from('secretaries').select('*').eq('active', true)
+    if (!secs || !secs.length) return
+
+    // 1) generar tareas del dia desde las rutinas (idempotente)
+    const { data: rutinas } = await supabase.from('secretary_routines').select('*').eq('active', true)
+    for (const r of (rutinas || [])) {
+      if (!(r.days || []).includes(dow)) continue
+      if (!secs.find(s => s.id === r.secretary_id)) continue
+      const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: r.secretary_id, routine_id: r.id, title: r.title, date: hoy, slot: r.slot })
+      if (error && !/duplicate|unique/i.test(error.message)) log('SEC gen:', error.message)
+    }
+
+    // 2) cortes: preguntar lo pendiente aun no preguntado
+    const cortes = [['manana', await ajuste('hora_corte_manana', '11:00'), 'media mañana'], ['tarde', await ajuste('hora_corte_tarde', '16:30'), 'la tarde']]
+    for (const [slot, hcorte, momento] of cortes) {
+      if (hhmm < hcorte) continue
+      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('slot', slot).eq('status', 'pendiente').is('asked_at', null)
+      const porSec = {}
+      for (const tk of (pend || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
+      for (const [sid, tareas] of Object.entries(porSec)) {
+        const sec = secs.find(s => s.id === sid)
+        if (!sec) continue
+        const { data: prev } = await supabase.from('secretary_tasks').select('ask_index').eq('secretary_id', sid).eq('date', hoy).not('ask_index', 'is', null).order('ask_index', { ascending: false }).limit(1)
+        let n = (prev && prev[0] && prev[0].ask_index) || 0
+        const lista = tareas.map(tk => { n++; tk.ask_index = n; return '*' + n + '.* ' + tk.title }).join('\n')
+        for (const tk of tareas) await supabase.from('secretary_tasks').update({ ask_index: tk.ask_index, asked_at: new Date().toISOString() }).eq('id', tk.id)
+        const nombre = (sec.full_name || '').split(' ')[0]
+        const msj = secTpl(md, 'PREGUNTA', { nombre, lista, momento }, 'Hola {nombre} 👋 ¿cómo va todo? Pasando lista de tus actividades de {momento}:\n\n{lista}\n\nRespóndeme *LISTO* si ya completaste todo, o los *números* de lo que ya está (ej: 1 y 3). 🙌')
+        await enviar(sec.phone, msj, { tipo: 'secretaria' })
+      }
+    }
+
+    // 3) recordatorio unico a los 45 min sin respuesta
+    const lim = new Date(Date.now() - 45 * 60000).toISOString()
+    const { data: sinResp } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim)
+    const porSec2 = {}
+    for (const tk of (sinResp || [])) (porSec2[tk.secretary_id] = porSec2[tk.secretary_id] || []).push(tk)
+    for (const [sid, tareas] of Object.entries(porSec2)) {
+      const sec = secs.find(s => s.id === sid)
+      if (!sec) continue
+      const lista = tareas.map(tk => '*' + tk.ask_index + '.* ' + tk.title).join('\n')
+      const nombre = (sec.full_name || '').split(' ')[0]
+      for (const tk of tareas) await supabase.from('secretary_tasks').update({ reminded_at: new Date().toISOString() }).eq('id', tk.id)
+      await enviar(sec.phone, secTpl(md, 'RECORDATORIO', { nombre, lista }, 'Hola {nombre}, te reenvío el checklist pendiente:\n\n{lista}\n\n¿Cómo vamos? Respóndeme *LISTO* o los números de lo avanzado 💪'), { tipo: 'secretaria' })
+    }
+
+    // 4) resumen diario al administrador
+    const hres = await ajuste('hora_resumen_sec', '18:00')
+    if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {
+      await setAjuste('sec_resumen_fecha', hoy)
+      const { data: todas } = await supabase.from('secretary_tasks').select('*').eq('date', hoy)
+      if (todas && todas.length) {
+        for (const tk of todas) if (tk.status === 'pendiente' && tk.asked_at && !tk.answered_at) { tk.status = 'sin_respuesta'; await supabase.from('secretary_tasks').update({ status: 'sin_respuesta' }).eq('id', tk.id) }
+        let detalle = ''
+        for (const sec of secs) {
+          const ts = todas.filter(tk => tk.secretary_id === sec.id)
+          if (!ts.length) continue
+          detalle += '\n*' + sec.full_name + '* — ' + ts.filter(tk => tk.status === 'hecha').length + '/' + ts.length + ' cumplidas\n'
+          for (const tk of ts) detalle += (tk.status === 'hecha' ? '  ✅ ' : tk.status === 'no_hecha' ? '  ❌ ' : tk.status === 'sin_respuesta' ? '  😶 ' : '  ⏳ ') + tk.title + '\n'
+        }
+        if (detalle && ADMIN) await enviar(ADMIN, secTpl(md, 'RESUMEN', { detalle }, '📋 *RESUMEN DEL DÍA — SECRETARIAS*\n{detalle}'), { tipo: 'secretaria' })
+      }
+    }
+  } catch (e) { log('SEC tick:', e.message) }
+}
+
+async function manejarSecretaria(jid, phone, texto) {
+  const { data: secsm } = await supabase.from('secretaries').select('*').ilike('phone', '%' + String(phone).slice(-9)).limit(1)
+  const sec = (secsm || [])[0]
+  if (!sec) return
+  const hoy = secHoy()
+  const md = await brain('secretaria')
+  const nombre = (sec.full_name || '').split(' ')[0]
+  const { data: abiertas } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).not('asked_at', 'is', null).order('ask_index')
+  if (!abiertas || !abiertas.length) return
+  const t = (texto || '').toLowerCase()
+  const nums = [...t.matchAll(/\d+/g)].map(m => parseInt(m[0]))
+  const esSi = /(listo|hecho|\bya\b|\bsi\b|\bsí\b|todo|complet|termin|\bok\b)/.test(t)
+  const esNo = /(\bno\b|\baun\b|\baún\b|todav|falta)/.test(t)
+  let hechas = []
+  if (nums.length) hechas = abiertas.filter(x => nums.includes(x.ask_index))
+  else if (esSi && !esNo) hechas = abiertas
+  if (hechas.length) {
+    for (const x of hechas) await supabase.from('secretary_tasks').update({ status: 'hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
+    const resumen = hechas.length === abiertas.length ? 'todo tu checklist quedó al día' : 'marqué: ' + hechas.map(x => x.title).join(', ')
+    await enviar(jid, secTpl(md, 'CONFIRMACION', { nombre, resumen }, '✅ ¡Anotado, {nombre}! {resumen}. ¡Gracias! 🙌'), { tipo: 'secretaria' })
+  } else if (esNo) {
+    for (const x of abiertas) await supabase.from('secretary_tasks').update({ status: 'no_hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
+    await enviar(jid, secTpl(md, 'PENDIENTE', { nombre }, 'Anotado {nombre}, quedan como pendientes. Cualquier avance escríbeme *LISTO* o los números. 💪'), { tipo: 'secretaria' })
+    if (ADMIN) await enviar(ADMIN, '⚠️ *' + sec.full_name + '* reporta pendientes: ' + abiertas.map(x => x.title).join(' | '), { tipo: 'aviso_admin' })
+  } else {
+    await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Respóndeme *LISTO* si completaste todo, o los números de lo que ya está (ej: 1 y 3).'), { tipo: 'secretaria' })
+  }
+}
+
 async function cobranza() {
   if (!(await flag('bot_activo')) || !(await flag('cobranza_activa'))) { log('COBRANZA DESACTIVADA desde el panel'); return }
   log('=== BARRIDO DE COBRANZA (4 NIVELES) ===')
@@ -376,7 +492,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
   const tnum = await tipoNumero(phone)
-  if (tnum === 'desactivado' || tnum === 'secretaria') { log('NUMERO ' + tnum.toUpperCase() + ': sin respuesta a', phone); return }
+  if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
+  if (tnum === 'secretaria') { await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return }
 
   // ¿es cliente?
   const p9 = phone.slice(-9)
@@ -547,6 +664,7 @@ async function iniciar() {
   // cron diario de cobranza
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
   cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
+  cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   log(`Agente iniciado. Cobranza diaria programada a las ${hh}:${mm} (hora Lima).`)
 
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
