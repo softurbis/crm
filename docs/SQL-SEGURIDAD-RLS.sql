@@ -157,7 +157,7 @@ create policy adv_upd on advisors for update to authenticated using (es_admin())
 create policy adv_del on advisors for delete to authenticated using (es_admin());
 create policy comm_sel on commissions for select to authenticated using (true);
 create policy comm_ins on commissions for insert to authenticated with check (es_staff());
-create policy comm_upd on commissions for update to authenticated using (es_admin());
+create policy comm_upd on commissions for update to authenticated using (es_staff());
 create policy comm_del on commissions for delete to authenticated using (es_admin());
 
 -- SEGUIMIENTO (personas): lee todos; SOLO SUPERUSER registra/edita/quita personas

@@ -18,6 +18,7 @@ export default function Commissions() {
   const { role } = useAuth()
   const { pidOp } = useProject()
   const canEdit = ['superuser', 'admin'].includes(role)
+  const canPay = ['superuser', 'admin', 'secretary'].includes(role)
   const [rows, setRows] = useState([])
   const [ventasSin, setVentasSin] = useState([])
   const [advisors, setAdvisors] = useState([])
@@ -34,6 +35,7 @@ export default function Commissions() {
   const [advEdit, setAdvEdit] = useState(null)
 
   const [pay, setPay] = useState(null)
+  const [payExtra, setPayExtra] = useState([])
   const [rhNum, setRhNum] = useState('')
   const [rhFile, setRhFile] = useState(null)
   const [payDate, setPayDate] = useState(hoy())
@@ -133,12 +135,13 @@ export default function Commissions() {
     try {
       let url = pay.rh_url || null
       if (rhFile) url = await subirRH(pay.id, rhFile)
+      const ids = [pay.id, ...payExtra]
       const { error } = await supabase.from('commissions').update({
         status: 'pagada', rh_number: rhNum.trim().toUpperCase(), rh_url: url, paid_date: payDate,
-      }).eq('id', pay.id)
+      }).in('id', ids)
       if (error) throw error
-      setMsg({ ok: true, t: 'COMISION MARCADA COMO PAGADA' })
-      setPay(null); setRhNum(''); setRhFile(null); load()
+      setMsg({ ok: true, t: ids.length > 1 ? ids.length + ' COMISIONES PAGADAS CON EL MISMO RH' : 'COMISION MARCADA COMO PAGADA' })
+      setPay(null); setPayExtra([]); setRhNum(''); setRhFile(null); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + (err.message || err) }) }
     setBusy(false)
   }
@@ -276,8 +279,8 @@ export default function Commissions() {
                   {r.rh_number ? <>{r.rh_number}{r.rh_url && <>{' '}<a href={r.rh_url} target="_blank" rel="noreferrer">VER</a></>}<br /><span className="muted small">{r.paid_date || ''}</span></> : '-'}
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  {canEdit && r.status !== 'pagada' &&
-                    <button className="btn-ghost" onClick={() => { setPay(r); setRhNum(r.rh_number || ''); setPayDate(hoy()) }}>Marcar pagada</button>}
+                  {canPay && r.status !== 'pagada' &&
+                    <button className="btn-ghost" onClick={() => { setPay(r); setPayExtra([]); setRhNum(r.rh_number || ''); setPayDate(hoy()) }}>Marcar pagada</button>}
                   {role === 'superuser' && r.status === 'pagada' &&
                     <button className="link-btn muted" onClick={() => volverPendiente(r)}>volver a pendiente</button>}
                 </td>
@@ -331,6 +334,24 @@ export default function Commissions() {
               <button type="button" className="btn-ghost" onClick={() => setPay(null)}>&#10005;</button>
             </div>
             <p className="muted">Lote {pay.sale?.lot?.mz}-{pay.sale?.lot?.lt} | {pay.sale?.client?.full_name} | Comision: <b className="accent">{soles(pay.amount)}</b></p>
+            {(() => {
+              const otras = rows.filter(x => x.id !== pay.id && x.status !== 'pagada' && x.advisor?.id && x.advisor?.id === pay.advisor?.id)
+              if (!otras.length) return null
+              const totalSel = Number(pay.amount) + otras.filter(o => payExtra.includes(o.id)).reduce((s, o) => s + Number(o.amount), 0)
+              return (
+                <div className="hint" style={{ marginBottom: 8 }}>
+                  <p><b>&#128206; ESTE MISMO RH CUBRE TAMBIEN:</b> <span className="muted small">(marca las otras comisiones pendientes de {pay.advisor?.code} que entran en este recibo)</span></p>
+                  {otras.map(o => (
+                    <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400, margin: '2px 0' }}>
+                      <input type="checkbox" checked={payExtra.includes(o.id)}
+                        onChange={e => setPayExtra(ids => e.target.checked ? [...ids, o.id] : ids.filter(x => x !== o.id))} />
+                      Lote {o.sale?.lot?.mz}-{o.sale?.lot?.lt} — {o.sale?.client?.full_name || '-'} — <b>{soles(o.amount)}</b>
+                    </label>
+                  ))}
+                  {payExtra.length > 0 && <p style={{ marginTop: 4 }}>TOTAL DEL RH ({payExtra.length + 1} comisiones): <b className="accent">{soles(totalSel)}</b></p>}
+                </div>
+              )
+            })()}
             <div className="form-grid">
               <label>N de RH (recibo por honorarios) <input value={rhNum} onChange={e => setRhNum(e.target.value)} placeholder="E001-123" required /></label>
               <label>Fecha de pago <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)} required /></label>
@@ -338,7 +359,7 @@ export default function Commissions() {
                 <input type="file" accept="image/*,.pdf" onChange={e => setRhFile(e.target.files[0] || null)} />
               </label>
             </div>
-            <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Confirmar pago de comision'}</button>
+            <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : payExtra.length > 0 ? 'Confirmar pago de ' + (payExtra.length + 1) + ' comisiones con este RH' : 'Confirmar pago de comision'}</button>
           </form>
         </div>
       )}
