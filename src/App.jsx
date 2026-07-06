@@ -14,6 +14,7 @@ import Contracts from './pages/Contracts'
 import Whatsapp from './pages/Whatsapp'
 import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
+import Visitas from './pages/Visitas'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -31,6 +32,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="secretarias" element={<Secretarias />} />
+        <Route path="visitas" element={<Visitas />} />
         <Route path="lotes" element={<Lots />} />
         <Route path="pagos" element={<Payments />} />
         <Route path="clientes" element={<Clients />} />

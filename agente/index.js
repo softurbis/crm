@@ -399,6 +399,19 @@ async function secretariaTick() {
       }
     }
 
+    // 3c) recordatorio de visitas de MAÑANA (al encargado y al cliente)
+    const man = new Date(new Date().toLocaleString('en-US', SEC_TZ)); man.setDate(man.getDate() + 1)
+    const fmanana = man.toLocaleDateString('en-CA')
+    const { data: visitas } = await supabase.from('visits').select('*, project:projects(name)').eq('date', fmanana).eq('status', 'programada').is('reminded_at', null)
+    for (const v of (visitas || [])) {
+      await supabase.from('visits').update({ reminded_at: new Date().toISOString() }).eq('id', v.id)
+      const hora = String(v.time).slice(0, 5)
+      const proy = v.project ? v.project.name : 'el proyecto'
+      const nomCli = (v.client_name || '').split(' ')[0]
+      if (v.encargado_phone) await enviar(v.encargado_phone, '📅 *VISITA MAÑANA* — ' + fmtFechaEs(fmanana) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente hoy. 🙌', { tipo: 'secretaria' })
+      if (v.client_phone) await enviar(v.client_phone, 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *mañana ' + fmtFechaEs(fmanana) + ' a las ' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌', { tipo: 'secretaria' })
+    }
+
     // 4) resumen diario al administrador
     const hres = await ajuste('hora_resumen_sec', '18:00')
     if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {
