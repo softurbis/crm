@@ -152,7 +152,7 @@ create policy lsc_ins on lot_status_changes for insert to authenticated with che
 -- ASESORES y COMISIONES: lee todos; asesores los maneja admin;
 -- la comision se inserta al registrar la venta (staff) y se paga/edita admin
 create policy adv_sel on advisors for select to authenticated using (true);
-create policy adv_ins on advisors for insert to authenticated with check (es_admin());
+create policy adv_ins on advisors for insert to authenticated with check (es_staff());
 create policy adv_upd on advisors for update to authenticated using (es_admin());
 create policy adv_del on advisors for delete to authenticated using (es_admin());
 create policy comm_sel on commissions for select to authenticated using (true);
@@ -166,21 +166,32 @@ create policy secs_ins on secretaries for insert to authenticated with check (es
 create policy secs_upd on secretaries for update to authenticated using (es_super());
 create policy secs_del on secretaries for delete to authenticated using (es_super());
 
--- RUTINAS: lee todos; programa admin
+-- RUTINAS: lee todos; programa admin o el dueno vinculado (su propia rutina)
 create policy secr_sel on secretary_routines for select to authenticated using (true);
-create policy secr_ins on secretary_routines for insert to authenticated with check (es_admin());
-create policy secr_upd on secretary_routines for update to authenticated using (es_admin());
-create policy secr_del on secretary_routines for delete to authenticated using (es_admin());
+create policy secr_ins on secretary_routines for insert to authenticated
+  with check (es_admin() or exists (
+    select 1 from secretaries s where s.id = secretary_id and s.user_id = auth.uid()));
+create policy secr_upd on secretary_routines for update to authenticated
+  using (es_admin() or exists (
+    select 1 from secretaries s where s.id = secretary_routines.secretary_id and s.user_id = auth.uid()));
+create policy secr_del on secretary_routines for delete to authenticated
+  using (es_admin() or exists (
+    select 1 from secretaries s where s.id = secretary_routines.secretary_id and s.user_id = auth.uid()));
 
 -- TAREAS: lee todos; crea staff (separaciones crean recordatorio);
 -- actualiza admin O el dueno vinculado (secretaria/gerencia marca LO SUYO); borra admin
 create policy sect_sel on secretary_tasks for select to authenticated using (true);
-create policy sect_ins on secretary_tasks for insert to authenticated with check (es_staff());
+create policy sect_ins on secretary_tasks for insert to authenticated
+  with check (es_staff() or exists (
+    select 1 from secretaries s where s.id = secretary_id and s.user_id = auth.uid()));
 create policy sect_upd on secretary_tasks for update to authenticated
   using (es_admin() or exists (
     select 1 from secretaries s
     where s.id = secretary_tasks.secretary_id and s.user_id = auth.uid()));
-create policy sect_del on secretary_tasks for delete to authenticated using (es_admin());
+create policy sect_del on secretary_tasks for delete to authenticated
+  using (es_admin() or exists (
+    select 1 from secretaries s
+    where s.id = secretary_tasks.secretary_id and s.user_id = auth.uid()));
 
 -- ACCESOS "VE A": lee todos (el panel filtra con esto); escribe superuser
 create policy segacc_sel on seguimiento_access for select to authenticated using (true);

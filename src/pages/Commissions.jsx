@@ -41,6 +41,7 @@ export default function Commissions() {
   const [amtEdit, setAmtEdit] = useState(null)
   const [addSale, setAddSale] = useState(null)
   const [addMonto, setAddMonto] = useState('')
+  const [addUrbis, setAddUrbis] = useState('')
 
   async function load() {
     const [c, a] = await Promise.all([
@@ -81,14 +82,16 @@ export default function Commissions() {
 
   const totPend = filtradas.filter(r => r.status === 'pendiente').reduce((s, r) => s + Number(r.amount), 0)
   const totPag = filtradas.filter(r => r.status === 'pagada').reduce((s, r) => s + Number(r.amount), 0)
+  const totUrbis = filtradas.reduce((s, r) => s + Number(r.urbis_amount || 0), 0)
 
   const porAsesor = useMemo(() => {
     const m = {}
     for (const r of rows) {
       const k = r.advisor?.code || 'SIN ASESOR'
-      m[k] = m[k] || { n: 0, total: 0, pend: 0, pag: 0 }
+      m[k] = m[k] || { n: 0, total: 0, pend: 0, pag: 0, urbis: 0 }
       m[k].n++
       m[k].total += Number(r.amount)
+      m[k].urbis += Number(r.urbis_amount || 0)
       if (r.status === 'pagada') m[k].pag += Number(r.amount)
       else m[k].pend += Number(r.amount)
     }
@@ -147,19 +150,25 @@ export default function Commissions() {
   }
 
   async function guardarMonto() {
-    const { error } = await supabase.from('commissions').update({ amount: Number(amtEdit.amount || 0) }).eq('id', amtEdit.id)
-    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'MONTO ACTUALIZADO' })
+    let { error } = await supabase.from('commissions').update({ amount: Number(amtEdit.amount || 0), urbis_amount: Number(amtEdit.urbis || 0) }).eq('id', amtEdit.id)
+    if (error && /urbis_amount/i.test(error.message)) ({ error } = await supabase.from('commissions').update({ amount: Number(amtEdit.amount || 0) }).eq('id', amtEdit.id))
+    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'MONTOS ACTUALIZADOS' })
     setAmtEdit(null); load()
   }
 
   async function agregarComision(e) {
     e.preventDefault()
-    const { error } = await supabase.from('commissions').insert({
+    const fila = {
       sale_id: addSale.id, advisor_id: addSale.advisor_id || null,
-      amount: Number(addMonto || 0), status: 'pendiente',
-    })
+      amount: Number(addMonto || 0), urbis_amount: Number(addUrbis || 0), status: 'pendiente',
+    }
+    let { error } = await supabase.from('commissions').insert(fila)
+    if (error && /urbis_amount/i.test(error.message)) {
+      const { urbis_amount, ...f2 } = fila
+      ;({ error } = await supabase.from('commissions').insert(f2))
+    }
     setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'COMISION REGISTRADA' })
-    setAddSale(null); setAddMonto(''); load()
+    setAddSale(null); setAddMonto(''); setAddUrbis(''); load()
   }
 
   return (
@@ -216,8 +225,9 @@ export default function Commissions() {
       )}
 
       <div className="chips">
-        <span className="chip on">PENDIENTE: {soles(totPend)}</span>
-        <span className="chip">PAGADO: {soles(totPag)}</span>
+        <span className="chip on">ASESOR PENDIENTE: {soles(totPend)}</span>
+        <span className="chip">ASESOR PAGADO: {soles(totPag)}</span>
+        <span className="chip">COMISION URBIS: {soles(totUrbis)}</span>
       </div>
 
       <div className="toolbar">
@@ -235,7 +245,7 @@ export default function Commissions() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Asesor</th><th>Lote</th><th>Cliente</th><th>Fecha venta</th><th>Venta</th><th>Comision</th><th>Estado</th><th>RH</th><th></th></tr></thead>
+          <thead><tr><th>Asesor</th><th>Lote</th><th>Cliente</th><th>Fecha venta</th><th>Venta</th><th>Com. asesor</th><th>Com. Urbis</th><th>Estado</th><th>RH</th><th></th></tr></thead>
           <tbody>
             {filtradas.map(r => (
               <tr key={r.id}>
@@ -253,8 +263,13 @@ export default function Commissions() {
                     </span>
                   ) : (<>
                     <b>{soles(r.amount)}</b>
-                    {canEdit && r.status !== 'pagada' && <>{' '}<button className="link-btn muted" onClick={() => setAmtEdit({ id: r.id, amount: r.amount })}>editar</button></>}
+                    {canEdit && r.status !== 'pagada' && <>{' '}<button className="link-btn muted" onClick={() => setAmtEdit({ id: r.id, amount: r.amount, urbis: r.urbis_amount || 0 })}>editar</button></>}
                   </>)}
+                </td>
+                <td>
+                  {amtEdit?.id === r.id
+                    ? <input type="number" step="0.01" value={amtEdit.urbis} onChange={e => setAmtEdit({ ...amtEdit, urbis: e.target.value })} style={{ width: '6.5em' }} title="Comision Urbis" />
+                    : soles(r.urbis_amount || 0)}
                 </td>
                 <td>{r.status === 'pagada' ? <span className="st-chip st-ok">PAGADA</span> : <span className="st-chip st-per">PENDIENTE</span>}</td>
                 <td>
@@ -268,7 +283,7 @@ export default function Commissions() {
                 </td>
               </tr>
             ))}
-            {filtradas.length === 0 && <tr><td colSpan="9" className="muted">Sin comisiones registradas en este proyecto.</td></tr>}
+            {filtradas.length === 0 && <tr><td colSpan="10" className="muted">Sin comisiones registradas en este proyecto.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -287,7 +302,7 @@ export default function Commissions() {
                     <td>{s.sale_date}</td>
                     <td>{s.advisor?.code || <span className="muted">sin asesor</span>}</td>
                     <td>{soles(s.total_sale_price)}</td>
-                    <td><button className="btn-ghost" onClick={() => { setAddSale(s); setAddMonto('') }}>+ Registrar comision</button></td>
+                    <td><button className="btn-ghost" onClick={() => { setAddSale(s); setAddMonto(''); setAddUrbis('') }}>+ Registrar comision</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -299,10 +314,10 @@ export default function Commissions() {
       <h2 className="sub">Resumen por asesor</h2>
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Asesor</th><th>Ventas</th><th>Total comisiones</th><th>Pendiente</th><th>Pagado</th></tr></thead>
+          <thead><tr><th>Asesor</th><th>Ventas</th><th>Com. asesor</th><th>Pendiente</th><th>Pagado</th><th>Com. Urbis</th></tr></thead>
           <tbody>
             {porAsesor.map(([k, v]) => (
-              <tr key={k}><td><b>{k}</b></td><td>{v.n}</td><td>{soles(v.total)}</td><td className={v.pend > 0 ? 'warn' : ''}>{soles(v.pend)}</td><td className="ok">{soles(v.pag)}</td></tr>
+              <tr key={k}><td><b>{k}</b></td><td>{v.n}</td><td>{soles(v.total)}</td><td className={v.pend > 0 ? 'warn' : ''}>{soles(v.pend)}</td><td className="ok">{soles(v.pag)}</td><td>{soles(v.urbis)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -337,7 +352,8 @@ export default function Commissions() {
             </div>
             <p className="muted">{addSale.client?.full_name} | Venta: {soles(addSale.total_sale_price)} | Asesor: {addSale.advisor?.code || 'SIN ASESOR'}</p>
             <div className="form-grid">
-              <label>Monto de la comision S/ <input type="number" step="0.01" min="0" value={addMonto} onChange={e => setAddMonto(e.target.value)} required autoFocus /></label>
+              <label>Comision del asesor S/ <input type="number" step="0.01" min="0" value={addMonto} onChange={e => setAddMonto(e.target.value)} required autoFocus /></label>
+              <label>Comision Urbis S/ <input type="number" step="0.01" min="0" value={addUrbis} onChange={e => setAddUrbis(e.target.value)} placeholder="0.00" /></label>
             </div>
             <button className="btn-primary">Registrar comision pendiente</button>
           </form>

@@ -138,7 +138,7 @@ export default function Secretarias() {
         </div>
       </div>
 
-      {mia && <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Estás vinculado como <b style={{ color: '#e8a0c8' }}>{mia.full_name}</b> — puedes marcar tus propias actividades.</p>}
+      {mia && <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Estás vinculado como <b style={{ color: '#e8a0c8' }}>{mia.full_name}</b> — puedes gestionar tus propias actividades: marcar, programar, rutina y mover.</p>}
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
         <button className={`chip ${secSel === 'todas' ? 'on' : ''}`} onClick={() => setSecSel('todas')}>TODOS</button>
@@ -152,7 +152,7 @@ export default function Secretarias() {
         })}
       </div>
 
-      {esJefe && (
+      {(esJefe || mia) && (
         <div className="glass" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {role === 'superuser' && <>
           <b style={{ fontSize: 13 }}>REGISTRAR</b>
@@ -164,7 +164,8 @@ export default function Secretarias() {
           <button className="btn" onClick={agregarSec}>AGREGAR</button>
           </>}
           <span className="muted" style={{ fontSize: 11 }}>{secsV.filter(s => s.active).length} en seguimiento</span>
-          {secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
+          {!esJefe && mia && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setAbierta(abierta === mia.id ? null : mia.id)}>&#9881; MI RUTINA</button>}
+          {esJefe && secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
             <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setAbierta(abierta === s.id ? null : s.id)}>⚙ RUTINA</button>
               {role === 'superuser' && <button className="btn-ghost" style={{ fontSize: 12 }} title="Si está apagado, el bot no le escribe por WhatsApp" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>}
@@ -180,7 +181,7 @@ export default function Secretarias() {
         </div>
       )}
 
-      {abierta && esJefe && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
+      {abierta && (esJefe || (mia && abierta === mia.id)) && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
         <div className="glass" style={{ padding: 12, marginBottom: 12 }}>
           <b style={{ fontSize: 13 }}>RUTINA FIJA — {s.full_name}</b> <span className="muted" style={{ fontSize: 11 }}>(se repite cada semana, todo el mes)</span>
           {rs.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Sin rutina aún.</p>}
@@ -253,14 +254,16 @@ export default function Secretarias() {
         <div className="glass" style={{ padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <b style={{ flex: 1 }}>{new Date(diaSel + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}</b>
-            {esJefe && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setExtra({ sid: secSel !== 'todas' ? secSel : (secs[0]?.id || null), title: '', time: '', category: 'administrativa', slot: 'manana' })}>+ PROGRAMAR</button>}
+            {(esJefe || mia) && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setExtra({ sid: esJefe ? (secSel !== 'todas' ? secSel : (secs[0]?.id || null)) : mia.id, title: '', time: '', category: 'administrativa', slot: 'manana' })}>+ PROGRAMAR</button>}
           </div>
 
-          {extra && esJefe && (
+          {extra && (esJefe || mia) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, padding: 8, border: '1px dashed rgba(156,203,134,.4)', borderRadius: 8 }}>
-              <select value={extra.sid || ''} onChange={e => setExtra({ ...extra, sid: e.target.value })}>
-                {secsV.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-              </select>
+              {esJefe ? (
+                <select value={extra.sid || ''} onChange={e => setExtra({ ...extra, sid: e.target.value })}>
+                  {secsV.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+              ) : <b style={{ fontSize: 12 }}>PARA: {mia?.full_name}</b>}
               <input autoFocus placeholder="¿Qué necesitas que haga?" value={extra.title} onChange={e => setExtra({ ...extra, title: e.target.value })} />
               <div style={{ display: 'flex', gap: 6 }}>
                 <input type="time" value={extra.time} onChange={e => setExtra({ ...extra, time: e.target.value })} title="Hora exacta (opcional)" />
@@ -298,8 +301,8 @@ export default function Secretarias() {
                         </span>
                         {editable && t.status !== 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
                         {editable && t.status === 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
-                        {esJefe && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
-                        {esJefe && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => quitarTarea(t)}>✕</button>}
+                        {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
+                        {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => quitarTarea(t)}>✕</button>}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginLeft: 26, alignItems: 'center' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: cat.c, border: `1px solid ${cat.c}55`, borderRadius: 8, padding: '0 6px' }}>{cat.t}</span>

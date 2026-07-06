@@ -75,6 +75,7 @@ export default function Payments() {
   const [advisors, setAdvisors] = useState([])
   const [advId, setAdvId] = useState('')
   const [comision, setComision] = useState('')
+  const [comUrbis, setComUrbis] = useState('')
   const [secs, setSecs] = useState([])
   const [notifIds, setNotifIds] = useState([])
   const readOnly = role === 'manager'
@@ -152,7 +153,18 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision(''); setNotifIds([])
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision(''); setComUrbis(''); setNotifIds([])
+  }
+
+  async function nuevoAsesor() {
+    const code = (prompt('CODIGO corto del vendedor (ej. JUAN):') || '').trim().toUpperCase()
+    if (!code) return
+    const nombre = (prompt('Nombre completo (opcional, Enter para saltar):') || '').trim().toUpperCase()
+    const { data, error } = await supabase.from('advisors').insert({ code, full_name: nombre || code, active: true }).select().single()
+    if (error) { setMsg({ ok: false, t: 'ERROR AL CREAR VENDEDOR: ' + error.message }); return }
+    await loadBase()
+    setAdvId(data.id)
+    setMsg({ ok: true, t: 'VENDEDOR ' + code + ' AGREGADO (tambien queda en Comisiones > Vendedores/asesores)' })
   }
 
   async function submit(e) {
@@ -220,11 +232,14 @@ export default function Payments() {
         await supabase.from('lots').update({ status: 'vendido' }).eq('id', lotId)
         if (ctx?.sep) await supabase.from('separations').update({ status: 'completada' }).eq('id', ctx.sep.id)
         const advFinal = advId || ctx?.sep?.advisor_id || null
-        if (advFinal) {
-          const { error: e4 } = await supabase.from('commissions').insert({
-            sale_id: sale.id, advisor_id: advFinal, amount: Number(comision || 0), status: 'pendiente',
-          })
-          if (e4) setMsg({ ok: false, t: 'VENTA OK, PERO NO SE REGISTRO LA COMISION: ' + e4.message })
+        if (advFinal || Number(comUrbis || 0) > 0) {
+          const fila = { sale_id: sale.id, advisor_id: advFinal, amount: Number(comision || 0), urbis_amount: Number(comUrbis || 0), status: 'pendiente' }
+          let r4 = await supabase.from('commissions').insert(fila)
+          if (r4.error && /urbis_amount/i.test(r4.error.message)) {
+            const { urbis_amount, ...f2 } = fila
+            r4 = await supabase.from('commissions').insert(f2)
+          }
+          if (r4.error) setMsg({ ok: false, t: 'VENTA OK, PERO NO SE REGISTRO LA COMISION: ' + r4.error.message })
         }
       }
 
@@ -369,7 +384,7 @@ export default function Payments() {
           </label>
           {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
-          <label>Vendedor (asesor)
+          <label>Vendedor (asesor) <button type="button" className="link-btn" onClick={nuevoAsesor} title="Registrar un vendedor nuevo, tambien externo">+ nuevo</button>
             <select value={advId} onChange={e => setAdvId(e.target.value)} required>
               <option value="">- elegir -</option>
               {advisors.map(a => <option key={a.id} value={a.id}>{a.code}{a.full_name && a.full_name !== a.code ? ' - ' + a.full_name : ''}</option>)}
@@ -395,14 +410,15 @@ export default function Payments() {
               {clients.filter(c => c.id !== clientId).map(c => <option key={c.id} value={c.id}>{c.full_name} ({c.doc_number})</option>)}
             </select>
           </label>
-          <label>Vendedor (asesor)
+          <label>Vendedor (asesor) <button type="button" className="link-btn" onClick={nuevoAsesor} title="Registrar un vendedor nuevo, tambien externo">+ nuevo</button>
             <select value={advId} onChange={e => setAdvId(e.target.value)} required>
               <option value="">- elegir -</option>
               {advisors.map(a => <option key={a.id} value={a.id}>{a.code}{a.full_name && a.full_name !== a.code ? ' - ' + a.full_name : ''}</option>)}
             </select>
           </label>
             <label>Precio de venta S/ <input type="number" step="0.01" value={precioVenta} onChange={e => setPrecioVenta(e.target.value)} required /></label>
-            <label>Comision del asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
+            <label>Comision asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
+            <label>Comision Urbis S/ <input type="number" step="0.01" min="0" value={comUrbis} onChange={e => setComUrbis(e.target.value)} placeholder="0.00" /></label>
             <label>Meses <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(Number(e.target.value))} required /></label>
           </>)}
           <label className="span2">Observacion <input value={obs} onChange={e => setObs(e.target.value)} /></label>
