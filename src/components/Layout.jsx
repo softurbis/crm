@@ -19,7 +19,7 @@ const PROYECTO = [
   { to: '/pagos', label: 'Cuotas', icon: '💵', color: '#4fc3a1' },
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c' },
   { to: '/contratos', label: 'Contratos', icon: '📄', color: '#c9a97f' },
-  { to: '/comisiones', label: 'Comisiones', icon: '🪙', roles: ['superuser', 'admin', 'manager'], color: '#e8b04f' },
+  { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f' },
 ]
 
 export default function Layout() {

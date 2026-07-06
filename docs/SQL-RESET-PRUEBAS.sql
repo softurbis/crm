@@ -44,10 +44,15 @@ delete from daily_income where separation_id in (
   select id from separations
   where created_at >= '2026-07-04'
      or client_id in (select id from clients where created_at >= '2026-07-04'));
-delete from secretary_tasks where separation_id in (
-  select id from separations
-  where created_at >= '2026-07-04'
-     or client_id in (select id from clients where created_at >= '2026-07-04'));
+do $$ begin
+  if exists (select 1 from information_schema.columns
+             where table_name = 'secretary_tasks' and column_name = 'separation_id') then
+    delete from secretary_tasks where separation_id in (
+      select id from separations
+      where created_at >= '2026-07-04'
+         or client_id in (select id from clients where created_at >= '2026-07-04'));
+  end if;
+end $$;
 update lots set status = 'disponible'
 where id in (select lot_id from separations
              where created_at >= '2026-07-04'
@@ -67,7 +72,11 @@ delete from lot_status_changes where changed_at >= '2026-07-04';
 
 -- 6) gastos de julio + la numeracion SOL- continua desde el maximo real
 delete from expenses where issue_date >= '2026-07-01' and issue_date < '2026-08-01';
-select setval('expenses_request_seq', coalesce((select max(request_number) from expenses), 0) + 1, false);
+do $$ begin
+  if to_regclass('public.expenses_request_seq') is not null then
+    perform setval('expenses_request_seq', coalesce((select max(request_number) from expenses), 0) + 1, false);
+  end if;
+end $$;
 
 -- 7) visitas a cero (todas son de prueba)
 delete from visits;
