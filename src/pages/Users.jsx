@@ -25,14 +25,21 @@ export default function Users() {
   const [busy, setBusy] = useState(false)
 
   const [seguim, setSeguim] = useState([])
+  const [segAcc, setSegAcc] = useState([])
   async function load() {
-    const [u, p, a, s] = await Promise.all([
+    const [u, p, a, s, sa] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at'),
       supabase.from('projects').select('id, name'),
       supabase.from('project_assignments').select('*'),
       supabase.from('secretaries').select('*').order('full_name'),
+      supabase.from('seguimiento_access').select('*'),
     ])
-    setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || []); setSeguim(s.data || [])
+    setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || []); setSeguim(s.data || []); setSegAcc(sa.data || [])
+  }
+  async function toggleSegAcc(u, sid, on) {
+    if (on) await supabase.from('seguimiento_access').insert({ user_id: u.id, secretary_id: sid })
+    else await supabase.from('seguimiento_access').delete().eq('user_id', u.id).eq('secretary_id', sid)
+    load()
   }
 
   async function vincularSeguimiento(u, val) {
@@ -92,6 +99,12 @@ export default function Users() {
     load()
   }
 
+  async function resetPass(u) {
+    if (!confirm('¿Enviar correo de recuperación de contraseña a ' + u.email + '?\n\nRecibirá un enlace para crear su nueva clave.')) return
+    const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: window.location.origin + '/crm/reset' })
+    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'CORREO DE RECUPERACIÓN ENVIADO A ' + u.email })
+  }
+
   async function toggleActivo(u) {
     if (u.id === profile?.id) return
     const accion = u.active === false ? 'REACTIVAR' : 'DESACTIVAR'
@@ -149,6 +162,7 @@ export default function Users() {
                     : <button className={u.active === false ? 'btn-ghost' : 'link-btn bad'} onClick={() => toggleActivo(u)}>
                         {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
                       </button>}
+                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Enviar correo para crear nueva contraseña" onClick={() => resetPass(u)}>🔑 RESET</button>
                 </td>
                 <td>
                   {(() => {
@@ -167,6 +181,21 @@ export default function Users() {
                       </select>
                     )
                   })()}
+                  {u.role !== 'superuser' && seguim.length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      <span className="muted" style={{ fontSize: 10, fontWeight: 700 }}>VE A:</span>
+                      {seguim.map(s => {
+                        const on = segAcc.some(a => a.user_id === u.id && a.secretary_id === s.id)
+                        return (
+                          <label key={s.id} className="inline-check" style={{ fontSize: 11 }}>
+                            <input type="checkbox" checked={on} onChange={e => toggleSegAcc(u, s.id, e.target.checked)} />
+                            {s.tipo === 'gerencia' ? '👔' : ''}{s.full_name.split(' ')[0]}
+                          </label>
+                        )
+                      })}
+                      <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>SIN MARCAR NINGUNO = ve según su rol (admin: todas las secretarias).</p>
+                    </div>
+                  )}
                 </td>
                 <td>
                   {projects.map(p => {

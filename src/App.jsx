@@ -14,6 +14,7 @@ import Contracts from './pages/Contracts'
 import Leads from './pages/Leads'
 import Whatsapp from './pages/Whatsapp'
 import Secretarias from './pages/Secretarias'
+import Reset from './pages/Reset'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -26,6 +27,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/reset" element={<Reset />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
         <Route path="leads" element={<Leads />} />

@@ -27,25 +27,34 @@ export default function Secretarias() {
   const [nr, setNr] = useState({ title: '', slot: 'manana', days: [1, 2, 3, 4, 5, 6], category: 'administrativa' })
   const [extra, setExtra] = useState(null)
   const [mover, setMover] = useState(null)
+  const [accesos, setAccesos] = useState([])
 
   const esJefe = ['admin', 'superuser'].includes(role)
   // registro propio: la persona del equipo vinculada a este usuario del sistema
   const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
-  // GERENCIA solo la ve el superusuario (o el propio gerente vinculado)
-  const esVisible = s => role === 'superuser' || s.tipo !== 'gerencia' || (profile?.id && s.user_id === profile.id)
+  // visibilidad: superusuario ve todo; si el usuario tiene accesos configurados, solo esos (+ el suyo);
+  // sin configuracion: ve las secretarias (gerencia solo superusuario o el propio gerente)
+  const misAccesos = accesos.filter(a => profile?.id && a.user_id === profile.id).map(a => a.secretary_id)
+  const esVisible = s => {
+    if (role === 'superuser') return true
+    if (profile?.id && s.user_id === profile.id) return true
+    if (misAccesos.length) return misAccesos.includes(s.id)
+    return s.tipo !== 'gerencia'
+  }
   const secsV = secs.filter(esVisible)
 
   const cargar = async () => {
     const d1 = mes + '-01'
     const fin = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate()
     const d2 = mes + '-' + String(fin).padStart(2, '0')
-    const [a, b, c, u] = await Promise.all([
+    const [a, b, c, u, sa] = await Promise.all([
       supabase.from('secretaries').select('*').order('created_at'),
       supabase.from('secretary_routines').select('*').order('created_at'),
       supabase.from('secretary_tasks').select('*').gte('date', d1).lte('date', d2).order('time', { nullsFirst: true }),
       supabase.from('profiles').select('id, full_name, role').order('full_name'),
+      supabase.from('seguimiento_access').select('*'),
     ])
-    setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || [])
+    setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || []); setAccesos(sa.data || [])
   }
   useEffect(() => { cargar() }, [mes])
   useEffect(() => { const t = setInterval(cargar, 15000); return () => clearInterval(t) }, [mes])
