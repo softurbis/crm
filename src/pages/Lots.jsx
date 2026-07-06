@@ -154,6 +154,32 @@ export default function Lots() {
     return c
   }, [lots, vencidos])
 
+  async function crearLotes() {
+    const mz = (prompt('CREAR LOTES — MANZANA (ej. A):') || '').trim().toUpperCase()
+    if (!mz) return
+    const d = Number(prompt('DESDE el lote N°:', '1'))
+    const h = Number(prompt('HASTA el lote N°:', '12'))
+    if (!d || !h || h < d || h - d > 200) { alert('Rango inválido'); return }
+    const area = Number(prompt('ÁREA m² de cada lote (editable luego por lote):', '300'))
+    const ppm = Number(prompt('PRECIO por m² S/ (editable luego):', '60'))
+    if (!area || !ppm) return
+    if (!confirm('Se crearán ' + (h - d + 1) + ' lotes en Mz ' + mz + ' (' + area + ' m², S/ ' + ppm + '/m²). ¿Continuar?')) return
+    const filas = []
+    for (let n = d; n <= h; n++) filas.push({ project_id: pidOp, mz, lt: String(n), area_m2: area, price_per_m2: ppm, total_price: Math.round(area * ppm * 100) / 100, status: 'disponible' })
+    const { error } = await supabase.from('lots').insert(filas)
+    if (error) { alert('ERROR: ' + error.message); return }
+    alert('✅ ' + filas.length + ' LOTES CREADOS EN MZ ' + mz)
+    loadLots()
+  }
+
+  async function eliminarLote() {
+    if (sel.status !== 'disponible') { alert('Solo se pueden eliminar lotes DISPONIBLES.'); return }
+    if (!confirm('¿ELIMINAR el lote Mz ' + sel.mz + ' Lt ' + sel.lt + ' del proyecto? Esta acción no se puede deshacer.')) return
+    const { error } = await supabase.from('lots').delete().eq('id', sel.id)
+    if (error) { alert('No se pudo eliminar: ' + error.message); return }
+    setSel(null); loadLots()
+  }
+
   function abrirLote(l) {
     setSel(l); setEdit(false); setEmsg(null); setChg(false); setChgReason(''); setChgFile(null)
   }
@@ -270,6 +296,9 @@ export default function Lots() {
         <ProjectPicker />
         {['admin', 'superuser', 'secretary'].includes(role) && (
           <button className="btn-ghost" onClick={calcularSimulacro}>🧪 Simulacro cobranza</button>
+        )}
+        {['admin', 'superuser'].includes(role) && (
+          <button className="btn-ghost" onClick={crearLotes}>➕ Crear lotes</button>
         )}
         {['admin', 'superuser'].includes(role) && (
           <button className="btn-ghost" onClick={() => { setCrear(true); setCMsg(null) }}>➕ Crear lotes</button>
@@ -389,6 +418,10 @@ export default function Lots() {
                     {' '}
                     {['admin', 'superuser'].includes(role) && (
                       <button className="btn-ghost" onClick={() => { setChg(!chg); setEdit(false) }}>Cambiar estado (admin)</button>
+                    )}
+                    {' '}
+                    {role === 'superuser' && sel.status === 'disponible' && (
+                      <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={eliminarLote}>🗑 Eliminar lote</button>
                     )}
                     {['admin', 'superuser'].includes(role) && sel.status === 'disponible' && (
                       <>{' '}<button className="btn-ghost bad" onClick={borrarLote}>&#128465; Eliminar lote</button></>
