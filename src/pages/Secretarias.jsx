@@ -70,7 +70,7 @@ export default function Secretarias() {
     if (!nva.full_name.trim() || limpio.length < 9) { alert('Nombre y número válido (mín. 9 dígitos)'); return }
     const { error } = await supabase.from('secretaries').insert({ full_name: nva.full_name.trim().toUpperCase(), phone: limpio, tipo: nva.tipo })
     if (error) { alert('ERROR: ' + error.message); return }
-    await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: 'secretaria', note: nva.full_name.trim().toUpperCase() + ' (' + nva.tipo.toUpperCase() + ')' })
+    await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: nva.tipo === 'gerencia' ? 'gerencia' : 'secretaria', note: nva.full_name.trim().toUpperCase() + ' (' + nva.tipo.toUpperCase() + ')' })
     setNva({ full_name: '', phone: '', tipo: 'secretaria' }); cargar()
   }
   const toggleActiva = async s => { await supabase.from('secretaries').update({ active: !s.active }).eq('id', s.id); cargar() }

@@ -9,10 +9,12 @@ const FLOW = {
   completado:      { t: 'CALIFICADO',         c: '#7fbf7f' },
 }
 const TIPOS = [
-  { v: 'desactivado', t: 'ADMINISTRATIVO (el bot nunca responde)', c: '#e07b7b' },
-  { v: 'bot',         t: 'BOT (flujo de leads)',                c: '#9ccb86' },
-  { v: 'cliente',     t: 'CLIENTE (solo cobranza)',             c: '#b8a1d9' },
-  { v: 'secretaria',  t: 'SECRETARIA (seguimiento, prox.)',     c: '#7ec8e3' },
+  { v: 'desactivado', t: 'ADMINISTRATIVO (el bot no le responde; si recibe avisos internos)', s: 'ADMINISTRATIVO', c: '#e07b7b' },
+  { v: 'bot',         t: 'BOT (flujo de leads)',                    s: 'BOT', c: '#9ccb86' },
+  { v: 'cliente',     t: 'CLIENTE (solo cobranza)',                 s: 'CLIENTE', c: '#b8a1d9' },
+  { v: 'secretaria',  t: 'SECRETARIA (seguimiento de actividades)', s: 'SECRETARIA', c: '#7ec8e3' },
+  { v: 'gerencia',    t: 'GERENCIA (seguimiento de actividades)',   s: '\u{1F454} GERENCIA', c: '#e7c15a' },
+  { v: 'silencio',    t: 'SILENCIO TOTAL (nunca responde ni escribe)', s: '\u{1F507} SILENCIO TOTAL', c: '#8b95a1' },
 ]
 const fh = iso => iso ? new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 
@@ -47,6 +49,7 @@ export default function Whatsapp() {
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
+  const [edNum, setEdNum] = useState(null)
   const [adminPhone, setAdminPhone] = useState('')
   const [waEstado, setWaEstado] = useState('')
   const [qrImg, setQrImg] = useState('')
@@ -182,7 +185,7 @@ export default function Whatsapp() {
     if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto'].includes(c.flow_state)
     if (filtro === 'clientes') return !!c.clients
     if (filtro === 'humanos') return c.flow_state === 'humano'
-    if (filtro === 'silenciados') return !!nums.find(n => c.phone && n.tipo === 'desactivado' && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
+    if (filtro === 'silenciados') return !!nums.find(n => c.phone && ['desactivado', 'silencio'].includes(n.tipo) && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
     return true
   })
   const nombreDe = c => c.clients?.full_name || c.leads?.full_name || 'SIN NOMBRE'
@@ -282,12 +285,23 @@ export default function Whatsapp() {
           {nums.length === 0 && <p className="muted">Sin números registrados.</p>}
           {nums.map(n => {
             const t = TIPOS.find(x => x.v === n.tipo)
+            const editando = edNum?.phone === n.phone
             return (
-              <div key={n.phone} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+              <div key={n.phone} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.06)', flexWrap: 'wrap' }}>
                 <b style={{ width: 140 }}>+{n.phone}</b>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, border: `1px solid ${t?.c}`, color: t?.c }}>{n.tipo.toUpperCase()}</span>
-                <span className="muted" style={{ flex: 1, fontSize: 12 }}>{n.note}</span>
-                <button className="btn-ghost" onClick={() => borrarNum(n.phone)}>QUITAR</button>
+                {editando ? (<>
+                  <select value={edNum.tipo} onChange={e => setEdNum({ ...edNum, tipo: e.target.value })}>
+                    {TIPOS.filter(x => x.v !== 'bot').map(x => <option key={x.v} value={x.v}>{x.t}</option>)}
+                  </select>
+                  <input value={edNum.note} placeholder="Nota" onChange={e => setEdNum({ ...edNum, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                  <button className="btn" onClick={async () => { await guardarNum(edNum.phone, edNum.tipo, edNum.note); setEdNum(null) }}>GUARDAR</button>
+                  <button className="btn-ghost" onClick={() => setEdNum(null)}>&#10005;</button>
+                </>) : (<>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, border: `1px solid ${t?.c || '#888'}`, color: t?.c || '#888' }}>{t?.s || n.tipo.toUpperCase()}</span>
+                  <span className="muted" style={{ flex: 1, fontSize: 12 }}>{n.note}</span>
+                  <button className="btn-ghost" onClick={() => setEdNum({ phone: n.phone, tipo: n.tipo, note: n.note || '' })}>EDITAR</button>
+                  <button className="btn-ghost" onClick={() => borrarNum(n.phone)}>QUITAR</button>
+                </>)}
               </div>
             )
           })}
@@ -320,7 +334,7 @@ export default function Whatsapp() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                   <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
                   <span style={{ display: 'flex', gap: 4 }}>
-                    {tn && tn.tipo === 'desactivado' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e07b7b', color: '#e07b7b' }}>ADMINISTRATIVO</span>}
+                    {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
                     {f && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
                     {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
                   </span>
@@ -366,6 +380,8 @@ export default function Whatsapp() {
                     <option value="cliente">CLIENTE (COBRANZA)</option>
                     <option value="desactivado">ADMINISTRATIVO (SIN RESPUESTA)</option>
                     <option value="secretaria">SECRETARIA (SEGUIMIENTO)</option>
+                    <option value="gerencia">GERENCIA (SEGUIMIENTO)</option>
+                    <option value="silencio">SILENCIO TOTAL</option>
                   </select>
                   <a className="btn-ghost" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">Abrir en WhatsApp</a>
                 </div>

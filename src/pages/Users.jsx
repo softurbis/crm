@@ -59,7 +59,7 @@ export default function Users() {
       }
       const { error } = await supabase.from('secretaries').insert({ full_name: (u.full_name || u.email).toUpperCase(), phone: dig, tipo, user_id: u.id })
       if (error) { alert('ERROR: ' + error.message); return }
-      await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'secretaria', note: (u.full_name || '').toUpperCase() + ' (' + tipo.toUpperCase() + ')' })
+      await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: tipo === 'gerencia' ? 'gerencia' : 'secretaria', note: (u.full_name || '').toUpperCase() + ' (' + tipo.toUpperCase() + ')' })
       setMsg({ ok: true, t: 'SEGUIMIENTO CREADO Y VINCULADO: +' + dig })
     } else {
       await supabase.from('secretaries').update({ user_id: null }).eq('user_id', u.id)

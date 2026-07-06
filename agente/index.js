@@ -200,7 +200,9 @@ async function enviar(phone, texto, meta = {}) {
   if (enviadosHoy >= MAX_DIA && process.env.SIMULACRO !== '1') { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
   const soloDig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
   if (!ADMIN || soloDig !== String(ADMIN)) {
-    if ((await tipoNumero(soloDig)) === 'desactivado') { log('NUMERO DESACTIVADO, no se envia a', soloDig); return false }
+    const tnumEnv = await tipoNumero(soloDig)
+    if (tnumEnv === 'silencio') { log('SILENCIO TOTAL, no se envia a', soloDig); return false }
+    if (tnumEnv === 'desactivado' && !['secretaria', 'aviso_admin', 'reporte'].includes(meta.tipo || '')) { log('NUMERO ADMINISTRATIVO: solo avisos internos, no se envia a', soloDig); return false }
   }
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
   if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
@@ -696,8 +698,9 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
   const tnum = await tipoNumero(phone)
+  if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
-  if (tnum === 'secretaria') { await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return }
+  if (tnum === 'secretaria' || tnum === 'gerencia') { await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return }
 
   // ¿es cliente?
   const p9 = phone.slice(-9)
