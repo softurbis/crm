@@ -209,7 +209,7 @@ export default function Whatsapp() {
           {role === 'superuser' && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
-          {role === 'superuser' && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>}
+          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>}
         </div>
       </div>
 

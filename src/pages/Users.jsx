@@ -24,13 +24,39 @@ export default function Users() {
   const [nu, setNu] = useState({ role: 'secretary' })
   const [busy, setBusy] = useState(false)
 
+  const [seguim, setSeguim] = useState([])
   async function load() {
-    const [u, p, a] = await Promise.all([
+    const [u, p, a, s] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at'),
       supabase.from('projects').select('id, name'),
       supabase.from('project_assignments').select('*'),
+      supabase.from('secretaries').select('*').order('full_name'),
     ])
-    setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || [])
+    setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || []); setSeguim(s.data || [])
+  }
+
+  async function vincularSeguimiento(u, val) {
+    if (!val) return
+    if (val === 'nuevo') {
+      const tel = prompt('NÚMERO DE WHATSAPP de ' + (u.full_name || u.email) + ' para su seguimiento de actividades.\n\nFormato: 51 + número (ej. 51961234567):', '51')
+      if (!tel) return
+      const dig = String(tel).replace(/\D/g, '')
+      if (dig.length < 11) { alert('Número inválido: debe incluir el 51 adelante.'); return }
+      const tipo = u.role === 'manager' ? 'gerencia' : 'secretaria'
+      const { error } = await supabase.from('secretaries').insert({ full_name: (u.full_name || u.email).toUpperCase(), phone: dig, tipo, user_id: u.id })
+      if (error) { alert('ERROR: ' + error.message); return }
+      await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'secretaria', note: (u.full_name || '').toUpperCase() + ' (' + tipo.toUpperCase() + ')' })
+      setMsg({ ok: true, t: 'SEGUIMIENTO CREADO Y VINCULADO: +' + dig })
+    } else {
+      await supabase.from('secretaries').update({ user_id: null }).eq('user_id', u.id)
+      await supabase.from('secretaries').update({ user_id: u.id }).eq('id', val)
+      setMsg({ ok: true, t: 'SEGUIMIENTO VINCULADO' })
+    }
+    load()
+  }
+  async function desvincularSeguimiento(u) {
+    await supabase.from('secretaries').update({ user_id: null }).eq('user_id', u.id)
+    load()
   }
   useEffect(() => { if (role === 'superuser') load() }, [role])
 
@@ -105,7 +131,7 @@ export default function Users() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Proyectos asignados</th></tr></thead>
+          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Seguimiento WSP</th><th>Proyectos asignados</th></tr></thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id} className={u.active === false ? 'row-perdida' : ''}>
@@ -123,6 +149,24 @@ export default function Users() {
                     : <button className={u.active === false ? 'btn-ghost' : 'link-btn bad'} onClick={() => toggleActivo(u)}>
                         {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
                       </button>}
+                </td>
+                <td>
+                  {(() => {
+                    const v = seguim.find(s => s.user_id === u.id)
+                    if (v) return (
+                      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                        <span style={{ color: v.tipo === 'gerencia' ? '#e7c15a' : '#e8a0c8', fontWeight: 700 }}>{v.tipo === 'gerencia' ? '👔' : '🗓️'} +{v.phone}</span>
+                        <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desvincular" onClick={() => desvincularSeguimiento(u)}>✕</button>
+                      </span>
+                    )
+                    return (
+                      <select value="" onChange={e => vincularSeguimiento(u, e.target.value)} style={{ fontSize: 12 }}>
+                        <option value="">— SIN SEGUIMIENTO —</option>
+                        <option value="nuevo">➕ VINCULAR NÚMERO NUEVO…</option>
+                        {seguim.filter(s => !s.user_id).map(s => <option key={s.id} value={s.id}>{s.full_name} (+{s.phone})</option>)}
+                      </select>
+                    )
+                  })()}
                 </td>
                 <td>
                   {projects.map(p => {
