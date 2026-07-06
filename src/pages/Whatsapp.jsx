@@ -46,6 +46,12 @@ export default function Whatsapp() {
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
+  const [verBrains, setVerBrains] = useState(false)
+  const [brains, setBrains] = useState([])
+  const [proys, setProys] = useState([])
+  const [brainSel, setBrainSel] = useState('ventas')
+  const [brainTxt, setBrainTxt] = useState('')
+  const [brainMsg, setBrainMsg] = useState('')
   const selRef = useRef(null)
   const endRef = useRef(null)
 
@@ -73,6 +79,43 @@ export default function Whatsapp() {
     cargarNums()
   }
   const borrarNum = async phone => { await supabase.from('whatsapp_numbers').delete().eq('phone', phone); cargarNums() }
+
+  const BRAIN_DEFS = [
+    { k: 'ventas', t: '🧠 VENTAS — calificador de leads (system prompt)' },
+    { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes' },
+    { k: 'secretaria', t: '🗓️ SECRETARIA — seguimiento (próximamente)' },
+  ]
+  const cargarBrains = async () => {
+    const [{ data: b }, { data: p }] = await Promise.all([
+      supabase.from('bot_brains').select('*'),
+      supabase.from('projects').select('id, name, bot_knowledge').order('name'),
+    ])
+    setBrains(b || []); setProys(p || [])
+    return { b: b || [], p: p || [] }
+  }
+  const textoDe = k => k.startsWith('p:')
+    ? (proys.find(x => x.id === k.slice(2))?.bot_knowledge || '')
+    : (brains.find(x => x.key === k)?.content || '')
+  const elegirBrain = k => { setBrainSel(k); setBrainTxt(textoDe(k)); setBrainMsg('') }
+  const guardarBrain = async () => {
+    setBrainMsg('GUARDANDO...')
+    let error
+    if (brainSel.startsWith('p:')) {
+      ({ error } = await supabase.from('projects').update({ bot_knowledge: brainTxt }).eq('id', brainSel.slice(2)))
+    } else {
+      ({ error } = await supabase.from('bot_brains').upsert({ key: brainSel, content: brainTxt, updated_at: new Date().toISOString() }))
+    }
+    setBrainMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo usa en máx. 1 minuto')
+    if (!error) cargarBrains()
+  }
+  const subirMd = e => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const r = new FileReader()
+    r.onload = () => { setBrainTxt(String(r.result || '')); setBrainMsg('📄 ' + file.name + ' cargado — revisa y pulsa GUARDAR') }
+    r.readAsText(file)
+    e.target.value = ''
+  }
 
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
@@ -133,11 +176,50 @@ export default function Whatsapp() {
           <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} labelOn="💵 COBRANZA: ACTIVA" labelOff="💵 COBRANZA: APAGADA" />
           <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} labelOn="🧠 IA: ACTIVA" labelOff="🧠 IA: APAGADA" />
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
+          <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>
         </div>
       </div>
 
       {!flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie ni envía cobranzas. Vuelve a activarlo cuando quieras.</div>}
       {flags.bot_activo && !flags.cobranza_activa && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c' }}>La cobranza automática está APAGADA. El filtro de leads sigue funcionando.</div>}
+
+      {verBrains && (
+        <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
+          <b>🧠 CEREBROS DEL BOT</b>
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
+            Aquí editas el comportamiento del bot directamente. Si un cerebro está VACÍO, el bot usa su versión por defecto.
+            Los cambios rigen en máximo 1 minuto, sin reiniciar nada.
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+            <select value={brainSel} onChange={e => elegirBrain(e.target.value)} style={{ maxWidth: 340 }}>
+              {BRAIN_DEFS.map(b => <option key={b.k} value={b.k}>{b.t}</option>)}
+              {proys.map(p => <option key={p.id} value={'p:' + p.id}>📁 FICHA: {p.name}</option>)}
+            </select>
+            <label className="btn-ghost" style={{ cursor: 'pointer' }}>
+              📄 SUBIR .MD
+              <input type="file" accept=".md,.txt" onChange={subirMd} style={{ display: 'none' }} />
+            </label>
+            <button className="btn" onClick={guardarBrain}>💾 GUARDAR</button>
+            {brainMsg && <span style={{ fontSize: 12 }}>{brainMsg}</span>}
+          </div>
+          {brainSel === 'cobranza' && (
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+              Formato: secciones <b>## A5</b> (5 días antes), <b>## A3</b>, <b>## A0</b> (vence hoy), <b>## INSISTENCIA</b>, <b>## B</b> (2 vencidas), <b>## C</b> (3+ vencidas).
+              Tokens: {'{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias} {nvencidas} {deuda}'}. Sección ausente = plantilla por defecto.
+            </p>
+          )}
+          {brainSel === 'secretaria' && (
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Este cerebro aún no está conectado al agente — puedes dejarlo listo y se activará con el módulo de seguimiento.</p>
+          )}
+          <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
+            placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
+            style={{ width: '100%', minHeight: '48vh', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }} />
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {brainTxt.length.toLocaleString()} caracteres
+            {!brainSel.startsWith('p:') && brains.find(b => b.key === brainSel)?.updated_at ? ' · Última actualización: ' + new Date(brains.find(b => b.key === brainSel).updated_at).toLocaleString('es-PE') : ''}
+          </p>
+        </div>
+      )}
 
       {verNums && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
