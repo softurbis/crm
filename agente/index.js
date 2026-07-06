@@ -22,6 +22,20 @@ async function refrescarAdmin() {
 refrescarAdmin()
 setInterval(refrescarAdmin, 60000)
 
+// re-vinculacion pedida desde el panel: cierra sesion, borra credenciales y renace pidiendo QR
+async function chequearRelink() {
+  try {
+    if ((await ajuste('wa_relink', '0')) !== '1') return
+    await setAjuste('wa_relink', '0')
+    await setAjuste('wa_estado', 'esperando_qr')
+    log('RELINK pedido desde el panel: cerrando sesion y borrando credenciales...')
+    try { if (sock) await sock.logout() } catch {}
+    try { require('fs').rmSync('./auth', { recursive: true, force: true }) } catch {}
+    process.exit(0)
+  } catch (e) { log('relink:', e.message) }
+}
+setInterval(chequearRelink, 20000)
+
 // store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje")
 const msgStore = new Map()
 function guardarMsg(sent) {
@@ -766,9 +780,13 @@ async function iniciar() {
       console.log('  (WhatsApp > Dispositivos vinculados > Vincular)')
       console.log('============================================\n')
       qrcode.generate(u.qr, { small: true })
+      setAjuste('wa_qr', u.qr).catch(() => {})
+      setAjuste('wa_estado', 'esperando_qr').catch(() => {})
     }
     if (u.connection === 'open') {
       log('✅ CONECTADO A WHATSAPP')
+      setAjuste('wa_qr', '').catch(() => {})
+      setAjuste('wa_estado', 'conectado').catch(() => {})
       if (ADMIN) enviar(ADMIN, '🤖 AGENTE URBIS conectado y en servicio.', { tipo: 'reporte' })
     }
     if (u.connection === 'close') {

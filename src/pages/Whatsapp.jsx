@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -47,6 +48,8 @@ export default function Whatsapp() {
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
   const [adminPhone, setAdminPhone] = useState('')
+  const [waEstado, setWaEstado] = useState('')
+  const [qrImg, setQrImg] = useState('')
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
   const [proys, setProys] = useState([])
@@ -60,9 +63,23 @@ export default function Whatsapp() {
     const { data } = await supabase.from('bot_settings').select('key, value')
     if (data) {
       const f = { ...flags }
-      data.forEach(r => { if (r.key === 'admin_phone') setAdminPhone(r.value || ''); else f[r.key] = r.value !== '0' })
+      let qr = ''
+      data.forEach(r => {
+        if (r.key === 'admin_phone') setAdminPhone(r.value || '')
+        else if (r.key === 'wa_estado') setWaEstado(r.value || '')
+        else if (r.key === 'wa_qr') qr = r.value || ''
+        else if (!['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'sec_resumen_fecha', 'wa_relink'].includes(r.key)) f[r.key] = r.value !== '0'
+      })
       setFlags(f)
+      if (qr) QRCode.toDataURL(qr, { width: 260, margin: 1 }).then(setQrImg).catch(() => setQrImg(''))
+      else setQrImg('')
     }
+  }
+  const pedirRelink = async () => {
+    if (!confirm('¿VINCULAR OTRO NÚMERO?\n\nEsto desconecta el WhatsApp actual del bot y en ~30 segundos aparecerá aquí un código QR para escanear con el celular nuevo.\n\nEl bot dejará de responder hasta que escanees el QR.')) return
+    await supabase.from('bot_settings').upsert({ key: 'wa_relink', value: '1', updated_at: new Date().toISOString() })
+    setWaEstado('esperando_qr')
+    alert('Pedido enviado. El QR aparecerá aquí en ~30 segundos (la sección se refresca sola).')
   }
   const cambiarAdmin = async () => {
     const v = prompt('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', adminPhone || '51')
@@ -149,7 +166,7 @@ export default function Whatsapp() {
   useEffect(() => { cargarConvs(); cargarFlags(); cargarNums() }, [])
   useEffect(() => { selRef.current = sel; cargarMsgs(sel) }, [sel])
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
+    const t = setInterval(() => { cargarConvs(); cargarFlags(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
     return () => clearInterval(t)
   }, [])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
@@ -185,11 +202,28 @@ export default function Whatsapp() {
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} labelOn="🤖 BOT: ACTIVO" labelOff="🤖 BOT: APAGADO" />
           <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} labelOn="💵 COBRANZA: ACTIVA" labelOff="💵 COBRANZA: APAGADA" />
           <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} labelOn="🧠 IA: ACTIVA" labelOff="🧠 IA: APAGADA" />
+          <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${waEstado === 'conectado' ? 'rgba(111,221,155,.6)' : 'rgba(224,179,76,.6)'}`, color: waEstado === 'conectado' ? '#6fdd9b' : '#e0b34c' }}>
+            {waEstado === 'conectado' ? '📱 CONECTADO' : waEstado === 'esperando_qr' ? '📱 ESPERANDO QR...' : '📱 —'}
+          </span>
+          <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>
           <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
           <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>
         </div>
       </div>
+
+      {qrImg && (
+        <div className="glass" style={{ padding: 18, marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(224,179,76,.5)' }}>
+          <img src={qrImg} alt="QR de WhatsApp" style={{ width: 220, height: 220, borderRadius: 10, background: '#fff', padding: 8 }} />
+          <div style={{ maxWidth: 420 }}>
+            <b>📱 ESCANEA ESTE QR CON EL CELULAR DEL BOT</b>
+            <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+              En el celular: WhatsApp → Dispositivos vinculados → Vincular dispositivo → apunta a este código.
+              El QR se renueva solo cada ~30 segundos. Cuando conecte, este recuadro desaparece y arriba dirá CONECTADO.
+            </p>
+          </div>
+        </div>
+      )}
 
       {!flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie ni envía cobranzas. Vuelve a activarlo cuando quieras.</div>}
       {flags.bot_activo && !flags.cobranza_activa && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c' }}>La cobranza automática está APAGADA. El filtro de leads sigue funcionando.</div>}
@@ -338,7 +372,7 @@ export default function Whatsapp() {
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
                 {msgs.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
                 {msgs.map((m, i) => (
-                  <div key={i} style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start', maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px' }}>
+                  <div key={i} style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px' }}>
                     <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>
                     <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right' }}>
                       {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : '🤖 BOT · ') : ''}{m.tipo && m.dir === 'out' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
