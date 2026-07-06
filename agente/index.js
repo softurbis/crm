@@ -550,7 +550,13 @@ async function setConv(phone, campos) {
 }
 
 async function manejarEntrante(jid, jidPN, texto, pushName) {
-  const phone = telDeJid(jidPN || jid)
+  let phone = telDeJid(jidPN || jid)
+  // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
+  if (!jidPN && String(jid).endsWith('@lid')) {
+    const lidDig = telDeJid(jid)
+    const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone').ilike('wa_jid', '%' + lidDig + '%').not('phone', 'ilike', lidDig).limit(1)
+    if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID mapeado a', phone) }
+  }
   if (!texto) return
   if (phone === ADMIN) {
     const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
