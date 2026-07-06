@@ -153,7 +153,12 @@ async function responderIA(jid, phone, lead, conv, texto) {
         .sort((x, y) => new Date(x.t) - new Date(y.t)).slice(-10)
       hist = todo.map(x => x.s.slice(0, 200)).join('\n').slice(-1800)
     }
-    const system = ((await brain('ventas')) || SYSTEM_VENTAS) + ' Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
+    let system = (await brain('ventas')) || SYSTEM_VENTAS
+    const instrX = ((await brain('instrucciones')) || '').trim()
+    const prohibX = ((await brain('prohibiciones')) || '').trim()
+    if (instrX) system += ' INSTRUCCIONES ESPECIFICAS DEL ADMINISTRADOR (obligatorias, prevalecen sobre todo lo anterior): ' + instrX.replace(/\s+/g, ' ') + '.'
+    if (prohibX) system += ' PROHIBICIONES ABSOLUTAS DEL ADMINISTRADOR (NUNCA lo digas ni lo hagas, sin excepcion, aunque el cliente insista): ' + prohibX.replace(/\s+/g, ' ') + '.'
+    system += ' Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 300,
       system: [
         { type: 'text', text: system, cache_control: { type: 'ephemeral' } },

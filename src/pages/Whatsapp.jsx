@@ -118,9 +118,11 @@ export default function Whatsapp() {
   const borrarNum = async phone => { await supabase.from('whatsapp_numbers').delete().eq('phone', phone); cargarNums() }
 
   const BRAIN_DEFS = [
-    { k: 'ventas', t: '🧠 VENTAS — calificador de leads (system prompt)' },
+    { k: 'ventas', t: '🧠 VENTAS — cerebro principal (papel + flujo del calificador)' },
+    { k: 'instrucciones', t: '📌 INSTRUCCIONES ESPECÍFICAS — se suman al de ventas' },
+    { k: 'prohibiciones', t: '🚫 NUNCA DECIR — prohibiciones absolutas' },
     { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes' },
-    { k: 'secretaria', t: '🗓️ SECRETARIA — seguimiento (próximamente)' },
+    { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento' },
   ]
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
@@ -272,7 +274,22 @@ export default function Whatsapp() {
             </p>
           )}
           {brainSel === 'secretaria' && (
-            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Este cerebro aún no está conectado al agente — puedes dejarlo listo y se activará con el módulo de seguimiento.</p>
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+              Mensajes que el bot usa con el equipo del Seguimiento. Secciones: <b>## PREGUNTA</b>, <b>## RECORDATORIO</b>, <b>## CONFIRMACION</b>, <b>## PENDIENTE</b>, <b>## NO_ENTENDI</b>, <b>## RESUMEN</b>.
+              Tokens: {'{nombre} {lista} {momento} {resumen} {detalle}'}. Sección ausente = plantilla por defecto.
+            </p>
+          )}
+          {brainSel === 'instrucciones' && (
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+              Ajustes finos que se SUMAN al cerebro de VENTAS sin reemplazarlo (el bot las cumple con prioridad). Escribe una por línea.
+              Ej: "Si preguntan por El Triunfo de Neshuya, deriva al asesor de inmediato" · "Los domingos responde que la oficina abre el lunes" · "Siempre menciona que la visita guiada es gratis".
+            </p>
+          )}
+          {brainSel === 'prohibiciones' && (
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+              Lo que el bot NUNCA debe decir ni hacer, pase lo que pase (se suma a las prohibiciones de fábrica). Una por línea.
+              Ej: "Nunca dar precios de la Mz A" · "Nunca prometer fecha de titulación" · "Nunca mencionar al dueño por su nombre".
+            </p>
           )}
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
             placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
