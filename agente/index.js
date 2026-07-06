@@ -591,8 +591,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   const corto = texto.trim().slice(0, 400)
   log('ENTRANTE de', phone, ':', corto.slice(0, 60))
 
-  // PALABRA DE SEGURIDAD: "mapero" reinicia el bot para este chat (modo prueba)
-  if (corto.toLowerCase() === 'mapero') {
+  // PALABRA DE SEGURIDAD: "iniciourbis2026" reinicia el bot para este chat (modo prueba)
+  if (corto.toLowerCase() === 'iniciourbis2026') {
     const { data: convR } = await supabase.from('whatsapp_conversations').select('id, lead_id').eq('phone', phone).maybeSingle()
     const { data: leadsR } = await supabase.from('leads').select('id').ilike('phone', `%${phone.slice(-9)}%`)
     for (const L of (leadsR || [])) {
@@ -605,7 +605,7 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
     }
     await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte' })
-    log('RESET mapero para', phone)
+    log('RESET iniciourbis2026 para', phone)
     return
   }
 
