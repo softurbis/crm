@@ -81,7 +81,15 @@ export default function Lots() {
           .eq('sale_id', sale.id).order('installment_number')
         inst = data || []
       }
-      setDetail({ sale, inst })
+      let sep = null
+      if (sel.status === 'separado' || !sale) {
+        const { data: sps } = await supabase.from('separations')
+          .select('*, client:clients(full_name, phone), advisor:advisors(code)')
+          .eq('lot_id', sel.id).eq('status', 'vigente')
+          .order('created_at', { ascending: false }).limit(1)
+        sep = (sps || [])[0] || null
+      }
+      setDetail({ sale, inst, sep })
       const { data: hist } = await supabase.from('lot_status_changes')
         .select('new_status, previous_status, reason, document_url, changed_at')
         .eq('lot_id', sel.id).order('changed_at', { ascending: false }).limit(5)
@@ -154,32 +162,6 @@ export default function Lots() {
     return c
   }, [lots, vencidos])
 
-  async function crearLotes() {
-    const mz = (prompt('CREAR LOTES — MANZANA (ej. A):') || '').trim().toUpperCase()
-    if (!mz) return
-    const d = Number(prompt('DESDE el lote N°:', '1'))
-    const h = Number(prompt('HASTA el lote N°:', '12'))
-    if (!d || !h || h < d || h - d > 200) { alert('Rango inválido'); return }
-    const area = Number(prompt('ÁREA m² de cada lote (editable luego por lote):', '300'))
-    const ppm = Number(prompt('PRECIO por m² S/ (editable luego):', '60'))
-    if (!area || !ppm) return
-    if (!confirm('Se crearán ' + (h - d + 1) + ' lotes en Mz ' + mz + ' (' + area + ' m², S/ ' + ppm + '/m²). ¿Continuar?')) return
-    const filas = []
-    for (let n = d; n <= h; n++) filas.push({ project_id: pidOp, mz, lt: String(n), area_m2: area, price_per_m2: ppm, total_price: Math.round(area * ppm * 100) / 100, status: 'disponible' })
-    const { error } = await supabase.from('lots').insert(filas)
-    if (error) { alert('ERROR: ' + error.message); return }
-    alert('✅ ' + filas.length + ' LOTES CREADOS EN MZ ' + mz)
-    loadLots()
-  }
-
-  async function eliminarLote() {
-    if (sel.status !== 'disponible') { alert('Solo se pueden eliminar lotes DISPONIBLES.'); return }
-    if (!confirm('¿ELIMINAR el lote Mz ' + sel.mz + ' Lt ' + sel.lt + ' del proyecto? Esta acción no se puede deshacer.')) return
-    const { error } = await supabase.from('lots').delete().eq('id', sel.id)
-    if (error) { alert('No se pudo eliminar: ' + error.message); return }
-    setSel(null); loadLots()
-  }
-
   function abrirLote(l) {
     setSel(l); setEdit(false); setEmsg(null); setChg(false); setChgReason(''); setChgFile(null)
   }
@@ -203,6 +185,12 @@ export default function Lots() {
   const docObligatorio = ['expropiado', 'invadido'].includes(chgTo)
   async function cambiarEstado(e) {
     e.preventDefault()
+    if (detail?.sep && chgTo === 'disponible') {
+      const limG = detail.sep.extended_until || detail.sep.expiration_date
+      const vencG = limG && limG < new Date().toISOString().slice(0, 10)
+      setEmsg('ERROR: ESTE LOTE TIENE UNA SEPARACION ' + (vencG ? 'VENCIDA' : 'VIGENTE') + '. RESUELVELA ARRIBA CON "EXTENDER PLAZO" O "MARCAR PERDIDA", NO CON CAMBIO DE ESTADO.')
+      return
+    }
     if (chgReason.trim().length < 10) { setEmsg('ERROR: EXPLICA EL MOTIVO (minimo 10 caracteres).'); return }
     if (docObligatorio && !chgFile) { setEmsg('ERROR: PARA ' + chgTo.toUpperCase() + ' EL DOCUMENTO DE RESPALDO FIRMADO ES OBLIGATORIO.'); return }
     setChgBusy(true); setEmsg(null)
@@ -269,6 +257,51 @@ export default function Lots() {
     setSel(null); loadLots()
   }
 
+  async function extenderSep() {
+    const sep = detail.sep
+    const sug = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+    const nueva = prompt('NUEVA FECHA LIMITE de la separacion (AAAA-MM-DD):', sug)
+    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) alert('Formato invalido. Ej: ' + sug); return }
+    const motivo = prompt('Motivo de la extension (obligatorio):')
+    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
+    const { error } = await supabase.from('separations').update({ extended_until: nueva, aviso_previo_at: null, aviso_vencida_at: null }).eq('id', sep.id)
+    if (error) { setEmsg('ERROR: ' + error.message); return }
+    await supabase.from('secretary_tasks').update({ date: nueva }).eq('separation_id', sep.id).eq('status', 'pendiente')
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'separations', user_email: profile?.email || null,
+      details: { cambio: 'extension_separacion', lote: sel.mz + '-' + sel.lt, cliente: sep.client?.full_name || null, antes: sep.extended_until || sep.expiration_date, despues: nueva, motivo: motivo.toUpperCase() },
+    })
+    setEmsg('SEPARACION EXTENDIDA HASTA ' + nueva + ' (QUEDA EN BITACORA)')
+    setSel(x => ({ ...x }))
+  }
+
+  async function perdidaSep() {
+    const sep = detail.sep
+    if (!confirm('MARCAR PERDIDA la separacion de ' + (sep.client?.full_name || 'este cliente') + ' (S/ ' + Number(sep.amount).toFixed(2) + ')?\n\nEl monto pagado queda como PERDIDA (no se devuelve) y el lote vuelve a DISPONIBLE.')) return
+    const motivo = prompt('Motivo (obligatorio):', 'SEPARACION VENCIDA SIN PAGO DE INICIAL')
+    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
+    const { error } = await supabase.from('separations').update({ status: 'perdida' }).eq('id', sep.id)
+    if (error) { setEmsg('ERROR: ' + error.message); return }
+    const { data: pgs } = await supabase.from('daily_income').select('id, observation').eq('separation_id', sep.id)
+    for (const p of (pgs || [])) {
+      if ((p.observation || '').toUpperCase().includes('PERDIDA')) continue
+      await supabase.from('daily_income').update({ observation: ((p.observation ? p.observation + ' | ' : '') + 'PERDIDA: SEPARACION VENCIDA').slice(0, 400) }).eq('id', p.id)
+    }
+    await supabase.from('secretary_tasks').delete().eq('separation_id', sep.id).eq('status', 'pendiente')
+    await supabase.from('lot_status_changes').insert({
+      lot_id: sel.id, previous_status: sel.status, new_status: 'disponible',
+      reason: ('PERDIDA DE SEPARACION: ' + motivo).toUpperCase().slice(0, 300), changed_by: profile?.id,
+    })
+    await supabase.from('lots').update({ status: 'disponible' }).eq('id', sel.id)
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'separations', user_email: profile?.email || null,
+      details: { cambio: 'perdida_separacion', lote: sel.mz + '-' + sel.lt, cliente: sep.client?.full_name || null, monto: sep.amount, motivo: motivo.toUpperCase() },
+    })
+    setEmsg('SEPARACION MARCADA COMO PERDIDA — LOTE DISPONIBLE OTRA VEZ')
+    await loadLots()
+    setSel(x => ({ ...x, status: 'disponible' }))
+  }
+
   function waMessage() {
     const { sale, inst } = detail
     const overdue = inst.filter(i => i.status === 'vencido')
@@ -296,9 +329,6 @@ export default function Lots() {
         <ProjectPicker />
         {['admin', 'superuser', 'secretary'].includes(role) && (
           <button className="btn-ghost" onClick={calcularSimulacro}>🧪 Simulacro cobranza</button>
-        )}
-        {['admin', 'superuser'].includes(role) && (
-          <button className="btn-ghost" onClick={crearLotes}>➕ Crear lotes</button>
         )}
         {['admin', 'superuser'].includes(role) && (
           <button className="btn-ghost" onClick={() => { setCrear(true); setCMsg(null) }}>➕ Crear lotes</button>
@@ -421,10 +451,7 @@ export default function Lots() {
                     )}
                     {' '}
                     {role === 'superuser' && sel.status === 'disponible' && (
-                      <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={eliminarLote}>🗑 Eliminar lote</button>
-                    )}
-                    {['admin', 'superuser'].includes(role) && sel.status === 'disponible' && (
-                      <>{' '}<button className="btn-ghost bad" onClick={borrarLote}>&#128465; Eliminar lote</button></>
+                      <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarLote}>🗑 Eliminar lote</button>
                     )}
                   </p>
                 ) : (
@@ -478,6 +505,43 @@ export default function Lots() {
                 )}
               </div>
             )}
+
+            {detail?.sep && (() => {
+              const sep = detail.sep
+              const lim = sep.extended_until || sep.expiration_date
+              const hoyStr = new Date().toISOString().slice(0, 10)
+              const vencida = lim && lim < hoyStr
+              const dias = lim ? Math.round((new Date(lim + 'T12:00:00') - new Date(hoyStr + 'T12:00:00')) / 86400000) : null
+              return (
+                <>
+                  <hr />
+                  <div className="ficha">
+                    <p><b>SEPARACION VIGENTE</b> — {sep.client?.full_name || '-'}</p>
+                    <p>
+                      <span className="muted">Monto:</span> S/ {Number(sep.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                      {' | '}<span className="muted">Fecha:</span> {sep.date}
+                      {sep.advisor?.code && <>{' | '}<span className="muted">Asesor:</span> {sep.advisor.code}</>}
+                    </p>
+                    <p>
+                      <span className="muted">Vence:</span> <b>{lim || '-'}</b>
+                      {sep.extended_until && <span className="muted small"> (extendida; original {sep.expiration_date})</span>}{' '}
+                      {vencida
+                        ? <span className="st-chip st-per">VENCIDA</span>
+                        : dias !== null && <span className={dias <= 2 ? 'warn' : 'ok'}>({dias === 0 ? 'vence HOY' : dias + ' dia(s) restante(s)'})</span>}
+                    </p>
+                    {vencida && (
+                      <p className="error">&#128274; LOTE BLOQUEADO: no se puede vender ni liberar hasta que el administrador decida — extender el plazo o marcar perdida.</p>
+                    )}
+                    {['admin', 'superuser'].includes(role) && (
+                      <p>
+                        <button className="btn-ghost" onClick={extenderSep}>&#8987; Extender plazo</button>{' '}
+                        <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={perdidaSep}>&#10060; Marcar perdida (libera el lote)</button>
+                      </p>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
 
             {detail?.sale ? (
               <>
@@ -574,7 +638,7 @@ export default function Lots() {
                   )}
                 </div>
               </>
-            ) : detail && sel.status !== 'disponible' ? (
+            ) : detail && !detail.sep && sel.status !== 'disponible' ? (
               <p className="muted">Sin venta activa registrada.</p>
             ) : null}
           </div>

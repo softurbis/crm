@@ -33,6 +33,7 @@ async function upload(path, file) {
 export default function Expenses() {
   const { profile, role } = useAuth()
   const { pidOp } = useProject()
+  const readOnly = role === 'manager'
   const [proyecto, setProyecto] = useState(null)
   const [list, setList] = useState([])
   const [msg, setMsg] = useState(null)
@@ -65,7 +66,7 @@ export default function Expenses() {
       if (fest === 'confirmado' && g.status !== 'confirmado') return false
       if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url)) return false
       if (!t) return true
-      return [g.company, g.recipient, g.sender, g.description, g.document_number]
+      return [g.company, g.recipient, g.sender, g.description, g.document_number, g.request_number ? 'sol-' + String(g.request_number).padStart(5, '0') : '']
         .some(x => (x || '').toLowerCase().includes(t))
     })
   }, [list, fq, ftipo, fest])
@@ -78,7 +79,7 @@ export default function Expenses() {
     setBusy(true); setMsg(null)
     try {
       const up = x => (x || '').toUpperCase().trim() || null
-      const { error } = await supabase.from('expenses').insert({
+      const { data: creado, error } = await supabase.from('expenses').insert({
         project_id: pidOp,
         type: f.type || 'OTROS', issue_date: f.issue_date || hoy(),
         company: 'URBIS GROUP', recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
@@ -87,9 +88,9 @@ export default function Expenses() {
         description: up(f.description), discount_from: f.discount_from || 'URBIS GROUP',
         detail: (f.detail || '').trim() || null,
         status: 'solicitado', registered_by: profile?.id,
-      })
+      }).select('request_number').single()
       if (error) throw new Error(error.message)
-      setMsg({ ok: true, t: 'SOLICITUD REGISTRADA. Imprime la constancia y hazla firmar.' })
+      setMsg({ ok: true, t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. Imprime la constancia y hazla firmar.' })
       setF({}); setShow(false); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
     setBusy(false)
@@ -121,6 +122,8 @@ export default function Expenses() {
   const UpBtn = ({ g, campo, carpeta, label, alerta }) => (
     g[campo]
       ? <a href={g[campo]} target="_blank" rel="noreferrer">VER</a>
+      : readOnly
+      ? <span className="muted">-</span>
       : <label className={`upload-btn ${alerta ? 'bad' : ''}`}>{alerta ? '⚠ ' : ''}{label}
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
@@ -173,17 +176,17 @@ export default function Expenses() {
           <option value="confirmado">CONFIRMADOS</option>
           <option value="falta_rh">FALTA RH / FACTURA</option>
         </select>
-        <button className="btn-primary" onClick={() => setShow(!show)}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>
+        {!readOnly && <button className="btn-primary" onClick={() => setShow(!show)}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
 
       <p className="hint">
         {filtrada.length} gastos | TOTAL: <b>{soles(total)}</b>
-        {pendConfirmar > 0 && <span className="warn"> | POR CONFIRMAR: {pendConfirmar}</span>}
-        {faltaRH > 0 && <span className="bad"> | FALTA RH/FACTURA: {faltaRH}</span>}
+        {!readOnly && pendConfirmar > 0 && <span className="warn"> | POR CONFIRMAR: {pendConfirmar}</span>}
+        {!readOnly && faltaRH > 0 && <span className="bad"> | FALTA RH/FACTURA: {faltaRH}</span>}
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
-      {show && (
+      {show && !readOnly && (
         <form className="glass form-card" onSubmit={guardar}>
           <p><b>SOLICITUD DE GASTO</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
           <div className="form-grid">
@@ -227,10 +230,11 @@ export default function Expenses() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Estado</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Sustento</th><th></th></tr></thead>
+          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Sustento</th><th></th></tr></thead>
           <tbody>
             {filtrada.slice(0, 200).map(g => (
               <tr key={g.id}>
+                <td>{g.request_number ? <b>{'SOL-' + String(g.request_number).padStart(5, '0')}</b> : <span className="muted">-</span>}</td>
                 <td>{g.issue_date}</td>
                 <td>{g.status === 'solicitado'
                   ? <span className="warn">&#9203; SOLICITADO</span>
@@ -272,7 +276,7 @@ export default function Expenses() {
           MOTIVO: prt.description || prt.type,
           TIPO: prt.type, PROYECTO: proyecto?.name || '',
           DESCUENTO: prt.discount_from || 'URBIS GROUP',
-          NUMERO: String(prt.id).slice(0, 8).toUpperCase(),
+          NUMERO: prt.request_number ? 'SOL-' + String(prt.request_number).padStart(5, '0') : String(prt.id).slice(0, 8).toUpperCase(),
         }
         const fill = t => t.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] !== undefined ? String(vars[k]) : m)
 
@@ -315,8 +319,16 @@ export default function Expenses() {
                 <button className="btn-ghost" onClick={() => setPrt(null)}>&#10005;</button>
               </div>
               <div className="print-area contract">
-                <p style={{ textAlign: 'right' }} className="small">N. {vars.NUMERO}</p>
+                <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {vars.NUMERO}</b></p>
                 {cuerpo}
+                <table className="ctable firmas"><tbody><tr>
+                  <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
+                    ______________________________<br /><b>SOLICITANTE</b>{prt.sender ? <><br />{prt.sender}</> : null}
+                  </td>
+                  <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
+                    ______________________________<br /><b>APRUEBA</b><br />ADMINISTRACION — URBIS GROUP
+                  </td>
+                </tr></tbody></table>
               </div>
             </div>
           </div>

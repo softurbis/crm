@@ -412,6 +412,44 @@ async function secretariaTick() {
       if (v.client_phone) await enviar(v.client_phone, 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *mañana ' + fmtFechaEs(fmanana) + ' a las ' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌', { tipo: 'secretaria' })
     }
 
+    // 3d) separaciones: por vencer (<=2 dias) y vencidas (lote bloqueado) — un barrido al dia
+    const hsep = await ajuste('hora_aviso_sep', '09:00')
+    if (hhmm >= hsep && (await ajuste('sep_aviso_fecha', '')) !== hoy) {
+      await setAjuste('sep_aviso_fecha', hoy)
+      const { data: seps } = await supabase.from('separations').select('*, lot:lots(mz, lt), client:clients(full_name)').eq('status', 'vigente')
+      const porVencer = [], vencidas = []
+      for (const sp of (seps || [])) {
+        const lim = sp.extended_until || sp.expiration_date
+        if (!lim) continue
+        const dias = Math.round((new Date(lim + 'T12:00:00') - new Date(hoy + 'T12:00:00')) / 86400000)
+        const item = { sp, lim, dias, lote: sp.lot ? 'Mz ' + sp.lot.mz + ' Lt ' + sp.lot.lt : 'lote', cli: (sp.client && sp.client.full_name) || 'cliente' }
+        if (dias < 0) vencidas.push(item)
+        else if (dias <= 2) porVencer.push(item)
+      }
+      const txtDias = d => d === 0 ? 'vence HOY' : d === 1 ? 'vence manana' : 'vence en ' + d + ' dias'
+      // aviso individual a la secretaria que registro la separacion (una sola vez por etapa)
+      for (const it of porVencer) {
+        if (it.sp.aviso_previo_at || !it.sp.created_by) continue
+        const creadora = secs.find(s => s.user_id === it.sp.created_by)
+        if (!creadora) continue
+        await supabase.from('separations').update({ aviso_previo_at: new Date().toISOString() }).eq('id', it.sp.id)
+        await enviar(creadora.phone, '⏳ *SEPARACION POR VENCER* — ' + it.lote + '\nCliente: *' + it.cli + '*\nLimite: *' + fmtFechaEs(it.lim) + '* (' + txtDias(it.dias) + ')\n\nCoordina el pago de la inicial, o pide al administrador extender el plazo antes de que el lote se bloquee. 🙌', { tipo: 'secretaria' })
+      }
+      for (const it of vencidas) {
+        if (it.sp.aviso_vencida_at) continue
+        await supabase.from('separations').update({ aviso_vencida_at: new Date().toISOString() }).eq('id', it.sp.id)
+        const creadora = it.sp.created_by ? secs.find(s => s.user_id === it.sp.created_by) : null
+        if (creadora) await enviar(creadora.phone, '🔒 *SEPARACION VENCIDA* — ' + it.lote + '\nCliente: *' + it.cli + '*\nVencio el ' + fmtFechaEs(it.lim) + '.\n\nEl lote quedo BLOQUEADO (no se puede vender ni liberar) hasta que el administrador decida: extender el plazo o marcar perdida.', { tipo: 'secretaria' })
+      }
+      // resumen agrupado al administrador (se repite cada dia mientras haya vencidas sin resolver)
+      if ((porVencer.length || vencidas.length) && ADMIN) {
+        let m = '📌 *SEPARACIONES — ' + fmtFechaEs(hoy) + '*\n'
+        if (vencidas.length) { m += '\n🔒 *VENCIDAS — lote bloqueado, decide extender o perdida (Mapa de lotes):*\n'; for (const it of vencidas) m += '• ' + it.lote + ' — ' + it.cli + ' (vencio ' + fmtFechaEs(it.lim) + ')\n' }
+        if (porVencer.length) { m += '\n⏳ *POR VENCER:*\n'; for (const it of porVencer) m += '• ' + it.lote + ' — ' + it.cli + ' (' + txtDias(it.dias) + ', ' + fmtFechaEs(it.lim) + ')\n' }
+        await enviar(ADMIN, m.trim(), { tipo: 'aviso_admin' })
+      }
+    }
+
     // 4) resumen diario al administrador
     const hres = await ajuste('hora_resumen_sec', '18:00')
     if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {

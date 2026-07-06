@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import { useProject } from '../context/ProjectContext'
 
 const CAMPOS = [
   ['doc_number', 'DNI / Documento'], ['full_name', 'Nombres completos'],
@@ -9,6 +11,12 @@ const CAMPOS = [
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
 export default function Clients() {
+  const { role } = useAuth()
+  const { projects } = useProject()
+  const readOnly = role === 'manager'
+  const allowed = useMemo(() => new Set(projects.map(p => p.id)), [projects])
+  const nombreProy = id => projects.find(p => p.id === id)?.name || 'OTRO PROYECTO'
+  const [allProjects, setAllProjects] = useState([])
   const [list, setList] = useState([])
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(null)
@@ -23,11 +31,25 @@ export default function Clients() {
   const [ctaData, setCtaData] = useState(null)
 
   async function load() {
-    const { data, error } = await supabase.from('clients')
-      .select('*, sales!sales_client_id_fkey(id)').order('full_name')
+    const [{ data, error }, prj] = await Promise.all([
+      supabase.from('clients')
+        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(project_id)), separations(id, status, lot:lots(project_id))')
+        .order('full_name'),
+      supabase.from('projects').select('id, name').order('created_at'),
+    ])
     if (error) setMsg({ ok: false, t: 'Error al listar: ' + error.message })
     setList(data || [])
+    setAllProjects(prj.data || [])
   }
+
+  // proyectos a los que esta vinculado un cliente (ventas + separaciones vigentes)
+  function proysDe(c) {
+    const ids = new Set()
+    for (const s of (c.sales || [])) if (s.lot?.project_id) ids.add(s.lot.project_id)
+    for (const sp of (c.separations || [])) if (sp.status === 'vigente' && sp.lot?.project_id) ids.add(sp.lot.project_id)
+    return [...ids]
+  }
+  const nombreProyFull = id => allProjects.find(p => p.id === id)?.name || 'PROYECTO'
   useEffect(() => { load() }, [])
 
   // ---- estado de cuenta: ventas + cuotas + pagos con voucher ----
@@ -36,13 +58,15 @@ export default function Clients() {
     async function loadCta() {
       const [v, p] = await Promise.all([
         supabase.from('sales')
-          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt), installments(installment_number, due_date, amount, amount_paid, status)')
+          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt,project_id), installments(installment_number, due_date, amount, amount_paid, status)')
           .eq('client_id', cta.id).order('sale_date'),
         supabase.from('daily_income')
-          .select('date, amount, income_type, operation_number, voucher_url, observation, lot:lots(mz,lt), installment:installments(installment_number)')
+          .select('date, amount, income_type, operation_number, voucher_url, observation, lot:lots(mz,lt,project_id), installment:installments(installment_number)')
           .eq('client_id', cta.id).order('date'),
       ])
-      setCtaData({ ventas: v.data || [], pagos: p.data || [] })
+      const ventas = (v.data || []).filter(x => x.lot?.project_id && allowed.has(x.lot.project_id))
+      const pagos = (p.data || []).filter(x => !x.lot?.project_id || allowed.has(x.lot.project_id))
+      setCtaData({ ventas, pagos, ocultas: (v.data || []).length - ventas.length })
     }
     loadCta()
   }, [cta])
@@ -114,7 +138,7 @@ export default function Clients() {
       <div className="toolbar">
         <input className="search" placeholder="Buscar por nombre, DNI o celular..."
           value={q} onChange={e => setQ(e.target.value)} />
-        <button className="btn-primary" onClick={() => abrir({})}>+ Nuevo cliente</button>
+        {!readOnly && <button className="btn-primary" onClick={() => abrir({})}>+ Nuevo cliente</button>}
       </div>
 
       {(pendientes > 0 || telInvalidos > 0) && (
@@ -126,7 +150,7 @@ export default function Clients() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Nombres</th><th>Celular</th><th>DNI foto</th><th>Lotes</th><th></th></tr></thead>
+          <thead><tr><th>Documento</th><th>Nombres</th><th>Celular</th><th>DNI foto</th><th>Proyectos</th><th>Lotes</th><th></th></tr></thead>
           <tbody>
             {filtrada.map(c => (
               <tr key={c.id}>
@@ -134,9 +158,17 @@ export default function Clients() {
                 <td>{c.full_name}</td>
                 <td>{c.phone_valid ? c.phone : <span className="bad">{c.phone || 'sin celular'}</span>}</td>
                 <td>{c.dni_front_url && c.dni_back_url ? <span className="ok">completo</span> : <span className="warn">falta</span>}</td>
+                <td>
+                  {proysDe(c).length === 0 ? <span className="muted">-</span> : proysDe(c).map(pid => (
+                    <span key={pid} className="st-chip" title={allowed.has(pid) ? nombreProyFull(pid) : nombreProyFull(pid) + ' (no asignado a tu usuario: solo referencia)'}
+                      style={{ marginRight: 4, marginBottom: 2, display: 'inline-block', fontSize: '.68rem', opacity: allowed.has(pid) ? 1 : .45 }}>
+                      {!allowed.has(pid) && <>&#128274; </>}{nombreProyFull(pid)}
+                    </span>
+                  ))}
+                </td>
                 <td>{c.sales?.length || 0}</td>
                 <td>
-                  <button className="btn-ghost" onClick={() => abrir(c)}>editar</button>{' '}
+                  <button className="btn-ghost" onClick={() => abrir(c)}>{readOnly ? 'ver' : 'editar'}</button>{' '}
                   {(c.sales?.length || 0) > 0 &&
                     <button className="btn-ghost" onClick={() => setCta(c)}>estado de cuenta</button>}
                 </td>
@@ -166,21 +198,21 @@ export default function Clients() {
               {CAMPOS.map(([k, label]) => (
                 <label key={k} className={k === 'full_name' || k === 'address' ? 'span2' : ''}>
                   {label}
-                  <input value={form[k] || ''} required={['doc_number', 'full_name'].includes(k)}
+                  <input value={form[k] || ''} required={['doc_number', 'full_name'].includes(k)} disabled={readOnly}
                     onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
                 </label>
               ))}
-              <label>DNI - frente {nuevo && <b className="bad">(obligatorio)</b>}
-                <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />
+              <label>DNI - frente {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
+                {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />}
                 {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
               </label>
-              <label>DNI - reverso {nuevo && <b className="bad">(obligatorio)</b>}
-                <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />
+              <label>DNI - reverso {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
+                {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />}
                 {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
               </label>
               <div className="span2">
                 {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
-                <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Guardar'}</button>
+                {!readOnly && <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Guardar'}</button>}
               </div>
             </form>
           </div>
@@ -200,7 +232,10 @@ export default function Clients() {
             <div className="print-area">
               <h2>URBIS GROUP - ESTADO DE CUENTA</h2>
               <p><b>{cta.full_name}</b> | {cta.doc_type} {cta.doc_number} | CEL: {cta.phone || '-'}</p>
-              <p className="small">EMITIDO: {new Date().toLocaleDateString('es-PE')} - LAS PRADERAS DE CASHIBO</p>
+              <p className="small">EMITIDO: {new Date().toLocaleDateString('es-PE')}{ctaData && ctaData.ventas.length > 0 && <> - {[...new Set(ctaData.ventas.map(v => v.lot?.project_id).filter(Boolean))].map(nombreProyFull).join(' / ')}</>}</p>
+              {ctaData && ctaData.ocultas > 0 && (
+                <p className="hint no-print">&#128274; Este cliente tiene {ctaData.ocultas} venta(s) en proyectos NO asignados a tu usuario — no se muestran aqui.</p>
+              )}
 
               {!ctaData ? <p>Cargando...</p> : ctaData.ventas.map(v => {
                 const cuotasPag = v.installments.filter(i => i.status === 'pagado').length

@@ -17,6 +17,12 @@ const EstadoChip = ({ r }) => {
 }
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
 function addMonths(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00')
   const day = d.getDate()
@@ -62,25 +68,29 @@ export default function Payments() {
   const [obs, setObs] = useState('')
   const [precioVenta, setPrecioVenta] = useState('')
   const [meses, setMeses] = useState(48)
-  const [venc, setVenc] = useState(addMonths(hoy(), 1))
+  const [venc, setVenc] = useState(addDays(hoy(), 7))
   const [fVoucher, setFVoucher] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [view, setView] = useState(null)
   const [advisors, setAdvisors] = useState([])
   const [advId, setAdvId] = useState('')
   const [comision, setComision] = useState('')
+  const [secs, setSecs] = useState([])
+  const [notifIds, setNotifIds] = useState([])
+  const readOnly = role === 'manager'
 
   async function loadBase() {
-    const [l, c, a, adv, r] = await Promise.all([
+    const [l, c, a, adv, r, sq] = await Promise.all([
       supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').eq('project_id', pidOp).order('mz').order('lt'),
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
       supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
+      supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name'),
       supabase.from('daily_income')
         .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
-    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setPagos(r.data || [])
+    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(sq.data || [])
   }
   useEffect(() => { if (pidOp) loadBase() }, [pidOp])
 
@@ -111,15 +121,17 @@ export default function Payments() {
       }
       if (tipo === 'inicial') {
         const { data: sep } = await supabase.from('separations')
-          .select('id, client_id, amount, advisor_id, client:clients(full_name)')
+          .select('id, client_id, amount, advisor_id, expiration_date, extended_until, client:clients(full_name)')
           .eq('lot_id', lotId).eq('status', 'vigente').maybeSingle()
-        setCtx({ sep })
+        const lim = sep ? (sep.extended_until || sep.expiration_date) : null
+        if (lim && lim < hoy()) setCtx({ sep, error: 'SEPARACION VENCIDA EL ' + lim + ' — LOTE BLOQUEADO. EL ADMINISTRADOR DEBE EXTENDER EL PLAZO O MARCAR PERDIDA EN EL MAPA DE LOTES (ficha del lote).' })
+        else setCtx({ sep })
         if (sep) setClientId(sep.client_id)
         if (sep?.advisor_id) setAdvId(sep.advisor_id)
         setMonto(String(lote?.initial_payment_default ?? 500))
         setPrecioVenta(String(lote?.total_price ?? ''))
       }
-      if (tipo === 'separacion') { setMonto('100'); setVenc(addMonths(hoy(), 1)) }
+      if (tipo === 'separacion') { setMonto('100'); setVenc(addDays(hoy(), 7)) }
     }
     load()
   }, [lotId, tipo])
@@ -140,7 +152,7 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision('')
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision(''); setNotifIds([])
   }
 
   async function submit(e) {
@@ -162,12 +174,24 @@ export default function Payments() {
       if (tipo === 'separacion') {
         const { data: sep, error: e1 } = await supabase.from('separations').insert({
           lot_id: lotId, client_id: clientId, amount: Number(monto),
-          date: fecha, expiration_date: venc, status: 'vigente', advisor_id: advId || null,
+          date: fecha, expiration_date: venc, status: 'vigente', advisor_id: advId || null, created_by: profile?.id || null,
         }).select().single()
         if (e1) throw e1
         const { error: e2 } = await supabase.from('daily_income').insert({ ...base, amount: Number(monto), income_type: 'separacion', separation_id: sep.id })
         if (e2) throw e2
         await supabase.from('lots').update({ status: 'separado' }).eq('id', lotId)
+        // recordatorio de vencimiento en el control de actividades (creadora + designadas)
+        const loteSep = lots.find(l => l.id === lotId)
+        const cliSep = clients.find(c => c.id === clientId)
+        const destinos = new Set(notifIds)
+        const propia = secs.find(s => s.user_id === profile?.id)
+        if (propia) destinos.add(propia.id)
+        if (destinos.size) {
+          const titulo = ('VENCE SEPARACION MZ ' + (loteSep?.mz || '?') + ' LT ' + (loteSep?.lt || '?') + ' — ' + (cliSep?.full_name || 'CLIENTE') + ' (S/ ' + Number(monto).toFixed(2) + ')').slice(0, 200)
+          const filas = [...destinos].map(sid => ({ secretary_id: sid, title: titulo, date: venc, slot: 'manana', category: 'administrativa', separation_id: sep.id }))
+          const { error: e3 } = await supabase.from('secretary_tasks').insert(filas)
+          if (e3) await supabase.from('secretary_tasks').insert(filas.map(({ separation_id, ...x }) => x))
+        }
       }
 
       if (tipo === 'inicial') {
@@ -305,13 +329,13 @@ export default function Payments() {
         <ProjectPicker />
       </div>
 
-      <div className="chips">
+      {!readOnly && <div className="chips">
         {[['cuota', 'Cuota'], ['separacion', 'Separacion'], ['inicial', 'Pago inicial']].map(([v, l]) => (
           <button key={v} className={`chip ${tipo === v ? 'on' : ''}`} onClick={() => { setTipo(v); reset() }}>{l}</button>
         ))}
-      </div>
+      </div>}
 
-      <form className="glass form-card" onSubmit={submit}>
+      {!readOnly && <form className="glass form-card" onSubmit={submit}>
         <div className="form-grid">
           <label>Lote
             <select value={lotId} onChange={e => setLotId(e.target.value)} required>
@@ -351,6 +375,18 @@ export default function Payments() {
               {advisors.map(a => <option key={a.id} value={a.id}>{a.code}{a.full_name && a.full_name !== a.code ? ' - ' + a.full_name : ''}</option>)}
             </select>
           </label>
+          {secs.length > 0 && (
+            <div className="span2">
+              <span className="muted small">RECORDAR EL VENCIMIENTO A (se registra en su control de actividades; tu registro se agrega solo):</span><br />
+              {secs.map(s => (
+                <label key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 14, fontWeight: 400 }}>
+                  <input type="checkbox" checked={notifIds.includes(s.id)}
+                    onChange={e => setNotifIds(ids => e.target.checked ? [...ids, s.id] : ids.filter(x => x !== s.id))} />
+                  {s.tipo === 'gerencia' ? '\u{1F454} ' : ''}{s.full_name}{s.user_id === profile?.id ? ' (tu)' : ''}
+                </label>
+              ))}
+            </div>
+          )}
           </>)}
           {tipo === 'inicial' && (<>
           <label>Co-comprador (opcional, para ventas de 2 personas)
@@ -396,12 +432,12 @@ export default function Payments() {
         <button className="btn-primary" disabled={busy || !!ctx?.error || (tipo === 'cuota' && plan?.sobra > 0.01)}>
           {busy ? 'Guardando...' : 'Registrar pago'}
         </button>
-      </form>
+      </form>}
 
       <h2 className="sub">
         Historial ({pagosFiltrados.length} de {pagos.length} | {soles(totalFiltrado)})
-        {sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
-        {sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
+        {!readOnly && sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
+        {!readOnly && sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
       </h2>
       <div className="toolbar">
         <input className="search" placeholder="Filtrar por lote (G-7), cliente o N operacion..."
@@ -439,6 +475,7 @@ export default function Payments() {
                 <td>
                   {r.voucher_url
                     ? <a href={r.voucher_url} target="_blank" rel="noreferrer">VER</a>
+                    : readOnly ? <span className="muted">-</span>
                     : <label className="upload-btn warn">subir
                         <input type="file" accept="image/*,.pdf" hidden
                           onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'voucher_url')} />
@@ -447,6 +484,7 @@ export default function Payments() {
                 <td>
                   {r.receipt_url
                     ? <a href={r.receipt_url} target="_blank" rel="noreferrer">VER</a>
+                    : readOnly ? <span className="muted">-</span>
                     : <label className="upload-btn bad">&#9888; falta
                         <input type="file" accept="image/*,.pdf" hidden
                           onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'receipt_url')} />
@@ -483,9 +521,10 @@ export default function Payments() {
               )
             })()}
             <div className="form-grid">
-              <label className="span2">Observacion / comentario del pago
+              {!readOnly && <label className="span2">Observacion / comentario del pago
                 <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
-              </label>
+              </label>}
+              {readOnly && view.observation && <p className="muted span2" style={{ margin: 0 }}>OBS: {view.observation}</p>}
               {role === 'superuser' && (
                 <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
                   <span style={{ display: 'flex', gap: '.4rem' }}>
@@ -494,16 +533,17 @@ export default function Payments() {
                   </span>
                 </label>
               )}
-              <div>
+              {!readOnly && <div>
                 <button type="button" className="btn-ghost" onClick={async () => {
                   await supabase.from('daily_income').update({ observation: obsEdit.toUpperCase() }).eq('id', view.id)
                   setMsg({ ok: true, t: 'OBSERVACION GUARDADA' }); loadBase()
                   setView(v => ({ ...v, observation: obsEdit.toUpperCase() }))
                 }}>Guardar observacion</button>
-              </div>
+              </div>}
               <div>
                 {view.extra_url
                   ? <a href={view.extra_url} target="_blank" rel="noreferrer">VER ANEXO ADICIONAL</a>
+                  : readOnly ? null
                   : <label className="upload-btn">+ Adjuntar anexo adicional (2do voucher, boleta, etc.)
                       <input type="file" accept="image/*,.pdf" hidden onChange={async e => {
                         if (!e.target.files[0]) return
