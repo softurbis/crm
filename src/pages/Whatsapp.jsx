@@ -53,6 +53,7 @@ export default function Whatsapp() {
   const [adminPhone, setAdminPhone] = useState('')
   const [waEstado, setWaEstado] = useState('')
   const [qrImg, setQrImg] = useState('')
+  const [waLatido, setWaLatido] = useState('')
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
   const [proys, setProys] = useState([])
@@ -71,7 +72,8 @@ export default function Whatsapp() {
         if (r.key === 'admin_phone') setAdminPhone(r.value || '')
         else if (r.key === 'wa_estado') setWaEstado(r.value || '')
         else if (r.key === 'wa_qr') qr = r.value || ''
-        else if (!['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'sec_resumen_fecha', 'wa_relink'].includes(r.key)) f[r.key] = r.value !== '0'
+        else if (r.key === 'wa_latido') setWaLatido(r.value || '')
+        else if (!['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'sec_resumen_fecha', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha'].includes(r.key)) f[r.key] = r.value !== '0'
       })
       setFlags(f)
       if (qr) QRCode.toDataURL(qr, { width: 260, margin: 1 }).then(setQrImg).catch(() => setQrImg(''))
@@ -83,6 +85,11 @@ export default function Whatsapp() {
     await supabase.from('bot_settings').upsert({ key: 'wa_relink', value: '1', updated_at: new Date().toISOString() })
     setWaEstado('esperando_qr')
     alert('Pedido enviado. El QR aparecerá aquí en ~30 segundos (la sección se refresca sola).')
+  }
+  const reiniciarBot = async () => {
+    if (!confirm('¿REINICIAR EL BOT?\n\nUsalo si dejo de responder. Tarda ~30-60 segundos en volver a EN LINEA y la sesion de WhatsApp NO se pierde (no hay que escanear QR).')) return
+    await supabase.from('bot_settings').upsert({ key: 'wa_restart', value: '1', updated_at: new Date().toISOString() })
+    alert('Reinicio solicitado. El bot lo detecta en maximo 15 segundos. Observa el chip de estado: pasara a SIN RESPONDER un momento y luego a EN LINEA.')
   }
   const cambiarAdmin = async () => {
     const v = prompt('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', adminPhone || '51')
@@ -206,9 +213,16 @@ export default function Whatsapp() {
           <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
           <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🧠" label="IA" />
           <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
-          <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${waEstado === 'conectado' ? 'rgba(111,221,155,.6)' : 'rgba(224,179,76,.6)'}`, color: waEstado === 'conectado' ? '#6fdd9b' : '#e0b34c' }}>
-            {waEstado === 'conectado' ? '📱 CONECTADO' : waEstado === 'esperando_qr' ? '📱 ESPERANDO QR...' : '📱 —'}
-          </span>
+          {(() => {
+            const fresco = waLatido && (Date.now() - new Date(waLatido).getTime()) < 120000
+            const [txt, col] = waEstado === 'esperando_qr' ? ['📱 ESPERANDO QR...', '#e0b34c']
+              : fresco ? ['🟢 BOT EN LÍNEA', '#6fdd9b']
+              : waLatido ? ['🔴 BOT SIN RESPONDER', '#e07b7b']
+              : waEstado === 'conectado' ? ['📱 CONECTADO', '#6fdd9b'] : ['📱 —', '#e0b34c']
+            return <span title={waLatido ? 'Último latido del agente: ' + new Date(waLatido).toLocaleTimeString('es-PE') + ' (se actualiza cada 30 seg.)' : 'Sin latido registrado aún'}
+              style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col }}>{txt}</span>
+          })()}
+          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR BOT</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>

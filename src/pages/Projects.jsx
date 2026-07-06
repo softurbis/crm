@@ -30,6 +30,7 @@ function LegalChip({ label, expiry, docUrl }) {
 export default function Projects() {
   const { role } = useAuth()
   const canEdit = ['admin', 'superuser'].includes(role)
+  const [migra, setMigra] = useState(false)
   const [projects, setProjects] = useState([])
   const [stats, setStats] = useState({})
   const [accounts, setAccounts] = useState([])
@@ -228,9 +229,25 @@ export default function Projects() {
     <>
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Proyectos</h1>
+        {role === 'superuser' && <button className="btn-ghost" onClick={() => setMigra(!migra)}>&#128229; Migración masiva</button>}
         {canEdit && <button className="btn-primary" onClick={() => abrirForm(null)}>+ Nuevo proyecto</button>}
       </div>
       {msg && !edit && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+
+      {migra && role === 'superuser' && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p><b>&#128229; MIGRACION MASIVA DE UN PROYECTO</b> <span className="muted small">(cargar un proyecto que ya venia operando: lotes, clientes, ventas, cuotas y pagos historicos)</span></p>
+          <p style={{ margin: '8px 0' }}>
+            <a className="btn-primary btn-link" href={import.meta.env.BASE_URL + 'PLANTILLA-MIGRACION-PROYECTO.xlsx'} download>&#11015; Descargar formato Excel</a>
+          </p>
+          <div className="hint">
+            <p><b>1.</b> Crea el proyecto aqui con "+ Nuevo proyecto" (nombre, titular, cuentas bancarias, tasa de mora).</p>
+            <p><b>2.</b> Descarga el formato y llena las hojas EN ORDEN (la hoja LEEME trae todas las reglas): 1-LOTES &#8594; 2-CLIENTES &#8594; 3-VENDEDORES &#8594; 4-CUENTAS &#8594; 5-SEPARACIONES vigentes &#8594; 6-VENTAS &#8594; 7-PAGOS historicos &#8594; 8-GASTOS (opcional).</p>
+            <p><b>3.</b> Entrega el Excel lleno en el chat de Claude (proyecto Sistema CRM): "genera el SQL de migracion de [nombre del proyecto]".</p>
+            <p><b>4.</b> Se valida que todo cuadre (lotes vs ventas vs pagos) y se genera el script de carga para Supabase. El cronograma de cuotas y la aplicacion de pagos a las cuotas mas antiguas se calculan solos &#8212; igual que se migro Las Praderas de Cashibo.</p>
+          </div>
+        </div>
+      )}
       {edit === 'nuevo' && FORM}
 
       {projects.map(p => {

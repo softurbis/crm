@@ -36,6 +36,21 @@ async function chequearRelink() {
 }
 setInterval(chequearRelink, 20000)
 
+// latido: el panel muestra "EN LINEA" mientras este timestamp este fresco
+setAjuste('wa_latido', new Date().toISOString()).catch(() => {})
+setInterval(() => setAjuste('wa_latido', new Date().toISOString()).catch(() => {}), 30000)
+
+// reinicio pedido desde el panel: sale limpio y pm2 lo levanta de nuevo (la sesion de WhatsApp se conserva)
+async function chequearRestart() {
+  try {
+    if ((await ajuste('wa_restart', '0')) !== '1') return
+    await setAjuste('wa_restart', '0')
+    log('REINICIO pedido desde el panel...')
+    process.exit(0)
+  } catch (e) { log('restart:', e.message) }
+}
+setInterval(chequearRestart, 15000)
+
 // store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje")
 const msgStore = new Map()
 function guardarMsg(sent) {
