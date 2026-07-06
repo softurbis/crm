@@ -31,6 +31,9 @@ export default function Secretarias() {
   const esJefe = ['admin', 'superuser'].includes(role)
   // registro propio: la persona del equipo vinculada a este usuario del sistema
   const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
+  // GERENCIA solo la ve el superusuario (o el propio gerente vinculado)
+  const esVisible = s => role === 'superuser' || s.tipo !== 'gerencia' || (profile?.id && s.user_id === profile.id)
+  const secsV = secs.filter(esVisible)
 
   const cargar = async () => {
     const d1 = mes + '-01'
@@ -50,8 +53,8 @@ export default function Secretarias() {
   if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
 
   const puedeMarcar = t => esJefe || (mia && t.secretary_id === mia.id)
-  const filtroSec = t => secSel === 'todas' || t.secretary_id === secSel
-  const rutinasDe = dow => rutinas.filter(r => r.active && (r.days || []).includes(dow) && (secSel === 'todas' || r.secretary_id === secSel) && secs.find(s => s.id === r.secretary_id && s.active))
+  const filtroSec = t => (secSel === 'todas' ? secsV.some(s => s.id === t.secretary_id) : t.secretary_id === secSel)
+  const rutinasDe = dow => rutinas.filter(r => r.active && (r.days || []).includes(dow) && (secSel === 'todas' || r.secretary_id === secSel) && secsV.find(s => s.id === r.secretary_id && s.active))
 
   const agregarSec = async () => {
     const limpio = nva.phone.replace(/\D/g, '')
@@ -130,7 +133,7 @@ export default function Secretarias() {
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
         <button className={`chip ${secSel === 'todas' ? 'on' : ''}`} onClick={() => setSecSel('todas')}>TODOS</button>
-        {secs.map(s => {
+        {secsV.map(s => {
           const k = kpi(s.id)
           return (
             <button key={s.id} className={`chip ${secSel === s.id ? 'on' : ''}`} onClick={() => setSecSel(s.id)} style={{ opacity: s.active ? 1 : .5 }}>
@@ -149,7 +152,7 @@ export default function Secretarias() {
           <input placeholder="Nombre completo" value={nva.full_name} onChange={e => setNva({ ...nva, full_name: e.target.value })} style={{ width: 200 }} />
           <input placeholder="WhatsApp (519XXXXXXXX)" value={nva.phone} onChange={e => setNva({ ...nva, phone: e.target.value })} style={{ width: 170 }} />
           <button className="btn" onClick={agregarSec}>AGREGAR</button>
-          <span className="muted" style={{ fontSize: 11 }}>{secs.filter(s => s.active).length} en seguimiento</span>
+          <span className="muted" style={{ fontSize: 11 }}>{secsV.filter(s => s.active).length} en seguimiento</span>
           {secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
             <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setAbierta(abierta === s.id ? null : s.id)}>⚙ RUTINA</button>
@@ -245,7 +248,7 @@ export default function Secretarias() {
           {extra && esJefe && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, padding: 8, border: '1px dashed rgba(156,203,134,.4)', borderRadius: 8 }}>
               <select value={extra.sid || ''} onChange={e => setExtra({ ...extra, sid: e.target.value })}>
-                {secs.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                {secsV.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
               </select>
               <input autoFocus placeholder="¿Qué necesitas que haga?" value={extra.title} onChange={e => setExtra({ ...extra, title: e.target.value })} />
               <div style={{ display: 'flex', gap: 6 }}>
@@ -265,7 +268,7 @@ export default function Secretarias() {
           )}
 
           {delDia.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Sin actividades registradas este día.{diaSel > hoy && rutinasDe(dowSel).length > 0 ? ' La rutina se genera automáticamente ese día: ' + rutinasDe(dowSel).map(r => r.title).join(', ') + '.' : ''}</p>}
-          {secs.filter(s => secSel === 'todas' || s.id === secSel).map(s => {
+          {secsV.filter(s => secSel === 'todas' || s.id === secSel).map(s => {
             const ts = delDia.filter(t => t.secretary_id === s.id)
             if (!ts.length) return null
             return (

@@ -8,7 +8,7 @@ const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/leads', label: 'Leads', icon: '🎯', color: '#f5a25d' },
   { to: '/whatsapp', label: 'WhatsApp Bot', icon: '🤖', staff: true, color: '#58c482' },
-  { to: '/secretarias', label: 'Secretarias', icon: '🗓️', color: '#e8a0c8' },
+  { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7' },
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8' },
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a' },
