@@ -213,11 +213,21 @@ async function yaAvisado({ installment_id, sale_id, tipo, dias }) {
 }
 
 let CEREBRO_COB = ''
+function seccionDe(md, tag) {
+  if (!md) return null
+  const partes = ('\n' + md).split(/\n##[ \t]*/)
+  for (let i = 1; i < partes.length; i++) {
+    const p = partes[i]
+    const nl = p.indexOf('\n')
+    if (nl < 0) continue
+    const head = p.slice(0, nl).trim().split(/[\s(]+/)[0].toUpperCase()
+    if (head === String(tag).toUpperCase()) { const cuerpo = p.slice(nl + 1).trim(); if (cuerpo) return cuerpo }
+  }
+  return null
+}
 function tpl(tag, vars) {
-  if (!CEREBRO_COB) return null
-  const m = CEREBRO_COB.match(new RegExp('^##\\s*' + tag + '\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)', 'mi'))
-  if (!m || !m[1].trim()) return null
-  let s = m[1].trim()
+  let s = seccionDe(CEREBRO_COB, tag)
+  if (!s) return null
   for (const [k, v] of Object.entries(vars)) s = s.split('{' + k + '}').join(v)
   return s
 }
@@ -253,10 +263,30 @@ const secDow = () => { const d = new Date(new Date().toLocaleString('en-US', SEC
 async function ajuste(k, def) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return (data && data.value) || def }
 async function setAjuste(k, v) { await supabase.from('bot_settings').upsert({ key: k, value: v, updated_at: new Date().toISOString() }) }
 
+function parseFechaHora(txt) {
+  const t = String(txt || '').toLowerCase()
+  const hoy = new Date(new Date().toLocaleString('en-US', SEC_TZ))
+  let d = null
+  let matchFecha = ''
+  const DSEM = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, 'miércoles': 3, jueves: 4, viernes: 5, sabado: 6, 'sábado': 6 }
+  let m
+  if ((m = t.match(/pasado\s*ma[ñn]ana/))) { d = new Date(hoy); d.setDate(d.getDate() + 2); matchFecha = m[0] }
+  else if ((m = t.match(/ma[ñn]ana/))) { d = new Date(hoy); d.setDate(d.getDate() + 1); matchFecha = m[0] }
+  else if ((m = t.match(/\bhoy\b/))) { d = new Date(hoy); matchFecha = m[0] }
+  if (!d) for (const [k, v] of Object.entries(DSEM)) { const mm2 = t.match(new RegExp('(?:el\\s+)?' + k)); if (mm2) { d = new Date(hoy); let diff = (v - d.getDay() + 7) % 7; if (!diff) diff = 7; d.setDate(d.getDate() + diff); matchFecha = mm2[0]; break } }
+  if (!d && (m = t.match(/\b(\d{1,2})\s*[\/\-]\s*(\d{1,2})\b/))) { d = new Date(hoy.getFullYear(), parseInt(m[2]) - 1, parseInt(m[1])); if (d < hoy && (hoy - d) > 86400000) d.setFullYear(d.getFullYear() + 1); matchFecha = m[0] }
+  if (!d && (m = t.match(/(?:el|dia|día|fecha)\s+(\d{1,2})\b/))) { const dd = parseInt(m[1]); d = new Date(hoy.getFullYear(), hoy.getMonth() + (dd < hoy.getDate() ? 1 : 0), dd); matchFecha = m[0] }
+  let time = null, matchHora = ''
+  const h = t.match(/a\s*las?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|de la tarde|de la noche|de la ma[ñn]ana|hrs|h\b)?/)
+  if (h) { let hh = parseInt(h[1]); const mi = h[2] || '00'; const suf = h[3] || ''; if (/(pm|tarde|noche)/.test(suf) && hh < 12) hh += 12; if (hh <= 23) { time = String(hh).padStart(2, '0') + ':' + mi; matchHora = h[0] } }
+  return { date: d ? d.toLocaleDateString('en-CA') : null, time, matchFecha, matchHora }
+}
+const slotDeHora = hhmm => (!hhmm || hhmm < '13:00') ? 'manana' : 'tarde'
+const fmtFechaEs = iso => { const [y, mo, dd] = iso.split('-'); return dd + '/' + mo + '/' + y }
+
+
 function secTpl(md, tag, vars, def) {
-  let s = null
-  if (md) { const m = md.match(new RegExp('^##\\s*' + tag + '\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)', 'mi')); if (m && m[1].trim()) s = m[1].trim() }
-  if (!s) s = def
+  let s = seccionDe(md, tag) || def
   for (const [k, v] of Object.entries(vars)) s = s.split('{' + k + '}').join(v)
   return s
 }
@@ -274,7 +304,7 @@ async function secretariaTick() {
     for (const r of (rutinas || [])) {
       if (!(r.days || []).includes(dow)) continue
       if (!secs.find(s => s.id === r.secretary_id)) continue
-      const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: r.secretary_id, routine_id: r.id, title: r.title, date: hoy, slot: r.slot })
+      const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: r.secretary_id, routine_id: r.id, title: r.title, date: hoy, slot: r.slot, category: r.category || 'administrativa' })
       if (error && !/duplicate|unique/i.test(error.message)) log('SEC gen:', error.message)
     }
 
@@ -298,6 +328,17 @@ async function secretariaTick() {
       }
     }
 
+    // 2b) aviso puntual de tareas con hora exacta
+    const { data: conHora } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null)
+    for (const tk of (conHora || [])) {
+      if (hhmm < String(tk.time).slice(0, 5)) continue
+      const sec = secs.find(s => s.id === tk.secretary_id)
+      if (!sec) continue
+      await supabase.from('secretary_tasks').update({ notified_at: new Date().toISOString() }).eq('id', tk.id)
+      const nombre = (sec.full_name || '').split(' ')[0]
+      await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora: String(tk.time).slice(0, 5) }, '📌 {nombre}, recordatorio: *{titulo}* — programado para las {hora} de hoy. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria' })
+    }
+
     // 3) recordatorio unico a los 45 min sin respuesta
     const lim = new Date(Date.now() - 45 * 60000).toISOString()
     const { data: sinResp } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim)
@@ -312,6 +353,17 @@ async function secretariaTick() {
       await enviar(sec.phone, secTpl(md, 'RECORDATORIO', { nombre, lista }, 'Hola {nombre}, te reenvío el checklist pendiente:\n\n{lista}\n\n¿Cómo vamos? Respóndeme *LISTO* o los números de lo avanzado 💪'), { tipo: 'secretaria' })
     }
 
+    // 3b) feedback de fin de dia: ¿hiciste algo extra?
+    const hfeed = await ajuste('hora_feedback_sec', '17:30')
+    if (hhmm >= hfeed) {
+      for (const sec of secs) {
+        if (sec.feedback_asked === hoy) continue
+        await supabase.from('secretaries').update({ feedback_asked: hoy }).eq('id', sec.id)
+        const nombre = (sec.full_name || '').split(' ')[0]
+        await enviar(sec.phone, secTpl(md, 'FEEDBACK', { nombre }, '{nombre}, antes de cerrar el día 📝 ¿hiciste hoy algo EXTRA fuera de tus actividades programadas? Si sí, cuéntame brevemente qué fue; si no, respóndeme *NO*. 🙌'), { tipo: 'secretaria' })
+      }
+    }
+
     // 4) resumen diario al administrador
     const hres = await ajuste('hora_resumen_sec', '18:00')
     if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {
@@ -323,8 +375,10 @@ async function secretariaTick() {
         for (const sec of secs) {
           const ts = todas.filter(tk => tk.secretary_id === sec.id)
           if (!ts.length) continue
-          detalle += '\n*' + sec.full_name + '* — ' + ts.filter(tk => tk.status === 'hecha').length + '/' + ts.length + ' cumplidas\n'
-          for (const tk of ts) detalle += (tk.status === 'hecha' ? '  ✅ ' : tk.status === 'no_hecha' ? '  ❌ ' : tk.status === 'sin_respuesta' ? '  😶 ' : '  ⏳ ') + tk.title + '\n'
+          const extras = ts.filter(tk => tk.category === 'extra').length
+          const base = ts.filter(tk => tk.category !== 'extra')
+          detalle += '\n*' + sec.full_name + '* — ' + base.filter(tk => tk.status === 'hecha').length + '/' + base.length + ' cumplidas' + (extras ? ' · ' + extras + ' extra(s) 💪' : '') + '\n'
+          for (const tk of ts) detalle += (tk.status === 'hecha' ? '  ✅ ' : tk.status === 'no_hecha' ? '  ❌ ' : tk.status === 'sin_respuesta' ? '  😶 ' : '  ⏳ ') + (tk.category === 'gerencia' ? '[G] ' : tk.category === 'extra' ? '[EXTRA] ' : '') + tk.title + '\n'
         }
         if (detalle && ADMIN) await enviar(ADMIN, secTpl(md, 'RESUMEN', { detalle }, '📋 *RESUMEN DEL DÍA — SECRETARIAS*\n{detalle}'), { tipo: 'secretaria' })
       }
@@ -340,8 +394,45 @@ async function manejarSecretaria(jid, phone, texto) {
   const md = await brain('secretaria')
   const nombre = (sec.full_name || '').split(' ')[0]
   const { data: abiertas } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).not('asked_at', 'is', null).order('ask_index')
-  if (!abiertas || !abiertas.length) return
+  if (!abiertas || !abiertas.length) {
+    // ¿esta pendiente su feedback del dia?
+    if (sec.feedback_asked === hoy && sec.feedback_done !== hoy) {
+      const tf = (texto || '').toLowerCase().trim()
+      await supabase.from('secretaries').update({ feedback_done: hoy }).eq('id', sec.id)
+      if (/^(no|nada|ninguna|ninguno|no hice|nop|negativo)\b/.test(tf) || tf.length < 3) {
+        await enviar(jid, secTpl(md, 'FEEDBACK_NO', { nombre }, '¡Perfecto {nombre}, día cerrado! Gracias por tu trabajo de hoy. 🙌'), { tipo: 'secretaria' })
+      } else {
+        await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: String(texto).slice(0, 200).toUpperCase(), date: hoy, slot: 'tarde', category: 'extra', status: 'hecha', answered_at: new Date().toISOString(), answer: 'REPORTADO EN FEEDBACK DEL DIA' })
+        await enviar(jid, secTpl(md, 'FEEDBACK_SI', { nombre }, '💪 ¡Anotado como EXTRA del día, {nombre}! Eso suma a tu productividad. ¡Gracias! 🙌'), { tipo: 'secretaria' })
+        if (ADMIN) await enviar(ADMIN, '💪 EXTRA reportado por *' + sec.full_name + '*: ' + String(texto).slice(0, 200), { tipo: 'aviso_admin' })
+      }
+      return
+    }
+    return
+  }
   const t = (texto || '').toLowerCase()
+
+  // reprogramar: "mueve la 2 para mañana", "la 1 para el 15 a las 10", "cambia la 3 al viernes"
+  if (/(reprogram|mueve|muev|cambia|pasa|posterga|para (el |ma[ñn]|pasado|hoy|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|al (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|\d))/.test(t)) {
+    const fh = parseFechaHora(t)
+    if (fh.date || fh.time) {
+      const { data: deHoy } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).not('ask_index', 'is', null).order('ask_index')
+      let tarea = null
+      const mi = t.replace(fh.matchFecha, ' ').replace(fh.matchHora, ' ').match(/(?:la|el|n[°º]?|tarea)?\s*(\d{1,2})\b/)
+      if (mi) tarea = (deHoy || []).find(x => x.ask_index === parseInt(mi[1]))
+      else if ((deHoy || []).filter(x => x.status === 'pendiente').length === 1) tarea = deHoy.find(x => x.status === 'pendiente')
+      if (tarea) {
+        const nd = fh.date || hoy
+        await supabase.from('secretary_tasks').update({ date: nd, time: fh.time, slot: fh.time ? slotDeHora(fh.time) : tarea.slot, status: 'pendiente', ask_index: null, asked_at: null, reminded_at: null, answered_at: null, notified_at: null, answer: 'REPROGRAMADA POR CHAT: ' + String(texto).slice(0, 200) }).eq('id', tarea.id)
+        await enviar(jid, secTpl(md, 'REPROGRAMADA', { nombre, titulo: tarea.title, fecha: fmtFechaEs(nd), hora: fh.time ? ' a las ' + fh.time : '' }, '🔄 Listo {nombre}, moví *{titulo}* para el {fecha}{hora}. Yo te lo recuerdo. 🙌'), { tipo: 'secretaria' })
+        if (ADMIN) await enviar(ADMIN, '🔄 *' + sec.full_name + '* reprogramó "' + tarea.title + '" para el ' + fmtFechaEs(nd) + (fh.time ? ' ' + fh.time : ''), { tipo: 'aviso_admin' })
+        return
+      }
+      await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Para mover una tarea dime el número y la fecha, ej: *mueve la 2 para mañana a las 10*.'), { tipo: 'secretaria' })
+      return
+    }
+  }
+
   const nums = [...t.matchAll(/\d+/g)].map(m => parseInt(m[0]))
   const esSi = /(listo|hecho|\bya\b|\bsi\b|\bsí\b|todo|complet|termin|\bok\b)/.test(t)
   const esNo = /(\bno\b|\baun\b|\baún\b|todav|falta)/.test(t)
@@ -460,7 +551,26 @@ async function setConv(phone, campos) {
 
 async function manejarEntrante(jid, jidPN, texto, pushName) {
   const phone = telDeJid(jidPN || jid)
-  if (!texto || phone === ADMIN) return
+  if (!texto) return
+  if (phone === ADMIN) {
+    const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
+    if (mt) {
+      const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
+      const sec = (cands || [])[0]
+      if (!sec) { await enviar(ADMIN, '❌ No encontré a la secretaria "' + mt[1] + '". Usa: TAREA <nombre> <fecha/hora> <descripción>', { tipo: 'aviso_admin' }); return }
+      const fh = parseFechaHora(mt[2])
+      let titulo = mt[2]
+      if (fh.matchFecha) titulo = titulo.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+      if (fh.matchHora) titulo = titulo.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+      titulo = titulo.replace(/\s+/g, ' ').replace(/^[,\s\-:]+|[,\s\-:]+$/g, '').trim()
+      if (!titulo) { await enviar(ADMIN, '❌ Falta la descripción. Ej: TAREA ' + mt[1] + ' el 5 a las 10 llevar contratos', { tipo: 'aviso_admin' }); return }
+      const fecha = fh.date || secHoy()
+      const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: titulo.toUpperCase(), date: fecha, time: fh.time, slot: slotDeHora(fh.time) })
+      await enviar(ADMIN, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
+      return
+    }
+    return
+  }
   const corto = texto.trim().slice(0, 400)
   log('ENTRANTE de', phone, ':', corto.slice(0, 60))
 
