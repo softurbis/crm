@@ -46,6 +46,7 @@ export default function Whatsapp() {
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
+  const [adminPhone, setAdminPhone] = useState('')
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
   const [proys, setProys] = useState([])
@@ -59,9 +60,18 @@ export default function Whatsapp() {
     const { data } = await supabase.from('bot_settings').select('key, value')
     if (data) {
       const f = { ...flags }
-      data.forEach(r => { f[r.key] = r.value !== '0' })
+      data.forEach(r => { if (r.key === 'admin_phone') setAdminPhone(r.value || ''); else f[r.key] = r.value !== '0' })
       setFlags(f)
     }
+  }
+  const cambiarAdmin = async () => {
+    const v = prompt('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', adminPhone || '51')
+    if (v === null) return
+    const d = String(v).replace(/\D/g, '')
+    if (d.length < 11) { alert('Número inválido: debe incluir el 51 (ej. 51924947651)'); return }
+    await supabase.from('bot_settings').upsert({ key: 'admin_phone', value: d, updated_at: new Date().toISOString() })
+    setAdminPhone(d)
+    alert('✅ ADMIN cambiado a +' + d + '. El bot lo aplica en máx. 1 minuto.')
   }
   const setFlag = async (k, val) => {
     await supabase.from('bot_settings').upsert({ key: k, value: val ? '1' : '0', updated_at: new Date().toISOString() })
@@ -175,6 +185,7 @@ export default function Whatsapp() {
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} labelOn="🤖 BOT: ACTIVO" labelOff="🤖 BOT: APAGADO" />
           <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} labelOn="💵 COBRANZA: ACTIVA" labelOff="💵 COBRANZA: APAGADA" />
           <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} labelOn="🧠 IA: ACTIVA" labelOff="🧠 IA: APAGADA" />
+          <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
           <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>
         </div>

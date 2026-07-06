@@ -11,7 +11,16 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
-const ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+// el numero admin se puede cambiar desde el panel (bot_settings.admin_phone); el .env queda de fallback
+async function refrescarAdmin() {
+  try {
+    const { data } = await supabase.from('bot_settings').select('value').eq('key', 'admin_phone').maybeSingle()
+    if (data && data.value) { const d = String(data.value).replace(/\D/g, ''); if (d.length >= 9 && d !== ADMIN) { ADMIN = d; log('ADMIN actualizado a', d) } }
+  } catch {}
+}
+refrescarAdmin()
+setInterval(refrescarAdmin, 60000)
 
 // store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje")
 const msgStore = new Map()
