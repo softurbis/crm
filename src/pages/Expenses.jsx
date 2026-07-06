@@ -49,7 +49,7 @@ export default function Expenses() {
   async function load() {
     if (!pidOp) return
     const [g, p] = await Promise.all([
-      supabase.from('expenses').select('*').eq('project_id', pidOp).order('issue_date', { ascending: false }),
+      supabase.from('expenses').select('*').eq('project_id', pidOp).order('issue_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
     ])
     setList(g.data || []); setProyecto(p.data || null)

@@ -154,6 +154,7 @@ export default function Secretarias() {
 
       {esJefe && (
         <div className="glass" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {role === 'superuser' && <>
           <b style={{ fontSize: 13 }}>REGISTRAR</b>
           <select value={nva.tipo} onChange={e => setNva({ ...nva, tipo: e.target.value })}>
             <option value="secretaria">SECRETARIA</option><option value="gerencia">GERENCIA</option>
@@ -161,18 +162,19 @@ export default function Secretarias() {
           <input placeholder="Nombre completo" value={nva.full_name} onChange={e => setNva({ ...nva, full_name: e.target.value })} style={{ width: 200 }} />
           <input placeholder="WhatsApp (519XXXXXXXX)" value={nva.phone} onChange={e => setNva({ ...nva, phone: e.target.value })} style={{ width: 170 }} />
           <button className="btn" onClick={agregarSec}>AGREGAR</button>
+          </>}
           <span className="muted" style={{ fontSize: 11 }}>{secsV.filter(s => s.active).length} en seguimiento</span>
           {secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
             <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setAbierta(abierta === s.id ? null : s.id)}>⚙ RUTINA</button>
-              <button className="btn-ghost" style={{ fontSize: 12 }} title="Si está apagado, el bot no le escribe por WhatsApp" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>
-              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => toggleActiva(s)}>{s.active ? 'PAUSAR' : 'ACTIVAR'}</button>
-              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarSec(s)}>QUITAR</button>
-              <select value={s.user_id || ''} title="Usuario del sistema vinculado: podrá ver y marcar sus propias actividades"
+              {role === 'superuser' && <button className="btn-ghost" style={{ fontSize: 12 }} title="Si está apagado, el bot no le escribe por WhatsApp" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>}
+              {role === 'superuser' && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => toggleActiva(s)}>{s.active ? 'PAUSAR' : 'ACTIVAR'}</button>}
+              {role === 'superuser' && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarSec(s)}>QUITAR</button>}
+              {role === 'superuser' && <select value={s.user_id || ''} title="Usuario del sistema vinculado: podrá ver y marcar sus propias actividades"
                 onChange={e => vincularUsuario(s, e.target.value)} style={{ fontSize: 12 }}>
                 <option value="">SIN USUARIO DEL SISTEMA</option>
                 {usuarios.map(u => <option key={u.id} value={u.id}>👤 {u.full_name} ({u.role})</option>)}
-              </select>
+              </select>}
             </span>
           ) })()}
         </div>

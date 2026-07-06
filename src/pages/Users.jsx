@@ -50,6 +50,13 @@ export default function Users() {
       const dig = String(tel).replace(/\D/g, '')
       if (dig.length < 11) { alert('Número inválido: debe incluir el 51 adelante.'); return }
       const tipo = u.role === 'manager' ? 'gerencia' : 'secretaria'
+      // si el numero ya existe en seguimiento, vincular ese registro en vez de crear otro
+      const { data: ya } = await supabase.from('secretaries').select('id, user_id, full_name').eq('phone', dig).maybeSingle()
+      if (ya) {
+        if (ya.user_id && ya.user_id !== u.id) { alert('Ese número ya está vinculado a otro usuario (' + ya.full_name + '). Desvincúlalo primero.'); return }
+        await supabase.from('secretaries').update({ user_id: u.id, tipo }).eq('id', ya.id)
+        setMsg({ ok: true, t: 'NÚMERO EXISTENTE VINCULADO: +' + dig }); load(); return
+      }
       const { error } = await supabase.from('secretaries').insert({ full_name: (u.full_name || u.email).toUpperCase(), phone: dig, tipo, user_id: u.id })
       if (error) { alert('ERROR: ' + error.message); return }
       await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'secretaria', note: (u.full_name || '').toUpperCase() + ' (' + tipo.toUpperCase() + ')' })

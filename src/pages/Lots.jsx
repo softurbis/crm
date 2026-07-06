@@ -222,19 +222,6 @@ export default function Lots() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Mapa de lotes</h1>
         <ProjectPicker />
-        {['admin', 'superuser'].includes(role) && (
-          <button className="btn-ghost" onClick={async () => {
-            const pct = Number(prompt('SUBIDA DE PRECIOS (solo lotes DISPONIBLES de este proyecto).\n\nPorcentaje de aumento (ej. 5 para +5%, -3 para bajar 3%):'))
-            if (!pct || isNaN(pct)) return
-            const disp = lots.filter(l => l.status === 'disponible')
-            if (!confirm(`Se actualizara el precio/m2 de ${disp.length} lotes disponibles en ${pct}%. Continuar?`)) return
-            for (const l of disp) {
-              await supabase.from('lots').update({ price_per_m2: Math.round(Number(l.price_per_m2) * (1 + pct / 100) * 100) / 100 }).eq('id', l.id)
-            }
-            alert(`${disp.length} LOTES ACTUALIZADOS (${pct > 0 ? '+' : ''}${pct}%)`)
-            loadLots()
-          }}>Precios % (admin)</button>
-        )}
         {['admin', 'superuser', 'secretary'].includes(role) && (
           <button className="btn-ghost" onClick={calcularSimulacro}>🧪 Simulacro cobranza</button>
         )}

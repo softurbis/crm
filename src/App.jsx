@@ -11,7 +11,6 @@ import Bitacora from './pages/Bitacora'
 import Users from './pages/Users'
 import Projects from './pages/Projects'
 import Contracts from './pages/Contracts'
-import Leads from './pages/Leads'
 import Whatsapp from './pages/Whatsapp'
 import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
@@ -30,7 +29,6 @@ export default function App() {
       <Route path="/reset" element={<Reset />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
-        <Route path="leads" element={<Leads />} />
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="secretarias" element={<Secretarias />} />
         <Route path="lotes" element={<Lots />} />
