@@ -370,3 +370,19 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 }
 .parcela.venc { box-shadow: inset 0 0 0 1.5px rgba(224,82,82,.8); }
 @media (max-width: 700px) { .parcela { width: 46px; height: 62px; } .plano-wrap { padding: 1rem; gap: 1.3rem 1.1rem; } }
+
+/* ---- switches profesionales ---- */
+.sw {
+  display: inline-flex; align-items: center; gap: .55rem;
+  padding: .42rem .8rem; border-radius: 11px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid rgba(255,255,255,.09);
+  font-size: .76rem; font-weight: 800; letter-spacing: .05em; font-family: inherit;
+  color: var(--muted); transition: border-color .15s, color .15s, box-shadow .15s;
+}
+.sw .track { width: 34px; height: 18px; border-radius: 10px; background: rgba(255,255,255,.14); position: relative; flex: none; transition: background .18s; }
+.sw .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); transition: left .18s; }
+.sw.on { color: var(--text); border-color: rgba(111,221,155,.4); box-shadow: 0 0 12px rgba(111,221,155,.12); }
+.sw.on .track { background: var(--ok); }
+.sw.on .knob { left: 18px; }
+.sw.off .st { color: var(--error); }
+.sw.on .st { color: var(--ok); }

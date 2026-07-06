@@ -43,7 +43,7 @@ export default function Whatsapp() {
   const [busca, setBusca] = useState('')
   const [vista, setVista] = useState('lista')
   const [filtro, setFiltro] = useState('todos')
-  const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true })
+  const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true, seguimiento_activo: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
@@ -187,10 +187,10 @@ export default function Whatsapp() {
   })
   const nombreDe = c => c.clients?.full_name || c.leads?.full_name || 'SIN NOMBRE'
   const tipoDe = phone => nums.find(n => phone && (phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(phone).slice(-9))))
-  const Toggle = ({ on, onClick, labelOn, labelOff }) => (
-    <button className="btn-ghost" onClick={onClick}
-      style={{ borderColor: on ? 'rgba(127,191,127,.6)' : 'rgba(224,123,123,.7)', color: on ? '#7fbf7f' : '#e07b7b', fontWeight: 700 }}>
-      {on ? labelOn : labelOff}
+  const Toggle = ({ on, onClick, icon, label }) => (
+    <button className={`sw ${on ? 'on' : 'off'}`} onClick={onClick} title={label + (on ? ': activo — clic para apagar' : ': apagado — clic para encender')}>
+      <span className="track"><span className="knob" /></span>
+      {icon} {label} <span className="st">{on ? 'ON' : 'OFF'}</span>
     </button>
   )
 
@@ -199,16 +199,17 @@ export default function Whatsapp() {
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h1>WhatsApp del bot</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} labelOn="🤖 BOT: ACTIVO" labelOff="🤖 BOT: APAGADO" />
-          <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} labelOn="💵 COBRANZA: ACTIVA" labelOff="💵 COBRANZA: APAGADA" />
-          <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} labelOn="🧠 IA: ACTIVA" labelOff="🧠 IA: APAGADA" />
+          <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
+          <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
+          <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🧠" label="IA" />
+          <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
           <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${waEstado === 'conectado' ? 'rgba(111,221,155,.6)' : 'rgba(224,179,76,.6)'}`, color: waEstado === 'conectado' ? '#6fdd9b' : '#e0b34c' }}>
             {waEstado === 'conectado' ? '📱 CONECTADO' : waEstado === 'esperando_qr' ? '📱 ESPERANDO QR...' : '📱 —'}
           </span>
-          <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>
-          <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>
+          {role === 'superuser' && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
+          {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
-          <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>
+          {role === 'superuser' && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>}
         </div>
       </div>
 

@@ -14,49 +14,56 @@ const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 export default function Secretarias() {
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
   const [secs, setSecs] = useState([])
   const [rutinas, setRutinas] = useState([])
-  const [tareas, setTareas] = useState([])       // todas las del mes visible
-  const [mes, setMes] = useState(hoyISO().slice(0, 7)) // YYYY-MM
+  const [tareas, setTareas] = useState([])
+  const [usuarios, setUsuarios] = useState([])
+  const [mes, setMes] = useState(hoyISO().slice(0, 7))
   const [diaSel, setDiaSel] = useState(hoyISO())
   const [secSel, setSecSel] = useState('todas')
-  const [nva, setNva] = useState({ full_name: '', phone: '' })
+  const [nva, setNva] = useState({ full_name: '', phone: '', tipo: 'secretaria' })
   const [abierta, setAbierta] = useState(null)
   const [nr, setNr] = useState({ title: '', slot: 'manana', days: [1, 2, 3, 4, 5, 6], category: 'administrativa' })
-  const [extra, setExtra] = useState(null)       // { sid, title, time, category }
-  const [mover, setMover] = useState(null)       // { id, date, time }
+  const [extra, setExtra] = useState(null)
+  const [mover, setMover] = useState(null)
+
+  const esJefe = ['admin', 'superuser'].includes(role)
+  // registro propio: la persona del equipo vinculada a este usuario del sistema
+  const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
 
   const cargar = async () => {
     const d1 = mes + '-01'
     const fin = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate()
     const d2 = mes + '-' + String(fin).padStart(2, '0')
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, u] = await Promise.all([
       supabase.from('secretaries').select('*').order('created_at'),
       supabase.from('secretary_routines').select('*').order('created_at'),
       supabase.from('secretary_tasks').select('*').gte('date', d1).lte('date', d2).order('time', { nullsFirst: true }),
+      supabase.from('profiles').select('id, full_name, role').order('full_name'),
     ])
-    setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || [])
+    setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || [])
   }
   useEffect(() => { cargar() }, [mes])
   useEffect(() => { const t = setInterval(cargar, 15000); return () => clearInterval(t) }, [mes])
 
-  if (!['admin', 'superuser', 'secretary'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
-  const puedeEditar = ['admin', 'superuser'].includes(role)
+  if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
 
+  const puedeMarcar = t => esJefe || (mia && t.secretary_id === mia.id)
   const filtroSec = t => secSel === 'todas' || t.secretary_id === secSel
   const rutinasDe = dow => rutinas.filter(r => r.active && (r.days || []).includes(dow) && (secSel === 'todas' || r.secretary_id === secSel) && secs.find(s => s.id === r.secretary_id && s.active))
 
   const agregarSec = async () => {
     const limpio = nva.phone.replace(/\D/g, '')
     if (!nva.full_name.trim() || limpio.length < 9) { alert('Nombre y número válido (mín. 9 dígitos)'); return }
-    if (secs.filter(s => s.active).length >= 4 && !confirm('Ya hay 4 secretarias activas. ¿Agregar otra igual?')) return
-    const { error } = await supabase.from('secretaries').insert({ full_name: nva.full_name.trim().toUpperCase(), phone: limpio })
+    const { error } = await supabase.from('secretaries').insert({ full_name: nva.full_name.trim().toUpperCase(), phone: limpio, tipo: nva.tipo })
     if (error) { alert('ERROR: ' + error.message); return }
-    await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: 'secretaria', note: nva.full_name.trim().toUpperCase() })
-    setNva({ full_name: '', phone: '' }); cargar()
+    await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: 'secretaria', note: nva.full_name.trim().toUpperCase() + ' (' + nva.tipo.toUpperCase() + ')' })
+    setNva({ full_name: '', phone: '', tipo: 'secretaria' }); cargar()
   }
   const toggleActiva = async s => { await supabase.from('secretaries').update({ active: !s.active }).eq('id', s.id); cargar() }
+  const toggleSeguimiento = async s => { await supabase.from('secretaries').update({ seguimiento: s.seguimiento === false }).eq('id', s.id); cargar() }
+  const vincularUsuario = async (s, uid) => { await supabase.from('secretaries').update({ user_id: uid || null }).eq('id', s.id); cargar() }
   const quitarSec = async s => {
     if (!confirm(`¿Quitar a ${s.full_name}? Se borran sus rutinas y su historial.`)) return
     await supabase.from('whatsapp_numbers').delete().eq('phone', s.phone)
@@ -75,7 +82,10 @@ export default function Secretarias() {
     if (error) { alert('ERROR: ' + error.message); return }
     setExtra(null); cargar()
   }
-  const marcar = async (t, status) => { await supabase.from('secretary_tasks').update({ status, answered_at: new Date().toISOString(), answer: 'MARCADO MANUAL DESDE EL PANEL' }).eq('id', t.id); cargar() }
+  const marcar = async (t, status) => {
+    await supabase.from('secretary_tasks').update({ status, answered_at: new Date().toISOString(), answer: 'MARCADO EN EL PANEL POR ' + (profile?.full_name || role).toUpperCase() }).eq('id', t.id)
+    cargar()
+  }
   const quitarTarea = async t => { await supabase.from('secretary_tasks').delete().eq('id', t.id); cargar() }
   const guardarMover = async () => {
     if (!mover?.date) return
@@ -86,18 +96,15 @@ export default function Secretarias() {
     setMover(null); cargar()
   }
 
-  // ---- calendario ----
   const anio = Number(mes.slice(0, 4)), mnum = Number(mes.slice(5, 7))
   const nDias = new Date(anio, mnum, 0).getDate()
-  const dow1 = (new Date(anio, mnum - 1, 1).getDay() + 6) % 7 // 0=lunes
+  const dow1 = (new Date(anio, mnum - 1, 1).getDay() + 6) % 7
   const celdas = [...Array(dow1).fill(null), ...Array.from({ length: nDias }, (_, i) => i + 1)]
   const hoy = hoyISO()
   const cambiarMes = paso => {
     const d = new Date(anio, mnum - 1 + paso, 1)
     setMes(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
   }
-
-  // ---- productividad del mes ----
   const kpi = sid => {
     const ts = tareas.filter(t => t.secretary_id === sid && t.date <= hoy)
     const base = ts.filter(t => t.category !== 'extra')
@@ -105,14 +112,13 @@ export default function Secretarias() {
     const extras = ts.filter(t => t.category === 'extra').length
     return { pct: base.length ? Math.round(hechas / base.length * 100) : null, hechas, total: base.length, extras }
   }
-
   const delDia = tareas.filter(t => t.date === diaSel && filtroSec(t))
   const dowSel = (() => { const d = new Date(diaSel + 'T12:00:00'); const x = d.getDay(); return x === 0 ? 7 : x })()
 
   return (
     <div>
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1>Secretarias</h1>
+        <h1>Control de actividades</h1>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button className="btn-ghost" onClick={() => cambiarMes(-1)}>‹</button>
           <b style={{ minWidth: 150, textAlign: 'center' }}>{MESES[mnum - 1]} {anio}</b>
@@ -120,36 +126,47 @@ export default function Secretarias() {
         </div>
       </div>
 
+      {mia && <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Estás vinculado como <b style={{ color: '#e8a0c8' }}>{mia.full_name}</b> — puedes marcar tus propias actividades.</p>}
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
-        <button className={`chip ${secSel === 'todas' ? 'on' : ''}`} onClick={() => setSecSel('todas')}>TODAS</button>
+        <button className={`chip ${secSel === 'todas' ? 'on' : ''}`} onClick={() => setSecSel('todas')}>TODOS</button>
         {secs.map(s => {
           const k = kpi(s.id)
           return (
             <button key={s.id} className={`chip ${secSel === s.id ? 'on' : ''}`} onClick={() => setSecSel(s.id)} style={{ opacity: s.active ? 1 : .5 }}>
-              {s.full_name.split(' ')[0]}{k.pct !== null ? ` · ${k.pct}%` : ''}{k.extras ? ` · +${k.extras}💪` : ''}
+              {s.tipo === 'gerencia' ? '👔 ' : ''}{s.full_name.split(' ')[0]}{k.pct !== null ? ` · ${k.pct}%` : ''}{k.extras ? ` · +${k.extras}💪` : ''}{s.seguimiento === false ? ' · 🔕' : ''}
             </button>
           )
         })}
       </div>
 
-      {puedeEditar && (
+      {esJefe && (
         <div className="glass" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <b style={{ fontSize: 13 }}>REGISTRAR SECRETARIA</b>
+          <b style={{ fontSize: 13 }}>REGISTRAR</b>
+          <select value={nva.tipo} onChange={e => setNva({ ...nva, tipo: e.target.value })}>
+            <option value="secretaria">SECRETARIA</option><option value="gerencia">GERENCIA</option>
+          </select>
           <input placeholder="Nombre completo" value={nva.full_name} onChange={e => setNva({ ...nva, full_name: e.target.value })} style={{ width: 200 }} />
           <input placeholder="WhatsApp (519XXXXXXXX)" value={nva.phone} onChange={e => setNva({ ...nva, phone: e.target.value })} style={{ width: 170 }} />
           <button className="btn" onClick={agregarSec}>AGREGAR</button>
-          <span className="muted" style={{ fontSize: 11 }}>{secs.filter(s => s.active).length}/4 activas</span>
+          <span className="muted" style={{ fontSize: 11 }}>{secs.filter(s => s.active).length} en seguimiento</span>
           {secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
-            <span style={{ display: 'flex', gap: 6 }}>
+            <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setAbierta(abierta === s.id ? null : s.id)}>⚙ RUTINA</button>
+              <button className="btn-ghost" style={{ fontSize: 12 }} title="Si está apagado, el bot no le escribe por WhatsApp" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => toggleActiva(s)}>{s.active ? 'PAUSAR' : 'ACTIVAR'}</button>
               <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarSec(s)}>QUITAR</button>
+              <select value={s.user_id || ''} title="Usuario del sistema vinculado: podrá ver y marcar sus propias actividades"
+                onChange={e => vincularUsuario(s, e.target.value)} style={{ fontSize: 12 }}>
+                <option value="">SIN USUARIO DEL SISTEMA</option>
+                {usuarios.map(u => <option key={u.id} value={u.id}>👤 {u.full_name} ({u.role})</option>)}
+              </select>
             </span>
           ) })()}
         </div>
       )}
 
-      {abierta && puedeEditar && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
+      {abierta && esJefe && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
         <div className="glass" style={{ padding: 12, marginBottom: 12 }}>
           <b style={{ fontSize: 13 }}>RUTINA FIJA — {s.full_name}</b> <span className="muted" style={{ fontSize: 11 }}>(se repite cada semana, todo el mes)</span>
           {rs.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Sin rutina aún.</p>}
@@ -181,7 +198,6 @@ export default function Secretarias() {
       ) })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.4fr) minmax(280px, 1fr)', gap: 14, alignItems: 'start' }}>
-        {/* ---- CALENDARIO ---- */}
         <div className="glass" style={{ padding: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
             {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map(d => <div key={d} className="muted" style={{ fontSize: 10, textAlign: 'center', fontWeight: 700 }}>{d}</div>)}
@@ -194,7 +210,7 @@ export default function Secretarias() {
               const reales = tareas.filter(t => t.date === iso && filtroSec(t))
               const futuras = iso > hoy ? rutinasDe(dow).length : 0
               const total = reales.length + futuras
-              const okAll = reales.length > 0 && reales.every(t => ['hecha'].includes(t.status)) && !futuras
+              const okAll = reales.length > 0 && reales.every(t => t.status === 'hecha') && !futuras
               const hayRojo = reales.some(t => ['no_hecha', 'sin_respuesta'].includes(t.status))
               return (
                 <button key={i} onClick={() => setDiaSel(iso)}
@@ -220,14 +236,13 @@ export default function Secretarias() {
           <p className="muted" style={{ fontSize: 10, marginTop: 8 }}>Número = actividades del día (verde: todo cumplido · ámbar: en curso · rojo: hay incumplidas). Los días futuros suman la rutina proyectada.</p>
         </div>
 
-        {/* ---- DETALLE DEL DIA ---- */}
         <div className="glass" style={{ padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <b style={{ flex: 1 }}>{new Date(diaSel + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}</b>
-            {puedeEditar && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setExtra({ sid: secSel !== 'todas' ? secSel : (secs[0]?.id || null), title: '', time: '', category: 'administrativa', slot: 'manana' })}>+ PROGRAMAR</button>}
+            {esJefe && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setExtra({ sid: secSel !== 'todas' ? secSel : (secs[0]?.id || null), title: '', time: '', category: 'administrativa', slot: 'manana' })}>+ PROGRAMAR</button>}
           </div>
 
-          {extra && puedeEditar && (
+          {extra && esJefe && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, padding: 8, border: '1px dashed rgba(156,203,134,.4)', borderRadius: 8 }}>
               <select value={extra.sid || ''} onChange={e => setExtra({ ...extra, sid: e.target.value })}>
                 {secs.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
@@ -255,10 +270,11 @@ export default function Secretarias() {
             if (!ts.length) return null
             return (
               <div key={s.id} style={{ marginBottom: 10 }}>
-                {secSel === 'todas' && <b style={{ fontSize: 12, color: '#e8a0c8' }}>{s.full_name}</b>}
+                {secSel === 'todas' && <b style={{ fontSize: 12, color: s.tipo === 'gerencia' ? '#e7c15a' : '#e8a0c8' }}>{s.tipo === 'gerencia' ? '👔 ' : ''}{s.full_name}</b>}
                 {ts.map(t => {
                   const e = EST[t.status] || EST.pendiente
                   const cat = CATS[t.category || 'administrativa']
+                  const editable = puedeMarcar(t)
                   return (
                     <div key={t.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -266,14 +282,15 @@ export default function Secretarias() {
                         <span style={{ flex: 1, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
                           {t.ask_index ? <b style={{ color: '#9ccb86' }}>{t.ask_index}. </b> : null}{t.title}
                         </span>
-                        {puedeEditar && t.status !== 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
-                        {puedeEditar && t.status === 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
-                        {puedeEditar && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
-                        {puedeEditar && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => quitarTarea(t)}>✕</button>}
+                        {editable && t.status !== 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
+                        {editable && t.status === 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
+                        {esJefe && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
+                        {esJefe && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => quitarTarea(t)}>✕</button>}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginLeft: 26, alignItems: 'center' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: cat.c, border: `1px solid ${cat.c}55`, borderRadius: 8, padding: '0 6px' }}>{cat.t}</span>
                         <span className="muted" style={{ fontSize: 10 }}>{t.time ? '🕐 ' + String(t.time).slice(0, 5) : (t.slot === 'manana' ? 'MAÑANA' : 'TARDE')}{t.routine_id ? ' · RUTINA' : ''}</span>
+                        {t.answer && <span className="muted" style={{ fontSize: 9, textTransform: 'none' }} title={t.answer}>· {String(t.answer).slice(0, 40)}</span>}
                       </div>
                       {mover?.id === t.id && (
                         <div style={{ display: 'flex', gap: 6, margin: '6px 0 2px 26px', alignItems: 'center' }}>

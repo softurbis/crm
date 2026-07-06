@@ -328,9 +328,10 @@ function secTpl(md, tag, vars, def) {
 async function secretariaTick() {
   try {
     if (!(await flag('bot_activo'))) return
+    if (!(await flag('seguimiento_activo'))) return
     const hoy = secHoy(), hhmm = secHora(), dow = secDow()
     const md = await brain('secretaria')
-    const { data: secs } = await supabase.from('secretaries').select('*').eq('active', true)
+    const { data: secs } = await supabase.from('secretaries').select('*').eq('active', true).neq('seguimiento', false)
     if (!secs || !secs.length) return
 
     // 1) generar tareas del dia desde las rutinas (idempotente)
@@ -609,6 +610,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       await enviar(ADMIN, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
       return
     }
+    // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
+    await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
   }
   const corto = texto.trim().slice(0, 400)
