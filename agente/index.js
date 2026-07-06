@@ -12,6 +12,17 @@ const qrcode = require('qrcode-terminal')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 const ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+
+// store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje")
+const msgStore = new Map()
+function guardarMsg(sent) {
+  try {
+    if (sent && sent.key && sent.key.id) {
+      msgStore.set(sent.key.id, sent.message)
+      if (msgStore.size > 800) { const k = msgStore.keys().next().value; msgStore.delete(k) }
+    }
+  } catch {}
+}
 const DIAS_ANTES = Number(process.env.DIAS_ANTES || 3)
 const VENCIDAS_CADA = Number(process.env.VENCIDAS_CADA_DIAS || 4)
 const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 40)
@@ -54,9 +65,9 @@ async function enviarArchivo(jid, url, clase, caption) {
     await espera(2500 + Math.floor(Math.random() * 2500))
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
     const low = String(url).toLowerCase()
-    if (clase === 'video') await sock.sendMessage(dest, { video: { url }, caption: caption || undefined })
-    else if ((clase === 'plano' || clase === 'brochure') && low.includes('.pdf')) await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: clase === 'brochure' ? 'BROCHURE.pdf' : 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined })
-    else await sock.sendMessage(dest, { image: { url }, caption: caption || undefined })
+    if (clase === 'video') guardarMsg(await sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
+    else if ((clase === 'plano' || clase === 'brochure') && low.includes('.pdf')) guardarMsg(await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: clase === 'brochure' ? 'BROCHURE.pdf' : 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined }))
+    else guardarMsg(await sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
     enviadosHoy++
     await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: (clase === 'video' ? '🎬 VIDEO ENVIADO' : clase === 'plano' ? '🗺️ PLANO ENVIADO' : clase === 'brochure' ? '📘 BROCHURE ENVIADO' : '📷 FOTO ENVIADA') + (caption ? ': ' + caption : ''), tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     log('MEDIA [' + clase + '] enviada a', telDeJid(dest))
@@ -174,7 +185,7 @@ async function enviar(phone, texto, meta = {}) {
     await espera(4000 + Math.floor(Math.random() * 8000))
   }
   try {
-    await sock.sendMessage(destJid, { text: texto })
+    guardarMsg(await sock.sendMessage(destJid, { text: texto }))
     enviadosHoy++
     await supabase.from('scheduled_messages').insert({
       recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
@@ -736,7 +747,7 @@ Proyecto: ${unico.name}
 async function iniciar() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   const { version } = await fetchLatestBaileysVersion()
-  sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS AGENTE', 'Chrome', '120.0'] })
+  sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS AGENTE', 'Chrome', '120.0'], getMessage: async key => msgStore.get(key && key.id) })
 
   sock.ev.on('creds.update', saveCreds)
   sock.ev.on('connection.update', u => {
@@ -806,7 +817,7 @@ async function procesarSalientesPanel() {
     try {
       const { data: c } = await supabase.from('whatsapp_conversations').select('wa_jid').eq('phone', m.recipient_phone).maybeSingle()
       const destino = c?.wa_jid || m.recipient_phone
-      await sock.sendMessage(String(destino).includes('@') ? destino : jidDe(destino), { text: m.body })
+      guardarMsg(await sock.sendMessage(String(destino).includes('@') ? destino : jidDe(destino), { text: m.body }))
       await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString() }).eq('id', m.id)
       log('PANEL -> ENVIADO a', m.recipient_phone)
     } catch (e) {
