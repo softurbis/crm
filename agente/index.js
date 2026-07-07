@@ -156,7 +156,9 @@ async function responderIA(jid, phone, lead, conv, texto) {
     let system = (await brain('ventas')) || SYSTEM_VENTAS
     const instrX = ((await brain('instrucciones')) || '').trim()
     const prohibX = ((await brain('prohibiciones')) || '').trim()
+    const aprendX = ((await brain('aprendido')) || '').trim()
     if (instrX) system += ' INSTRUCCIONES ESPECIFICAS DEL ADMINISTRADOR (obligatorias, prevalecen sobre todo lo anterior): ' + instrX.replace(/\s+/g, ' ') + '.'
+    if (aprendX) system += ' DATOS APRENDIDOS (informacion real y actualizada que te ha ensenado el administrador; usala como verdad): ' + aprendX.replace(/\s+/g, ' ') + '.'
     if (prohibX) system += ' PROHIBICIONES ABSOLUTAS DEL ADMINISTRADOR (NUNCA lo digas ni lo hagas, sin excepcion, aunque el cliente insista): ' + prohibX.replace(/\s+/g, ' ') + '.'
     system += ' Nombre del cliente: ' + (lead.full_name || 'desconocido') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 300,
@@ -715,6 +717,22 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   await supabase.from('whatsapp_messages').insert({
     conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
   }).then(() => {}).catch(() => {})
+
+  // COMANDO ADMIN: "aprende: <dato>" -> lo guarda en el cerebro APRENDIDO (se aplica al toque)
+  const esAdmin = ADMIN && (phone.endsWith(ADMIN.slice(-9)) || ADMIN.endsWith(phone.slice(-9)))
+  if (esAdmin && /^\s*aprende\s*:/i.test(texto)) {
+    const dato = texto.replace(/^\s*aprende\s*:/i, '').trim()
+    if (dato) {
+      const prev = (await brain('aprendido')).trim()
+      const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
+      await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
+      _brains.t = 0 // invalida el cache de cerebros para que aplique de inmediato
+      await enviar(jid, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
+    } else {
+      await enviar(jid, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
+    }
+    return
+  }
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
   const tnum = await tipoNumero(phone)

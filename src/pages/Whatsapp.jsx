@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import BrainMap from '../components/BrainMap'
 
 const FLOW = {
   espera_nombre:   { t: 'ESPERANDO NOMBRE',  c: '#e0b34c' },
@@ -60,6 +61,7 @@ export default function Whatsapp() {
   const [brainSel, setBrainSel] = useState('ventas')
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useState('')
+  const [ensenaTxt, setEnsenaTxt] = useState('')
   const selRef = useRef(null)
   const endRef = useRef(null)
 
@@ -117,12 +119,15 @@ export default function Whatsapp() {
   }
   const borrarNum = async phone => { await supabase.from('whatsapp_numbers').delete().eq('phone', phone); cargarNums() }
 
+  // Cada cerebro: clave, título largo (editor), etiqueta corta y color (mapa radial),
+  // y "meta" objetivo de longitud para calcular el % de completado del nodo.
   const BRAIN_DEFS = [
-    { k: 'ventas', t: '🧠 VENTAS — cerebro principal (papel + flujo del calificador)' },
-    { k: 'instrucciones', t: '📌 INSTRUCCIONES ESPECÍFICAS — se suman al de ventas' },
-    { k: 'prohibiciones', t: '🚫 NUNCA DECIR — prohibiciones absolutas' },
-    { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes' },
-    { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento' },
+    { k: 'ventas', t: '🧠 VENTAS — cerebro principal (papel + flujo del calificador)', lbl: 'VENTAS', color: '#9ccb86', meta: 900 },
+    { k: 'instrucciones', t: '📌 INSTRUCCIONES ESPECÍFICAS — se suman al de ventas', lbl: 'REGLAS', color: '#7ec8e3', meta: 500 },
+    { k: 'prohibiciones', t: '🚫 NUNCA DECIR — prohibiciones absolutas', lbl: 'PROHIBIDO', color: '#e07b7b', meta: 400 },
+    { k: 'aprendido', t: '💡 APRENDIDO — lo que le has enseñado (se suma a ventas)', lbl: 'APRENDIDO', color: '#e8975a', meta: 400 },
+    { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes', lbl: 'COBRANZA', color: '#e0b34c', meta: 600 },
+    { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento', lbl: 'SEGUIMIENTO', color: '#b8a1d9', meta: 600 },
   ]
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
@@ -135,6 +140,23 @@ export default function Whatsapp() {
   const textoDe = k => k.startsWith('p:')
     ? (proys.find(x => x.id === k.slice(2))?.bot_knowledge || '')
     : (brains.find(x => x.key === k)?.content || '')
+  // Nodos del mapa radial: cerebros base + una rama por cada proyecto (su ficha).
+  const buildNodes = () => {
+    const base = BRAIN_DEFS.map(d => {
+      const len = (brains.find(x => x.key === d.k)?.content || '').trim().length
+      const node = { key: d.k, label: d.lbl, color: d.color, nivel: Math.min(1, len / d.meta), selected: brainSel === d.k }
+      if (d.k === 'aprendido') node.badge = (brains.find(x => x.key === 'aprendido')?.content || '').split('\n').filter(l => l.trim()).length || null
+      return node
+    })
+    const fichas = proys.map(p => ({
+      key: 'p:' + p.id,
+      label: (p.name || '').split(' ').slice(0, 2).join(' ').toUpperCase().slice(0, 12),
+      color: '#6fd0c9',
+      nivel: Math.min(1, (p.bot_knowledge || '').trim().length / 1500),
+      selected: brainSel === 'p:' + p.id,
+    }))
+    return [...base, ...fichas]
+  }
   const elegirBrain = k => { setBrainSel(k); setBrainTxt(textoDe(k)); setBrainMsg('') }
   const guardarBrain = async () => {
     setBrainMsg('GUARDANDO...')
@@ -146,6 +168,19 @@ export default function Whatsapp() {
     }
     setBrainMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo usa en máx. 1 minuto')
     if (!error) cargarBrains()
+  }
+  // Enseñarle un dato: se agrega como línea al cerebro APRENDIDO (el bot lo usa en ~1 min).
+  const ensenar = async () => {
+    const dato = ensenaTxt.trim()
+    if (!dato) return
+    setBrainMsg('APRENDIENDO...')
+    const actual = (brains.find(x => x.key === 'aprendido')?.content || '').trim()
+    const fecha = new Date().toLocaleDateString('es-PE')
+    const nuevo = (actual ? actual + '\n' : '') + '- ' + dato + '  (aprendido ' + fecha + ')'
+    const { error } = await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
+    setEnsenaTxt('')
+    setBrainMsg(error ? 'ERROR: ' + error.message : '✅ APRENDIDO — el bot lo usa en máx. 1 minuto')
+    if (!error) { const { b } = await cargarBrains(); if (brainSel === 'aprendido') setBrainTxt(b.find(x => x.key === 'aprendido')?.content || nuevo) }
   }
   const subirMd = e => {
     const file = e.target.files?.[0]
@@ -212,9 +247,12 @@ export default function Whatsapp() {
         <h1>WhatsApp del bot</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
-          <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
-          <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🧠" label="IA" />
-          <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 10px 4px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.1)', opacity: flags.bot_activo ? 1 : 0.45 }}>
+            <span className="muted" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px' }}>AGENTES</span>
+            <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🧠" label="VENTAS" />
+            <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
+            <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
+          </span>
           {(() => {
             const fresco = waLatido && (Date.now() - new Date(waLatido).getTime()) < 120000
             const [txt, col] = waEstado === 'esperando_qr' ? ['📱 ESPERANDO QR...', '#e0b34c']
@@ -252,9 +290,14 @@ export default function Whatsapp() {
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
           <b>🧠 CEREBROS DEL BOT</b>
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
-            Aquí editas el comportamiento del bot directamente. Si un cerebro está VACÍO, el bot usa su versión por defecto.
-            Los cambios rigen en máximo 1 minuto, sin reiniciar nada.
+            El cerebro del bot dividido por áreas. Toca un nodo del mapa para editarlo. Si un cerebro está VACÍO,
+            el bot usa su versión por defecto. Los cambios rigen en máximo 1 minuto, sin reiniciar nada.
           </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
+            <div className="glass" style={{ padding: 8, background: 'rgba(0,0,0,.18)' }}>
+              <BrainMap nodes={buildNodes()} selected={brainSel} onSelect={elegirBrain} />
+            </div>
+            <div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
             <select value={brainSel} onChange={e => elegirBrain(e.target.value)} style={{ maxWidth: 340 }}>
               {BRAIN_DEFS.map(b => <option key={b.k} value={b.k}>{b.t}</option>)}
@@ -267,6 +310,17 @@ export default function Whatsapp() {
             <button className="btn" onClick={guardarBrain}>💾 GUARDAR</button>
             {brainMsg && <span style={{ fontSize: 12 }}>{brainMsg}</span>}
           </div>
+          {brainSel === 'aprendido' && (
+            <div style={{ border: '1px solid rgba(232,151,90,.5)', borderRadius: 10, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
+              <b style={{ color: '#e8975a', fontSize: 13 }}>💡 ENSÉÑALE ALGO</b>
+              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Escribe un dato en una frase y el bot lo recordará (se agrega a la lista de abajo). Ej: "La oficina abre de 9am a 6pm" · "El plano de Cashibo ya está actualizado" · "No quedan lotes en la Mz A".</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={ensenaTxt} onChange={e => setEnsenaTxt(e.target.value)} placeholder="Enséñale un dato…" style={{ flex: 1, textTransform: 'none' }} onKeyDown={e => { if (e.key === 'Enter') ensenar() }} />
+                <button className="btn" onClick={ensenar}>ENSEÑAR</button>
+              </div>
+              <p className="muted" style={{ fontSize: 10, marginTop: 6 }}>También por WhatsApp: desde el número ADMIN escríbele al bot <b>aprende: &lt;dato&gt;</b>.</p>
+            </div>
+          )}
           {brainSel === 'cobranza' && (
             <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
               Formato: secciones <b>## A5</b> (5 días antes), <b>## A3</b>, <b>## A0</b> (vence hoy), <b>## INSISTENCIA</b>, <b>## B</b> (2 vencidas), <b>## C</b> (3+ vencidas).
@@ -298,6 +352,8 @@ export default function Whatsapp() {
             {brainTxt.length.toLocaleString()} caracteres
             {!brainSel.startsWith('p:') && brains.find(b => b.key === brainSel)?.updated_at ? ' · Última actualización: ' + new Date(brains.find(b => b.key === brainSel).updated_at).toLocaleString('es-PE') : ''}
           </p>
+            </div>
+          </div>
         </div>
       )}
 
