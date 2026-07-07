@@ -118,30 +118,75 @@ function pareceConsulta(t) {
   return /\?/.test(s) || /(cu[aá]nto|cu[aá]l|cu[aá]les|qu[eé]\b|c[oó]mo\b|cu[aá]ndo|d[oó]nde|hay\s|tienes?|queda|precio|cuesta|disponib|informaci|\binfo\b|\blote|manzana|\bmz\b|\bcliente|deuda|saldo|cuota|vendid|separad)/i.test(s)
 }
 
-// Asistente INTERNO para el equipo (asesores/gerencia): SÍ da datos confidenciales del proyecto.
+// ¿la persona está en medio de su checklist de actividades? (para no interrumpirla con Q&A)
+async function tieneChecklistAbierto(phone) {
+  const { data: sec } = await supabase.from('secretaries').select('id').ilike('phone', '%' + String(phone).slice(-9)).limit(1)
+  if (!sec || !sec.length) return false
+  const { data: ab } = await supabase.from('secretary_tasks').select('id')
+    .eq('secretary_id', sec[0].id).eq('date', secHoy()).eq('status', 'pendiente')
+    .is('answered_at', null).not('asked_at', 'is', null).limit(1)
+  return !!(ab && ab.length)
+}
+
+// Asistente INTERNO para el equipo (asesores/gerencia): consulta el SISTEMA REAL y da datos
+// confidenciales (comisiones por cobrar, gastos por proyecto/mes, visitas pendientes, cobranza…).
 async function responderInternoIA(jid, phone, texto, quien) {
   try {
     if (!IA_KEY) return false
     if (!(await flag('seguimiento_activo'))) return false
+    const hoy = new Date().toISOString().slice(0, 10)
+    const anio = hoy.slice(0, 4)
     const { data: proys } = await supabase.from('projects').select('id, name, description, bot_knowledge').order('name')
+    const nombreProy = id => (proys || []).find(p => p.id === id)?.name || '—'
     let ctx = ''
+    // 1) Proyectos: lotes por estado + rango de precios
     for (const p of (proys || [])) {
       const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id)
       const all = lots || []
       const by = {}
       for (const l of all) by[l.status] = (by[l.status] || 0) + 1
       const precios = all.map(l => Number(l.total_price)).filter(n => n > 0)
-      ctx += '\n=== ' + p.name + ' ===\n' + (p.description || '') + '\nFICHA: ' + String(p.bot_knowledge || '(sin ficha)').slice(0, 2500) + '\n'
+      ctx += '\n=== PROYECTO ' + p.name + ' ===\n' + (p.description || '') + '\nFICHA: ' + String(p.bot_knowledge || '(sin ficha)').slice(0, 1200) + '\n'
       ctx += 'LOTES: total ' + all.length + (Object.keys(by).length ? ' | ' + Object.entries(by).map(([k, v]) => k + ':' + v).join(' | ') : '') + '\n'
-      if (precios.length) ctx += 'PRECIOS lote: de S/ ' + Math.min(...precios).toLocaleString('es-PE') + ' a S/ ' + Math.max(...precios).toLocaleString('es-PE') + '\n'
+      if (precios.length) ctx += 'PRECIO lote: S/ ' + Math.min(...precios).toLocaleString('es-PE') + ' a S/ ' + Math.max(...precios).toLocaleString('es-PE') + '\n'
+    }
+    // 2) Comisiones por cobrar (pendientes)
+    const { data: coms } = await supabase.from('commissions')
+      .select('amount, status, advisor:advisors(code, full_name), sale:sales(lot:lots(mz, lt, project_id))').eq('status', 'pendiente')
+    if (coms && coms.length) {
+      const totC = coms.reduce((s, c) => s + Number(c.amount || 0), 0)
+      ctx += '\n=== COMISIONES POR COBRAR (pendientes) — total S/ ' + totC.toLocaleString('es-PE') + ' en ' + coms.length + ' ===\n'
+      ctx += coms.slice(0, 30).map(c => '- ' + (c.advisor?.full_name || c.advisor?.code || '—') + ': S/ ' + Number(c.amount || 0).toLocaleString('es-PE') + (c.sale?.lot ? ' (Mz ' + c.sale.lot.mz + ' Lt ' + c.sale.lot.lt + ' · ' + nombreProy(c.sale.lot.project_id) + ')' : '')).join('\n') + '\n'
+    } else ctx += '\n=== COMISIONES POR COBRAR ===\nNo hay comisiones pendientes.\n'
+    // 3) Gastos del año por proyecto y mes
+    const { data: gastos } = await supabase.from('expenses').select('project_id, issue_date, amount').gte('issue_date', anio + '-01-01')
+    if (gastos && gastos.length) {
+      const agg = {}
+      for (const g of gastos) { const m = String(g.issue_date || '').slice(0, 7); if (!m) continue; const k = g.project_id + '|' + m; agg[k] = (agg[k] || 0) + Number(g.amount || 0) }
+      ctx += '\n=== GASTOS ' + anio + ' (por proyecto y mes) ===\n'
+      ctx += Object.entries(agg).sort().map(([k, v]) => { const [pid, m] = k.split('|'); return '- ' + nombreProy(pid) + ' ' + m + ': S/ ' + v.toLocaleString('es-PE') }).join('\n') + '\n'
+    }
+    // 4) Visitas pendientes (programadas de hoy en adelante)
+    const { data: vis } = await supabase.from('visits').select('date, time, client_name, project_id').eq('status', 'programada').gte('date', hoy).order('date').order('time').limit(25)
+    if (vis && vis.length) {
+      ctx += '\n=== VISITAS PENDIENTES (programadas) ===\n'
+      ctx += vis.map(v => '- ' + v.date + ' ' + String(v.time || '').slice(0, 5) + ' · ' + (v.client_name || '—') + ' · ' + nombreProy(v.project_id)).join('\n') + '\n'
+    } else ctx += '\n=== VISITAS PENDIENTES ===\nNo hay visitas programadas próximas.\n'
+    // 5) Cobranza: cuotas vencidas por proyecto
+    const { data: venc } = await supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido')
+    if (venc && venc.length) {
+      const agg = {}
+      for (const q of venc) { if (q.sale?.status !== 'en_proceso') continue; const pid = q.sale?.lot?.project_id; const d = Number(q.amount) - Number(q.amount_paid); if (d > 0.05) { if (!agg[pid]) agg[pid] = { n: 0, s: 0 }; agg[pid].n++; agg[pid].s += d } }
+      const ks = Object.keys(agg)
+      if (ks.length) ctx += '\n=== COBRANZA: CUOTAS VENCIDAS ===\n' + ks.map(pid => '- ' + nombreProy(pid) + ': ' + agg[pid].n + ' cuotas, S/ ' + agg[pid].s.toLocaleString('es-PE')).join('\n') + '\n'
     }
     const conf = ((await brain('gerencia')) || '').trim()
-    let system = 'Eres el asistente INTERNO de Urbis Group para el equipo (asesores y gerencia). A diferencia del bot de ventas al publico, con el equipo SI puedes dar informacion confidencial y detallada del proyecto: precios exactos, disponibilidad, estado de lotes, datos internos. Responde claro, directo y en espanol, formato WhatsApp corto. NO inventes: si el dato no esta abajo, dilo. Quien pregunta: ' + quien + '.'
-    if (conf) system += ' DATOS/POLITICAS INTERNAS DE GERENCIA (confidenciales, usalos): ' + conf.replace(/\s+/g, ' ') + '.'
+    let system = 'Eres el asistente INTERNO de Urbis Group para el equipo (asesores y gerencia). A diferencia del bot de ventas al publico, con el equipo SI das informacion confidencial y detallada: comisiones por cobrar, gastos por proyecto/mes, visitas pendientes, cobranza, disponibilidad y precios de lotes. Responde claro, directo y en espanol, formato WhatsApp corto, con cifras exactas de los DATOS de abajo. NO inventes: si el dato no esta, dilo. Quien pregunta: ' + quien + '.'
+    if (conf) system += ' NOTAS INTERNAS DE GERENCIA (extra, si aplica): ' + conf.replace(/\s+/g, ' ') + '.'
     const cuerpo = { model: IA_MODEL, max_tokens: 450,
       system: [
         { type: 'text', text: system },
-        { type: 'text', text: 'DATOS INTERNOS EN VIVO:\n' + ctx, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'DATOS INTERNOS EN VIVO (' + hoy + '):\n' + ctx, cache_control: { type: 'ephemeral' } },
       ],
       messages: [{ role: 'user', content: String(texto).slice(0, 600) }] }
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
@@ -746,8 +791,9 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       } else await enviar(ADMIN, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
       return
     }
-    // consulta interna con datos confidenciales (gerencia/admin pueden preguntar)
-    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+    // consulta interna con datos confidenciales (gerencia/admin pueden preguntar),
+    // salvo que esté respondiendo su propio checklist de actividades
+    if (pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
     await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
@@ -786,8 +832,9 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
   if (tnum === 'secretaria' || tnum === 'gerencia') {
-    // Victor/gerencia pueden PREGUNTAR: consulta interna con datos confidenciales del proyecto
-    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, tnum === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
+    // Victor/gerencia pueden PREGUNTAR datos reales del sistema, salvo que estén
+    // respondiendo su checklist de actividades (para no interrumpir el seguimiento)
+    if (pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, tnum === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
 

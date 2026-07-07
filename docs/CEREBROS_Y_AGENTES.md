@@ -44,18 +44,24 @@ Se le enseña de **dos formas**:
 
 Todo lo aprendido queda como una lista editable en el cerebro APRENDIDO (puedes borrar/ordenar a mano).
 
-## 3.b Q&A interno confidencial (asesores y gerencia)
+## 3.b Q&A interno confidencial (asesores y gerencia) — datos REALES del sistema
 
 El **bot de seguimiento** ahora también **responde preguntas** de los números registrados como
-**SECRETARIA** o **GERENCIA** (y del ADMIN) con **datos confidenciales del proyecto**: precios exactos,
-disponibilidad, estado de lotes, etc. — cosas que NUNCA le daría a un lead del público.
+**SECRETARIA** o **GERENCIA** (y del ADMIN) **consultando el sistema en vivo**. No hay que escribir datos a mano: el bot los saca de la base. Puede responder sobre:
 
-- Se activa cuando el mensaje **parece una pregunta** (tiene "?", o palabras como *cuánto, precio, disponible, cuántos lotes…*). Si no es pregunta, sigue el flujo normal de check-in de tareas.
-- El bot ya conoce en vivo precios/disponibilidad/estado de lotes de todos los proyectos.
-- En el cerebro **🔐 GERENCIA** agregas lo que NO está en el sistema (costos reales, márgenes mínimos, comisiones, políticas internas) para que también lo pueda responder.
-- Requiere el toggle **SEGUIMIENTO encendido** + la API key de IA.
+- **Comisiones por cobrar** (pendientes): total y por asesor/lote.
+- **Gastos** por proyecto y mes (del año en curso) — ej. "gastos de agosto de Las Praderas".
+- **Visitas pendientes** (programadas de hoy en adelante).
+- **Cobranza**: cuotas vencidas por proyecto (cuántas y cuánto).
+- **Lotes**: disponibilidad, estado y rango de precios por proyecto.
 
-> Ejemplo: Victor (registrado como SECRETARIA) escribe *"¿cuántos lotes disponibles quedan en Las Praderas y desde qué precio?"* → el bot le responde con el dato real.
+**Reglas:**
+- Se activa cuando el mensaje **parece una pregunta** (tiene "?", o palabras como *cuánto, precio, gasto, comisión, visita, disponible…*).
+- **No choca con el control de actividades:** si la persona está **respondiendo su checklist** del día, el bot NO interrumpe — atiende primero el check-in. Solo responde preguntas cuando no hay checklist abierto.
+- El cerebro **🔐 GERENCIA** es **opcional**: solo para notas/políticas que NO están en el sistema (ej. "margen mínimo por lote S/ X"). Déjalo vacío si no hace falta.
+- Requiere **SEGUIMIENTO encendido** + API key de IA.
+
+> Ejemplo: Victor (SECRETARIA) escribe *"¿cuánto tengo en comisiones por cobrar y qué visitas hay esta semana?"* → el bot responde con las cifras reales.
 
 ## 4. Qué tienes que hacer TÚ (desplegar el agente)
 

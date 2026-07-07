@@ -128,7 +128,7 @@ export default function Whatsapp() {
     { k: 'aprendido', t: '💡 APRENDIDO — lo que le has enseñado (se suma a ventas)', lbl: 'APRENDIDO', color: '#e8975a', meta: 400 },
     { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes', lbl: 'COBRANZA', color: '#e0b34c', meta: 600 },
     { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento', lbl: 'SEGUIMIENTO', color: '#b8a1d9', meta: 600 },
-    { k: 'gerencia', t: '🔐 GERENCIA — datos/políticas internas confidenciales (Q&A del equipo)', lbl: 'GERENCIA', color: '#6fd0c9', meta: 500 },
+    { k: 'gerencia', t: '🔐 GERENCIA — notas internas para el Q&A del equipo (opcional)', lbl: 'GERENCIA', color: '#6fd0c9', meta: 500 },
   ]
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
@@ -348,8 +348,9 @@ export default function Whatsapp() {
           )}
           {brainSel === 'gerencia' && (
             <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
-              🔐 Datos y políticas <b>internas confidenciales</b> que el bot SÍ puede dar al equipo (asesores y gerencia) cuando <b>preguntan</b> por WhatsApp — nunca al público.
-              El bot ya conoce en vivo los precios, disponibilidad y estado de lotes; aquí agrega lo que NO está en el sistema. Ej: "El costo real por m² es S/ X, no bajar de S/ Y" · "Margen mínimo por lote: Z" · "Comisión del asesor: 3%".
+              🔐 Cuando <b>Victor o gerencia PREGUNTAN</b> por WhatsApp, el bot responde con <b>datos reales del sistema</b>:
+              comisiones por cobrar, gastos por proyecto/mes, visitas pendientes, cuotas vencidas, disponibilidad y precios. <b>No hay que escribirlos aquí.</b>
+              Este cerebro es <b>opcional</b>: solo para notas/políticas que NO están en el sistema (ej. "el margen mínimo por lote es S/ X"). Déjalo vacío si no hace falta.
             </p>
           )}
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
