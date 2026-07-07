@@ -128,6 +128,7 @@ export default function Whatsapp() {
     { k: 'aprendido', t: '💡 APRENDIDO — lo que le has enseñado (se suma a ventas)', lbl: 'APRENDIDO', color: '#e8975a', meta: 400 },
     { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes', lbl: 'COBRANZA', color: '#e0b34c', meta: 600 },
     { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento', lbl: 'SEGUIMIENTO', color: '#b8a1d9', meta: 600 },
+    { k: 'gerencia', t: '🔐 GERENCIA — datos/políticas internas confidenciales (Q&A del equipo)', lbl: 'GERENCIA', color: '#6fd0c9', meta: 500 },
   ]
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
@@ -343,6 +344,12 @@ export default function Whatsapp() {
             <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
               Lo que el bot NUNCA debe decir ni hacer, pase lo que pase (se suma a las prohibiciones de fábrica). Una por línea.
               Ej: "Nunca dar precios de la Mz A" · "Nunca prometer fecha de titulación" · "Nunca mencionar al dueño por su nombre".
+            </p>
+          )}
+          {brainSel === 'gerencia' && (
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+              🔐 Datos y políticas <b>internas confidenciales</b> que el bot SÍ puede dar al equipo (asesores y gerencia) cuando <b>preguntan</b> por WhatsApp — nunca al público.
+              El bot ya conoce en vivo los precios, disponibilidad y estado de lotes; aquí agrega lo que NO está en el sistema. Ej: "El costo real por m² es S/ X, no bajar de S/ Y" · "Margen mínimo por lote: Z" · "Comisión del asesor: 3%".
             </p>
           )}
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}

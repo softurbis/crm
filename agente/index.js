@@ -112,6 +112,54 @@ async function enviarArchivo(jid, url, clase, caption) {
   } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
 }
 
+// ¿el mensaje parece una PREGUNTA/consulta (no una respuesta de checklist)?
+function pareceConsulta(t) {
+  const s = String(t || '')
+  return /\?/.test(s) || /(cu[aá]nto|cu[aá]l|cu[aá]les|qu[eé]\b|c[oó]mo\b|cu[aá]ndo|d[oó]nde|hay\s|tienes?|queda|precio|cuesta|disponib|informaci|\binfo\b|\blote|manzana|\bmz\b|\bcliente|deuda|saldo|cuota|vendid|separad)/i.test(s)
+}
+
+// Asistente INTERNO para el equipo (asesores/gerencia): SÍ da datos confidenciales del proyecto.
+async function responderInternoIA(jid, phone, texto, quien) {
+  try {
+    if (!IA_KEY) return false
+    if (!(await flag('seguimiento_activo'))) return false
+    const { data: proys } = await supabase.from('projects').select('id, name, description, bot_knowledge').order('name')
+    let ctx = ''
+    for (const p of (proys || [])) {
+      const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id)
+      const all = lots || []
+      const by = {}
+      for (const l of all) by[l.status] = (by[l.status] || 0) + 1
+      const precios = all.map(l => Number(l.total_price)).filter(n => n > 0)
+      ctx += '\n=== ' + p.name + ' ===\n' + (p.description || '') + '\nFICHA: ' + String(p.bot_knowledge || '(sin ficha)').slice(0, 2500) + '\n'
+      ctx += 'LOTES: total ' + all.length + (Object.keys(by).length ? ' | ' + Object.entries(by).map(([k, v]) => k + ':' + v).join(' | ') : '') + '\n'
+      if (precios.length) ctx += 'PRECIOS lote: de S/ ' + Math.min(...precios).toLocaleString('es-PE') + ' a S/ ' + Math.max(...precios).toLocaleString('es-PE') + '\n'
+    }
+    const conf = ((await brain('gerencia')) || '').trim()
+    let system = 'Eres el asistente INTERNO de Urbis Group para el equipo (asesores y gerencia). A diferencia del bot de ventas al publico, con el equipo SI puedes dar informacion confidencial y detallada del proyecto: precios exactos, disponibilidad, estado de lotes, datos internos. Responde claro, directo y en espanol, formato WhatsApp corto. NO inventes: si el dato no esta abajo, dilo. Quien pregunta: ' + quien + '.'
+    if (conf) system += ' DATOS/POLITICAS INTERNAS DE GERENCIA (confidenciales, usalos): ' + conf.replace(/\s+/g, ' ') + '.'
+    const cuerpo = { model: IA_MODEL, max_tokens: 450,
+      system: [
+        { type: 'text', text: system },
+        { type: 'text', text: 'DATOS INTERNOS EN VIVO:\n' + ctx, cache_control: { type: 'ephemeral' } },
+      ],
+      messages: [{ role: 'user', content: String(texto).slice(0, 600) }] }
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 25000)
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'content-type': 'application/json', 'x-api-key': IA_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(cuerpo),
+    })
+    clearTimeout(to)
+    const j = await r.json()
+    const out = (j?.content || []).map(c => c.text || '').join('').trim()
+    if (!out) { log('INTERNO IA sin texto:', JSON.stringify(j).slice(0, 200)); return false }
+    await enviar(jid, out.slice(0, 1200), { tipo: 'interno' })
+    log('INTERNO IA respondio a', quien, phone)
+    return true
+  } catch (e) { log('INTERNO IA ERROR:', String(e.message || e)); return false }
+}
+
 async function responderIA(jid, phone, lead, conv, texto) {
   try {
     if (!IA_KEY) return
@@ -685,6 +733,21 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       await enviar(ADMIN, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
       return
     }
+    // "aprende: <dato>" -> lo guarda en el cerebro APRENDIDO (se aplica al instante)
+    const ma = String(texto).match(/^\s*aprende\s*:([\s\S]+)/i)
+    if (ma) {
+      const dato = ma[1].trim()
+      if (dato) {
+        const prev = ((await brain('aprendido')) || '').trim()
+        const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
+        await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
+        _brains.t = 0
+        await enviar(ADMIN, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
+      } else await enviar(ADMIN, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
+      return
+    }
+    // consulta interna con datos confidenciales (gerencia/admin pueden preguntar)
+    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
     await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
@@ -718,27 +781,15 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
   }).then(() => {}).catch(() => {})
 
-  // COMANDO ADMIN: "aprende: <dato>" -> lo guarda en el cerebro APRENDIDO (se aplica al toque)
-  const esAdmin = ADMIN && (phone.endsWith(ADMIN.slice(-9)) || ADMIN.endsWith(phone.slice(-9)))
-  if (esAdmin && /^\s*aprende\s*:/i.test(texto)) {
-    const dato = texto.replace(/^\s*aprende\s*:/i, '').trim()
-    if (dato) {
-      const prev = (await brain('aprendido')).trim()
-      const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
-      await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
-      _brains.t = 0 // invalida el cache de cerebros para que aplique de inmediato
-      await enviar(jid, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
-    } else {
-      await enviar(jid, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
-    }
-    return
-  }
-
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
   const tnum = await tipoNumero(phone)
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
-  if (tnum === 'secretaria' || tnum === 'gerencia') { await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return }
+  if (tnum === 'secretaria' || tnum === 'gerencia') {
+    // Victor/gerencia pueden PREGUNTAR: consulta interna con datos confidenciales del proyecto
+    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, tnum === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
+    await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
+  }
 
   // ¿es cliente?
   const p9 = phone.slice(-9)

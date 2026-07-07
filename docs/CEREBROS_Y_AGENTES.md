@@ -44,6 +44,19 @@ Se le enseña de **dos formas**:
 
 Todo lo aprendido queda como una lista editable en el cerebro APRENDIDO (puedes borrar/ordenar a mano).
 
+## 3.b Q&A interno confidencial (asesores y gerencia)
+
+El **bot de seguimiento** ahora también **responde preguntas** de los números registrados como
+**SECRETARIA** o **GERENCIA** (y del ADMIN) con **datos confidenciales del proyecto**: precios exactos,
+disponibilidad, estado de lotes, etc. — cosas que NUNCA le daría a un lead del público.
+
+- Se activa cuando el mensaje **parece una pregunta** (tiene "?", o palabras como *cuánto, precio, disponible, cuántos lotes…*). Si no es pregunta, sigue el flujo normal de check-in de tareas.
+- El bot ya conoce en vivo precios/disponibilidad/estado de lotes de todos los proyectos.
+- En el cerebro **🔐 GERENCIA** agregas lo que NO está en el sistema (costos reales, márgenes mínimos, comisiones, políticas internas) para que también lo pueda responder.
+- Requiere el toggle **SEGUIMIENTO encendido** + la API key de IA.
+
+> Ejemplo: Victor (registrado como SECRETARIA) escribe *"¿cuántos lotes disponibles quedan en Las Praderas y desde qué precio?"* → el bot le responde con el dato real.
+
 ## 4. Qué tienes que hacer TÚ (desplegar el agente)
 
 El **frontend** (esta pantalla) se despliega solo con el push a GitHub Pages — ya está.
