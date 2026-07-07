@@ -759,6 +759,23 @@ export default function Lots() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
               <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th></tr></thead>
               <tbody>
+                {(() => {
+                  const sepP = (pagosDesg || []).find(p => (p.income_type || '') === 'separacion')
+                  const iniP = (pagosDesg || []).find(p => (p.income_type || '') === 'inicial')
+                  const mkRow = (key, label, fecha, monto) => (
+                    <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,.07)', background: 'rgba(80,160,120,.07)' }}>
+                      <td><b>{label}</b></td>
+                      <td>{fecha ? fecha.split('-').reverse().join('/') : '- (sin fecha)'}</td>
+                      <td>S/ {Number(monto).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td>S/ {Number(monto).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td><span className="ok">&#9679; PAGADO</span></td>
+                    </tr>
+                  )
+                  const rows = []
+                  if (sepAmt > 0 || sepP) rows.push(mkRow('sep', 'SEPARACIÓN', sepP?.date, sepP?.amount ?? sepAmt))
+                  if (Number(sale.initial_amount_paid) > 0 || iniP) rows.push(mkRow('ini', 'INICIAL', iniP?.date, iniP?.amount ?? sale.initial_amount_paid))
+                  return rows
+                })()}
                 {detail.inst.map(q => (
                   <tr key={q.id} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
                     <td>{q.installment_number}</td>
