@@ -400,3 +400,15 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 .print-area.contract p { text-align: justify; line-height: 1.55; }
 .print-area.contract h3 { margin-top: 14px; }
 @page { margin: 18mm 16mm; }
+
+/* ===== WhatsApp del bot — vista de chat ===== */
+.wa-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 12px; margin-bottom: 12px; }
+.wa-avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 16px; color: #0e120d; flex: 0 0 auto; }
+.wa-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid; letter-spacing: .3px; white-space: nowrap; }
+.wa-sel { font-size: 12px; padding: 7px 28px 7px 11px; border-radius: 9px; background: var(--panel-2); cursor: pointer; }
+.wa-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 8px 13px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); background: transparent; cursor: pointer; text-decoration: none; transition: background .15s, color .15s, border-color .15s; }
+.wa-btn:hover { background: var(--accent); color: #0e120d; border-color: var(--accent); }
+.wa-btn.wa-solid { background: var(--accent); color: #0e120d; }
+.wa-btn.wa-solid:hover { background: var(--accent-strong); }
+.wa-reply { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.wa-reply input { flex: 1; text-transform: none; border-radius: 10px; padding: 10px 12px; }

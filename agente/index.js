@@ -758,6 +758,20 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   let lead = (leadsEx || [])[0]
   const estado = conv?.flow_state || null
 
+  // VENTAS apagado: el bot NO conversa con leads. Solo registra el nuevo en el Kanban
+  // (sin responder) para no perderlo; los clientes y el equipo (arriba) sí se atienden.
+  if (!(await flag('ia_activa'))) {
+    if (!lead) {
+      await supabase.from('leads').insert({
+        full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
+        source: 'whatsapp', status: 'nuevo', optin_whatsapp: true, optin_date: new Date().toISOString(),
+      })
+      if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD (VENTAS apagado: el bot NO le respondió): ${phone} ("${corto.slice(0, 50)}"). Está en el KANBAN para seguimiento manual.`, { tipo: 'aviso_admin' })
+    }
+    log('VENTAS APAGADO: lead registrado sin responder', phone)
+    return
+  }
+
   if (!lead) {
     // primer contacto: crear lead + preguntar nombre
     const { data: nuevoLead } = await supabase.from('leads').insert({

@@ -30,10 +30,10 @@ function ReplyBox({ phone, onSent }) {
     setTxt(''); setMandando(false); onSent && onSent()
   }
   return (
-    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+    <div className="wa-reply">
       <input value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribe y el bot lo envía desde el número de Urbis…"
-        style={{ flex: 1, textTransform: 'none' }} onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
-      <button className="btn" disabled={mandando} onClick={enviarMsg}>{mandando ? '...' : 'ENVIAR'}</button>
+        onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
+      <button className="wa-btn wa-solid" disabled={mandando} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
     </div>
   )
 }
@@ -436,43 +436,61 @@ export default function Whatsapp() {
           {!sel && <p className="muted" style={{ padding: 20 }}>Elige una conversación de la lista para ver los mensajes.</p>}
           {sel && (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 10, marginBottom: 10 }}>
-                <div>
-                  <b>{nombreDe(sel)}</b>
-                  {sel.lead_id && (
-                    <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12 }} onClick={async () => {
-                      const nuevo = prompt('Nombre del lead:', nombreDe(sel))
-                      if (!nuevo || !nuevo.trim()) return
-                      await supabase.from('leads').update({ full_name: nuevo.trim().toUpperCase() }).eq('id', sel.lead_id)
-                      cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), full_name: nuevo.trim().toUpperCase() } }))
-                    }}>✎</button>
-                  )}
-                  <span className="muted"> · +{sel.phone}</span>
-                  {sel.lead_id && (
-                    <span className="muted small"> · LEAD:{' '}
-                      <select value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '1px 4px' }} onChange={async e => {
-                        const st = e.target.value
-                        await supabase.from('leads').update({ status: st }).eq('id', sel.lead_id)
-                        cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), status: st } }))
-                      }}>
-                        {['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion', 'ganado', 'perdido'].map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
+              {(() => {
+                const tnSel = tipoDe(sel.phone)
+                const esCliente = tnSel?.tipo === 'cliente' || !!sel.clients
+                const esRegistrado = !!tnSel && tnSel.tipo !== 'bot'   // cliente/secretaria/gerencia/admin/silencio
+                const mostrarLead = !!sel.lead_id && !esRegistrado
+                const avColor = esCliente ? '#b8a1d9' : tnSel?.tipo === 'secretaria' || tnSel?.tipo === 'gerencia' ? '#7ec8e3' : '#9ccb86'
+                const inicial = (nombreDe(sel).trim()[0] || '?').toUpperCase()
+                return (
+                  <div className="wa-head">
+                    <div style={{ display: 'flex', gap: 10, minWidth: 0 }}>
+                      <div className="wa-avatar" style={{ background: avColor }}>{inicial}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
+                          {sel.lead_id && (
+                            <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.4 }} onClick={async () => {
+                              const nuevo = prompt('Nombre del lead:', nombreDe(sel))
+                              if (!nuevo || !nuevo.trim()) return
+                              await supabase.from('leads').update({ full_name: nuevo.trim().toUpperCase() }).eq('id', sel.lead_id)
+                              cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), full_name: nuevo.trim().toUpperCase() } }))
+                            }}>✎</button>
+                          )}
+                          {esCliente && <span className="wa-badge" style={{ color: '#b8a1d9', borderColor: '#b8a1d9' }}>💵 CLIENTE · COBRANZA</span>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
+                          <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
+                          {mostrarLead && (
+                            <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
+                              <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
+                                const st = e.target.value
+                                await supabase.from('leads').update({ status: st }).eq('id', sel.lead_id)
+                                cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), status: st } }))
+                              }}>
+                                {['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion', 'ganado', 'perdido'].map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
+                              </select>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select className="wa-sel" value={tnSel?.tipo || 'bot'}
+                        onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
+                        <option value="bot">🟢 NUEVO LEAD (BOT)</option>
+                        <option value="cliente">💵 CLIENTE (COBRANZA)</option>
+                        <option value="desactivado">🚫 ADMINISTRATIVO (SIN RESPUESTA)</option>
+                        <option value="secretaria">🗓️ SECRETARIA (SEGUIMIENTO)</option>
+                        <option value="gerencia">👑 GERENCIA (SEGUIMIENTO)</option>
+                        <option value="silencio">🔇 SILENCIO TOTAL</option>
                       </select>
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select value={tipoDe(sel.phone)?.tipo || 'bot'}
-                    onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
-                    <option value="bot">NUEVO LEAD (BOT)</option>
-                    <option value="cliente">CLIENTE (COBRANZA)</option>
-                    <option value="desactivado">ADMINISTRATIVO (SIN RESPUESTA)</option>
-                    <option value="secretaria">SECRETARIA (SEGUIMIENTO)</option>
-                    <option value="gerencia">GERENCIA (SEGUIMIENTO)</option>
-                    <option value="silencio">SILENCIO TOTAL</option>
-                  </select>
-                  <a className="btn-ghost" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">Abrir en WhatsApp</a>
-                </div>
-              </div>
+                      <a className="wa-btn" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
+                    </div>
+                  </div>
+                )
+              })()}
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
                 {msgs.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
                 {msgs.map((m, i) => (

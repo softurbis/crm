@@ -15,6 +15,14 @@ El bot es **un solo proceso**, pero sus funciones son **independientes** y se pr
 
 > **Importante:** el interruptor **VENTAS** es el que antes se llamaba **"IA"**. Solo se renombró en la pantalla; el flag en la base de datos **sigue siendo `ia_activa`** (por eso el agente actual ya lo respeta sin tocar nada). Apágalo cuando quieras pausar solo la venta mientras pules el MD de VENTAS — cobranza y seguimiento siguen corriendo.
 
+### Modo "solo registrados" (VENTAS apagado)
+
+Con **BOT encendido** + **VENTAS apagado**, el bot **ya no le responde a los leads**: solo atiende
+a los números **registrados** (clientes → cobranza; secretarias/gerencia → seguimiento). Los leads
+nuevos que escriban **se guardan igual en el Kanban** (para seguimiento manual) y te llega un aviso al
+ADMIN, pero el bot **no conversa** con ellos. Así puedes tener el seguimiento y la cobranza corriendo
+sin que el bot atienda ventas hasta que pulas su cerebro. *(Requiere el `index.js` nuevo desplegado, ver §4.)*
+
 ## 2. El mapa del cerebro (vista pro)
 
 En **CEREBROS** ahora hay un mapa radial: el núcleo **URBIS** con una rama por cada cerebro
