@@ -43,6 +43,7 @@ export default function Expenses() {
   const [ftipo, setFtipo] = useState('todos')
   const [fest, setFest] = useState('todos')
   const [f, setF] = useState({})
+  const [editId, setEditId] = useState(null)
   const [prt, setPrt] = useState(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplText, setTplText] = useState('')
@@ -74,24 +75,43 @@ export default function Expenses() {
   const pendConfirmar = list.filter(g => g.status === 'solicitado').length
   const faltaRH = list.filter(g => g.status === 'confirmado' && !g.receipt_url).length
 
+  function abrirEditar(g) {
+    setF({
+      type: g.type, issue_date: g.issue_date, amount: g.amount,
+      recipient: g.recipient, recipient_dni: g.recipient_dni, sender: g.sender,
+      discount_from: g.discount_from, payment_method: g.payment_method,
+      document_type: g.document_type, description: g.description, detail: g.detail,
+    })
+    setEditId(g.id); setShow(true); setMsg(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function guardar(e) {
     e.preventDefault()
     setBusy(true); setMsg(null)
     try {
       const up = x => (x || '').toUpperCase().trim() || null
-      const { data: creado, error } = await supabase.from('expenses').insert({
-        project_id: pidOp,
+      const campos = {
         type: f.type || 'OTROS', issue_date: f.issue_date || hoy(),
-        company: 'URBIS GROUP', recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
+        recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
         sender: up(f.sender), amount: Number(f.amount),
         document_type: up(f.document_type), payment_method: up(f.payment_method) || 'EFECTIVO',
         description: up(f.description), discount_from: f.discount_from || 'URBIS GROUP',
         detail: (f.detail || '').trim() || null,
-        status: 'solicitado', registered_by: profile?.id,
-      }).select('request_number').single()
-      if (error) throw new Error(error.message)
-      setMsg({ ok: true, t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. Imprime la constancia y hazla firmar.' })
-      setF({}); setShow(false); load()
+      }
+      if (editId) {
+        // corrige la MISMA solicitud: conserva el correlativo (request_number)
+        const { error } = await supabase.from('expenses').update(campos).eq('id', editId)
+        if (error) throw new Error(error.message)
+        setMsg({ ok: true, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' })
+      } else {
+        const { data: creado, error } = await supabase.from('expenses')
+          .insert({ project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id, ...campos })
+          .select('request_number').single()
+        if (error) throw new Error(error.message)
+        setMsg({ ok: true, t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. Imprime la constancia y hazla firmar.' })
+      }
+      setF({}); setEditId(null); setShow(false); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
     setBusy(false)
   }
@@ -176,7 +196,7 @@ export default function Expenses() {
           <option value="confirmado">CONFIRMADOS</option>
           <option value="falta_rh">FALTA RH / FACTURA</option>
         </select>
-        {!readOnly && <button className="btn-primary" onClick={() => setShow(!show)}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
+        {!readOnly && <button className="btn-primary" onClick={() => { setShow(!show); setEditId(null); setF({}) }}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
 
       <p className="hint">
@@ -188,7 +208,7 @@ export default function Expenses() {
 
       {show && !readOnly && (
         <form className="glass form-card" onSubmit={guardar}>
-          <p><b>SOLICITUD DE GASTO</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
+          <p><b>{editId ? 'CORREGIR SOLICITUD (se mantiene el mismo correlativo)' : 'SOLICITUD DE GASTO'}</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
           <div className="form-grid">
             <label>Tipo
               <select value={f.type || ''} onChange={e => setF(x => ({ ...x, type: e.target.value }))} required>
@@ -224,7 +244,7 @@ export default function Expenses() {
                 onChange={e => setF(x => ({ ...x, detail: e.target.value }))} />
             </label>
           </div>
-          <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Registrar solicitud'}</button>
+          <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
         </form>
       )}
 
@@ -250,6 +270,7 @@ export default function Expenses() {
                 <td><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" /></td>
                 <td>
                   {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
+                    <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
                     <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>{' '}
                     {['admin', 'superuser'].includes(role) &&
                       <button className="link-btn bad" onClick={async () => {
@@ -259,6 +280,8 @@ export default function Expenses() {
                         load()
                       }}>eliminar</button>}
                   </>)}
+                  {g.status === 'confirmado' && role === 'superuser' &&
+                    <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar (superuser)</button>}
                 </td>
               </tr>
             ))}
