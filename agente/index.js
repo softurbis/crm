@@ -51,16 +51,33 @@ async function chequearRestart() {
 }
 setInterval(chequearRestart, 15000)
 
-// store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje")
+// store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje").
+// Se persiste en disco para que los reintentos sobrevivan a los reinicios del bot.
+const _fsm = require('fs')
+const MSG_STORE_FILE = './auth/msgstore.json'
 const msgStore = new Map()
+try {
+  if (_fsm.existsSync(MSG_STORE_FILE)) {
+    const arr = JSON.parse(_fsm.readFileSync(MSG_STORE_FILE, 'utf8'))
+    if (Array.isArray(arr)) for (const [k, v] of arr) msgStore.set(k, v)
+  }
+} catch {}
+function persistMsgStore() {
+  try { _fsm.writeFileSync(MSG_STORE_FILE, JSON.stringify([...msgStore].slice(-800))) } catch {}
+}
+let _msgTimer = null
 function guardarMsg(sent) {
   try {
     if (sent && sent.key && sent.key.id) {
       msgStore.set(sent.key.id, sent.message)
       if (msgStore.size > 800) { const k = msgStore.keys().next().value; msgStore.delete(k) }
+      if (!_msgTimer) _msgTimer = setTimeout(() => { _msgTimer = null; persistMsgStore() }, 2000)
     }
   } catch {}
 }
+// al apagar/reiniciar, vaciar lo pendiente a disco
+process.on('SIGINT', () => { persistMsgStore(); process.exit(0) })
+process.on('SIGTERM', () => { persistMsgStore(); process.exit(0) })
 const DIAS_ANTES = Number(process.env.DIAS_ANTES || 3)
 const VENCIDAS_CADA = Number(process.env.VENCIDAS_CADA_DIAS || 4)
 const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 40)
