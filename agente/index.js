@@ -129,6 +129,12 @@ async function enviarArchivo(jid, url, clase, caption) {
   } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
 }
 
+// ¿este número puede usar el Q&A interno confidencial? Solo GERENCIA y el ADMIN.
+async function puedeQA(phone) {
+  if (ADMIN && (String(phone).endsWith(ADMIN.slice(-9)) || ADMIN.endsWith(String(phone).slice(-9)))) return true
+  return (await tipoNumero(phone)) === 'gerencia'
+}
+
 // ¿el mensaje parece una PREGUNTA/consulta (no una respuesta de checklist)?
 function pareceConsulta(t) {
   const s = String(t || '')
@@ -633,10 +639,10 @@ async function manejarSecretaria(jid, phone, texto) {
   if (!abiertas || !abiertas.length) {
     // ¿esta pendiente su feedback del dia?
     if (sec.feedback_asked === hoy && sec.feedback_done !== hoy) {
-      // si es una PREGUNTA, no la tomes como "extra": respóndela con datos del sistema
+      // si es una PREGUNTA no la tomes como "extra". Solo gerencia/admin la responden con datos.
       if (pareceConsulta(texto)) {
-        if (await responderInternoIA(jid, phone, texto, sec.tipo === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
-        await enviar(jid, 'Para responder consultas del sistema necesito el *SEGUIMIENTO* encendido. Si querías reportar algo extra, escríbelo sin forma de pregunta 🙌', { tipo: 'secretaria' })
+        if (await puedeQA(phone) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+        await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, 'Si hiciste algo EXTRA hoy, cuéntamelo sin forma de pregunta 🙌 (ej: "entregué documentos en la esquina").'), { tipo: 'secretaria' })
         return
       }
       const tf = (texto || '').toLowerCase().trim()
@@ -877,9 +883,9 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
   if (tnum === 'secretaria' || tnum === 'gerencia') {
-    // Victor/gerencia pueden PREGUNTAR datos reales del sistema, salvo que estén
-    // respondiendo su checklist de actividades (para no interrumpir el seguimiento)
-    if (pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, tnum === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
+    // Solo GERENCIA puede PREGUNTAR datos confidenciales; las secretarias solo hacen
+    // su control de actividades (no Q&A). Y no se interrumpe un checklist en curso.
+    if (tnum === 'gerencia' && pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
 

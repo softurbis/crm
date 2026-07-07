@@ -46,8 +46,9 @@ Todo lo aprendido queda como una lista editable en el cerebro APRENDIDO (puedes 
 
 ## 3.b Q&A interno confidencial (asesores y gerencia) — datos REALES del sistema
 
-El **bot de seguimiento** ahora también **responde preguntas** de los números registrados como
-**SECRETARIA** o **GERENCIA** (y del ADMIN) **consultando el sistema en vivo**. No hay que escribir datos a mano: el bot los saca de la base. Puede responder sobre:
+El **bot** responde preguntas **solo de los números GERENCIA y del ADMIN** (las SECRETARIAS NO tienen
+Q&A: ellas solo hacen su control de actividades). Responde **consultando el sistema en vivo** —
+no hay que escribir datos a mano. Puede responder sobre:
 
 - **Comisiones por cobrar** (pendientes): total y por asesor/lote.
 - **Gastos** por proyecto y mes (del año en curso) — ej. "gastos de agosto de Las Praderas".
