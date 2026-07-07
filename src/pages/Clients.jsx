@@ -58,7 +58,7 @@ export default function Clients() {
     async function loadCta() {
       const [v, p] = await Promise.all([
         supabase.from('sales')
-          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt,project_id), installments(installment_number, due_date, amount, amount_paid, status)')
+          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt,project_id,associated_to), installments(installment_number, due_date, amount, amount_paid, status)')
           .eq('client_id', cta.id).order('sale_date'),
         supabase.from('daily_income')
           .select('date, amount, income_type, operation_number, voucher_url, observation, lot:lots(mz,lt,project_id), installment:installments(installment_number)')
@@ -249,7 +249,9 @@ export default function Clients() {
                 return (
                   <div key={v.id}>
                     <hr />
-                    <h3>LOTE MZ {v.lot?.mz} LT {v.lot?.lt} ({v.status})</h3>
+                    <h3>{(v.lot?.associated_to || '').startsWith('VENTA CONJUNTA')
+                      ? v.lot.associated_to.split(' (')[0]
+                      : `LOTE MZ ${v.lot?.mz} LT ${v.lot?.lt}`} ({v.status})</h3>
                     <p>
                       PRECIO: <b>{soles(v.total_sale_price)}</b> | INICIAL: {soles(v.initial_amount_paid)} |
                       PAGADO: <b>{soles(totalPagado)}</b> | SALDO: <b>{soles(saldo)}</b>

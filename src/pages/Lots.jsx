@@ -70,9 +70,18 @@ export default function Lots() {
   useEffect(() => {
     if (!sel) { setDetail(null); setHistorial([]); return }
     async function load() {
+      // venta conjunta: si el lote es parte de un grupo, la venta vive en el lote principal
+      let saleLotId = sel.id
+      const mG = (sel.associated_to || '').match(/^VENTA CONJUNTA\s+([A-Z]+-\d+(?:\+[A-Z]+-\d+)+)/)
+      const grupo = mG ? mG[1].split('+') : null
+      if (grupo) {
+        const [pmz, plt] = grupo[0].split('-')
+        const prim = lots.find(x => x.mz === pmz && String(x.lt) === plt)
+        if (prim) saleLotId = prim.id
+      }
       const { data: sale } = await supabase.from('sales')
         .select('*, client:clients!sales_client_id_fkey(full_name, phone, phone_valid, doc_number), co_client:clients!sales_co_client_id_fkey(full_name), advisor:advisors(code)')
-        .eq('lot_id', sel.id).in('status', ['en_proceso', 'pagado'])
+        .eq('lot_id', saleLotId).in('status', ['en_proceso', 'pagado'])
         .maybeSingle()
       let inst = []
       if (sale) {
@@ -89,7 +98,7 @@ export default function Lots() {
           .order('created_at', { ascending: false }).limit(1)
         sep = (sps || [])[0] || null
       }
-      setDetail({ sale, inst, sep })
+      setDetail({ sale, inst, sep, grupo })
       const { data: hist } = await supabase.from('lot_status_changes')
         .select('new_status, previous_status, reason, document_url, changed_at')
         .eq('lot_id', sel.id).order('changed_at', { ascending: false }).limit(5)
@@ -434,7 +443,8 @@ export default function Lots() {
             <div className="ficha">
               <p><span className="muted">Area:</span> {sel.area_m2} m2 | <span className="muted">Precio/m2:</span> S/ {Number(sel.price_per_m2).toFixed(2)}</p>
               <p><span className="muted">Precio lista:</span> S/ {Number(sel.total_price).toLocaleString('es-PE')}</p>
-              {sel.associated_to && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
+              {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
+              {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
               {sel.boundaries?.medidas && (
                 <p className="muted small">Medidas: {Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</p>
               )}
