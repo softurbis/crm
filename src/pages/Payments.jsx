@@ -57,6 +57,8 @@ export default function Payments() {
   const [coId, setCoId] = useState('')
   const [obsEdit, setObsEdit] = useState('')
   const [opEdit, setOpEdit] = useState('')
+  const [accEdit, setAccEdit] = useState('')
+  const [amtEdit, setAmtEdit] = useState('')
 
   const [lotId, setLotId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -88,7 +90,7 @@ export default function Payments() {
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name'),
       supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), account:financial_accounts(name)')
+        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)')
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(sq.data || [])
@@ -318,6 +320,37 @@ export default function Payments() {
     loadBase()
   }
 
+  async function guardarBanco() {
+    const nuevo = accEdit || null
+    const anterior = view.financial_account_id || null
+    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL BANCO/CUENTA' }); return }
+    const { error } = await supabase.from('daily_income').update({ financial_account_id: nuevo }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    const nombreNuevo = accounts.find(a => a.id === nuevo)?.name || '(sin cuenta)'
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
+      details: { cambio: 'financial_account', antes: view.account?.name || null, despues: nombreNuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, monto: view.amount, project_id: pidOp },
+    })
+    setMsg({ ok: true, t: 'BANCO/CUENTA CORREGIDO -> ' + nombreNuevo + ' (QUEDA EN BITACORA)' })
+    setView(v => ({ ...v, financial_account_id: nuevo, account: { name: nombreNuevo } })); loadBase()
+  }
+  async function guardarMonto() {
+    const nuevo = Math.round(Number(amtEdit) * 100) / 100
+    const anterior = Number(view.amount)
+    if (!nuevo || nuevo <= 0) { setMsg({ ok: false, t: 'MONTO INVALIDO' }); return }
+    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL MONTO' }); return }
+    if (!confirm('¿Corregir el monto de ' + soles(anterior) + ' a ' + soles(nuevo) + '?\nSi el pago está aplicado a una cuota, su saldo se recalcula automáticamente.')) return
+    const obs = ((view.observation || '') + ' | MONTO CORREGIDO POR SUPERUSUARIO (antes ' + soles(anterior) + ')').slice(0, 400)
+    const { error } = await supabase.from('daily_income').update({ amount: nuevo, observation: obs }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
+      details: { cambio: 'amount', antes: anterior, despues: nuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, project_id: pidOp },
+    })
+    setMsg({ ok: true, t: 'MONTO CORREGIDO: ' + soles(anterior) + ' -> ' + soles(nuevo) + ' (CUOTA RECALCULADA, QUEDA EN BITACORA)' })
+    setView(v => ({ ...v, amount: nuevo, observation: obs })); loadBase()
+  }
+
   const pagosFiltrados = useMemo(() => {
     const t = fq.trim().toLowerCase()
     return pagos.filter(p => {
@@ -485,7 +518,7 @@ export default function Payments() {
               <tr key={r.id} className={'row-' + estadoDe(r).toLowerCase()}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || '') }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
+                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || ''); setAccEdit(r.financial_account_id || ''); setAmtEdit(r.amount) }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
                 <td><EstadoChip r={r} /></td>
                 <td>{soles(r.amount)}</td>
                 <td>
@@ -541,14 +574,29 @@ export default function Payments() {
                 <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
               </label>}
               {readOnly && view.observation && <p className="muted span2" style={{ margin: 0 }}>OBS: {view.observation}</p>}
-              {role === 'superuser' && (
+              {role === 'superuser' && (<>
                 <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
                   <span style={{ display: 'flex', gap: '.4rem' }}>
                     <input value={opEdit} onChange={e => setOpEdit(e.target.value)} style={{ flex: 1 }} />
                     <button type="button" className="btn-ghost" onClick={guardarNroOp}>Corregir N Op.</button>
                   </span>
                 </label>
-              )}
+                <label className="span2">Banco / cuenta del pago (corregir si no coincide con el voucher - queda en bitacora)
+                  <span style={{ display: 'flex', gap: '.4rem' }}>
+                    <select value={accEdit} onChange={e => setAccEdit(e.target.value)} style={{ flex: 1 }}>
+                      <option value="">(sin cuenta)</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    <button type="button" className="btn-ghost" onClick={guardarBanco}>Corregir banco</button>
+                  </span>
+                </label>
+                <label className="span2">Monto del pago (corregir si no coincide con el voucher - recalcula la cuota, queda en bitacora)
+                  <span style={{ display: 'flex', gap: '.4rem' }}>
+                    <input type="number" step="0.01" min="0" value={amtEdit} onChange={e => setAmtEdit(e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="btn-ghost" onClick={guardarMonto}>Corregir monto</button>
+                  </span>
+                </label>
+              </>)}
               {!readOnly && <div>
                 <button type="button" className="btn-ghost" onClick={async () => {
                   await supabase.from('daily_income').update({ observation: obsEdit.toUpperCase() }).eq('id', view.id)
