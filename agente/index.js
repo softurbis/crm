@@ -450,9 +450,11 @@ function parseFechaHora(txt) {
   return { date: d ? d.toLocaleDateString('en-CA') : null, time, matchFecha, matchHora }
 }
 const slotDeHora = hhmm => (!hhmm || hhmm < '13:00') ? 'manana' : 'tarde'
-// Extrae una actividad EXTRA mencionada junto a la respuesta ("aparte de eso hice X")
+// Extrae una actividad EXTRA mencionada junto a la respuesta ("aparte de eso hice X").
+// No aplica a preguntas (esas van al Q&A, no se registran como extra).
 function extraerExtra(texto) {
-  const m = String(texto || '').match(/\b(aparte(?:\s+de\s+eso)?|adem[aá]s|tambi[eé]n|tambien|extra|adicional(?:mente)?|de\s+paso|encima|igual)\b[:,]?\s+(.{6,})/i)
+  if (pareceConsulta(texto)) return null
+  const m = String(texto || '').match(/\b(aparte(?:\s+de\s+eso)?|adem[aá]s|tambi[eé]n|tambien|extra|adicional(?:mente)?|de\s+paso)\b[:,]?\s+(.{6,})/i)
   if (!m) return null
   return m[2].trim().replace(/\s+/g, ' ').slice(0, 200)
 }
@@ -631,6 +633,12 @@ async function manejarSecretaria(jid, phone, texto) {
   if (!abiertas || !abiertas.length) {
     // ¿esta pendiente su feedback del dia?
     if (sec.feedback_asked === hoy && sec.feedback_done !== hoy) {
+      // si es una PREGUNTA, no la tomes como "extra": respóndela con datos del sistema
+      if (pareceConsulta(texto)) {
+        if (await responderInternoIA(jid, phone, texto, sec.tipo === 'gerencia' ? 'GERENCIA' : 'ASESOR/SECRETARIA')) return
+        await enviar(jid, 'Para responder consultas del sistema necesito el *SEGUIMIENTO* encendido. Si querías reportar algo extra, escríbelo sin forma de pregunta 🙌', { tipo: 'secretaria' })
+        return
+      }
       const tf = (texto || '').toLowerCase().trim()
       await supabase.from('secretaries').update({ feedback_done: hoy }).eq('id', sec.id)
       if (/^(no|nada|ninguna|ninguno|no hice|nop|negativo)\b/.test(tf) || tf.length < 3) {
