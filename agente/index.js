@@ -812,6 +812,16 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID mapeado a', phone) }
   }
   if (!texto) return
+  const corto = texto.trim().slice(0, 400)
+  log('ENTRANTE de', phone, ':', corto.slice(0, 60))
+  // registrar SIEMPRE la conversacion y el mensaje entrante (incluido el ADMIN, para verlo en el panel)
+  let conv = await estadoConv(phone)
+  if (!conv) { await setConv(phone, { wa_jid: jid }); conv = await estadoConv(phone) }
+  else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
+  await supabase.from('whatsapp_messages').insert({
+    conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
+  }).then(() => {}).catch(() => {})
+
   if (phone === ADMIN) {
     const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
     if (mt) {
@@ -848,9 +858,6 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
   }
-  const corto = texto.trim().slice(0, 400)
-  log('ENTRANTE de', phone, ':', corto.slice(0, 60))
-
   // PALABRA DE SEGURIDAD: "iniciourbis2026" reinicia el bot para este chat (modo prueba)
   if (corto.toLowerCase() === 'iniciourbis2026') {
     const { data: convR } = await supabase.from('whatsapp_conversations').select('id, lead_id').eq('phone', phone).maybeSingle()
@@ -868,14 +875,6 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     log('RESET iniciourbis2026 para', phone)
     return
   }
-
-  // registrar SIEMPRE la conversacion y el mensaje entrante (aunque el bot no responda)
-  let conv = await estadoConv(phone)
-  if (!conv) { await setConv(phone, { wa_jid: jid }); conv = await estadoConv(phone) }
-  else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
-  await supabase.from('whatsapp_messages').insert({
-    conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
-  }).then(() => {}).catch(() => {})
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
   const tnum = await tipoNumero(phone)
