@@ -155,8 +155,8 @@ async function tieneChecklistAbierto(phone) {
 // confidenciales (comisiones por cobrar, gastos por proyecto/mes, visitas pendientes, cobranza…).
 async function responderInternoIA(jid, phone, texto, quien) {
   try {
-    if (!IA_KEY) return false
-    if (!(await flag('seguimiento_activo'))) return false
+    if (!IA_KEY) { log('INTERNO IA: sin ANTHROPIC_API_KEY'); return false }
+    log('INTERNO IA: consultando para', quien, phone)
     const hoy = new Date().toISOString().slice(0, 10)
     const anio = hoy.slice(0, 4)
     const { data: proys } = await supabase.from('projects').select('id, name, description, bot_knowledge').order('name')
@@ -842,9 +842,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       } else await enviar(ADMIN, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
       return
     }
-    // consulta interna con datos confidenciales (gerencia/admin pueden preguntar),
-    // salvo que esté respondiendo su propio checklist de actividades
-    if (pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+    // el ADMIN siempre puede preguntar (Q&A confidencial), sin importar el checklist
+    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
     await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
