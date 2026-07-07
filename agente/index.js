@@ -450,6 +450,12 @@ function parseFechaHora(txt) {
   return { date: d ? d.toLocaleDateString('en-CA') : null, time, matchFecha, matchHora }
 }
 const slotDeHora = hhmm => (!hhmm || hhmm < '13:00') ? 'manana' : 'tarde'
+// Extrae una actividad EXTRA mencionada junto a la respuesta ("aparte de eso hice X")
+function extraerExtra(texto) {
+  const m = String(texto || '').match(/\b(aparte(?:\s+de\s+eso)?|adem[aá]s|tambi[eé]n|tambien|extra|adicional(?:mente)?|de\s+paso|encima|igual)\b[:,]?\s+(.{6,})/i)
+  if (!m) return null
+  return m[2].trim().replace(/\s+/g, ' ').slice(0, 200)
+}
 const fmtFechaEs = iso => { const [y, mo, dd] = iso.split('-'); return dd + '/' + mo + '/' + y }
 
 
@@ -661,7 +667,13 @@ async function manejarSecretaria(jid, phone, texto) {
   else if (esSi && !esNo) hechas = abiertas
   if (hechas.length) {
     for (const x of hechas) await supabase.from('secretary_tasks').update({ status: 'hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
-    const resumen = hechas.length === abiertas.length ? 'todo tu checklist quedó al día' : 'marqué: ' + hechas.map(x => x.title).join(', ')
+    // ¿mencionó una actividad EXTRA junto a la respuesta? -> registrarla en el calendario
+    const ex = extraerExtra(texto)
+    if (ex) {
+      await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: ex.toUpperCase(), date: hoy, slot: slotDeHora(secHora()), category: 'extra', status: 'hecha', answered_at: new Date().toISOString(), answer: 'REPORTADO JUNTO AL CHECKLIST' })
+      if (ADMIN) await enviar(ADMIN, '💪 EXTRA de *' + sec.full_name + '*: ' + ex, { tipo: 'aviso_admin' })
+    }
+    const resumen = (hechas.length === abiertas.length ? 'todo tu checklist quedó al día' : 'marqué: ' + hechas.map(x => x.title).join(', ')) + (ex ? '. Y anoté como EXTRA: ' + ex : '')
     await enviar(jid, secTpl(md, 'CONFIRMACION', { nombre, resumen }, '✅ ¡Anotado, {nombre}! {resumen}. ¡Gracias! 🙌'), { tipo: 'secretaria' })
   } else if (esNo) {
     for (const x of abiertas) await supabase.from('secretary_tasks').update({ status: 'no_hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
