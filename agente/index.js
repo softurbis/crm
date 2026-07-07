@@ -483,28 +483,35 @@ async function secretariaTick() {
       if (error && !/duplicate|unique/i.test(error.message)) log('SEC gen:', error.message)
     }
 
-    // 2) cortes: preguntar lo pendiente aun no preguntado
-    const cortes = [['manana', await ajuste('hora_corte_manana', '11:00'), 'media mañana'], ['tarde', await ajuste('hora_corte_tarde', '16:30'), 'la tarde']]
-    for (const [slot, hcorte, momento] of cortes) {
-      if (hhmm < hcorte) continue
-      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('slot', slot).eq('status', 'pendiente').is('asked_at', null)
+    // 2) PASES DE LISTA configurables: a cada hora fijada (1 vez al día c/u), re-pregunta
+    //    lo que sigue pendiente sin responder. Se configura desde el panel (cerebro Seguimiento).
+    let checkins = ['11:00', '16:30']
+    try { const c = JSON.parse(await ajuste('sec_checkins', '["11:00","16:30"]')); if (Array.isArray(c) && c.length) checkins = c } catch {}
+    for (const horaRaw of checkins) {
+      const hora = String(horaRaw).slice(0, 5)
+      if (hhmm < hora) continue
+      if ((await ajuste('sec_ci_' + hora, '')) === hoy) continue   // ya se hizo hoy a esa hora
+      await setAjuste('sec_ci_' + hora, hoy)
+      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null)
       const porSec = {}
       for (const tk of (pend || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
+      const momento = hhmm < '12:00' ? 'la mañana' : hhmm < '18:00' ? 'la tarde' : 'hoy'
       for (const [sid, tareas] of Object.entries(porSec)) {
         const sec = secs.find(s => s.id === sid)
         if (!sec) continue
-        const { data: prev } = await supabase.from('secretary_tasks').select('ask_index').eq('secretary_id', sid).eq('date', hoy).not('ask_index', 'is', null).order('ask_index', { ascending: false }).limit(1)
-        let n = (prev && prev[0] && prev[0].ask_index) || 0
+        tareas.sort((a, b) => String(a.time || '99').localeCompare(String(b.time || '99')))
+        let n = 0
         const lista = tareas.map(tk => { n++; tk.ask_index = n; return '*' + n + '.* ' + tk.title }).join('\n')
-        for (const tk of tareas) await supabase.from('secretary_tasks').update({ ask_index: tk.ask_index, asked_at: new Date().toISOString() }).eq('id', tk.id)
+        for (const tk of tareas) await supabase.from('secretary_tasks').update({ ask_index: tk.ask_index, asked_at: new Date().toISOString(), reminded_at: null }).eq('id', tk.id)
         const nombre = (sec.full_name || '').split(' ')[0]
         const msj = secTpl(md, 'PREGUNTA', { nombre, lista, momento }, 'Hola {nombre} 👋 ¿cómo va todo? Pasando lista de tus actividades de {momento}:\n\n{lista}\n\nRespóndeme *LISTO* si ya completaste todo, o los *números* de lo que ya está (ej: 1 y 3). 🙌')
         await enviar(sec.phone, msj, { tipo: 'secretaria' })
       }
     }
 
-    // 2b) aviso puntual de tareas con hora exacta
-    const { data: conHora } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null)
+    // 2b) aviso puntual de tareas con hora exacta (configurable: se puede apagar)
+    const { data: conHora } = (await ajuste('sec_aviso_hora', '1')) === '0' ? { data: [] }
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null)
     for (const tk of (conHora || [])) {
       if (hhmm < String(tk.time).slice(0, 5)) continue
       const sec = secs.find(s => s.id === tk.secretary_id)
@@ -514,9 +521,10 @@ async function secretariaTick() {
       await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora: String(tk.time).slice(0, 5) }, '📌 {nombre}, recordatorio: *{titulo}* — programado para las {hora} de hoy. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria' })
     }
 
-    // 3) recordatorio unico a los 45 min sin respuesta
+    // 3) recordatorio unico a los 45 min sin respuesta (configurable: se puede apagar)
     const lim = new Date(Date.now() - 45 * 60000).toISOString()
-    const { data: sinResp } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim)
+    const { data: sinResp } = (await ajuste('sec_recordatorio', '1')) === '0' ? { data: [] }
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim)
     const porSec2 = {}
     for (const tk of (sinResp || [])) (porSec2[tk.secretary_id] = porSec2[tk.secretary_id] || []).push(tk)
     for (const [sid, tareas] of Object.entries(porSec2)) {
@@ -528,9 +536,9 @@ async function secretariaTick() {
       await enviar(sec.phone, secTpl(md, 'RECORDATORIO', { nombre, lista }, 'Hola {nombre}, te reenvío el checklist pendiente:\n\n{lista}\n\n¿Cómo vamos? Respóndeme *LISTO* o los números de lo avanzado 💪'), { tipo: 'secretaria' })
     }
 
-    // 3b) feedback de fin de dia: ¿hiciste algo extra?
+    // 3b) feedback de fin de dia: ¿hiciste algo extra? (configurable: se puede apagar)
     const hfeed = await ajuste('hora_feedback_sec', '17:30')
-    if (hhmm >= hfeed) {
+    if ((await ajuste('sec_feedback', '1')) !== '0' && hhmm >= hfeed) {
       for (const sec of secs) {
         if (sec.feedback_asked === hoy) continue
         await supabase.from('secretaries').update({ feedback_asked: hoy }).eq('id', sec.id)

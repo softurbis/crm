@@ -62,6 +62,8 @@ export default function Whatsapp() {
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useState('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
+  const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30' })
+  const [secMsg, setSecMsg] = useState('')
   const selRef = useRef(null)
   const endRef = useRef(null)
 
@@ -75,9 +77,20 @@ export default function Whatsapp() {
         else if (r.key === 'wa_estado') setWaEstado(r.value || '')
         else if (r.key === 'wa_qr') qr = r.value || ''
         else if (r.key === 'wa_latido') setWaLatido(r.value || '')
-        else if (!['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'sec_resumen_fecha', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha'].includes(r.key)) f[r.key] = r.value !== '0'
+        else if (r.key.startsWith('sec_') || ['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha'].includes(r.key)) { /* config, no es flag */ }
+        else f[r.key] = r.value !== '0'
       })
       setFlags(f)
+      const kv = Object.fromEntries(data.map(r => [r.key, r.value]))
+      let cks = ['11:00', '16:30']
+      try { const c = JSON.parse(kv.sec_checkins || '[]'); if (Array.isArray(c) && c.length) cks = c.map(x => String(x).slice(0, 5)) } catch {}
+      setSecCfg({
+        checkins: cks,
+        recordatorio: kv.sec_recordatorio !== '0',
+        avisoHora: kv.sec_aviso_hora !== '0',
+        feedback: kv.sec_feedback !== '0',
+        feedbackHora: (kv.hora_feedback_sec || '17:30').slice(0, 5),
+      })
       if (qr) QRCode.toDataURL(qr, { width: 260, margin: 1 }).then(setQrImg).catch(() => setQrImg(''))
       else setQrImg('')
     }
@@ -183,6 +196,26 @@ export default function Whatsapp() {
     setBrainMsg(error ? 'ERROR: ' + error.message : '✅ APRENDIDO — el bot lo usa en máx. 1 minuto')
     if (!error) { const { b } = await cargarBrains(); if (brainSel === 'aprendido') setBrainTxt(b.find(x => x.key === 'aprendido')?.content || nuevo) }
   }
+  // guarda la configuración de pases de lista / avisos del seguimiento en bot_settings
+  const guardarSecCfg = async () => {
+    setSecMsg('GUARDANDO...')
+    const now = new Date().toISOString()
+    const rows = [
+      { key: 'sec_checkins', value: JSON.stringify(secCfg.checkins.map(h => String(h).slice(0, 5))), updated_at: now },
+      { key: 'sec_recordatorio', value: secCfg.recordatorio ? '1' : '0', updated_at: now },
+      { key: 'sec_aviso_hora', value: secCfg.avisoHora ? '1' : '0', updated_at: now },
+      { key: 'sec_feedback', value: secCfg.feedback ? '1' : '0', updated_at: now },
+      { key: 'hora_feedback_sec', value: String(secCfg.feedbackHora).slice(0, 5), updated_at: now },
+    ]
+    const { error } = await supabase.from('bot_settings').upsert(rows)
+    setSecMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo aplica en máx. 1 minuto')
+  }
+  const setCheckinCount = n => setSecCfg(c => {
+    const def = ['09:00', '13:00', '16:30', '18:00']
+    const arr = [...c.checkins]
+    while (arr.length < n) arr.push(def[arr.length] || '12:00')
+    return { ...c, checkins: arr.slice(0, n) }
+  })
   const subirMd = e => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -329,10 +362,46 @@ export default function Whatsapp() {
             </p>
           )}
           {brainSel === 'secretaria' && (
-            <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
-              Mensajes que el bot usa con el equipo del Seguimiento. Secciones: <b>## PREGUNTA</b>, <b>## RECORDATORIO</b>, <b>## CONFIRMACION</b>, <b>## PENDIENTE</b>, <b>## NO_ENTENDI</b>, <b>## RESUMEN</b>.
-              Tokens: {'{nombre} {lista} {momento} {resumen} {detalle}'}. Sección ausente = plantilla por defecto.
-            </p>
+            <>
+              <div style={{ border: '1px solid rgba(184,161,217,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(184,161,217,.06)' }}>
+                <b style={{ color: '#b8a1d9', fontSize: 13 }}>🗓️ HORARIOS DEL SEGUIMIENTO</b>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
+                  <label style={{ fontSize: 12 }}>Pases de lista al día:{' '}
+                    <select value={secCfg.checkins.length} onChange={e => setCheckinCount(Number(e.target.value))} style={{ fontSize: 12, padding: '4px 8px' }}>
+                      {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                  {secCfg.checkins.map((h, i) => (
+                    <label key={i} style={{ fontSize: 12 }}>Hora {i + 1}:{' '}
+                      <input type="time" value={h} onChange={e => setSecCfg(c => { const a = [...c.checkins]; a[i] = e.target.value; return { ...c, checkins: a } })} style={{ fontSize: 12, padding: '3px 6px' }} />
+                    </label>
+                  ))}
+                </div>
+                <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>A cada hora, el bot pasa lista de lo que sigue <b>pendiente</b> (re-pregunta lo no confirmado).</p>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={secCfg.recordatorio} onChange={e => setSecCfg(c => ({ ...c, recordatorio: e.target.checked }))} /> Recordar si no responde (45 min)
+                  </label>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={secCfg.avisoHora} onChange={e => setSecCfg(c => ({ ...c, avisoHora: e.target.checked }))} /> Aviso por hora exacta de una tarea
+                  </label>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={secCfg.feedback} onChange={e => setSecCfg(c => ({ ...c, feedback: e.target.checked }))} /> Preguntar “¿algo extra?” al cerrar
+                  </label>
+                  {secCfg.feedback && (
+                    <label style={{ fontSize: 12 }}>a las{' '}
+                      <input type="time" value={secCfg.feedbackHora} onChange={e => setSecCfg(c => ({ ...c, feedbackHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
+                    </label>
+                  )}
+                  <button className="btn" onClick={guardarSecCfg}>💾 GUARDAR HORARIOS</button>
+                  {secMsg && <span style={{ fontSize: 12 }}>{secMsg}</span>}
+                </div>
+              </div>
+              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
+                Abajo editas los <b>textos</b> que usa el bot con el equipo. Secciones: <b>## PREGUNTA</b>, <b>## RECORDATORIO</b>, <b>## CONFIRMACION</b>, <b>## PENDIENTE</b>, <b>## NO_ENTENDI</b>, <b>## RESUMEN</b>.
+                Tokens: {'{nombre} {lista} {momento} {resumen} {detalle}'}. Sección ausente = plantilla por defecto.
+              </p>
+            </>
           )}
           {brainSel === 'instrucciones' && (
             <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>
