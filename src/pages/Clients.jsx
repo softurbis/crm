@@ -155,7 +155,10 @@ export default function Clients() {
             {filtrada.map(c => (
               <tr key={c.id}>
                 <td>{c.doc_type === 'PEND' ? <span className="bad">&#9888; {c.doc_number}</span> : c.doc_number}</td>
-                <td>{c.full_name}</td>
+                <td>{c.full_name}
+                  {(c.sales || []).some(s => s.status === 'expropiado') &&
+                    <span className="bad" style={{ marginLeft: 6, fontSize: '.66rem', fontWeight: 700 }}>&#9888; EXPROPIADO</span>}
+                </td>
                 <td>{c.phone_valid ? c.phone : <span className="bad">{c.phone || 'sin celular'}</span>}</td>
                 <td>{c.dni_front_url && c.dni_back_url ? <span className="ok">completo</span> : <span className="warn">falta</span>}</td>
                 <td>

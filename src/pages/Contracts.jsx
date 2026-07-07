@@ -349,10 +349,12 @@ export default function Contracts() {
               <div className="print-area contract" contentEditable={editDoc} suppressContentEditableWarning
                 style={editDoc ? { outline: '2px dashed #e0b34c', outlineOffset: 4 } : undefined}>
                 <div className="contract-head" contentEditable={false}>
-                  <Logo size={64} />
+                  {p.logo_url
+                    ? <img src={p.logo_url} alt="logo" style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
+                    : <Logo size={64} />}
                   <div>
                     <div className="ch-name">URBIS GROUP REAL ESTATE</div>
-                    <div className="ch-sub">GESTIÓN INMOBILIARIA — PUCALLPA, UCAYALI</div>
+                    <div className="ch-sub">{(p.name || 'GESTIÓN INMOBILIARIA').toUpperCase()} — PUCALLPA, UCAYALI</div>
                   </div>
                 </div>
                 {cuerpo}
