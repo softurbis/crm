@@ -28,6 +28,7 @@ export default function Lots() {
   const [clientes, setClientes] = useState([])
   const [coSel, setCoSel] = useState('')
   const [vencidos, setVencidos] = useState(new Set())
+  const [expropiados, setExpropiados] = useState(new Map())
   const [searchParams] = useSearchParams()
   const [filter, setFilter] = useState('todos')
   // si venimos del dashboard con ?estado=... aplica ese filtro al abrir
@@ -72,6 +73,9 @@ export default function Lots() {
       .then(({ data }) => setClientes(data || []))
     supabase.from('installments').select('sales!inner(lot_id, status, lot:lots!inner(project_id))').eq('status', 'vencido')
       .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso' && r.sales.lot?.project_id === pidOp).map(r => r.sales.lot_id))))
+    // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
+    supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
+      .then(({ data }) => { const m = new Map(); for (const r of (data || [])) m.set(r.lot_id, (m.get(r.lot_id) || 0) + 1); setExpropiados(m) })
   }, [pidOp])
 
   useEffect(() => {
@@ -174,18 +178,20 @@ export default function Lots() {
     const g = {}
     for (const l of lots) {
       if (filter === 'vencidas') { if (!vencidos.has(l.id)) continue }
+      else if (filter === 'expropiado') { if (!expropiados.has(l.id)) continue }
       else if (filter !== 'todos' && l.status !== filter) continue
       ;(g[l.mz] = g[l.mz] || []).push(l)
     }
     for (const k in g) g[k].sort((a, b) => Number(a.lt) - Number(b.lt) || String(a.lt).localeCompare(String(b.lt)))
     return g
-  }, [lots, filter, vencidos])
+  }, [lots, filter, vencidos, expropiados])
 
   const counts = useMemo(() => {
     const c = { todos: lots.length, vencidas: vencidos.size }
     for (const l of lots) c[l.status] = (c[l.status] || 0) + 1
+    c.expropiado = expropiados.size  // historial de expropiaciones (aparte del estado actual)
     return c
-  }, [lots, vencidos])
+  }, [lots, vencidos, expropiados])
 
   function abrirLote(l) {
     setSel(l); setEdit(false); setEmsg(null); setChg(false); setChgReason(''); setChgFile(null)
@@ -216,6 +222,7 @@ export default function Lots() {
       setEmsg('ERROR: ESTE LOTE TIENE UNA SEPARACION ' + (vencG ? 'VENCIDA' : 'VIGENTE') + '. RESUELVELA ARRIBA CON "EXTENDER PLAZO" O "MARCAR PERDIDA", NO CON CAMBIO DE ESTADO.')
       return
     }
+    if (chgTo === 'expropiado' && role !== 'superuser') { setEmsg('ERROR: SOLO EL SUPERUSUARIO PUEDE EXPROPIAR (es un tramite formal).'); return }
     if (chgReason.trim().length < 10) { setEmsg('ERROR: EXPLICA EL MOTIVO (minimo 10 caracteres).'); return }
     if (docObligatorio && !chgFile) { setEmsg('ERROR: PARA ' + chgTo.toUpperCase() + ' EL DOCUMENTO DE RESPALDO FIRMADO ES OBLIGATORIO.'); return }
     setChgBusy(true); setEmsg(null)
@@ -361,7 +368,7 @@ export default function Lots() {
       </div>
 
       <div className="chips">
-        {['todos', 'disponible', 'separado', 'vendido', 'entregado', 'invadido', 'expropiado'].map(s => (
+        {['todos', 'disponible', 'separado', 'vendido', 'entregado', 'invadido'].map(s => (
           <button key={s} className={`chip ${filter === s ? 'on' : ''}`}
             style={s !== 'todos' ? { '--dot': COLORS[s] } : {}}
             onClick={() => setFilter(s)}>
@@ -369,9 +376,14 @@ export default function Lots() {
             {s === 'todos' ? 'Todos' : LBL[s]} ({counts[s] || 0})
           </button>
         ))}
+        <span className="muted small" style={{ alignSelf: 'center', margin: '0 .3rem', opacity: .6 }}>| histórico:</span>
         <button className={`chip ${filter === 'vencidas' ? 'on' : ''}`} style={{ '--dot': '#e05252' }}
           onClick={() => setFilter('vencidas')}>
           <span className="dot" /> Con vencidas ({counts.vencidas})
+        </button>
+        <button className={`chip ${filter === 'expropiado' ? 'on' : ''}`} style={{ '--dot': COLORS.expropiado }}
+          onClick={() => setFilter('expropiado')}>
+          <span className="dot" /> Expropiados ({counts.expropiado || 0})
         </button>
         <span style={{ flex: 1 }} />
         <button className={`chip ${vista === 'plano' ? 'on' : ''}`} onClick={() => setVista('plano')}>🗺️ Plano</button>
@@ -460,6 +472,7 @@ export default function Lots() {
               <p><span className="muted">Area:</span> {sel.area_m2} m2 | <span className="muted">Precio/m2:</span> S/ {Number(sel.price_per_m2).toFixed(2)}</p>
               <p><span className="muted">{detail?.sale ? 'Precio de venta:' : 'Precio lista:'}</span> <b>S/ {Number(detail?.sale ? detail.sale.total_sale_price : sel.total_price).toLocaleString('es-PE')}</b>{detail?.grupo && <span className="muted small"> (venta conjunta {detail.grupo.join('+')})</span>}</p>
               {sel.status === 'entregado' && <p><span className="muted">Entregado el:</span> <b>{sel.delivered_at || '- (sin fecha)'}</b></p>}
+              {expropiados.get(sel.id) && <p className="hint" style={{ color: '#c39ce0', margin: '4px 0' }}>&#9888; Este lote fue EXPROPIADO <b>{expropiados.get(sel.id)} {expropiados.get(sel.id) > 1 ? 'veces' : 'vez'}</b> (histórico). Ver detalle en Ventas &#8594; filtro Expropiados.</p>}
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
               {detail?.hermanosLotes?.length > 0 && <p className="hint" style={{ margin: '4px 0' }}>&#127968; Este cliente tambien tiene: <b>{detail.hermanosLotes.join(', ')}</b> (ventas aparte, ver su estado de cuenta).</p>}
@@ -503,7 +516,7 @@ export default function Lots() {
                         <option value="disponible">DISPONIBLE (liberar)</option>
                         <option value="separado">SEPARADO ADMINISTRATIVO (asunto interno)</option>
                         <option value="invadido">INVADIDO</option>
-                        <option value="expropiado">EXPROPIADO</option>
+                        {role === 'superuser' && <option value="expropiado">EXPROPIADO (tramite formal, con documento)</option>}
                       </select>
                     </label>
                     <label>Motivo (obligatorio)
