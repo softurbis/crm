@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -11,6 +12,7 @@ const estadoDe = o => { const x = (o || '').toUpperCase(); return x.includes('EX
 export default function Dashboard() {
   const { role } = useAuth()
   const { projects, pid } = useProject()
+  const navigate = useNavigate()
   const [raw, setRaw] = useState(null)
   const [fmes, setFmes] = useState('todos')
   const [verDetalle, setVerDetalle] = useState(false)
@@ -24,7 +26,7 @@ export default function Dashboard() {
       if (expensesRes.error) expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, type, recipient, description').in('project_id', ids)
       const [lots, income, salesR, venc, seps] = await Promise.all([
         supabase.from('lots').select('project_id, status, total_price').in('project_id', ids),
-        supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number)').in('project_id', ids),
+        supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids),
         supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
         supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),
         supabase.from('separations').select('amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)'),
@@ -54,6 +56,7 @@ export default function Dashboard() {
     const ns = lots.filter(l => l.status === 'separado').length
     const ventasActivas = sales.filter(s => s.status === 'en_proceso')
     const ventasExpr = sales.filter(s => s.status === 'expropiado')
+    const ventasPagadas = sales.filter(s => s.status === 'pagado')
     const valorVentasActivas = ventasActivas.reduce((s, v) => s + Number(v.total_sale_price), 0)
     const recaudadoActivo = acept.reduce((s, i) => s + Number(i.amount), 0)
     const carteraDisp = lots.filter(l => l.status === 'disponible').reduce((s, l) => s + Number(l.total_price || 0), 0)
@@ -77,6 +80,7 @@ export default function Dashboard() {
       nLotes, nv, nd, ns,
       pctVendido: nLotes ? (nv / nLotes * 100) : 0,
       ventasActivasN: ventasActivas.length, valorVentasActivas,
+      pagadasN: ventasPagadas.length, pagadasS: ventasPagadas.reduce((s, v) => s + Number(v.total_sale_price), 0),
       pctCobrado: valorVentasActivas ? Math.min(100, recaudadoActivo / valorVentasActivas * 100) : 0,
       carteraDisp, vencN: venc.length, deudaVencida,
       meses, mesesOrden,
@@ -87,7 +91,7 @@ export default function Dashboard() {
     if (fmes === 'todos' || !raw) return null
     const enMes = f => (f || '').slice(0, 7) === fmes
     return {
-      pagos: raw.income.filter(i => enMes(i.date) && estadoDe(i.observation) === 'ACEPTADO').sort((a, b) => (a.date < b.date ? -1 : 1)),
+      pagos: raw.income.filter(i => enMes(i.date)).sort((a, b) => (a.date < b.date ? -1 : 1)),
       ventas: raw.sales.filter(v => enMes(v.sale_date)),
       seps: raw.seps.filter(x => enMes(x.date)),
       gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
@@ -97,14 +101,15 @@ export default function Dashboard() {
   if (!D) return <p className="muted">Cargando indicadores...</p>
 
   const cards = [
-    { label: 'COBRADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})` },
-    { label: 'GASTOS', value: soles(D.gastosT), sub: `BALANCE: ${soles(D.recaudado - D.gastosT)}` },
-    { label: 'LOTES VENDIDOS', value: `${D.nv} (${D.pctVendido.toFixed(1)}%)`, sub: `de ${D.nLotes} lotes | ${D.ns} separados` },
-    { label: 'POR VENDER', value: D.nd, sub: `cartera disponible: ${soles(D.carteraDisp)}` },
-    { label: 'CUOTAS VENCIDAS', value: D.vencN, sub: `deuda vencida: ${soles(D.deudaVencida)}`, bad: D.vencN > 0 },
-    { label: 'VENTAS ACTIVAS', value: D.ventasActivasN, sub: 'en proceso de pago' },
-    { label: 'EXPROPIADOS', value: D.exprN, sub: `pagos asociados: ${soles(D.exprS)}`, purple: true },
-    { label: 'PERDIDAS', value: D.perdidasN, sub: `separaciones perdidas: ${soles(D.perdidasS)}`, bad: D.perdidasN > 0 },
+    { label: 'COBRADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})`, to: '/pagos' },
+    { label: 'GASTOS', value: soles(D.gastosT), sub: `BALANCE: ${soles(D.recaudado - D.gastosT)}`, to: '/gastos' },
+    { label: 'LOTES VENDIDOS', value: `${D.nv} (${D.pctVendido.toFixed(1)}%)`, sub: `de ${D.nLotes} lotes | ${D.ns} separados`, to: '/lotes?estado=vendido' },
+    { label: 'POR VENDER', value: D.nd, sub: `cartera disponible: ${soles(D.carteraDisp)}`, to: '/lotes?estado=disponible' },
+    { label: 'CUOTAS VENCIDAS', value: D.vencN, sub: `deuda vencida: ${soles(D.deudaVencida)}`, bad: D.vencN > 0, to: '/lotes?estado=vencidas' },
+    { label: 'VENTAS ACTIVAS', value: D.ventasActivasN, sub: 'en proceso de pago', to: '/ventas?estado=en_proceso' },
+    { label: 'PAGADOS (100%)', value: D.pagadasN, sub: `cancelados: ${soles(D.pagadasS)}`, green: true, to: '/ventas?estado=pagado' },
+    { label: 'EXPROPIADOS', value: D.exprN, sub: `pagos asociados: ${soles(D.exprS)}`, purple: true, to: '/ventas?estado=expropiado' },
+    { label: 'PERDIDAS', value: D.perdidasN, sub: `separaciones perdidas: ${soles(D.perdidasS)}`, bad: D.perdidasN > 0, to: '/lotes' },
   ]
 
   const m = fmes !== 'todos' ? D.meses[fmes] : null
@@ -123,9 +128,10 @@ export default function Dashboard() {
 
       <div className="cards cards-big">
         {cards.map(c => (
-          <div className="glass card" key={c.label}>
+          <div className="glass card" key={c.label} onClick={() => c.to && navigate(c.to)}
+            style={c.to ? { cursor: 'pointer' } : undefined} title={c.to ? 'Ver detalle' : undefined}>
             <p className="muted">{c.label}</p>
-            <p className="kpi kpi-big" style={c.bad ? { color: 'var(--error)' } : c.purple ? { color: '#b58ad9' } : {}}>{c.value}</p>
+            <p className="kpi kpi-big" style={c.bad ? { color: 'var(--error)' } : c.purple ? { color: '#b58ad9' } : c.green ? { color: '#4bb96a' } : {}}>{c.value}</p>
             {c.sub && <p className="muted small">{c.sub}</p>}
           </div>
         ))}
@@ -147,7 +153,7 @@ export default function Dashboard() {
             <h3 className="sub">PAGOS DEL MES ({det.pagos.length})</h3>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Concepto</th><th>N Op.</th><th>Monto</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Concepto</th><th>N Op.</th><th>Monto</th><th>Estado</th></tr></thead>
                 <tbody>
                   {det.pagos.map((x, i) => (
                     <tr key={i}>
@@ -157,6 +163,9 @@ export default function Dashboard() {
                       <td>{x.income_type === 'cuota' && x.installment ? `CUOTA N ${x.installment.installment_number}` : x.income_type}</td>
                       <td>{x.operation_number}</td>
                       <td>{soles(x.amount)}</td>
+                      <td>{x.sale?.status === 'pagado' ? <span style={{ color: '#4bb96a', fontWeight: 700 }}>PAGADO 100%</span>
+                        : x.sale?.status === 'expropiado' ? <span style={{ color: '#b58ad9' }}>EXPROPIADO</span>
+                        : <span className="muted">{(x.sale?.status || 'en proceso').toUpperCase()}</span>}</td>
                     </tr>
                   ))}
                 </tbody>

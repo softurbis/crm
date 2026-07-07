@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Lots from './pages/Lots'
+import Sales from './pages/Sales'
 import Payments from './pages/Payments'
 import Clients from './pages/Clients'
 import Expenses from './pages/Expenses'
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="secretarias" element={<Secretarias />} />
         <Route path="visitas" element={<Visitas />} />
         <Route path="lotes" element={<Lots />} />
+        <Route path="ventas" element={<Sales />} />
         <Route path="pagos" element={<Payments />} />
         <Route path="clientes" element={<Clients />} />
         <Route path="gastos" element={<Expenses />} />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -27,7 +28,13 @@ export default function Lots() {
   const [clientes, setClientes] = useState([])
   const [coSel, setCoSel] = useState('')
   const [vencidos, setVencidos] = useState(new Set())
+  const [searchParams] = useSearchParams()
   const [filter, setFilter] = useState('todos')
+  // si venimos del dashboard con ?estado=... aplica ese filtro al abrir
+  useEffect(() => {
+    const e = searchParams.get('estado')
+    if (e) setFilter(e)
+  }, [searchParams])
   const [vista, setVista] = useState('plano')
   const [sel, setSel] = useState(null)
   const [detail, setDetail] = useState(null)

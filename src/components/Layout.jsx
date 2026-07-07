@@ -16,6 +16,7 @@ const GLOBAL = [
 ]
 const PROYECTO = [
   { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️', color: '#8fd16f' },
+  { to: '/ventas', label: 'Ventas', icon: '🏷️', color: '#7bb6e0' },
   { to: '/pagos', label: 'Cuotas', icon: '💵', color: '#4fc3a1' },
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c' },
   { to: '/contratos', label: 'Contratos', icon: '📄', color: '#c9a97f' },
