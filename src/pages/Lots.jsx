@@ -98,7 +98,16 @@ export default function Lots() {
           .order('created_at', { ascending: false }).limit(1)
         sep = (sps || [])[0] || null
       }
-      setDetail({ sale, inst, sep, grupo })
+      // otros lotes del mismo cliente (para verlos desde cualquier lote)
+      let hermanosLotes = []
+      if (sale?.client_id) {
+        const { data: os } = await supabase.from('sales')
+          .select('lot:lots!inner(mz,lt,project_id)')
+          .eq('client_id', sale.client_id).eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
+        const enGrupo = new Set(grupo || [`${sel.mz}-${sel.lt}`])
+        hermanosLotes = [...new Set((os || []).map(x => `${x.lot.mz}-${x.lot.lt}`))].filter(k => !enGrupo.has(k))
+      }
+      setDetail({ sale, inst, sep, grupo, hermanosLotes })
       const { data: hist } = await supabase.from('lot_status_changes')
         .select('new_status, previous_status, reason, document_url, changed_at')
         .eq('lot_id', sel.id).order('changed_at', { ascending: false }).limit(5)
@@ -445,6 +454,7 @@ export default function Lots() {
               <p><span className="muted">Precio lista:</span> S/ {Number(sel.total_price).toLocaleString('es-PE')}</p>
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
+              {detail?.hermanosLotes?.length > 0 && <p className="hint" style={{ margin: '4px 0' }}>&#127968; Este cliente tambien tiene: <b>{detail.hermanosLotes.join(', ')}</b> (ventas aparte, ver su estado de cuenta).</p>}
               {sel.boundaries?.medidas && (
                 <p className="muted small">Medidas: {Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</p>
               )}
