@@ -760,6 +760,8 @@ export default function Lots() {
               <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th></tr></thead>
               <tbody>
                 {(() => {
+                  const sale = detail.sale
+                  const sepAmt = Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100
                   const sepP = (pagosDesg || []).find(p => (p.income_type || '') === 'separacion')
                   const iniP = (pagosDesg || []).find(p => (p.income_type || '') === 'inicial')
                   const mkRow = (key, label, fecha, monto) => (
