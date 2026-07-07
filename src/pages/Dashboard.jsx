@@ -51,7 +51,8 @@ export default function Dashboard() {
     const perd = income.filter(i => estadoDe(i.observation) === 'PERDIDA')
     const expr = income.filter(i => estadoDe(i.observation) === 'EXPROPIADO')
     const nLotes = lots.length
-    const nv = lots.filter(l => l.status === 'vendido').length
+    const nv = lots.filter(l => l.status === 'vendido' || l.status === 'entregado').length
+    const nEntregados = lots.filter(l => l.status === 'entregado').length
     const nd = lots.filter(l => l.status === 'disponible').length
     const ns = lots.filter(l => l.status === 'separado').length
     const ventasActivas = sales.filter(s => s.status === 'en_proceso')

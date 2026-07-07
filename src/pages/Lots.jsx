@@ -6,11 +6,11 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const COLORS = {
   disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
-  invadido: '#c94f4f', expropiado: '#9a6bc9',
+  entregado: '#3fb6a8', invadido: '#c94f4f', expropiado: '#9a6bc9',
 }
 const LBL = {
   disponible: 'Disponible', separado: 'Separado', vendido: 'Vendido',
-  invadido: 'Invadido', expropiado: 'Expropiado',
+  entregado: 'Entregado', invadido: 'Invadido', expropiado: 'Expropiado',
 }
 
 async function upload(path, file) {
@@ -70,8 +70,8 @@ export default function Lots() {
     loadLots()
     supabase.from('clients').select('id, full_name, doc_number').order('full_name')
       .then(({ data }) => setClientes(data || []))
-    supabase.from('installments').select('sales!inner(lot_id, status)').eq('status', 'vencido')
-      .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso').map(r => r.sales.lot_id))))
+    supabase.from('installments').select('sales!inner(lot_id, status, lot:lots!inner(project_id))').eq('status', 'vencido')
+      .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso' && r.sales.lot?.project_id === pidOp).map(r => r.sales.lot_id))))
   }, [pidOp])
 
   useEffect(() => {
@@ -361,7 +361,7 @@ export default function Lots() {
       </div>
 
       <div className="chips">
-        {['todos', 'disponible', 'separado', 'vendido', 'invadido', 'expropiado'].map(s => (
+        {['todos', 'disponible', 'separado', 'vendido', 'entregado', 'invadido', 'expropiado'].map(s => (
           <button key={s} className={`chip ${filter === s ? 'on' : ''}`}
             style={s !== 'todos' ? { '--dot': COLORS[s] } : {}}
             onClick={() => setFilter(s)}>
@@ -458,7 +458,8 @@ export default function Lots() {
 
             <div className="ficha">
               <p><span className="muted">Area:</span> {sel.area_m2} m2 | <span className="muted">Precio/m2:</span> S/ {Number(sel.price_per_m2).toFixed(2)}</p>
-              <p><span className="muted">Precio lista:</span> S/ {Number(sel.total_price).toLocaleString('es-PE')}</p>
+              <p><span className="muted">{detail?.sale ? 'Precio de venta:' : 'Precio lista:'}</span> <b>S/ {Number(detail?.sale ? detail.sale.total_sale_price : sel.total_price).toLocaleString('es-PE')}</b>{detail?.grupo && <span className="muted small"> (venta conjunta {detail.grupo.join('+')})</span>}</p>
+              {sel.status === 'entregado' && <p><span className="muted">Entregado el:</span> <b>{sel.delivered_at || '- (sin fecha)'}</b></p>}
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
               {detail?.hermanosLotes?.length > 0 && <p className="hint" style={{ margin: '4px 0' }}>&#127968; Este cliente tambien tiene: <b>{detail.hermanosLotes.join(', ')}</b> (ventas aparte, ver su estado de cuenta).</p>}

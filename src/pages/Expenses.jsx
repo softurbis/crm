@@ -255,7 +255,7 @@ export default function Expenses() {
             {filtrada.slice(0, 200).map(g => (
               <tr key={g.id}>
                 <td>{g.request_number ? <b>{'SOL-' + String(g.request_number).padStart(5, '0')}</b> : <span className="muted">-</span>}</td>
-                <td>{g.issue_date}</td>
+                <td>{g.issue_date || g.reception_date || '-'}</td>
                 <td>{g.status === 'solicitado'
                   ? <span className="warn">&#9203; SOLICITADO</span>
                   : <span className="ok">&#10004; CONFIRMADO</span>}</td>
