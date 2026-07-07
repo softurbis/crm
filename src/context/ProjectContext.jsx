@@ -12,7 +12,7 @@ export function ProjectProvider({ children }) {
   useEffect(() => {
     if (!profile) return
     async function load() {
-      if (role === 'admin') {
+      if (role === 'admin' || role === 'superuser') {
         const { data } = await supabase.from('projects').select('id, name').order('created_at')
         setProjects(data || [])
       } else {
