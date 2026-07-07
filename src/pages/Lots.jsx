@@ -118,7 +118,19 @@ export default function Lots() {
         const enGrupo = new Set(grupo || [`${sel.mz}-${sel.lt}`])
         hermanosLotes = [...new Set((os || []).map(x => `${x.lot.mz}-${x.lot.lt}`))].filter(k => !enGrupo.has(k))
       }
-      setDetail({ sale, inst, sep, grupo, hermanosLotes })
+      // historial de EXPROPIACIONES de este lote: cliente original + dinero pagado (perdido)
+      let expropiaciones = []
+      const { data: exps } = await supabase.from('sales')
+        .select('id, sale_date, total_sale_price, initial_amount_paid, client:clients!sales_client_id_fkey(full_name, doc_number)')
+        .eq('lot_id', sel.id).eq('status', 'expropiado').order('sale_date')
+      if (exps?.length) {
+        const expIds = exps.map(e => e.id)
+        const { data: incs } = await supabase.from('daily_income').select('sale_id, amount').in('sale_id', expIds)
+        const pagosPorVenta = {}
+        for (const p of (incs || [])) pagosPorVenta[p.sale_id] = (pagosPorVenta[p.sale_id] || 0) + Number(p.amount)
+        expropiaciones = exps.map(e => ({ ...e, pagado: pagosPorVenta[e.id] || 0 }))
+      }
+      setDetail({ sale, inst, sep, grupo, hermanosLotes, expropiaciones })
       const { data: hist } = await supabase.from('lot_status_changes')
         .select('new_status, previous_status, reason, document_url, changed_at')
         .eq('lot_id', sel.id).order('changed_at', { ascending: false }).limit(5)
@@ -472,7 +484,7 @@ export default function Lots() {
               <p><span className="muted">Area:</span> {sel.area_m2} m2 | <span className="muted">Precio/m2:</span> S/ {Number(sel.price_per_m2).toFixed(2)}</p>
               <p><span className="muted">{detail?.sale ? 'Precio de venta:' : 'Precio lista:'}</span> <b>S/ {Number(detail?.sale ? detail.sale.total_sale_price : sel.total_price).toLocaleString('es-PE')}</b>{detail?.grupo && <span className="muted small"> (venta conjunta {detail.grupo.join('+')})</span>}</p>
               {sel.status === 'entregado' && <p><span className="muted">Entregado el:</span> <b>{sel.delivered_at || '- (sin fecha)'}</b></p>}
-              {expropiados.get(sel.id) && <p className="hint" style={{ color: '#c39ce0', margin: '4px 0' }}>&#9888; Este lote fue EXPROPIADO <b>{expropiados.get(sel.id)} {expropiados.get(sel.id) > 1 ? 'veces' : 'vez'}</b> (histórico). Ver detalle en Ventas &#8594; filtro Expropiados.</p>}
+              {expropiados.get(sel.id) && <p className="hint" style={{ color: '#c39ce0', margin: '4px 0' }}>&#9888; Este lote fue EXPROPIADO <b>{expropiados.get(sel.id)} {expropiados.get(sel.id) > 1 ? 'veces' : 'vez'}</b> (histórico). Ver el detalle y el dinero perdido más abajo.</p>}
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
               {detail?.hermanosLotes?.length > 0 && <p className="hint" style={{ margin: '4px 0' }}>&#127968; Este cliente tambien tiene: <b>{detail.hermanosLotes.join(', ')}</b> (ventas aparte, ver su estado de cuenta).</p>}
@@ -480,6 +492,34 @@ export default function Lots() {
                 <p className="muted small">Medidas: {Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</p>
               )}
             </div>
+
+            {detail?.expropiaciones?.length > 0 && (
+              <div className="ficha" style={{ borderLeft: '3px solid #c39ce0' }}>
+                {(() => {
+                  const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+                  const totalExp = detail.expropiaciones.reduce((s, e) => s + Number(e.pagado), 0)
+                  return (
+                    <>
+                      <p style={{ color: '#c39ce0', margin: '0 0 4px' }}><b>&#9888; HISTORIAL DE EXPROPIACIONES ({detail.expropiaciones.length})</b></p>
+                      <p><span className="muted">Dinero total pagado y perdido por los clientes:</span> <b style={{ color: '#c39ce0' }}>{f(totalExp)}</b></p>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem', marginTop: 4 }}>
+                        <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>CLIENTE ORIGINAL</th><th>FECHA VENTA</th><th>PRECIO</th><th>PAGADO (PERDIDO)</th></tr></thead>
+                        <tbody>
+                          {detail.expropiaciones.map((e, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)', verticalAlign: 'top' }}>
+                              <td><b>{e.client?.full_name || '—'}</b>{e.client?.doc_number ? <><br /><span className="muted">{e.client.doc_number}</span></> : null}</td>
+                              <td>{e.sale_date ? e.sale_date.split('-').reverse().join('/') : '—'}</td>
+                              <td>{f(e.total_sale_price)}</td>
+                              <td><b style={{ color: '#c39ce0' }}>{f(e.pagado)}</b></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
 
             {['admin', 'secretary', 'superuser'].includes(role) && (
               <div className="ficha">
