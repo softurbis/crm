@@ -228,6 +228,106 @@ async function responderInternoIA(jid, phone, texto, quien) {
   } catch (e) { log('INTERNO IA ERROR:', String(e.message || e)); return false }
 }
 
+// Recordatorio que va al pie de los comandos gratis.
+const PIE_COMANDO = '\n\n💡 ¿Necesitas algo más específico? Escríbeme la pregunta en palabras normales — uso IA y cuesta ~$0.005 (medio centavo) por consulta.'
+
+// COMANDOS DIRECTOS: responden leyendo la base y armando una plantilla, SIN IA (gratis).
+// Devuelve el texto de respuesta, o null si el mensaje no es un comando conocido.
+async function comandoDirecto(texto) {
+  try {
+    const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+    const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE')
+    const { data: proys } = await supabase.from('projects').select('id, name').order('name')
+    const nombreProy = id => (proys || []).find(p => p.id === id)?.name || '—'
+
+    if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola)$/.test(t)) {
+      return '📋 *COMANDOS RÁPIDOS (gratis):*\n\n' +
+        '• *lotes* — disponibles y precios por proyecto\n' +
+        '• *comisiones* — por cobrar (total y por asesor)\n' +
+        '• *gastos* — del año por proyecto y mes\n' +
+        '• *visitas* — programadas próximas\n' +
+        '• *vencidas* — cuotas vencidas por proyecto' + PIE_COMANDO
+    }
+
+    if (/\blotes?\b|disponibl|disponibilidad/.test(t)) {
+      let out = '🏘️ *LOTES DISPONIBLES*\n'
+      for (const p of (proys || [])) {
+        const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id)
+        const disp = (lots || []).filter(l => l.status === 'disponible')
+        const precios = disp.map(l => Number(l.total_price)).filter(n => n > 0)
+        out += '\n*' + p.name + '*: ' + disp.length + ' de ' + (lots || []).length + ' lotes'
+        if (precios.length) out += '\n   desde ' + soles(Math.min(...precios)) + ' a ' + soles(Math.max(...precios))
+      }
+      return out + PIE_COMANDO
+    }
+
+    if (/comision/.test(t)) {
+      const { data: coms } = await supabase.from('commissions')
+        .select('amount, advisor:advisors(code, full_name)').eq('status', 'pendiente')
+      if (!coms || !coms.length) return '💼 *COMISIONES POR COBRAR*\nNo hay comisiones pendientes.' + PIE_COMANDO
+      const tot = coms.reduce((s, c) => s + Number(c.amount || 0), 0)
+      const porAsesor = {}
+      for (const c of coms) { const k = c.advisor?.full_name || c.advisor?.code || '—'; porAsesor[k] = (porAsesor[k] || 0) + Number(c.amount || 0) }
+      let out = '💼 *COMISIONES POR COBRAR*\nTotal: *' + soles(tot) + '* en ' + coms.length + ' comisiones\n'
+      out += Object.entries(porAsesor).sort((a, b) => b[1] - a[1]).map(([k, v]) => '• ' + k + ': ' + soles(v)).join('\n')
+      return out + PIE_COMANDO
+    }
+
+    if (/gastos?\b/.test(t)) {
+      const anio = new Date().toISOString().slice(0, 4)
+      const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'octubre', 'noviembre', 'diciembre']
+      const mesIdx = meses.findIndex(m => t.includes(m) || t.includes(m.slice(0, 4)))
+      const { data: gastos } = await supabase.from('expenses').select('project_id, issue_date, amount').gte('issue_date', anio + '-01-01')
+      let filas = (gastos || [])
+      if (mesIdx >= 0) filas = filas.filter(g => String(g.issue_date || '').slice(5, 7) === String(mesIdx + 1).padStart(2, '0'))
+      if (!filas.length) return '💸 *GASTOS ' + anio + (mesIdx >= 0 ? ' — ' + meses[mesIdx].toUpperCase() : '') + '*\nSin gastos registrados.' + PIE_COMANDO
+      const agg = {}
+      for (const g of filas) { const k = g.project_id + '|' + String(g.issue_date || '').slice(0, 7); agg[k] = (agg[k] || 0) + Number(g.amount || 0) }
+      const totGen = filas.reduce((s, g) => s + Number(g.amount || 0), 0)
+      let out = '💸 *GASTOS ' + anio + (mesIdx >= 0 ? ' — ' + meses[mesIdx].toUpperCase() : '') + '*\nTotal: *' + soles(totGen) + '*\n'
+      out += Object.entries(agg).sort().map(([k, v]) => { const [pid, m] = k.split('|'); return '• ' + nombreProy(pid) + ' ' + m + ': ' + soles(v) }).join('\n')
+      return out + PIE_COMANDO
+    }
+
+    if (/visitas?\b/.test(t)) {
+      const hoy = new Date().toISOString().slice(0, 10)
+      const { data: vis } = await supabase.from('visits').select('date, time, client_name, project:projects(name)')
+        .eq('status', 'programada').gte('date', hoy).order('date').order('time').limit(15)
+      if (!vis || !vis.length) return '📅 *VISITAS PROGRAMADAS*\nNo hay visitas próximas.' + PIE_COMANDO
+      let out = '📅 *VISITAS PROGRAMADAS (' + vis.length + ')*\n'
+      out += vis.map(v => '• ' + String(v.date).split('-').reverse().join('/') + ' ' + String(v.time || '').slice(0, 5) + ' · ' + (v.client_name || '—') + ' · ' + (v.project?.name || '—')).join('\n')
+      return out + PIE_COMANDO
+    }
+
+    if (/vencid|moros|cobranza/.test(t)) {
+      const { data: venc } = await supabase.from('installments')
+        .select('amount, amount_paid, sale:sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido')
+      const agg = {}
+      for (const q of (venc || [])) {
+        if (q.sale?.status !== 'en_proceso') continue
+        const pid = q.sale?.lot?.project_id; const d = Number(q.amount) - Number(q.amount_paid)
+        if (d > 0.05) { if (!agg[pid]) agg[pid] = { n: 0, s: 0 }; agg[pid].n++; agg[pid].s += d }
+      }
+      const ks = Object.keys(agg)
+      if (!ks.length) return '⚠️ *CUOTAS VENCIDAS*\nNo hay cuotas vencidas. 🎉' + PIE_COMANDO
+      const totN = ks.reduce((s, k) => s + agg[k].n, 0), totS = ks.reduce((s, k) => s + agg[k].s, 0)
+      let out = '⚠️ *CUOTAS VENCIDAS*\nTotal: *' + totN + ' cuotas · ' + soles(totS) + '*\n'
+      out += ks.map(pid => '• ' + nombreProy(pid) + ': ' + agg[pid].n + ' cuotas · ' + soles(agg[pid].s)).join('\n')
+      return out + PIE_COMANDO
+    }
+
+    return null
+  } catch (e) { log('COMANDO ERROR:', String(e.message || e)); return null }
+}
+
+// Atiende a gerencia/admin: primero intenta un comando gratis; si no, usa la IA (con costo).
+async function atenderInterno(jid, phone, texto, quien) {
+  const cmd = await comandoDirecto(texto)
+  if (cmd) { await enviar(jid, cmd, { tipo: 'interno' }); log('COMANDO DIRECTO (gratis) a', quien, phone); return true }
+  if (pareceConsulta(texto)) return await responderInternoIA(jid, phone, texto, quien)
+  return false
+}
+
 async function responderIA(jid, phone, lead, conv, texto) {
   try {
     if (!IA_KEY) return
@@ -641,7 +741,7 @@ async function manejarSecretaria(jid, phone, texto) {
     if (sec.feedback_asked === hoy && sec.feedback_done !== hoy) {
       // si es una PREGUNTA no la tomes como "extra". Solo gerencia/admin la responden con datos.
       if (pareceConsulta(texto)) {
-        if (await puedeQA(phone) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+        if (await puedeQA(phone) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
         await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, 'Si hiciste algo EXTRA hoy, cuéntamelo sin forma de pregunta 🙌 (ej: "entregué documentos en la esquina").'), { tipo: 'secretaria' })
         return
       }
@@ -852,8 +952,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       } else await enviar(ADMIN, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
       return
     }
-    // el ADMIN siempre puede preguntar (Q&A confidencial), sin importar el checklist
-    if (pareceConsulta(texto) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+    // el ADMIN: comando gratis o Q&A con IA (sin importar el checklist)
+    if (await atenderInterno(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
     await manejarSecretaria(jid, phone, texto).catch(() => {})
     return
@@ -881,9 +981,9 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
   if (tnum === 'secretaria' || tnum === 'gerencia') {
-    // Solo GERENCIA puede PREGUNTAR datos confidenciales; las secretarias solo hacen
-    // su control de actividades (no Q&A). Y no se interrumpe un checklist en curso.
-    if (tnum === 'gerencia' && pareceConsulta(texto) && !(await tieneChecklistAbierto(phone)) && await responderInternoIA(jid, phone, texto, 'GERENCIA')) return
+    // Solo GERENCIA usa comandos gratis / Q&A con datos confidenciales; las secretarias
+    // solo hacen su control de actividades. No se interrumpe un checklist en curso con IA.
+    if (tnum === 'gerencia' && !(await tieneChecklistAbierto(phone)) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
 

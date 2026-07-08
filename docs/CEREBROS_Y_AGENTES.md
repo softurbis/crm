@@ -62,7 +62,22 @@ no hay que escribir datos a mano. Puede responder sobre:
 - El cerebro **🔐 GERENCIA** es **opcional**: solo para notas/políticas que NO están en el sistema (ej. "margen mínimo por lote S/ X"). Déjalo vacío si no hace falta.
 - Requiere **SEGUIMIENTO encendido** + API key de IA.
 
-> Ejemplo: Victor (SECRETARIA) escribe *"¿cuánto tengo en comisiones por cobrar y qué visitas hay esta semana?"* → el bot responde con las cifras reales.
+> Ejemplo: gerencia escribe *"compárame los 2 proyectos y dime cuál conviene"* → responde con la IA (~$0.005).
+
+### Comandos GRATIS (sin IA) — para lo común
+
+Antes de usar la IA, el bot intenta un **comando directo** que lee la base y responde con plantilla — **cuesta $0** (igual que la cobranza). Gerencia/admin escriben una palabra:
+
+| Comando | Responde |
+|---|---|
+| `lotes` | Disponibles y rango de precios por proyecto |
+| `comisiones` | Total por cobrar + por asesor |
+| `gastos` / `gastos agosto` | Del año por proyecto y mes (o el mes que pidas) |
+| `visitas` | Programadas próximas |
+| `vencidas` | Cuotas vencidas por proyecto |
+| `ayuda` | Lista de comandos |
+
+Cada respuesta cierra recordando: *"¿Algo más específico? Escríbeme la pregunta en palabras normales — uso IA y cuesta ~$0.005 por consulta."* Así lo común es gratis y la IA (con costo) queda solo para preguntas libres.
 
 ## 4. Qué tienes que hacer TÚ (desplegar el agente)
 
