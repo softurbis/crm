@@ -65,6 +65,7 @@ export default function Whatsapp() {
   const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30' })
   const [secMsg, setSecMsg] = useState('')
   const [projQ, setProjQ] = useState([])
+  const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
   const selRef = useRef(null)
   const endRef = useRef(null)
@@ -148,7 +149,7 @@ export default function Whatsapp() {
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
       supabase.from('bot_brains').select('*'),
-      supabase.from('projects').select('id, name, bot_knowledge, bot_questions').order('name'),
+      supabase.from('projects').select('id, name, bot_knowledge, bot_questions, lead_notify_phone').order('name'),
     ])
     setBrains(b || []); setProys(p || [])
     return { b: b || [], p: p || [] }
@@ -180,6 +181,7 @@ export default function Whatsapp() {
       let q = []
       try { q = Array.isArray(p?.bot_questions) ? p.bot_questions : JSON.parse(p?.bot_questions || '[]') } catch {}
       setProjQ((q || []).filter(x => x && x.q).slice(0, 5))
+      setProjNotify(p?.lead_notify_phone || '')
     }
   }
   // Preguntas cerradas del proyecto (flujo de ventas sin IA): máx 5, cada una con opciones.
@@ -189,7 +191,8 @@ export default function Whatsapp() {
       .map(x => ({ q: (x.q || '').trim(), opciones: (x.opciones || []).map(o => (o || '').trim()).filter(Boolean) }))
       .filter(x => x.q)
       .slice(0, 5)
-    const { error } = await supabase.from('projects').update({ bot_questions: limpias }).eq('id', brainSel.slice(2))
+    const notify = String(projNotify || '').replace(/\D/g, '') || null
+    const { error } = await supabase.from('projects').update({ bot_questions: limpias, lead_notify_phone: notify }).eq('id', brainSel.slice(2))
     setProjQMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot las usa en máx. 1 minuto')
     if (!error) cargarBrains()
   }
@@ -447,6 +450,11 @@ export default function Whatsapp() {
             <div style={{ border: '1px solid rgba(156,203,134,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(156,203,134,.06)' }}>
               <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 PREGUNTAS DEL CALIFICADOR (máx 5)</b>
               <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>El bot de ventas (sin IA) le hace estas preguntas cerradas al lead de este proyecto, tras enviarle fotos/videos/info. Opciones separadas por coma. Vacío = usa las preguntas por defecto.</p>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8 }}>
+                <label style={{ fontSize: 12 }}>👤 Asesor asignado (recibe el lead calificado):</label>
+                <input value={projNotify} placeholder="51 + número (ej. 51944538888)" onChange={e => setProjNotify(e.target.value)} style={{ width: 200 }} />
+                <span className="muted" style={{ fontSize: 10 }}>Le llega igual que al admin: proyecto, cliente, preguntas y respuestas.</span>
+              </div>
               {projQ.map((q, i) => (
                 <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, width: 16 }}>{i + 1}.</span>

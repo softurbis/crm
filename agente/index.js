@@ -1018,12 +1018,15 @@ async function bombardear(jid, proy) {
 }
 async function finalizarLead(jid, phone, lead) {
   await enviar(jid, '¡Gracias! ✅ Registré tu interés. Un asesor de *Urbis Group* te contactará muy pronto con precios y facilidades de pago. Si quieres hablar ya con un asesor, escribe *ASESOR*. 🌳', { tipo: 'lead_flujo', lead_id: lead.id })
-  if (ADMIN) {
-    const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', lead.id).order('created_at')
-    const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name)').eq('id', lead.id).maybeSingle()
-    const resp = (acts || []).filter(a => /^(P: |PREFERENCIA:)/.test(a.note)).map(a => '• ' + a.note).join('\n')
-    await enviar(ADMIN, '🔥 *LEAD CALIFICADO*\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nProyecto: ' + (l2?.project?.name || '-') + (resp ? '\n\n' + resp : '') + '\n\n→ En el KANBAN para el asesor.', { tipo: 'aviso_admin' })
-  }
+  const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', lead.id).order('created_at')
+  const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
+  const resp = (acts || []).filter(a => /^(P: |PREFERENCIA:)/.test(a.note)).map(a => '• ' + a.note).join('\n')
+  const msj = '🔥 *LEAD CALIFICADO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + (resp ? '\n\n' + resp : '') + '\n\n→ Ya está en el KANBAN.'
+  const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
+  const destinos = new Set()
+  if (ADMIN) destinos.add(ADMIN)
+  if (asesor.length >= 9) destinos.add(asesor)            // asesor asignado del proyecto
+  for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
 async function manejarEntrante(jid, jidPN, texto, pushName) {
