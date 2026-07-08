@@ -50,7 +50,9 @@ Cuando necesitas algo que **no calza en un comando fijo**, escríbelo en palabra
 
 ---
 
-## 🧠 Comandos del ADMIN (solo tu número)
+## 🧠 Comandos de GESTIÓN (ADMIN y GERENCIA)
+
+Disponibles para tu número **ADMIN** y para los números **GERENCIA** (Victor, Alex).
 
 | Escribe | Qué hace |
 |---|---|
@@ -76,8 +78,8 @@ El bot mira cómo está clasificado cada número (en 📇 NÚMEROS del panel) y 
 | **No registrado** (lead) | Flujo de ventas con IA (si VENTAS está encendido) |
 | **CLIENTE** | Cobranza automática; si dice "ya pagué" avisa al admin |
 | **SECRETARIA** | Control de actividades (pasar lista, ¿algo extra?) |
-| **GERENCIA** | Comandos gratis + preguntas libres con IA |
-| **ADMIN** (tú) | Todo lo de gerencia + `aprende:` + `tarea` |
+| **GERENCIA** (Victor, Alex) | Comandos gratis + preguntas libres con IA + `aprende:` + `tarea` |
+| **ADMIN** (tú) | Todo lo de gerencia |
 | **ADMINISTRATIVO** | El bot no le responde (solo recibe avisos) |
 | **SILENCIO TOTAL** | El bot nunca le escribe ni responde |
 

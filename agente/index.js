@@ -358,6 +358,40 @@ async function atenderInterno(jid, phone, texto, quien) {
   return false
 }
 
+// Comandos privilegiados (ADMIN y GERENCIA): "tarea <nombre> ..." y "aprende: <dato>".
+// Devuelve true si manejó el mensaje (responde al que escribió, no solo al ADMIN).
+async function comandosPrivilegiados(jid, phone, texto) {
+  const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
+  if (mt) {
+    const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
+    const sec = (cands || [])[0]
+    if (!sec) { await enviar(jid, '❌ No encontré a la secretaria "' + mt[1] + '". Usa: TAREA <nombre> <fecha/hora> <descripción>', { tipo: 'aviso_admin' }); return true }
+    const fh = parseFechaHora(mt[2])
+    let titulo = mt[2]
+    if (fh.matchFecha) titulo = titulo.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+    if (fh.matchHora) titulo = titulo.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+    titulo = titulo.replace(/\s+/g, ' ').replace(/^[,\s\-:]+|[,\s\-:]+$/g, '').trim()
+    if (!titulo) { await enviar(jid, '❌ Falta la descripción. Ej: TAREA ' + mt[1] + ' el 5 a las 10 llevar contratos', { tipo: 'aviso_admin' }); return true }
+    const fecha = fh.date || secHoy()
+    const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: titulo.toUpperCase(), date: fecha, time: fh.time, slot: slotDeHora(fh.time) })
+    await enviar(jid, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
+    return true
+  }
+  const ma = String(texto).match(/^\s*aprende\s*:([\s\S]+)/i)
+  if (ma) {
+    const dato = ma[1].trim()
+    if (dato) {
+      const prev = ((await brain('aprendido')) || '').trim()
+      const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
+      await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
+      _brains.t = 0
+      await enviar(jid, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
+    } else await enviar(jid, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
+    return true
+  }
+  return false
+}
+
 async function responderIA(jid, phone, lead, conv, texto) {
   try {
     if (!IA_KEY) return
@@ -953,35 +987,7 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   }).then(() => {}).catch(() => {})
 
   if (phone === ADMIN) {
-    const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
-    if (mt) {
-      const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
-      const sec = (cands || [])[0]
-      if (!sec) { await enviar(ADMIN, '❌ No encontré a la secretaria "' + mt[1] + '". Usa: TAREA <nombre> <fecha/hora> <descripción>', { tipo: 'aviso_admin' }); return }
-      const fh = parseFechaHora(mt[2])
-      let titulo = mt[2]
-      if (fh.matchFecha) titulo = titulo.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
-      if (fh.matchHora) titulo = titulo.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
-      titulo = titulo.replace(/\s+/g, ' ').replace(/^[,\s\-:]+|[,\s\-:]+$/g, '').trim()
-      if (!titulo) { await enviar(ADMIN, '❌ Falta la descripción. Ej: TAREA ' + mt[1] + ' el 5 a las 10 llevar contratos', { tipo: 'aviso_admin' }); return }
-      const fecha = fh.date || secHoy()
-      const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: titulo.toUpperCase(), date: fecha, time: fh.time, slot: slotDeHora(fh.time) })
-      await enviar(ADMIN, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
-      return
-    }
-    // "aprende: <dato>" -> lo guarda en el cerebro APRENDIDO (se aplica al instante)
-    const ma = String(texto).match(/^\s*aprende\s*:([\s\S]+)/i)
-    if (ma) {
-      const dato = ma[1].trim()
-      if (dato) {
-        const prev = ((await brain('aprendido')) || '').trim()
-        const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
-        await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
-        _brains.t = 0
-        await enviar(ADMIN, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
-      } else await enviar(ADMIN, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
-      return
-    }
+    if (await comandosPrivilegiados(jid, phone, texto)) return
     // el ADMIN: comando gratis o Q&A con IA (sin importar el checklist)
     if (await atenderInterno(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
@@ -1011,9 +1017,12 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
   if (tnum === 'secretaria' || tnum === 'gerencia') {
-    // Solo GERENCIA usa comandos gratis / Q&A con datos confidenciales; las secretarias
-    // solo hacen su control de actividades. No se interrumpe un checklist en curso con IA.
-    if (tnum === 'gerencia' && !(await tieneChecklistAbierto(phone)) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
+    // GERENCIA (Victor/Alex): comandos privilegiados (tarea/aprende), comandos gratis y Q&A;
+    // las secretarias solo hacen su control de actividades. No se interrumpe un checklist con IA.
+    if (tnum === 'gerencia') {
+      if (await comandosPrivilegiados(jid, phone, texto)) return
+      if (!(await tieneChecklistAbierto(phone)) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
+    }
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
 
