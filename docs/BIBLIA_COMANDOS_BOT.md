@@ -1,67 +1,88 @@
-# 📖 Biblia de comandos del bot — Urbis Group
+# 📖 Biblia del bot de Urbis Group
 
-Guía de todo lo que puedes escribirle al bot por WhatsApp. Guárdala o compártela con el equipo.
+Todo lo que hace el bot, cómo funciona cada cerebro, qué cobra tokens y qué no, y cada comando. Guárdala o compártela con el equipo.
+
+---
+
+## 🧠 Los cerebros — qué hace cada uno
+
+Los "cerebros" se editan en **WhatsApp del bot → CEREBROS** (mapa radial). Si un cerebro está vacío, el bot usa su versión por defecto.
+
+| Cerebro | Para qué sirve | ¿Cobra tokens (IA)? |
+|---|---|---|
+| **🧠 VENTAS** | La conversación con leads del público | 💲 Sí (cada respuesta ~$0.005) |
+| **📌 REGLAS** (instrucciones) | Ajustes que se suman a VENTAS | 💲 Sí (se suma al prompt de ventas) |
+| **🚫 PROHIBIDO** | Lo que el bot NUNCA debe decir al público | 💲 Sí (se suma a ventas) |
+| **💡 APRENDIDO** | Datos que le enseñas (`aprende:`), se suman a ventas | 💲 Sí (se suma a ventas) |
+| **💵 COBRANZA** | Plantillas de los avisos de cuotas | 🆓 No (plantillas, sin IA) |
+| **🗓️ SEGUIMIENTO** (secretaria) | Textos del control de actividades del equipo | 🆓 No (plantillas, sin IA) |
+| **🔐 GERENCIA** | Notas internas extra para el Q&A del equipo | 💲 Solo si se usa el Q&A con IA |
+| **📁 FICHA por proyecto** | Info de cada proyecto (descripción, cómo llegar, material) | 💲 Se usa en ventas (IA) |
+
+> **Regla de oro:** solo **VENTAS y el Q&A libre** cobran tokens. Todo lo automático (cobranza, seguimiento, recordatorios) y **todos los comandos** son gratis.
+
+---
+
+## 🔀 Cómo decide el bot qué hacer (según el número)
+
+El bot mira cómo está clasificado el número en **📇 NÚMEROS** y hace UNA cosa:
+
+| Tipo de número | Qué hace el bot | ¿Tokens? |
+|---|---|---|
+| **No registrado** (lead) | Flujo de ventas (si VENTAS está encendido) | 💲 Sí |
+| **CLIENTE** | Cobranza; si dice "ya pagué" avisa al admin | 🆓 No |
+| **SECRETARIA** | Control de actividades (pasar lista, ¿algo extra?) | 🆓 No |
+| **GERENCIA** (Victor, Alex) | Comandos gratis + preguntas libres + `tarea`/`aprende` | 🆓 comandos / 💲 preguntas libres |
+| **ADMIN** (tú) | Todo lo de gerencia | igual |
+| **ADMINISTRATIVO** | No le responde (solo recibe avisos) | — |
+| **SILENCIO TOTAL** | Nunca le escribe ni responde | — |
 
 ---
 
 ## 🆓 Comandos GRATIS (gerencia y admin)
 
-Escribes **una palabra** y el bot lee la base de datos y responde al instante. **No usan IA → cuesta $0.**
-Solo funcionan desde números clasificados como **GERENCIA** o el número **ADMIN**.
+Escribes **una palabra** → el bot lee la base y responde al instante. **Cero IA, $0.**
 
 | Escribe | Qué te responde |
 |---|---|
-| `resumen` | 📊 Panorama del día: lotes disponibles, ventas, cuotas vencidas, comisiones por cobrar, gastos del mes y próximas visitas — **todo en un mensaje** |
-| `lotes` | 🏘️ Lotes disponibles y rango de precios, por proyecto |
-| `comisiones` | 💼 Total de comisiones por cobrar + desglose por asesor |
-| `gastos` | 💸 Gastos del año por proyecto y mes |
-| `gastos agosto` | 💸 Gastos solo de agosto (puedes poner cualquier mes) |
-| `visitas` | 📅 Visitas programadas próximas (fecha, hora, cliente, proyecto) |
-| `vencidas` | ⚠️ Cuotas vencidas por proyecto (cantidad y monto) |
-| `ayuda` | 📋 La lista de comandos disponibles |
+| `resumen` | 📊 Panorama del día: lotes, ventas, vencidas, comisiones, gastos del mes y visitas — **todo en un mensaje** |
+| `lotes` | 🏘️ Disponibles y rango de precios, por proyecto |
+| `comisiones` | 💼 Total por cobrar + desglose por asesor |
+| `gastos` | 💸 Del año por proyecto y mes |
+| `gastos agosto` | 💸 Solo agosto (cualquier mes) |
+| `visitas` | 📅 Programadas próximas |
+| `vencidas` | ⚠️ Cuotas vencidas por proyecto |
+| `ayuda` | 📋 La lista de comandos |
 
-> No importan mayúsculas ni tildes: `Gastos`, `gastos`, `GASTOS AGOSTO` funcionan igual.
+> No importan mayúsculas ni tildes.
 
-**Ejemplo — escribes `resumen`, recibes:**
-```
-📊 RESUMEN — 07/07/2026
-
-🏘️ Lotes: 104 disponibles · 124 vendidos
-💰 Ventas: 173 en proceso · 43 pagadas
-⚠️ Vencidas: 38 cuotas · S/ 45,200
-💼 Comisiones por cobrar: S/ 12,800
-💸 Gastos del mes: S/ 3,450
-📅 Próximas visitas: 2 (sig: 08/07 10:00 Juan Pérez)
-```
+Cada respuesta cierra recordando: *"¿Algo más específico? Escríbeme la pregunta en palabras normales — uso IA y cuesta ~$0.005 por consulta."*
 
 ---
 
-## 🤖 Preguntas libres (usan IA — cuesta ~$0.005 c/u)
+## 🤝 Comandos de GESTIÓN (ADMIN y GERENCIA)
 
-Cuando necesitas algo que **no calza en un comando fijo**, escríbelo en palabras normales. El bot usa la IA (Claude) para entender y responder con los datos reales. Cada pregunta cuesta **medio centavo de dólar** (~$0.005). Solo gerencia/admin.
+Disponibles para tu número **ADMIN** y para los **GERENCIA** (Victor, Alex). El bot le responde a quien escribió.
 
-**Ejemplos de preguntas libres:**
-- *"¿Cuál proyecto conviene para alguien con S/ 20,000 de inicial?"*
-- *"Compárame los precios de los 2 proyectos y dime dónde hay más margen."*
+| Escribe | Qué hace | ¿Tokens? |
+|---|---|---|
+| `tarea <nombre> <fecha/hora> <descripción>` | Crea una tarea para una secretaria. Ej: `tarea cami mañana 10am llevar contratos` · `tarea alexander pedir perdón a candy a las 17:38` | 🆓 No |
+| `aprende: <dato>` | Le enseña algo al bot (va al cerebro APRENDIDO, lo usa en ventas al instante). Ej: `aprende: no damos título inmediato` | 🆓 No |
+
+---
+
+## 🤖 Preguntas libres (usan IA — ~$0.005 c/u)
+
+Cuando necesitas algo que **no calza en un comando fijo**, escríbelo en palabras normales. Solo gerencia/admin, y solo si hay **saldo en Anthropic**.
+
+**Ejemplos:**
+- *"¿Cuál proyecto conviene para alguien con S/20,000 de inicial?"*
+- *"Compárame los precios de los 2 proyectos y dónde hay más margen."*
 - *"¿Qué asesor tiene más comisiones sin cobrar y de qué lotes?"*
-- *"¿Cuánto gastamos en desarrollo vs administrativo este año?"*
-
-> El bot solo puede responder con IA si hay **saldo en la cuenta de Anthropic**. Los comandos gratis funcionan siempre.
 
 ---
 
-## 🧠 Comandos de GESTIÓN (ADMIN y GERENCIA)
-
-Disponibles para tu número **ADMIN** y para los números **GERENCIA** (Victor, Alex).
-
-| Escribe | Qué hace |
-|---|---|
-| `aprende: <dato>` | Le enseña algo al bot (se guarda en el cerebro APRENDIDO y lo usa en ventas al instante). Ej: `aprende: no damos título inmediato` |
-| `tarea <nombre> <fecha/hora> <descripción>` | Crea una tarea para una secretaria. Ej: `tarea cami mañana 10am llevar contratos` |
-
----
-
-## 🔁 Comandos de prueba (cualquier chat)
+## 🔁 Comando de prueba (cualquier chat)
 
 | Escribe | Qué hace |
 |---|---|
@@ -69,20 +90,13 @@ Disponibles para tu número **ADMIN** y para los números **GERENCIA** (Victor, 
 
 ---
 
-## 👥 Cómo se comporta el bot según el número
+## 💲 Cuánto cuesta la IA
 
-El bot mira cómo está clasificado cada número (en 📇 NÚMEROS del panel) y hace UNA cosa:
-
-| Tipo de número | Qué hace el bot |
-|---|---|
-| **No registrado** (lead) | Flujo de ventas con IA (si VENTAS está encendido) |
-| **CLIENTE** | Cobranza automática; si dice "ya pagué" avisa al admin |
-| **SECRETARIA** | Control de actividades (pasar lista, ¿algo extra?) |
-| **GERENCIA** (Victor, Alex) | Comandos gratis + preguntas libres con IA + `aprende:` + `tarea` |
-| **ADMIN** (tú) | Todo lo de gerencia |
-| **ADMINISTRATIVO** | El bot no le responde (solo recibe avisos) |
-| **SILENCIO TOTAL** | El bot nunca le escribe ni responde |
+- Modelo: **Claude Haiku 4.5** ($1 por millón de tokens de entrada, $5 de salida).
+- Cada respuesta de IA ≈ **medio centavo de dólar** (~$0.005).
+- **$5 ≈ ~1,000 respuestas de IA.**
+- Recarga en console.anthropic.com; activa **auto-reload** para que nunca se quede en cero.
 
 ---
 
-*Última actualización: julio 2026. Los comandos gratis se pueden ampliar — pídele a tu desarrollador agregar `separaciones`, `ingresos del mes`, etc.*
+*Última actualización: julio 2026. Los comandos gratis se pueden ampliar (ej. `separaciones`, `ingresos del mes`) — pídeselo a tu desarrollador.*
