@@ -64,6 +64,8 @@ export default function Whatsapp() {
   const [ensenaTxt, setEnsenaTxt] = useState('')
   const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30' })
   const [secMsg, setSecMsg] = useState('')
+  const [projQ, setProjQ] = useState([])
+  const [projQMsg, setProjQMsg] = useState('')
   const selRef = useRef(null)
   const endRef = useRef(null)
 
@@ -146,7 +148,7 @@ export default function Whatsapp() {
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
       supabase.from('bot_brains').select('*'),
-      supabase.from('projects').select('id, name, bot_knowledge').order('name'),
+      supabase.from('projects').select('id, name, bot_knowledge, bot_questions').order('name'),
     ])
     setBrains(b || []); setProys(p || [])
     return { b: b || [], p: p || [] }
@@ -171,7 +173,26 @@ export default function Whatsapp() {
     }))
     return [...base, ...fichas]
   }
-  const elegirBrain = k => { setBrainSel(k); setBrainTxt(textoDe(k)); setBrainMsg('') }
+  const elegirBrain = k => {
+    setBrainSel(k); setBrainTxt(textoDe(k)); setBrainMsg(''); setProjQMsg('')
+    if (k.startsWith('p:')) {
+      const p = proys.find(x => x.id === k.slice(2))
+      let q = []
+      try { q = Array.isArray(p?.bot_questions) ? p.bot_questions : JSON.parse(p?.bot_questions || '[]') } catch {}
+      setProjQ((q || []).filter(x => x && x.q).slice(0, 5))
+    }
+  }
+  // Preguntas cerradas del proyecto (flujo de ventas sin IA): máx 5, cada una con opciones.
+  const guardarPreguntas = async () => {
+    setProjQMsg('GUARDANDO...')
+    const limpias = projQ
+      .map(x => ({ q: (x.q || '').trim(), opciones: (x.opciones || []).map(o => (o || '').trim()).filter(Boolean) }))
+      .filter(x => x.q)
+      .slice(0, 5)
+    const { error } = await supabase.from('projects').update({ bot_questions: limpias }).eq('id', brainSel.slice(2))
+    setProjQMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot las usa en máx. 1 minuto')
+    if (!error) cargarBrains()
+  }
   const guardarBrain = async () => {
     setBrainMsg('GUARDANDO...')
     let error
@@ -422,6 +443,26 @@ export default function Whatsapp() {
               Este cerebro es <b>opcional</b>: solo para notas/políticas que NO están en el sistema (ej. "el margen mínimo por lote es S/ X"). Déjalo vacío si no hace falta.
             </p>
           )}
+          {brainSel.startsWith('p:') && (
+            <div style={{ border: '1px solid rgba(156,203,134,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(156,203,134,.06)' }}>
+              <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 PREGUNTAS DEL CALIFICADOR (máx 5)</b>
+              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>El bot de ventas (sin IA) le hace estas preguntas cerradas al lead de este proyecto, tras enviarle fotos/videos/info. Opciones separadas por coma. Vacío = usa las preguntas por defecto.</p>
+              {projQ.map((q, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, width: 16 }}>{i + 1}.</span>
+                  <input value={q.q || ''} placeholder="Pregunta (ej. ¿Para qué lo buscas?)" onChange={e => setProjQ(a => a.map((x, j) => j === i ? { ...x, q: e.target.value } : x))} style={{ flex: '1 1 220px', textTransform: 'none' }} />
+                  <input value={(q.opciones || []).join(', ')} placeholder="Opciones: Vivienda, Inversión, Negocio" onChange={e => setProjQ(a => a.map((x, j) => j === i ? { ...x, opciones: e.target.value.split(',').map(s => s.trim()) } : x))} style={{ flex: '1 1 220px', textTransform: 'none' }} />
+                  <button className="btn-ghost" title="Quitar" onClick={() => setProjQ(a => a.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {projQ.length < 5 && <button className="btn-ghost" onClick={() => setProjQ(a => [...a, { q: '', opciones: [] }])}>+ Agregar pregunta</button>}
+                <button className="btn" onClick={guardarPreguntas}>💾 GUARDAR PREGUNTAS</button>
+                {projQMsg && <span style={{ fontSize: 12 }}>{projQMsg}</span>}
+              </div>
+            </div>
+          )}
+          {brainSel.startsWith('p:') && <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Abajo va la <b>info del proyecto</b> (descripción, cómo llegar, ganchos) que el bot manda en el bombardeo.</p>}
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
             placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
             style={{ width: '100%', minHeight: '48vh', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }} />

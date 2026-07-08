@@ -967,6 +967,65 @@ async function setConv(phone, campos) {
   else { const { error } = await supabase.from('whatsapp_conversations').insert({ phone, ...campos, last_message_at: new Date().toISOString() }); if (error) log('DB conv ins:', error.message) }
 }
 
+// ===== FLUJO DE VENTAS GUIADO (sin IA / sin tokens) =====
+const PREGUNTAS_DEFAULT = [
+  { q: '¿Para qué buscas el lote?', opciones: ['Vivienda', 'Inversión', 'Negocio'] },
+  { q: '¿Cuándo te gustaría comprar?', opciones: ['Este mes', 'En 1 a 3 meses', 'Solo estoy cotizando'] },
+  { q: '¿Cómo prefieres pagar?', opciones: ['Al contado', 'En cuotas'] },
+]
+async function detectarProyecto(texto) {
+  const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
+  const txt = String(texto || '').toLowerCase()
+  const stop = ['las', 'los', 'del', 'los', 'de', 'la', 'el', 'pucallpa', 'neshuya']
+  const pr = (proys || []).find(x => x.name.toLowerCase().split(/\s+/).some(w => w.length > 3 && !stop.includes(w) && txt.includes(w)))
+  return { proys: proys || [], pr: pr || null }
+}
+async function preguntasProyecto(projectId) {
+  if (!projectId) return PREGUNTAS_DEFAULT
+  const { data } = await supabase.from('projects').select('bot_questions').eq('id', projectId).maybeSingle()
+  let qs = []
+  try { qs = Array.isArray(data?.bot_questions) ? data.bot_questions : JSON.parse(data?.bot_questions || '[]') } catch {}
+  qs = (qs || []).filter(x => x && x.q).slice(0, 5)
+  return qs.length ? qs : PREGUNTAS_DEFAULT
+}
+async function enviarPregunta(jid, lead, q, num) {
+  let msg = '📝 *Pregunta ' + num + ':* ' + q.q
+  if (q.opciones && q.opciones.length) msg += '\n' + q.opciones.map((o, i) => (i + 1) + '. ' + o).join('\n') + '\n\n(responde con el número)'
+  await enviar(jid, msg, { tipo: 'lead_flujo', lead_id: lead.id })
+}
+async function bombardear(jid, proy) {
+  let info = '📍 *' + proy.name + '*'
+  if (proy.description) info += '\n' + proy.description
+  if (proy.how_to_arrive) info += '\n\n🚗 *Cómo llegar:* ' + proy.how_to_arrive
+  if (proy.maps_url) info += '\n📌 ' + proy.maps_url
+  if (proy.vista360_url) info += '\n🔄 Tour 360°: ' + proy.vista360_url
+  try {
+    const { data: lots } = await supabase.from('lots').select('status, total_price, area_m2').eq('project_id', proy.id)
+    const disp = (lots || []).filter(l => l.status === 'disponible')
+    if (disp.length) {
+      const precios = disp.map(l => Number(l.total_price)).filter(n => n > 0)
+      const areas = disp.map(l => Number(l.area_m2)).filter(n => n > 0)
+      info += '\n\n💰 *' + disp.length + ' lotes disponibles*'
+      if (precios.length) info += ' · desde S/ ' + Math.min(...precios).toLocaleString('es-PE')
+      if (areas.length) info += ' · áreas de ' + Math.min(...areas) + ' a ' + Math.max(...areas) + ' m²'
+    }
+  } catch {}
+  await enviar(jid, info, { tipo: 'lead_flujo' })
+  for (const f of [proy.foto1_url, proy.foto2_url, proy.foto3_url].filter(Boolean)) await enviarArchivo(jid, f, 'foto', '')
+  if (proy.plano_url) await enviarArchivo(jid, proy.plano_url, 'plano', 'Plano de ' + proy.name)
+  if (proy.brochure_url) await enviarArchivo(jid, proy.brochure_url, 'brochure', 'Brochure — ' + proy.name)
+  if (proy.video_url) await enviarArchivo(jid, proy.video_url, 'video', proy.name)
+}
+async function finalizarLead(jid, phone, lead) {
+  await enviar(jid, '¡Gracias! ✅ Registré tu interés. Un asesor de *Urbis Group* te contactará muy pronto con precios y facilidades de pago. Si quieres hablar ya con un asesor, escribe *ASESOR*. 🌳', { tipo: 'lead_flujo', lead_id: lead.id })
+  if (ADMIN) {
+    const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', lead.id).order('created_at')
+    const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name)').eq('id', lead.id).maybeSingle()
+    const resp = (acts || []).filter(a => /^(P: |PREFERENCIA:)/.test(a.note)).map(a => '• ' + a.note).join('\n')
+    await enviar(ADMIN, '🔥 *LEAD CALIFICADO*\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nProyecto: ' + (l2?.project?.name || '-') + (resp ? '\n\n' + resp : '') + '\n\n→ En el KANBAN para el asesor.', { tipo: 'aviso_admin' })
+  }
+}
+
 async function manejarEntrante(jid, jidPN, texto, pushName) {
   let phone = telDeJid(jidPN || jid)
   // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
@@ -1059,106 +1118,112 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     return
   }
 
+  // 1) PRIMER CONTACTO: detectar proyecto del mensaje (ej. "info sobre X"), crear lead, pedir nombre
   if (!lead) {
-    // primer contacto: crear lead + preguntar nombre
+    const { pr } = await detectarProyecto(corto)
     const { data: nuevoLead } = await supabase.from('leads').insert({
       full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
-      source: 'whatsapp', status: 'nuevo', optin_whatsapp: true, optin_date: new Date().toISOString(),
+      source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
+      optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
     await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead?.id })
-    await enviar(jid, `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate* 🌳\n\nPara atenderle mejor, ¿me indica su *nombre completo* por favor?`, { tipo: 'lead_flujo', lead_id: lead?.id })
-    if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD por WhatsApp: ${phone} ("${corto.slice(0, 50)}"). Ya está en el KANBAN.`, { tipo: 'aviso_admin' })
+    const saludoProy = pr ? ` Con gusto te doy toda la info de *${pr.name}* 🌳` : ' 🌳'
+    await enviar(jid, `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate*.${saludoProy}\n\nPara atenderte mejor, ¿me dices tu *nombre completo*?`, { tipo: 'lead_flujo', lead_id: lead?.id })
+    if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
     return
   }
 
+  // 2) NOMBRE
   if (estado === 'espera_nombre') {
     const nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
-    if (nombre.length >= 3) {
-      await supabase.from('leads').update({ full_name: nombre, status: 'contactado' }).eq('id', lead.id)
-      const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
-      if ((proys || []).length === 1) {
-        const unico = proys[0]
-        await supabase.from('leads').update({ project_id: unico.id, temperature: 'tibio', status: 'interesado' }).eq('id', lead.id)
-        await setConv(phone, { flow_state: 'completado' })
-        if (IA_KEY && (await flag('ia_activa'))) {
-          const leadIA = { ...lead, full_name: nombre, project_id: unico.id }
-          await responderIA(jid, phone, leadIA, conv, 'INSTRUCCION INTERNA (esto no lo escribio el cliente): salude por su primer nombre UNA sola vez, mencione el proyecto en una frase con su gancho principal y pregunte SOLO el USO o motivo (vivienda, inversion o un negocio como hospedaje). Todavia NO de precios.')
-        } else {
-          await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 Un asesor le compartirá precios y condiciones de *${unico.name}*. ¿Qué le gustaría saber primero?`, { tipo: 'lead_flujo', lead_id: lead.id })
-        }
-        if (ADMIN) await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅
-Nombre: ${nombre}
-Tel: ${phone}
-Proyecto: ${unico.name}
-
-→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
-      } else {
-        const lista = (proys || []).map(r => `*${r.name}*`).join(', ')
+    if (nombre.length < 3) { await enviar(jid, 'Disculpa, no logré leer tu nombre. ¿Me lo escribes por favor? 🙏', { tipo: 'lead_flujo', lead_id: lead.id }); return }
+    await supabase.from('leads').update({ full_name: nombre, status: 'contactado' }).eq('id', lead.id)
+    if (!lead.project_id) {
+      const { proys } = await detectarProyecto('')
+      if (proys.length === 1) { await supabase.from('leads').update({ project_id: proys[0].id }).eq('id', lead.id); lead.project_id = proys[0].id }
+      else {
         await setConv(phone, { flow_state: 'espera_proyecto' })
-        await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 ¿Cuál de nuestros proyectos le interesa? Tenemos ${lista}. Y si aún no está seguro, cuénteme qué zona le queda mejor y le oriento.`, { tipo: 'lead_flujo', lead_id: lead.id })
+        await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 ¿Qué proyecto te interesa?${proys.map((p, i) => `\n${i + 1}. *${p.name}*`).join('')}\n\nRespóndeme con el número o el nombre.`, { tipo: 'lead_flujo', lead_id: lead.id })
+        return
       }
-    } else {
-      await enviar(jid, 'Disculpe, no logré leer su nombre. ¿Me lo escribe por favor? 🙏', { tipo: 'lead_flujo', lead_id: lead.id })
     }
+    await setConv(phone, { flow_state: 'espera_audio' })
+    await enviar(jid, `¡Un gusto, ${nombre.split(' ')[0]}! 😊 ¿Te mando la información también por *audio*, o prefieres solo por *mensajes*?\n\nResponde *AUDIO* o *MENSAJES*.`, { tipo: 'lead_flujo', lead_id: lead.id })
     return
   }
 
+  // 2b) PROYECTO (si no se detectó al inicio)
   if (estado === 'espera_proyecto') {
-    const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
-    let nombreProy = 'por definir'
-    let proyElegido = null
-    const txt = corto.toLowerCase()
+    const { proys } = await detectarProyecto('')
     const n = parseInt(corto.replace(/\D/g, ''), 10)
-    let pr = (!isNaN(n) && n >= 1 && n <= (proys || []).length) ? proys[n - 1] : null
-    if (!pr) pr = (proys || []).find(x => x.name.toLowerCase().split(/\s+/).some(w => w.length > 3 && !['las', 'los'].includes(w) && txt.includes(w))) || null
-    if (pr) {
-      await supabase.from('leads').update({ project_id: pr.id, temperature: 'tibio', status: 'interesado' }).eq('id', lead.id)
-      nombreProy = pr.name
-      proyElegido = pr.id
-    }
-    await setConv(phone, { flow_state: 'completado' })
-    if (IA_KEY && (await flag('ia_activa'))) {
-      if (proyElegido) await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
-      const leadIA = { ...lead, project_id: proyElegido || lead.project_id }
-      const inst = proyElegido
-        ? 'INSTRUCCION INTERNA (esto no lo escribio el cliente): acaba de elegir este proyecto. Confirmelo en una frase con su gancho principal y pregunte SOLO el USO o motivo (vivienda, inversion o negocio). Todavia NO de precios.'
-        : 'INSTRUCCION INTERNA (esto no lo escribio el cliente): no quedo claro que proyecto le interesa. Preguntele con calidez que zona o proyecto prefiere, mencionando brevemente los disponibles.'
-      await responderIA(jid, phone, leadIA, conv, inst)
+    let pr = (!isNaN(n) && n >= 1 && n <= proys.length) ? proys[n - 1] : null
+    if (!pr) pr = (await detectarProyecto(corto)).pr
+    if (!pr) { await enviar(jid, 'No identifiqué el proyecto 🤔 Escríbeme el número de la lista, por favor.', { tipo: 'lead_flujo', lead_id: lead.id }); return }
+    await supabase.from('leads').update({ project_id: pr.id, status: 'interesado', temperature: 'tibio' }).eq('id', lead.id)
+    lead.project_id = pr.id
+    await setConv(phone, { flow_state: 'espera_audio' })
+    await enviar(jid, `¡Excelente, *${pr.name}*! 🌳 ¿Te mando la info también por *audio*, o prefieres solo por *mensajes*? Responde *AUDIO* o *MENSAJES*.`, { tipo: 'lead_flujo', lead_id: lead.id })
+    return
+  }
+
+  // 3) AUDIO sí/no -> BOMBARDEO de material + arrancar preguntas cerradas
+  if (estado === 'espera_audio') {
+    const quiereAudio = /\baudio\b/i.test(corto) || (/\bsi\b|\bsí\b/i.test(corto) && !/no|mensaj|texto/i.test(corto))
+    await supabase.from('lead_activities').insert({ lead_id: lead.id, note: 'PREFERENCIA: ' + (quiereAudio ? 'AUDIO' : 'MENSAJES') })
+    const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+    if (proy) await bombardear(jid, proy)
+    const qs = await preguntasProyecto(lead.project_id)
+    await setConv(phone, { flow_state: 'preg_1' })
+    await enviar(jid, 'Para darte la mejor atención, unas preguntas rápidas 👇', { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviarPregunta(jid, lead, qs[0], 1)
+    return
+  }
+
+  // 4) PREGUNTAS CERRADAS (preg_1 ... preg_5)
+  const mPreg = String(estado || '').match(/^preg_(\d+)$/)
+  if (mPreg) {
+    const idx = parseInt(mPreg[1], 10)   // 1-based
+    const qs = await preguntasProyecto(lead.project_id)
+    const q = qs[idx - 1]
+    let resp = corto
+    const n = parseInt(corto.replace(/\D/g, ''), 10)
+    if (q?.opciones?.length && !isNaN(n) && n >= 1 && n <= q.opciones.length) resp = q.opciones[n - 1]
+    await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (q?.q || '') + ' → R: ' + resp).slice(0, 500) })
+    if (idx < qs.length) {
+      await setConv(phone, { flow_state: 'preg_' + (idx + 1) })
+      await enviarPregunta(jid, lead, qs[idx], idx + 1)
     } else {
-      await enviar(jid, `¡Excelente! ✅ Registré su interés en *${nombreProy}*.\n\nEn breve uno de nuestros asesores le escribirá con toda la información: precios, ubicación y facilidades de pago. ¡Gracias por confiar en Urbis Group! 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
-    }
-    if (ADMIN) {
-      const { data: l2 } = await supabase.from('leads').select('full_name, phone').eq('id', lead.id).single()
-      await enviar(ADMIN, `🤖 LEAD CALIFICADO ✅\nNombre: ${l2?.full_name}\nTel: ${l2?.phone}\nProyecto: ${nombreProy}\n\n→ Está en el KANBAN listo para que un asesor lo contacte.`, { tipo: 'aviso_admin' })
+      await supabase.from('leads').update({ status: 'interesado', temperature: 'caliente' }).eq('id', lead.id)
+      await setConv(phone, { flow_state: 'completado' })
+      await finalizarLead(jid, phone, lead)
     }
     return
   }
 
+  // 5) lead huérfano sin estado: reiniciar
   if (!estado && lead?.id) {
-    // lead huerfano (sin flujo activo): reiniciar el flujo guiado
     await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead.id })
-    await enviar(jid, '¡Hola de nuevo! 👋 Gracias por escribir a *Urbis Group Real Estate* 🌳\n\nPara atenderle mejor, ¿me indica su *nombre completo* por favor?', { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviar(jid, '¡Hola de nuevo! 👋 Para atenderte mejor, ¿me dices tu *nombre completo*?', { tipo: 'lead_flujo', lead_id: lead.id })
     return
   }
 
+  // 6) COMPLETADO / HUMANO (sin IA)
   if (estado === 'humano') {
     if (lead?.id) await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
     return
   }
-
-  // conversacion completada: nota + IA (con cortes sin IA)
   if (lead?.id) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
     const trivial = corto.length < 3 || /^(gracias|grasias|ok|okey|oki|ya|listo|dale|de acuerdo|👍|🙏)[.!\s]*$/i.test(corto)
     if (trivial) return
-    if (/asesor|humano|persona real|hablar con alguien|que me llamen/i.test(corto)) {
+    if (/asesor|humano|persona real|hablar con alguien|que me llamen|llamen/i.test(corto)) {
       await setConv(phone, { flow_state: 'humano' })
-      await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis para el detalle. Le escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id })
-      if (ADMIN) await enviar(ADMIN, '⚠️ REQUIERE ASESOR YA (pidio humano)\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nUltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })
+      await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis. Te escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id })
+      if (ADMIN) await enviar(ADMIN, '⚠️ PIDIÓ ASESOR\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nÚltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })
       return
     }
-    await responderIA(jid, phone, lead, conv, corto)
+    await enviar(jid, 'Gracias por tu mensaje 🙌 Un asesor de Urbis revisará tu consulta y te responderá pronto. Si es urgente escribe *ASESOR*.', { tipo: 'lead_flujo', lead_id: lead.id })
   }
 }
 
