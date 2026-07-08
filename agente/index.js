@@ -242,11 +242,41 @@ async function comandoDirecto(texto) {
 
     if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola)$/.test(t)) {
       return '📋 *COMANDOS RÁPIDOS (gratis):*\n\n' +
+        '• *resumen* — panorama del día (todo en uno)\n' +
         '• *lotes* — disponibles y precios por proyecto\n' +
         '• *comisiones* — por cobrar (total y por asesor)\n' +
         '• *gastos* — del año por proyecto y mes\n' +
         '• *visitas* — programadas próximas\n' +
         '• *vencidas* — cuotas vencidas por proyecto' + PIE_COMANDO
+    }
+
+    if (/resumen|reporte|dashboard|panorama|balance|como vamos|c[oó]mo vamos/.test(t)) {
+      const hoy = new Date().toISOString().slice(0, 10), mes = hoy.slice(0, 7)
+      const [{ data: lots }, { data: sales }, { data: venc }, { data: coms }, { data: gastos }, { data: vis }] = await Promise.all([
+        supabase.from('lots').select('status'),
+        supabase.from('sales').select('status'),
+        supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status)').eq('status', 'vencido'),
+        supabase.from('commissions').select('amount').eq('status', 'pendiente'),
+        supabase.from('expenses').select('amount, issue_date').gte('issue_date', mes + '-01'),
+        supabase.from('visits').select('date, time, client_name, project:projects(name)').eq('status', 'programada').gte('date', hoy).order('date').order('time').limit(3),
+      ])
+      const disp = (lots || []).filter(l => l.status === 'disponible').length
+      const vendidos = (lots || []).filter(l => ['vendido', 'entregado'].includes(l.status)).length
+      const enProc = (sales || []).filter(s => s.status === 'en_proceso').length
+      const pagadas = (sales || []).filter(s => s.status === 'pagado').length
+      let vN = 0, vS = 0
+      for (const q of (venc || [])) { if (q.sale?.status !== 'en_proceso') continue; const d = Number(q.amount) - Number(q.amount_paid); if (d > 0.05) { vN++; vS += d } }
+      const comTot = (coms || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+      const gasTot = (gastos || []).filter(g => String(g.issue_date || '').slice(0, 7) === mes).reduce((s, g) => s + Number(g.amount || 0), 0)
+      const prox = (vis || [])[0]
+      let out = '📊 *RESUMEN — ' + hoy.split('-').reverse().join('/') + '*\n'
+      out += '\n🏘️ Lotes: *' + disp + '* disponibles · ' + vendidos + ' vendidos'
+      out += '\n💰 Ventas: *' + enProc + '* en proceso · ' + pagadas + ' pagadas'
+      out += '\n⚠️ Vencidas: *' + vN + '* cuotas · ' + soles(vS)
+      out += '\n💼 Comisiones por cobrar: *' + soles(comTot) + '*'
+      out += '\n💸 Gastos del mes: *' + soles(gasTot) + '*'
+      out += '\n📅 Próximas visitas: *' + (vis || []).length + '*' + (prox ? ' (sig: ' + String(prox.date).split('-').reverse().join('/') + ' ' + String(prox.time || '').slice(0, 5) + ' ' + (prox.client_name || '') + ')' : '')
+      return out + PIE_COMANDO
     }
 
     if (/\blotes?\b|disponibl|disponibilidad/.test(t)) {
