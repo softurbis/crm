@@ -54,9 +54,9 @@ export default function Leads() {
     return true
   }), [leads, q, fproj, fadv])
 
-  const porEtapa = e => filtrados.filter(l => l.lead_status === e)
-  const ganados = filtrados.filter(l => l.lead_status === 'ganado')
-  const perdidos = filtrados.filter(l => l.lead_status === 'perdido')
+  const porEtapa = e => filtrados.filter(l => l.status === e)
+  const ganados = filtrados.filter(l => l.status === 'ganado')
+  const perdidos = filtrados.filter(l => l.status === 'perdido')
 
   function abrir(l) {
     setSel(l); setNuevo(!l.id); setMsg(null); setNota('')
@@ -84,7 +84,7 @@ export default function Leads() {
       optin_date: form.optin_whatsapp ? new Date().toISOString() : null,
     }
     const r = nuevo
-      ? await supabase.from('leads').insert({ ...payload, lead_status: 'nuevo', created_by: profile?.id })
+      ? await supabase.from('leads').insert({ ...payload, status: 'nuevo', created_by: profile?.id })
       : await supabase.from('leads').update(payload).eq('id', sel.id)
     if (r.error) { setMsg({ ok: false, t: r.error.message }); return }
     setMsg({ ok: true, t: 'GUARDADO' })
@@ -93,7 +93,7 @@ export default function Leads() {
   }
 
   async function mover(id, etapa) {
-    await supabase.from('leads').update({ lead_status: etapa }).eq('id', id)
+    await supabase.from('leads').update({ status: etapa }).eq('id', id)
     load()
   }
 
@@ -119,7 +119,7 @@ export default function Leads() {
         if (error) throw error
         clientId = c.id
       }
-      await supabase.from('leads').update({ lead_status: 'ganado', client_id: clientId }).eq('id', l.id)
+      await supabase.from('leads').update({ status: 'ganado', client_id: clientId }).eq('id', l.id)
       setSel(null); load()
       alert(`LEAD GANADO ✔\n\n${l.full_name} ya es CLIENTE (completa su DNI y fotos en el modulo Clientes).\nAhora registra su SEPARACION en CUOTAS eligiendo su nombre.`)
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
@@ -128,7 +128,7 @@ export default function Leads() {
   async function perder(l) {
     const motivo = prompt('Motivo de la perdida (obligatorio):')
     if (!motivo || motivo.trim().length < 3) return
-    await supabase.from('leads').update({ lead_status: 'perdido', lost_reason: motivo.toUpperCase() }).eq('id', l.id)
+    await supabase.from('leads').update({ status: 'perdido', lost_reason: motivo.toUpperCase() }).eq('id', l.id)
     setSel(null); load()
   }
 
@@ -269,7 +269,7 @@ export default function Leads() {
               <div className="span2">
                 {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
                 <button className="btn-primary">{nuevo ? 'Crear lead' : 'Guardar cambios'}</button>
-                {!nuevo && sel.lead_status !== 'ganado' && role !== 'manager' && (<>
+                {!nuevo && sel.status !== 'ganado' && role !== 'manager' && (<>
                   {' '}<button type="button" className="btn-ghost ok" onClick={() => ganar(sel)}>&#127942; GANADO</button>
                   {' '}<button type="button" className="btn-ghost bad" onClick={() => perder(sel)}>PERDIDO</button>
                 </>)}
