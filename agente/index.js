@@ -394,18 +394,6 @@ async function comandosPrivilegiados(jid, phone, texto) {
     await enviar(jid, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
     return true
   }
-  const ma = String(texto).match(/^\s*aprende\s*:([\s\S]+)/i)
-  if (ma) {
-    const dato = ma[1].trim()
-    if (dato) {
-      const prev = ((await brain('aprendido')) || '').trim()
-      const nuevo = (prev ? prev + '\n' : '') + '- ' + dato + '  (aprendido ' + new Date().toLocaleDateString('es-PE') + ' por WhatsApp)'
-      await supabase.from('bot_brains').upsert({ key: 'aprendido', content: nuevo, updated_at: new Date().toISOString() })
-      _brains.t = 0
-      await enviar(jid, '✅ Aprendido: "' + dato.slice(0, 140) + '". Lo usaré desde ahora.', { tipo: 'aviso_admin' })
-    } else await enviar(jid, 'Formato: *aprende: <el dato que quieres que recuerde>*', { tipo: 'aviso_admin' })
-    return true
-  }
   return false
 }
 
@@ -1083,6 +1071,83 @@ async function preguntarCanal(jid, phone, lead, nombre) {
   const saludo = nombre ? `¡Un gusto, ${nombre.split(' ')[0]}! 😊` : '¡Perfecto! 😊'
   await enviar(jid, `${saludo} ¿Prefieres que te comparta toda la información *por aquí* 📲, o que te atienda directamente un *asesor especializado*? 🧑‍💼\n\nResponde *INFO* o *ASESOR*.`, { tipo: 'lead_flujo', lead_id: lead.id })
 }
+
+// ============ FLUJO CONFIGURABLE POR PROYECTO (projects.bot_flow) ============
+// steps[]: { id, tipo:'mensaje'|'pregunta', texto, media[], pasar_asesor,
+//            opciones[{label, claves, ir_a, pasar_asesor}] }
+const MEDIA_ARCHIVO = { foto1: 'foto', foto2: 'foto', foto3: 'foto', video: 'video', plano: 'plano', brochure: 'brochure' }
+function parseFlow(proy) {
+  try { const f = proy?.bot_flow; const o = typeof f === 'string' ? JSON.parse(f) : f; return (o && Array.isArray(o.steps) && o.steps.length) ? o : null } catch { return null }
+}
+// bot_flow crudo (aunque no tenga pasos) — para los textos de bienvenida / pedir nombre
+function parseFlowRaw(proy) { try { const f = proy?.bot_flow; return typeof f === 'string' ? JSON.parse(f) : (f || null) } catch { return null } }
+// texto configurable del proyecto con fallback y variable {proyecto}
+function textoFlujo(flow, key, def, proyName) {
+  const t = (flow && flow[key] && String(flow[key]).trim()) ? String(flow[key]) : def
+  return t.split('{proyecto}').join(proyName || 'nuestros proyectos')
+}
+const pasoPorId = (flow, id) => (flow.steps || []).find(s => String(s.id) === String(id))
+const idxDePaso = (flow, id) => (flow.steps || []).findIndex(s => String(s.id) === String(id))
+async function enviarMediaPaso(jid, proy, media) {
+  for (const m of (media || [])) {
+    if (m === 'maps' && proy.maps_url) await enviar(jid, '📌 *Ubicación en Google Maps:*\n' + proy.maps_url, { tipo: 'lead_flujo' })
+    else if (m === 'vista360' && proy.vista360_url) await enviar(jid, '🔄 *Recorrido virtual 360°:*\n' + proy.vista360_url, { tipo: 'lead_flujo' })
+    else if (MEDIA_ARCHIVO[m] && proy[m + '_url']) await enviarArchivo(jid, proy[m + '_url'], MEDIA_ARCHIVO[m], '')
+  }
+}
+// ejecuta pasos desde un índice; envía mensajes+adjuntos y se detiene en la 1ª pregunta (o al final)
+async function correrFlujo(jid, phone, lead, proy, flow, idx) {
+  const steps = flow.steps || []
+  let guard = 0
+  while (idx >= 0 && idx < steps.length && guard++ < 50) {
+    const s = steps[idx]
+    if (s.texto) await enviar(jid, s.texto, { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviarMediaPaso(jid, proy, s.media)
+    if (s.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
+    if (s.tipo === 'pregunta' && (s.opciones || []).length) {
+      const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
+      await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+      await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 })
+      return
+    }
+    idx++
+  }
+  await supabase.from('leads').update({ status: 'interesado', temperature: 'caliente' }).eq('id', lead.id)
+  await setConv(phone, { flow_state: 'completado', flow_step: null })
+  await finalizarLead(jid, phone, lead)
+}
+// arranca el flujo del proyecto; si no hay flujo configurado, cae al bombardeo por defecto
+async function iniciarFlujoProyecto(jid, phone, lead) {
+  const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+  const flow = parseFlow(proy)
+  if (proy && flow) { await correrFlujo(jid, phone, lead, proy, flow, 0); return }
+  if (proy) await bombardear(jid, proy)
+  await enviar(jid, '¿Te gustaría coordinar una *visita* o tienes alguna pregunta? 🙌 Escríbeme y con gusto te ayudo.', { tipo: 'lead_flujo', lead_id: lead.id })
+  await setConv(phone, { flow_state: 'espera_interes' })
+}
+// respuesta del lead dentro de un flujo (número o palabra clave -> rama)
+async function responderFlujo(jid, phone, lead, conv, corto) {
+  const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+  const flow = parseFlow(proy)
+  const step = flow ? pasoPorId(flow, conv.flow_step) : null
+  if (!proy || !flow || !step) { await setConv(phone, { flow_state: 'completado', flow_step: null }); await finalizarLead(jid, phone, lead); return }
+  const ops = step.opciones || []
+  let elegida = null
+  const soloNum = /^\s*\d+\s*$/.test(corto)
+  const n = parseInt(corto.replace(/\D/g, ''), 10)
+  if (soloNum && n >= 1 && n <= ops.length) elegida = ops[n - 1]
+  if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
+  if (!elegida) {
+    const opsTxt = ops.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
+    await enviar(jid, 'No te entendí bien 😅 Elige una opción:\n' + opsTxt + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+    return
+  }
+  await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
+  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
+  let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
+  if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1
+  await correrFlujo(jid, phone, lead, proy, flow, nextIdx)
+}
 async function finalizarLead(jid, phone, lead) {
   await enviar(jid, '¡Gracias! ✅ Registré tu interés. Un asesor de *Urbis Group* te contactará muy pronto con precios y facilidades de pago. Si quieres hablar ya con un asesor, escribe *ASESOR*. 🌳', { tipo: 'lead_flujo', lead_id: lead.id })
   const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', lead.id).order('created_at')
@@ -1211,7 +1276,11 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     lead = nuevoLead
     await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead?.id })
     const saludoProy = pr ? ` Con gusto te doy toda la info de *${pr.name}* 🌳` : ' 🌳'
-    await enviar(jid, `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate*.${saludoProy}\n\nPara atenderte mejor, ¿me dices tu *nombre*? _(o escribe *prefiero no decirlo* y seguimos igual)_`, { tipo: 'lead_flujo', lead_id: lead?.id })
+    const { data: pfW } = pr ? await supabase.from('projects').select('bot_flow').eq('id', pr.id).maybeSingle() : { data: null }
+    const flowW = parseFlowRaw(pfW)
+    const bien = textoFlujo(flowW, 'bienvenida', `¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate*.${saludoProy}`, pr?.name)
+    const pide = textoFlujo(flowW, 'pide_nombre', 'Para atenderte mejor, ¿me dices tu *nombre*? _(o escribe *prefiero no decirlo* y seguimos igual)_', pr?.name)
+    await enviar(jid, bien + '\n\n' + pide, { tipo: 'lead_flujo', lead_id: lead?.id })
     if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
     return
   }
@@ -1222,6 +1291,11 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     let nombre = null
     if (declina) {
       await supabase.from('leads').update({ status: 'contactado' }).eq('id', lead.id)
+      if (lead.project_id) {
+        const { data: pfN } = await supabase.from('projects').select('bot_flow').eq('id', lead.project_id).maybeSingle()
+        const noNom = parseFlowRaw(pfN)?.no_nombre
+        if (noNom && String(noNom).trim()) await enviar(jid, String(noNom).trim(), { tipo: 'lead_flujo', lead_id: lead.id })
+      }
     } else {
       nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
       if (nombre.length < 3) { await enviar(jid, 'Disculpa, no logré leer tu nombre 🙏 ¿Me lo escribes? O si prefieres, dime *prefiero no decirlo* y seguimos.', { tipo: 'lead_flujo', lead_id: lead.id }); return }
@@ -1259,10 +1333,13 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       await pasarAsesor(jid, phone, lead, 'eligio_asesor')
       return
     }
-    const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
-    if (proy) await bombardear(jid, proy)
-    await enviar(jid, '¿Te gustaría coordinar una *visita* o tienes alguna pregunta? 🙌 Escríbeme y con gusto te ayudo.', { tipo: 'lead_flujo', lead_id: lead.id })
-    await setConv(phone, { flow_state: 'espera_interes' })
+    await iniciarFlujoProyecto(jid, phone, lead)   // corre el flujo del proyecto (o el bombardeo por defecto)
+    return
+  }
+
+  // 3a) DENTRO DEL FLUJO CONFIGURABLE DEL PROYECTO (pasos con ramas y palabras clave)
+  if (estado === 'flow') {
+    await responderFlujo(jid, phone, lead, conv, corto)
     return
   }
 
@@ -1429,6 +1506,36 @@ async function nudgeLeads() {
   }
 }
 setInterval(() => { nudgeLeads().catch(() => {}) }, 60000)
+
+// ---------- RE-PREGUNTAR dentro del flujo del proyecto (si no responde) ----------
+async function reaskFlow() {
+  if (TEST_ACTIVE) return
+  if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
+  const { data } = await supabase.from('whatsapp_conversations')
+    .select('id, phone, wa_jid, lead_id, flow_step, flow_reasks, last_message_at')
+    .eq('flow_state', 'flow').neq('is_test', true).limit(30)
+  for (const c of (data || [])) {
+    try {
+      const { data: lead } = await supabase.from('leads').select('id, project_id').eq('id', c.lead_id).maybeSingle()
+      if (!lead) continue
+      const { data: proy } = await supabase.from('projects').select('bot_flow').eq('id', lead.project_id).maybeSingle()
+      const flow = parseFlow(proy)
+      if (!flow) continue
+      const reMin = Number(flow.reask_min) || 5
+      const maxRe = Number(flow.max_reasks) || 1
+      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue
+      if ((c.flow_reasks || 0) >= maxRe) continue
+      const step = pasoPorId(flow, c.flow_step)
+      if (!step) continue
+      const jid = c.wa_jid || jidDe(c.phone)
+      const ops = (step.opciones || []).map((o, i) => (i + 1) + '. ' + o.label).join('\n')
+      const texto = (flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
+      await enviar(c.phone, texto, { tipo: 'lead_flujo', lead_id: c.lead_id })
+      await supabase.from('whatsapp_conversations').update({ flow_reasks: (c.flow_reasks || 0) + 1, last_message_at: new Date().toISOString() }).eq('id', c.id)
+    } catch (e) { log('reask:', String(e.message || e)) }
+  }
+}
+setInterval(() => { reaskFlow().catch(() => {}) }, 60000)
 
 // ---------- CONSOLA DE PRUEBAS (chat virtual, sin WhatsApp real) ----------
 async function purgarPruebas() {

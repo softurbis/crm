@@ -18,6 +18,9 @@ const TIPOS = [
   { v: 'silencio',    t: 'SILENCIO TOTAL (nunca responde ni escribe)', s: '\u{1F507} SILENCIO TOTAL', c: '#8b95a1' },
 ]
 const fh = iso => iso ? new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+// material adjuntable en cada paso del flujo (clave que entiende el agente -> etiqueta)
+const MEDIA_OPTS = [['foto1', 'Foto 1'], ['foto2', 'Foto 2'], ['foto3', 'Foto 3'], ['video', 'Video'], ['maps', 'Maps'], ['vista360', 'Tour 360°'], ['plano', 'Plano'], ['brochure', 'Brochure']]
+const nuevoPasoId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'p' + Date.now() + Math.random().toString(36).slice(2, 6))
 
 function ReplyBox({ phone, onSent }) {
   const [txt, setTxt] = useState('')
@@ -58,7 +61,7 @@ export default function Whatsapp() {
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
   const [proys, setProys] = useState([])
-  const [brainSel, setBrainSel] = useState('ventas')
+  const [brainSel, setBrainSel] = useState('cobranza')
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useState('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
@@ -67,6 +70,7 @@ export default function Whatsapp() {
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
+  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', bienvenida: '', pide_nombre: '', no_nombre: '', steps: [] })
   const selRef = useRef(null)
   const endRef = useRef(null)
 
@@ -137,11 +141,10 @@ export default function Whatsapp() {
 
   // Cada cerebro: clave, título largo (editor), etiqueta corta y color (mapa radial),
   // y "meta" objetivo de longitud para calcular el % de completado del nodo.
+  // El bot de LEADS es 100% flujo por proyecto (preguntas cerradas), sin IA: no hay cerebro de ventas.
+  // Solo quedan las plantillas de cobranza/seguimiento y el Q&A de gerencia. Las preguntas de cada
+  // proyecto se editan en su FICHA (nodos 📁).
   const BRAIN_DEFS = [
-    { k: 'ventas', t: '🧠 VENTAS — cerebro principal (papel + flujo del calificador)', lbl: 'VENTAS', color: '#9ccb86', meta: 900 },
-    { k: 'instrucciones', t: '📌 INSTRUCCIONES ESPECÍFICAS — se suman al de ventas', lbl: 'REGLAS', color: '#7ec8e3', meta: 500 },
-    { k: 'prohibiciones', t: '🚫 NUNCA DECIR — prohibiciones absolutas', lbl: 'PROHIBIDO', color: '#e07b7b', meta: 400 },
-    { k: 'aprendido', t: '💡 APRENDIDO — lo que le has enseñado (se suma a ventas)', lbl: 'APRENDIDO', color: '#e8975a', meta: 400 },
     { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes', lbl: 'COBRANZA', color: '#e0b34c', meta: 600 },
     { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento', lbl: 'SEGUIMIENTO', color: '#b8a1d9', meta: 600 },
     { k: 'gerencia', t: '🔐 GERENCIA — notas internas para el Q&A del equipo (opcional)', lbl: 'GERENCIA', color: '#6fd0c9', meta: 500 },
@@ -149,7 +152,7 @@ export default function Whatsapp() {
   const cargarBrains = async () => {
     const [{ data: b }, { data: p }] = await Promise.all([
       supabase.from('bot_brains').select('*'),
-      supabase.from('projects').select('id, name, bot_knowledge, bot_questions, lead_notify_phone').order('name'),
+      supabase.from('projects').select('id, name, bot_knowledge, bot_questions, lead_notify_phone, bot_flow').order('name'),
     ])
     setBrains(b || []); setProys(p || [])
     return { b: b || [], p: p || [] }
@@ -182,7 +185,38 @@ export default function Whatsapp() {
       try { q = Array.isArray(p?.bot_questions) ? p.bot_questions : JSON.parse(p?.bot_questions || '[]') } catch {}
       setProjQ((q || []).filter(x => x && x.q).slice(0, 5))
       setProjNotify(p?.lead_notify_phone || '')
+      let fl = null
+      try { fl = typeof p?.bot_flow === 'string' ? JSON.parse(p.bot_flow) : p?.bot_flow } catch {}
+      setProjFlow({
+        reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
+        bienvenida: fl?.bienvenida || '', pide_nombre: fl?.pide_nombre || '', no_nombre: fl?.no_nombre || '',
+        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
+      })
     }
+  }
+  // ---- constructor de flujo por proyecto ----
+  const flowSet = (i, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, ...patch } : s) }))
+  const flowAdd = () => setProjFlow(f => ({ ...f, steps: [...f.steps, { id: nuevoPasoId(), tipo: 'mensaje', texto: '', media: [], pasar_asesor: false, opciones: [] }] }))
+  const flowDel = i => setProjFlow(f => ({ ...f, steps: f.steps.filter((_, j) => j !== i) }))
+  const flowMove = (i, d) => setProjFlow(f => { const a = [...f.steps]; const j = i + d; if (j < 0 || j >= a.length) return f;[a[i], a[j]] = [a[j], a[i]]; return { ...f, steps: a } })
+  const flowMedia = (i, key) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, media: (s.media || []).includes(key) ? s.media.filter(m => m !== key) : [...(s.media || []), key] } : s) }))
+  const optSet = (i, oi, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).map((o, k) => k === oi ? { ...o, ...patch } : o) } : s) }))
+  const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', ir_a: '', pasar_asesor: false }] } : s) }))
+  const optDel = (i, oi) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).filter((_, k) => k !== oi) } : s) }))
+  const guardarFlujo = async () => {
+    setProjQMsg('GUARDANDO...')
+    const clean = {
+      reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(),
+      bienvenida: (projFlow.bienvenida || '').trim(), pide_nombre: (projFlow.pide_nombre || '').trim(), no_nombre: (projFlow.no_nombre || '').trim(),
+      steps: (projFlow.steps || []).map(s => ({
+        id: s.id, tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: (s.texto || '').trim(), media: s.media || [], pasar_asesor: !!s.pasar_asesor,
+        opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
+      })).filter(s => s.texto || (s.opciones && s.opciones.length)),
+    }
+    const notify = String(projNotify || '').replace(/\D/g, '') || null
+    const { error } = await supabase.from('projects').update({ bot_flow: clean, lead_notify_phone: notify }).eq('id', brainSel.slice(2))
+    setProjQMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot usa el flujo en máx. 1 minuto')
+    if (!error) cargarBrains()
   }
   // Preguntas cerradas del proyecto (flujo de ventas sin IA): máx 5, cada una con opciones.
   const guardarPreguntas = async () => {
@@ -307,7 +341,7 @@ export default function Whatsapp() {
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
           <span style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 10px 4px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.1)', opacity: flags.bot_activo ? 1 : 0.45 }}>
             <span className="muted" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px' }}>AGENTES</span>
-            <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🧠" label="VENTAS" />
+            <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🤖" label="LEADS" />
             <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
             <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
           </span>
@@ -324,7 +358,7 @@ export default function Whatsapp() {
           {role === 'superuser' && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
-          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('ventas'); setBrainTxt(b.find(x => x.key === 'ventas')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>}
+          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b } = await cargarBrains(); setBrainSel('cobranza'); setBrainTxt(b.find(x => x.key === 'cobranza')?.content || ''); setBrainMsg('') } }}>🧠 CEREBROS</button>}
         </div>
       </div>
 
@@ -448,29 +482,84 @@ export default function Whatsapp() {
           )}
           {brainSel.startsWith('p:') && (
             <div style={{ border: '1px solid rgba(156,203,134,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(156,203,134,.06)' }}>
-              <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 PREGUNTAS DEL CALIFICADOR (máx 5)</b>
-              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>El bot de ventas (sin IA) le hace estas preguntas cerradas al lead de este proyecto, tras enviarle fotos/videos/info. Opciones separadas por coma. Vacío = usa las preguntas por defecto.</p>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8 }}>
-                <label style={{ fontSize: 12 }}>👤 Asesor asignado (recibe el lead calificado):</label>
-                <input value={projNotify} placeholder="51 + número (ej. 51944538888)" onChange={e => setProjNotify(e.target.value)} style={{ width: 200 }} />
-                <span className="muted" style={{ fontSize: 10 }}>Le llega igual que al admin: proyecto, cliente, preguntas y respuestas.</span>
+              <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 FLUJO DEL BOT (sin IA)</b>
+              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Arma paso a paso lo que hace el bot tras el nombre y el “¿info por aquí?”: mensajes con material adjunto y preguntas que responden por <b>número o palabra clave</b>, con ramas (ir a otro paso) y disparadores de <b>pasar al asesor</b>. Vacío = usa el bombardeo por defecto.</p>
+
+              <div style={{ border: '1px solid rgba(126,200,227,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(126,200,227,.06)' }}>
+                <b style={{ fontSize: 12, color: '#7ec8e3' }}>⭐ Mensajes especiales del inicio</b>
+                <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Usa <b>{'{proyecto}'}</b> y se reemplaza por el nombre del proyecto. Vacío = usa el texto por defecto.</p>
+                <label style={{ fontSize: 11 }}>👋 Bienvenida</label>
+                <textarea value={projFlow.bienvenida} placeholder="¡Hola! 👋 Gracias por escribir sobre {proyecto} 🌳" onChange={e => setProjFlow(f => ({ ...f, bienvenida: e.target.value }))} style={{ width: '100%', minHeight: 40, textTransform: 'none', fontSize: 12, margin: '3px 0 8px' }} />
+                <label style={{ fontSize: 11 }}>🙋 Pedir el nombre (menciona que puede no darlo)</label>
+                <textarea value={projFlow.pide_nombre} placeholder="Para atenderte mejor, ¿me dices tu *nombre*? _(o escribe *prefiero no decirlo*)_" onChange={e => setProjFlow(f => ({ ...f, pide_nombre: e.target.value }))} style={{ width: '100%', minHeight: 40, textTransform: 'none', fontSize: 12, margin: '3px 0 8px' }} />
+                <label style={{ fontSize: 11 }}>🤐 Si NO quiere dar el nombre</label>
+                <textarea value={projFlow.no_nombre} placeholder="¡Sin problema! Seguimos igual 😊" onChange={e => setProjFlow(f => ({ ...f, no_nombre: e.target.value }))} style={{ width: '100%', minHeight: 36, textTransform: 'none', fontSize: 12, margin: '3px 0 0' }} />
               </div>
-              {projQ.map((q, i) => (
-                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, width: 16 }}>{i + 1}.</span>
-                  <input value={q.q || ''} placeholder="Pregunta (ej. ¿Para qué lo buscas?)" onChange={e => setProjQ(a => a.map((x, j) => j === i ? { ...x, q: e.target.value } : x))} style={{ flex: '1 1 220px', textTransform: 'none' }} />
-                  <input value={(q.opciones || []).join(', ')} placeholder="Opciones: Vivienda, Inversión, Negocio" onChange={e => setProjQ(a => a.map((x, j) => j === i ? { ...x, opciones: e.target.value.split(',').map(s => s.trim()) } : x))} style={{ flex: '1 1 220px', textTransform: 'none' }} />
-                  <button className="btn-ghost" title="Quitar" onClick={() => setProjQ(a => a.filter((_, j) => j !== i))}>✕</button>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8, fontSize: 12 }}>
+                <label>👤 Asesor (recibe el lead):</label>
+                <input value={projNotify} placeholder="51 + número" onChange={e => setProjNotify(e.target.value)} style={{ width: 160 }} />
+                <span style={{ width: 8 }} />
+                <label>🔁 Si no responde, re-preguntar a los</label>
+                <input type="number" min="1" value={projFlow.reask_min} onChange={e => setProjFlow(f => ({ ...f, reask_min: e.target.value }))} style={{ width: 54 }} /> min,
+                <input type="number" min="0" value={projFlow.max_reasks} onChange={e => setProjFlow(f => ({ ...f, max_reasks: e.target.value }))} style={{ width: 44 }} /> vez(es)
+                <input value={projFlow.reask_text} placeholder="Texto del recordatorio (opcional)" onChange={e => setProjFlow(f => ({ ...f, reask_text: e.target.value }))} style={{ flex: '1 1 180px', textTransform: 'none' }} />
+              </div>
+
+              {projFlow.steps.map((s, i) => (
+                <div key={s.id} style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(0,0,0,.12)' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: 12 }}>Paso {i + 1}</b>
+                    <select value={s.tipo} onChange={e => flowSet(i, { tipo: e.target.value })} style={{ fontSize: 12 }}>
+                      <option value="mensaje">💬 Mensaje</option>
+                      <option value="pregunta">❓ Pregunta</option>
+                    </select>
+                    <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer', color: s.pasar_asesor ? '#e0b34c' : undefined }}>
+                      <input type="checkbox" checked={!!s.pasar_asesor} onChange={e => flowSet(i, { pasar_asesor: e.target.checked })} /> pasar al asesor tras este paso
+                    </label>
+                    <span style={{ marginLeft: 'auto' }} />
+                    <button className="btn-ghost" onClick={() => flowMove(i, -1)} title="Subir">▲</button>
+                    <button className="btn-ghost" onClick={() => flowMove(i, 1)} title="Bajar">▼</button>
+                    <button className="btn-ghost" onClick={() => flowDel(i)} title="Quitar paso">✕</button>
+                  </div>
+                  <textarea value={s.texto} placeholder={s.tipo === 'pregunta' ? 'Texto de la pregunta (ej. ¿Para qué buscas el lote?)' : 'Texto del mensaje'} onChange={e => flowSet(i, { texto: e.target.value })} style={{ width: '100%', minHeight: 44, textTransform: 'none', fontSize: 12.5 }} />
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>
+                    <span className="muted" style={{ fontSize: 11 }}>Adjuntar:</span>
+                    {MEDIA_OPTS.map(([k, lbl]) => (
+                      <label key={k} style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={(s.media || []).includes(k)} onChange={() => flowMedia(i, k)} /> {lbl}
+                      </label>
+                    ))}
+                  </div>
+                  {s.tipo === 'pregunta' && (
+                    <div style={{ borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 6, marginTop: 4 }}>
+                      {(s.opciones || []).map((o, oi) => (
+                        <div key={oi} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
+                          <input value={o.label} placeholder="Opción (ej. Inversión)" onChange={e => optSet(i, oi, { label: e.target.value })} style={{ flex: '1 1 120px', textTransform: 'none' }} />
+                          <input value={o.claves} placeholder="palabras clave: invertir, negocio" onChange={e => optSet(i, oi, { claves: e.target.value })} style={{ flex: '1 1 150px', textTransform: 'none' }} />
+                          <select value={o.ir_a} onChange={e => optSet(i, oi, { ir_a: e.target.value })} style={{ fontSize: 11 }}>
+                            <option value="">→ siguiente paso</option>
+                            {projFlow.steps.map((st, si) => si !== i ? <option key={st.id} value={st.id}>→ Paso {si + 1}</option> : null)}
+                          </select>
+                          <label style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer', color: o.pasar_asesor ? '#e0b34c' : undefined }}>
+                            <input type="checkbox" checked={!!o.pasar_asesor} onChange={e => optSet(i, oi, { pasar_asesor: e.target.checked })} /> asesor
+                          </label>
+                          <button className="btn-ghost" onClick={() => optDel(i, oi)} title="Quitar opción">✕</button>
+                        </div>
+                      ))}
+                      <button className="btn-ghost" onClick={() => optAdd(i)}>+ Opción</button>
+                    </div>
+                  )}
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                {projQ.length < 5 && <button className="btn-ghost" onClick={() => setProjQ(a => [...a, { q: '', opciones: [] }])}>+ Agregar pregunta</button>}
-                <button className="btn" onClick={guardarPreguntas}>💾 GUARDAR PREGUNTAS</button>
+                <button className="btn-ghost" onClick={flowAdd}>+ Agregar paso</button>
+                <button className="btn" onClick={guardarFlujo}>💾 GUARDAR FLUJO</button>
                 {projQMsg && <span style={{ fontSize: 12 }}>{projQMsg}</span>}
               </div>
             </div>
           )}
-          {brainSel.startsWith('p:') && <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Abajo va la <b>info del proyecto</b> (descripción, cómo llegar, ganchos) que el bot manda en el bombardeo.</p>}
+          {brainSel.startsWith('p:') && <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Abajo (opcional) la <b>info del proyecto</b> que el bot manda en el bombardeo por defecto (cuando el proyecto no tiene flujo armado).</p>}
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
             placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
             style={{ width: '100%', minHeight: '48vh', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }} />
