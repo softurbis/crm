@@ -658,13 +658,14 @@ export default function Whatsapp() {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '6px 0 8px' }}>
                   <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Subir imágenes<input type="file" accept="image/*" multiple onChange={e => subirMedia(e, 'imagen')} style={{ display: 'none' }} /></label>
                   <label className="btn-ghost" style={{ cursor: 'pointer' }}>🎬 Subir videos<input type="file" accept="video/*" multiple onChange={e => subirMedia(e, 'video')} style={{ display: 'none' }} /></label>
+                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 Subir PDF<input type="file" accept="application/pdf,.pdf" multiple onChange={e => subirMedia(e, 'pdf')} style={{ display: 'none' }} /></label>
                   <button className="btn-ghost" onClick={() => libAdd({ id: nuevoPasoId(), tipo: 'link', url: '', desc: '' })}>🔗 Agregar link</button>
                   {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
                 </div>
                 {(projFlow.media_lib || []).length === 0 && <p className="muted" style={{ fontSize: 11 }}>Aún no hay material. Sube imágenes/videos o agrega links.</p>}
                 {(projFlow.media_lib || []).map(m => (
                   <div key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap', padding: '4px 6px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6 }}>
-                    <span style={{ fontSize: 11 }}>{m.tipo === 'video' ? '🎬' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
+                    <span style={{ fontSize: 11 }}>{m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
                     {m.tipo === 'link'
                       ? <input value={m.url} placeholder="https://…" onChange={e => libSet(m.id, { url: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
                       : <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#7ec8e3', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ver archivo</a>}
@@ -707,7 +708,7 @@ export default function Whatsapp() {
                     {(projFlow.media_lib || []).length === 0 && <span className="muted" style={{ fontSize: 10 }}>(sube material arriba)</span>}
                     {(projFlow.media_lib || []).map(m => (
                       <label key={m.id} style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={(s.media || []).includes(m.id)} onChange={() => flowMedia(i, m.id)} /> {m.tipo === 'video' ? '🎬' : m.tipo === 'link' ? '🔗' : '🖼️'}{m.desc ? ' ' + m.desc.slice(0, 14) : ''}
+                        <input type="checkbox" checked={(s.media || []).includes(m.id)} onChange={() => flowMedia(i, m.id)} /> {m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}{m.desc ? ' ' + m.desc.slice(0, 14) : ''}
                       </label>
                     ))}
                   </div>

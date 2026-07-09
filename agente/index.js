@@ -130,7 +130,7 @@ const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 
 async function enviarArchivo(jid, url, clase, caption) {
-  const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
+  const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : clase === 'documento' ? '📄 DOCUMENTO' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
   if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
     await supabase.from('scheduled_messages').insert({ recipient_phone: TEST_ACTIVE, body: etiqueta, tipo: 'test_media', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     return
@@ -142,11 +142,12 @@ async function enviarArchivo(jid, url, clase, caption) {
     await espera(3000 + Math.floor(Math.random() * 3000))
     try { await sock.sendPresenceUpdate('paused', dest) } catch (e) {}
     const low = String(url).toLowerCase()
+    const esDoc = (clase === 'plano' || clase === 'brochure' || clase === 'documento') && low.includes('.pdf')
     if (clase === 'video') guardarMsg(await sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
-    else if ((clase === 'plano' || clase === 'brochure') && low.includes('.pdf')) guardarMsg(await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: clase === 'brochure' ? 'BROCHURE.pdf' : 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined }))
+    else if (esDoc) guardarMsg(await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: (clase === 'brochure' ? 'BROCHURE' : clase === 'plano' ? 'PLANO-ACTUALIZADO' : (String(caption || 'DOCUMENTO').replace(/[^\w .-]/g, '').trim().slice(0, 40) || 'DOCUMENTO')) + '.pdf', caption: caption || undefined }))
     else guardarMsg(await sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
     enviadosHoy++
-    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: (clase === 'video' ? '🎬 VIDEO ENVIADO' : clase === 'plano' ? '🗺️ PLANO ENVIADO' : clase === 'brochure' ? '📘 BROCHURE ENVIADO' : '📷 FOTO ENVIADA') + (caption ? ': ' + caption : ''), tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
+    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: etiqueta, tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     log('MEDIA [' + clase + '] enviada a', telDeJid(dest))
   } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
 }
@@ -1291,6 +1292,7 @@ async function enviarMediaLib(jid, lib, ids) {
     const it = byId[String(id)]
     if (!it || !it.url) continue
     if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', it.desc || '')
+    else if (it.tipo === 'pdf') await enviarArchivo(jid, it.url, 'documento', it.desc || '')
     else if (it.tipo === 'link') await enviar(jid, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo' })
     else await enviarArchivo(jid, it.url, 'foto', it.desc || '')
   }
