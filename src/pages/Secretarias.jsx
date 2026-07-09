@@ -28,6 +28,9 @@ export default function Secretarias() {
   const [extra, setExtra] = useState(null)
   const [mover, setMover] = useState(null)
   const [accesos, setAccesos] = useState([])
+  const [editT, setEditT] = useState(null)     // edición en línea (título/hora/nota) — aplica solo a ese día
+  const [scope, setScope] = useState(null)      // diálogo: borrar solo este día o toda la rutina
+  const [reasig, setReasig] = useState(null)    // reasignar tarea a otra persona
 
   const esJefe = ['admin', 'superuser'].includes(role)
   // registro propio: la persona del equipo vinculada a este usuario del sistema
@@ -107,6 +110,44 @@ export default function Secretarias() {
     await supabase.from('secretary_tasks').update(upd).eq('id', mover.id)
     setMover(null); cargar()
   }
+  // convierte una rutina proyectada de un día en una tarea real (para poder editarla/saltarla ese día)
+  const materializar = async (r, date) => {
+    const { data: ex } = await supabase.from('secretary_tasks').select('*').eq('routine_id', r.id).eq('date', date).limit(1)
+    if (ex && ex[0]) return ex[0]
+    const { data } = await supabase.from('secretary_tasks').insert({ secretary_id: r.secretary_id, routine_id: r.id, title: r.title, date, slot: r.slot, category: r.category || 'administrativa' }).select().single()
+    return data
+  }
+  // guardar edición de título/hora/nota — SOLO para ese día (si es rutina proyectada, la materializa)
+  const guardarEdit = async () => {
+    let id = editT.id
+    if (!id && editT.routine) { const t = await materializar(editT.routine, editT.date); id = t?.id }
+    if (!id) return
+    const upd = { title: (editT.title || '').toUpperCase().trim(), time: editT.time || null, note: (editT.note || '').trim() || null }
+    if (editT.time) upd.slot = editT.time < '13:00' ? 'manana' : 'tarde'
+    await supabase.from('secretary_tasks').update(upd).eq('id', id)
+    setEditT(null); cargar()
+  }
+  const reasignar = async (t, sid) => { if (sid) await supabase.from('secretary_tasks').update({ secretary_id: sid }).eq('id', t.id); setReasig(null); cargar() }
+  const restaurar = async t => { await supabase.from('secretary_tasks').update({ cancelada: false }).eq('id', t.id); cargar() }
+  // borrar: si es de rutina, pregunta el alcance (este día / toda la rutina); si no, borra directo
+  const aplicarScope = async modo => {
+    const { task, routine, date } = scope
+    if (modo === 'dia') {
+      const t = task || (routine ? await materializar(routine, date) : null)
+      if (t) await supabase.from('secretary_tasks').update({ cancelada: true }).eq('id', t.id)   // saltar ese día
+    } else if (modo === 'rutina' && routine) {
+      await supabase.from('secretary_routines').delete().eq('id', routine.id)                     // borra la plantilla (todos los días)
+    }
+    setScope(null); cargar()
+  }
+  // proyección de rutinas para el día seleccionado (las que aún no tienen tarea real)
+  const itemsDia = sid => {
+    const reales = delDia.filter(t => t.secretary_id === sid)
+    const conRutina = new Set(reales.filter(t => t.routine_id).map(t => t.routine_id))
+    const proyectadas = (diaSel >= hoy ? rutinasDe(dowSel) : []).filter(r => r.secretary_id === sid && !conRutina.has(r.id))
+      .map(r => ({ id: 'proj-' + r.id, proyectada: true, routine: r, title: r.title, slot: r.slot, category: r.category, status: 'pendiente' }))
+    return [...reales, ...proyectadas]
+  }
 
   const anio = Number(mes.slice(0, 4)), mnum = Number(mes.slice(5, 7))
   const nDias = new Date(anio, mnum, 0).getDate()
@@ -184,6 +225,7 @@ export default function Secretarias() {
       {abierta && (esJefe || (mia && abierta === mia.id)) && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
         <div className="glass" style={{ padding: 12, marginBottom: 12 }}>
           <b style={{ fontSize: 13 }}>RUTINA FIJA — {s.full_name}</b> <span className="muted" style={{ fontSize: 11 }}>(se repite cada semana, todo el mes)</span>
+          <p className="muted" style={{ fontSize: 10, margin: '2px 0 6px' }}>🌅 <b>Mañana</b> / 🌇 <b>Tarde</b> = cuándo el bot pasa lista por WhatsApp. Si pones una <b>hora exacta</b> (al editar el día), el bot avisa a esa hora.</p>
           {rs.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Sin rutina aún.</p>}
           {rs.map(r => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
@@ -199,7 +241,7 @@ export default function Secretarias() {
               <option value="administrativa">ADMINISTRATIVA</option><option value="gerencia">GERENCIA</option>
             </select>
             <select value={nr.slot} onChange={e => setNr({ ...nr, slot: e.target.value })}>
-              <option value="manana">MAÑANA</option><option value="tarde">TARDE</option>
+              <option value="manana">🌅 EN LA MAÑANA</option><option value="tarde">🌇 EN LA TARDE</option>
             </select>
             <div style={{ display: 'flex', gap: 3 }}>
               {DIAS.map(([n, l]) => (
@@ -272,7 +314,7 @@ export default function Secretarias() {
                 </select>
                 {!extra.time && (
                   <select value={extra.slot} onChange={e => setExtra({ ...extra, slot: e.target.value })}>
-                    <option value="manana">MAÑANA</option><option value="tarde">TARDE</option>
+                    <option value="manana">🌅 EN LA MAÑANA</option><option value="tarde">🌇 EN LA TARDE</option>
                   </select>
                 )}
                 <button className="btn" onClick={crearTarea}>CREAR</button>
@@ -281,42 +323,77 @@ export default function Secretarias() {
             </div>
           )}
 
-          {delDia.length === 0 && <p className="muted" style={{ fontSize: 12 }}>Sin actividades registradas este día.{diaSel > hoy && rutinasDe(dowSel).length > 0 ? ' La rutina se genera automáticamente ese día: ' + rutinasDe(dowSel).map(r => r.title).join(', ') + '.' : ''}</p>}
+          {!secsV.filter(s => secSel === 'todas' || s.id === secSel).some(s => itemsDia(s.id).length) && <p className="muted" style={{ fontSize: 12 }}>Sin actividades este día.</p>}
           {secsV.filter(s => secSel === 'todas' || s.id === secSel).map(s => {
-            const ts = delDia.filter(t => t.secretary_id === s.id)
-            if (!ts.length) return null
+            const items = itemsDia(s.id)
+            if (!items.length) return null
             return (
               <div key={s.id} style={{ marginBottom: 10 }}>
                 {secSel === 'todas' && <b style={{ fontSize: 12, color: s.tipo === 'gerencia' ? '#e7c15a' : '#e8a0c8' }}>{s.tipo === 'gerencia' ? '👔 ' : ''}{s.full_name}</b>}
-                {ts.map(t => {
+                {items.map(t => {
+                  const proj = t.proyectada
                   const e = EST[t.status] || EST.pendiente
                   const cat = CATS[t.category || 'administrativa']
-                  const editable = puedeMarcar(t)
-                  return (
-                    <div key={t.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                  const editable = esJefe || (mia && (t.secretary_id === mia.id || t.routine?.secretary_id === mia.id))
+                  const esRutina = proj || !!t.routine_id
+                  const enEdicion = editT && (editT.id === t.id || (proj && editT.routine?.id === t.routine?.id))
+                  if (t.cancelada) return (
+                    <div key={t.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)', opacity: .55 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span title={e.t}>{e.i}</span>
-                        <span style={{ flex: 1, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
-                          {t.ask_index ? <b style={{ color: '#9ccb86' }}>{t.ask_index}. </b> : null}{t.title}
-                        </span>
-                        {editable && t.status !== 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
-                        {editable && t.status === 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
-                        {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
-                        {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => quitarTarea(t)}>✕</button>}
+                        <span>🚫</span><span style={{ flex: 1, fontSize: 13, textDecoration: 'line-through' }}>{t.title}</span>
+                        <span className="muted" style={{ fontSize: 9 }}>SALTADA ESTE DÍA</span>
+                        {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Restaurar" onClick={() => restaurar(t)}>↻</button>}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, marginLeft: 26, alignItems: 'center' }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: cat.c, border: `1px solid ${cat.c}55`, borderRadius: 8, padding: '0 6px' }}>{cat.t}</span>
-                        <span className="muted" style={{ fontSize: 10 }}>{t.time ? '🕐 ' + String(t.time).slice(0, 5) : (t.slot === 'manana' ? 'MAÑANA' : 'TARDE')}{t.routine_id ? ' · RUTINA' : ''}</span>
-                        {t.answer && <span className="muted" style={{ fontSize: 9, textTransform: 'none' }} title={t.answer}>· {String(t.answer).slice(0, 40)}</span>}
-                      </div>
-                      {mover?.id === t.id && (
-                        <div style={{ display: 'flex', gap: 6, margin: '6px 0 2px 26px', alignItems: 'center' }}>
-                          <input type="date" value={mover.date} onChange={e => setMover({ ...mover, date: e.target.value })} />
-                          <input type="time" value={mover.time} onChange={e => setMover({ ...mover, time: e.target.value })} />
-                          <button className="btn" style={{ fontSize: 11 }} onClick={guardarMover}>MOVER</button>
-                          <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setMover(null)}>✕</button>
+                    </div>
+                  )
+                  return (
+                    <div key={t.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)', opacity: proj ? .85 : 1 }}>
+                      {enEdicion ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '2px 0 6px' }}>
+                          <input value={editT.title} onChange={ev => setEditT({ ...editT, title: ev.target.value })} placeholder="Actividad" />
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input type="time" value={editT.time} onChange={ev => setEditT({ ...editT, time: ev.target.value })} title="Hora exacta (opcional)" />
+                            <input value={editT.note} onChange={ev => setEditT({ ...editT, note: ev.target.value })} placeholder="nota / observación" style={{ flex: 1, minWidth: 120, textTransform: 'none' }} />
+                            <button className="btn" style={{ fontSize: 11 }} onClick={guardarEdit}>GUARDAR</button>
+                            <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setEditT(null)}>✕</button>
+                          </div>
+                          {esRutina && <span className="muted" style={{ fontSize: 9 }}>Aplica SOLO a este día. Para cambiar toda la rutina usa ⚙ RUTINA arriba.</span>}
                         </div>
-                      )}
+                      ) : (<>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span title={proj ? 'Proyectada' : e.t}>{proj ? '📌' : e.i}</span>
+                          <span style={{ flex: 1, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
+                            {t.ask_index ? <b style={{ color: '#9ccb86' }}>{t.ask_index}. </b> : null}{t.title}
+                          </span>
+                          {editable && !proj && t.status !== 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
+                          {editable && !proj && t.status === 'hecha' && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
+                          {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Editar (este día)" onClick={() => setEditT(proj ? { routine: t.routine, date: diaSel, title: t.title, time: '', note: '' } : { id: t.id, title: t.title, time: t.time ? String(t.time).slice(0, 5) : '', note: t.note || '' })}>✎</button>}
+                          {editable && !proj && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
+                          {editable && !proj && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Reasignar" onClick={() => setReasig(t)}>👤</button>}
+                          {editable && <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Eliminar" onClick={() => esRutina ? setScope({ action: 'delete', task: proj ? null : t, routine: proj ? t.routine : rutinas.find(r => r.id === t.routine_id), date: diaSel }) : quitarTarea(t)}>✕</button>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginLeft: 26, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: cat.c, border: `1px solid ${cat.c}55`, borderRadius: 8, padding: '0 6px' }}>{cat.t}</span>
+                          <span className="muted" style={{ fontSize: 10 }}>{t.time ? '🕐 ' + String(t.time).slice(0, 5) : (t.slot === 'manana' ? '🌅 EN LA MAÑANA' : '🌇 EN LA TARDE')}{esRutina ? ' · RUTINA' + (proj ? ' (proyectada)' : '') : ''}</span>
+                          {t.note && <span className="muted" style={{ fontSize: 9, textTransform: 'none' }} title={t.note}>📝 {String(t.note).slice(0, 40)}</span>}
+                          {t.answer && <span className="muted" style={{ fontSize: 9, textTransform: 'none' }} title={t.answer}>· {String(t.answer).slice(0, 40)}</span>}
+                        </div>
+                        {mover?.id === t.id && (
+                          <div style={{ display: 'flex', gap: 6, margin: '6px 0 2px 26px', alignItems: 'center' }}>
+                            <input type="date" value={mover.date} onChange={ev => setMover({ ...mover, date: ev.target.value })} />
+                            <input type="time" value={mover.time} onChange={ev => setMover({ ...mover, time: ev.target.value })} />
+                            <button className="btn" style={{ fontSize: 11 }} onClick={guardarMover}>MOVER</button>
+                            <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setMover(null)}>✕</button>
+                          </div>
+                        )}
+                        {reasig?.id === t.id && (
+                          <div style={{ display: 'flex', gap: 6, margin: '6px 0 2px 26px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span className="muted" style={{ fontSize: 11 }}>Reasignar a:</span>
+                            {secsV.filter(x => x.active && x.id !== t.secretary_id).map(x => <button key={x.id} className="btn-ghost" style={{ fontSize: 11 }} onClick={() => reasignar(t, x.id)}>{x.full_name.split(' ')[0]}</button>)}
+                            <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setReasig(null)}>✕</button>
+                          </div>
+                        )}
+                      </>)}
                     </div>
                   )
                 })}
@@ -325,6 +402,18 @@ export default function Secretarias() {
           })}
         </div>
       </div>
+
+      {scope && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setScope(null)}>
+          <div className="glass" style={{ padding: 20, maxWidth: 340, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <b>¿Eliminar esta actividad de rutina?</b>
+            <p className="muted" style={{ fontSize: 12, margin: '8px 0 14px' }}>Elige el alcance:</p>
+            <button className="btn" style={{ width: '100%', marginBottom: 8 }} onClick={() => aplicarScope('dia')}>Solo este día (saltarla)</button>
+            <button className="btn-ghost bad" style={{ width: '100%', marginBottom: 8 }} onClick={() => aplicarScope('rutina')}>Toda la rutina (borrar plantilla)</button>
+            <button className="btn-ghost" style={{ width: '100%' }} onClick={() => setScope(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
       {secs.length === 0 && <div className="glass" style={{ padding: 24, marginTop: 10 }}>Registra a tu primera secretaria arriba para empezar. 🙌</div>}
     </div>
   )

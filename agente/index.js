@@ -798,6 +798,9 @@ async function secretariaTick() {
     for (const r of (rutinas || [])) {
       if (!(r.days || []).includes(dow)) continue
       if (!secs.find(s => s.id === r.secretary_id)) continue
+      // si ya existe una fila para esta rutina en este día (aunque esté cancelada o editada), no regenerar
+      const { data: ex } = await supabase.from('secretary_tasks').select('id').eq('routine_id', r.id).eq('date', hoy).limit(1)
+      if (ex && ex.length) continue
       const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: r.secretary_id, routine_id: r.id, title: r.title, date: hoy, slot: r.slot, category: r.category || 'administrativa' })
       if (error && !/duplicate|unique/i.test(error.message)) log('SEC gen:', error.message)
     }
@@ -807,7 +810,7 @@ async function secretariaTick() {
       const saludoHora = String(await ajuste('sec_saludo_hora', '07:30')).slice(0, 5)
       if (hhmm >= saludoHora && (await ajuste('sec_saludo', '')) !== hoy) {
         await setAjuste('sec_saludo', hoy)
-        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente')
+        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').neq('cancelada', true)
         const porSec = {}
         for (const tk of (hoyTasks || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
         for (const sec of secs) {
@@ -831,7 +834,7 @@ async function secretariaTick() {
       if (hhmm < hora) continue
       if ((await ajuste('sec_ci_' + hora, '')) === hoy) continue   // ya se hizo hoy a esa hora
       await setAjuste('sec_ci_' + hora, hoy)
-      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null)
+      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).neq('cancelada', true)
       const porSec = {}
       for (const tk of (pend || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
       const momento = hhmm < '12:00' ? 'la mañana' : hhmm < '18:00' ? 'la tarde' : 'hoy'
@@ -850,7 +853,7 @@ async function secretariaTick() {
 
     // 2b) aviso puntual de tareas con hora exacta (configurable: se puede apagar)
     const { data: conHora } = (await ajuste('sec_aviso_hora', '1')) === '0' ? { data: [] }
-      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null)
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null).neq('cancelada', true)
     for (const tk of (conHora || [])) {
       if (hhmm < String(tk.time).slice(0, 5)) continue
       const sec = secs.find(s => s.id === tk.secretary_id)
@@ -863,7 +866,7 @@ async function secretariaTick() {
     // 3) recordatorio unico a los 45 min sin respuesta (configurable: se puede apagar)
     const lim = new Date(Date.now() - 45 * 60000).toISOString()
     const { data: sinResp } = (await ajuste('sec_recordatorio', '1')) === '0' ? { data: [] }
-      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim)
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim).neq('cancelada', true)
     const porSec2 = {}
     for (const tk of (sinResp || [])) (porSec2[tk.secretary_id] = porSec2[tk.secretary_id] || []).push(tk)
     for (const [sid, tareas] of Object.entries(porSec2)) {
@@ -941,7 +944,7 @@ async function secretariaTick() {
     const hres = await ajuste('hora_resumen_sec', '18:00')
     if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {
       await setAjuste('sec_resumen_fecha', hoy)
-      const { data: todas } = await supabase.from('secretary_tasks').select('*').eq('date', hoy)
+      const { data: todas } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).neq('cancelada', true)
       if (todas && todas.length) {
         for (const tk of todas) if (tk.status === 'pendiente' && tk.asked_at && !tk.answered_at) { tk.status = 'sin_respuesta'; await supabase.from('secretary_tasks').update({ status: 'sin_respuesta' }).eq('id', tk.id) }
         let detalle = ''
