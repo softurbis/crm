@@ -216,13 +216,6 @@ export default function Projects() {
         <label>Video (MP4, máx. 15 MB) {pcur?.video_url && <a href={pcur.video_url} target="_blank" rel="noreferrer">ver</a>}
           <input type="file" accept="video/mp4,video/*" onChange={e => setFVideo(e.target.files[0] || null)} />
         </label>
-        {role === 'superuser' && (
-          <label className="span2">FICHA DEL BOT (conocimiento del agente WhatsApp para este proyecto — pega aqui el contenido segun docs/PLANTILLA-FICHA-BOT.md)
-            <textarea rows="12" value={f.bot_knowledge || ''} spellCheck="false"
-              style={{ textTransform: 'none', fontFamily: 'monospace', fontSize: '.82rem' }}
-              onChange={e => setF(x => ({ ...x, bot_knowledge: e.target.value }))} />
-          </label>
-        )}
       </div>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       <div>

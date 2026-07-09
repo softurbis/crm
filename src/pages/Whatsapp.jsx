@@ -23,12 +23,16 @@ const MEDIA_OPTS = [['foto1', 'Foto 1'], ['foto2', 'Foto 2'], ['foto3', 'Foto 3'
 const nuevoPasoId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'p' + Date.now() + Math.random().toString(36).slice(2, 6))
 // tarjetas por sección (cobranza / seguimiento) — se guardan como texto con "## TAG"
 const COB_CARDS = [['A5', 'A · 5 días antes', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['A3', 'A · 3 días antes', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['A0', 'A · Vence hoy', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['INSISTENCIA', 'Insistencia (1 vencida)', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias}'], ['B', '2 cuotas vencidas', '{nombre} {lote} {proyecto} {nvencidas} {deuda}'], ['C', '3+ cuotas vencidas', '{nombre} {lote} {proyecto} {nvencidas} {deuda}']]
-const SEC_CARDS = [['PREGUNTA', 'Pase de lista', '{nombre} {lista} {momento}'], ['RECORDATORIO', 'Recordatorio', '{nombre} {lista}'], ['CONFIRMACION', 'Confirmación', '{nombre} {resumen}'], ['PENDIENTE', 'Quedan pendientes', '{nombre}'], ['NO_ENTENDI', 'No entendí', '{nombre}'], ['RESUMEN', 'Resumen al admin', '{detalle}'], ['FEEDBACK', '¿Algo extra? (pregunta)', '{nombre}'], ['AVISO_HORA', 'Aviso por hora de tarea', '{nombre} {titulo} {hora}']]
+const SEC_CARDS = [['SALUDO', 'Saludo matutino (buenos días + pendientes)', '{nombre} {lista}'], ['PREGUNTA', 'Pase de lista', '{nombre} {lista} {momento}'], ['RECORDATORIO', 'Recordatorio', '{nombre} {lista}'], ['CONFIRMACION', 'Confirmación', '{nombre} {resumen}'], ['PENDIENTE', 'Quedan pendientes', '{nombre}'], ['NO_ENTENDI', 'No entendí', '{nombre}'], ['RESUMEN', 'Resumen al admin', '{detalle}'], ['FEEDBACK', '¿Algo extra? (pregunta)', '{nombre}'], ['AVISO_HORA', 'Aviso por hora de tarea', '{nombre} {titulo} {hora}']]
 const parseSecc = txt => { const o = {}; ('\n' + String(txt || '')).split(/\n##[ \t]*/).slice(1).forEach(p => { const nl = p.indexOf('\n'); if (nl < 0) { const tag = p.trim().split(/[\s(]+/)[0].toUpperCase(); if (tag) o[tag] = ''; return } const tag = p.slice(0, nl).trim().split(/[\s(]+/)[0].toUpperCase(); if (tag) o[tag] = p.slice(nl + 1).trim() }); return o }
 const armarSecc = (obj, order) => order.filter(([k]) => (obj[k] || '').trim()).map(([k]) => '## ' + k + '\n' + (obj[k] || '').trim()).join('\n\n')
 const parseArr = s => { try { const o = JSON.parse(String(s || '')); return Array.isArray(o) ? o : [] } catch { return [] } }
 // consultas que puede mapear un comando de gerencia (reutilizan las plantillas gratis del bot)
-const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponibles y precios'], ['comisiones', 'Comisiones por cobrar'], ['vencidas', 'Cuotas vencidas'], ['gastos', 'Gastos del año/mes'], ['visitas', 'Visitas programadas'], ['ventas', 'Ventas (en proceso/pagadas)'], ['ingresos', 'Ingresos del mes'], ['separaciones', 'Separaciones vigentes'], ['clientes', 'Total de clientes']]
+// buckets de cobranza por nº de cuotas vencidas: [clave, título, etiqueta-días, ¿tiene "repetir"?]
+const COB_BUCKETS = [['al_dia', '✅ Al día (0 vencidas)', 'días ANTES de vencer', false], ['v1', '🟡 1 cuota vencida', 'días después de vencer', true], ['v2', '🟠 2 cuotas vencidas', 'días después', true], ['v3', '🔴 3 cuotas vencidas', 'días después', true], ['v4', '⛔ 4 o más vencidas', 'días después', true]]
+const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponibles y precios'], ['comisiones', 'Comisiones por cobrar'], ['vencidas', 'Cuotas vencidas'], ['gastos', 'Gastos del año/mes'], ['visitas', 'Visitas programadas'], ['ventas', 'Ventas (en proceso/pagadas)'], ['ingresos', 'Ingresos del mes'], ['separaciones', 'Separaciones vigentes'], ['clientes', 'Total de clientes'], ['cartera', 'Cartera por cobrar (total)'], ['pipeline', 'Pipeline de leads'], ['pagos de hoy', 'Pagos de hoy'], ['entregados', 'Lotes entregados'], ['top asesor', 'Top asesor (comisiones)'], ['pendientes', 'Pendientes de secretarias (hoy)'], ['cumplimiento', 'Cumplimiento de secretarias (hoy)']]
+// acciones de seguimiento configurables en gerencia (programar / reprogramar)
+const ACCIONES_GER = [['crear_tarea', 'Crear/programar tarea'], ['reprogramar_tarea', 'Reprogramar tarea']]
 
 function ReplyBox({ phone, onSent }) {
   const [txt, setTxt] = useState('')
@@ -73,14 +77,14 @@ export default function Whatsapp() {
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useState('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
-  const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30' })
+  const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30', saludoActivo: true, saludoHora: '07:30' })
   const [secMsg, setSecMsg] = useState('')
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
   const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', bienvenida: '', pide_nombre: '', no_nombre: '', media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
-  const [cobCfg, setCobCfg] = useState({ antes: [], despues: [], insistencia: { veces: 3, cada_dias: 3, mensaje: '' } })  // cobranza por días
+  const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
   const [secCards, setSecCards] = useState({})       // tarjetas de seguimiento (por sección)
   const [gerCmds, setGerCmds] = useState([])         // comandos configurables de gerencia
@@ -111,6 +115,8 @@ export default function Whatsapp() {
         avisoHora: kv.sec_aviso_hora !== '0',
         feedback: kv.sec_feedback !== '0',
         feedbackHora: (kv.hora_feedback_sec || '17:30').slice(0, 5),
+        saludoActivo: kv.sec_saludo_activo !== '0',
+        saludoHora: (kv.sec_saludo_hora || '07:30').slice(0, 5),
       })
       if (qr) QRCode.toDataURL(qr, { width: 260, margin: 1 }).then(setQrImg).catch(() => setQrImg(''))
       else setQrImg('')
@@ -196,7 +202,7 @@ export default function Whatsapp() {
     setBrainSel(k); setBrainMsg(''); setProjQMsg(''); setCfgMsg('')
     if (!k.startsWith('p:')) {
       setBrainTxt(B.find(x => x.key === k)?.content || '')
-      if (k === 'cobranza') { let cfg = null; try { cfg = JSON.parse(B.find(x => x.key === 'cobranza_cfg')?.content || '') } catch {}; setCobCfg({ antes: Array.isArray(cfg?.antes) ? cfg.antes : [], despues: Array.isArray(cfg?.despues) ? cfg.despues : [], insistencia: cfg?.insistencia || { veces: 3, cada_dias: 3, mensaje: '' } }); setCobFlow(parseArr(B.find(x => x.key === 'cobranza_flow')?.content)) }
+      if (k === 'cobranza') { let cfg = null; try { cfg = JSON.parse(B.find(x => x.key === 'cobranza_cfg')?.content || '') } catch {}; const bk = (o, rep) => ({ avisos: Array.isArray(o?.avisos) ? o.avisos : [], ...(rep ? { repetir: o?.repetir || { cada_dias: 3, mensaje: '' } } : {}) }); setCobCfg({ al_dia: bk(cfg?.al_dia, false), v1: bk(cfg?.v1, true), v2: bk(cfg?.v2, true), v3: bk(cfg?.v3, true), v4: bk(cfg?.v4, true) }); setCobFlow(parseArr(B.find(x => x.key === 'cobranza_flow')?.content)) }
       else if (k === 'secretaria') setSecCards(parseSecc(B.find(x => x.key === 'secretaria')?.content || ''))
       else if (k === 'gerencia') setGerCmds(parseArr(B.find(x => x.key === 'gerencia_cmd')?.content))
     }
@@ -264,20 +270,21 @@ export default function Whatsapp() {
   }
   // ---- guardado de los paneles estructurados (cobranza / seguimiento / gerencia) ----
   const setSec = (tag, v) => setSecCards(c => ({ ...c, [tag]: v }))
-  const cobAdd = grupo => setCobCfg(c => ({ ...c, [grupo]: [...(c[grupo] || []), { dias: grupo === 'antes' ? 3 : 1, mensaje: '' }] }))
-  const cobSet = (grupo, i, patch) => setCobCfg(c => ({ ...c, [grupo]: c[grupo].map((x, j) => j === i ? { ...x, ...patch } : x) }))
-  const cobDel = (grupo, i) => setCobCfg(c => ({ ...c, [grupo]: c[grupo].filter((_, j) => j !== i) }))
-  const insSet = patch => setCobCfg(c => ({ ...c, insistencia: { ...c.insistencia, ...patch } }))
+  const cbAdd = b => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: [...(bk.avisos || []), { dias: b === 'al_dia' ? 3 : 1, mensaje: '' }] } } })
+  const cbSet = (b, i, patch) => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: (bk.avisos || []).map((x, j) => j === i ? { ...x, ...patch } : x) } } })
+  const cbDel = (b, i) => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: (bk.avisos || []).filter((_, j) => j !== i) } } })
+  const cbRep = (b, patch) => setCobCfg(c => { const bk = c[b] || {}; return { ...c, [b]: { ...bk, repetir: { ...(bk.repetir || { cada_dias: 3, mensaje: '' }), ...patch } } } })
   const cfSet = (i, patch) => setCobFlow(a => a.map((x, j) => j === i ? { ...x, ...patch } : x))
   const cfAdd = () => setCobFlow(a => [...a, { claves: '', accion: 'responder', respuesta: '' }])
   const cfDel = i => setCobFlow(a => a.filter((_, j) => j !== i))
   const gcSet = (i, patch) => setGerCmds(a => a.map((x, j) => j === i ? { ...x, ...patch } : x))
-  const gcAdd = () => setGerCmds(a => [...a, { claves: '', tipo: 'consulta', consulta: 'lotes', texto: '' }])
+  const gcAdd = () => setGerCmds(a => [...a, { claves: '', tipo: 'consulta', consulta: 'lotes', texto: '', accion: 'crear_tarea' }])
   const gcDel = i => setGerCmds(a => a.filter((_, j) => j !== i))
   const guardarCobranza = async () => {
     setCfgMsg('GUARDANDO...')
-    const limpDias = arr => (arr || []).map(r => ({ dias: Number(r.dias) || 0, mensaje: (r.mensaje || '').trim() })).filter(r => r.mensaje)
-    const cfg = { antes: limpDias(cobCfg.antes), despues: limpDias(cobCfg.despues), insistencia: { veces: Number(cobCfg.insistencia?.veces) || 0, cada_dias: Number(cobCfg.insistencia?.cada_dias) || 3, mensaje: (cobCfg.insistencia?.mensaje || '').trim() } }
+    const limpAv = arr => (arr || []).map(r => ({ dias: Number(r.dias) || 0, mensaje: (r.mensaje || '').trim() })).filter(r => r.mensaje)
+    const bk = (b, rep) => { const o = { avisos: limpAv(cobCfg[b]?.avisos) }; if (rep) o.repetir = { cada_dias: Number(cobCfg[b]?.repetir?.cada_dias) || 3, mensaje: (cobCfg[b]?.repetir?.mensaje || '').trim() }; return o }
+    const cfg = { al_dia: bk('al_dia', false), v1: bk('v1', true), v2: bk('v2', true), v3: bk('v3', true), v4: bk('v4', true) }
     const flow = cobFlow.map(r => ({ claves: (r.claves || '').trim(), accion: r.accion === 'asesor' ? 'asesor' : 'responder', respuesta: (r.respuesta || '').trim() })).filter(r => r.claves)
     const e1 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_cfg', content: JSON.stringify(cfg), updated_at: new Date().toISOString() })).error
     const e2 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_flow', content: JSON.stringify(flow), updated_at: new Date().toISOString() })).error
@@ -292,7 +299,7 @@ export default function Whatsapp() {
   }
   const guardarGerCmds = async () => {
     setCfgMsg('GUARDANDO...')
-    const cmds = gerCmds.map(c => ({ claves: (c.claves || '').trim(), tipo: c.tipo === 'texto' ? 'texto' : 'consulta', consulta: c.consulta || 'lotes', texto: (c.texto || '').trim() })).filter(c => c.claves)
+    const cmds = gerCmds.map(c => ({ claves: (c.claves || '').trim(), tipo: ['texto', 'accion'].includes(c.tipo) ? c.tipo : 'consulta', consulta: c.consulta || 'lotes', texto: (c.texto || '').trim(), accion: c.accion || 'crear_tarea' })).filter(c => c.claves)
     const { error } = await supabase.from('bot_brains').upsert({ key: 'gerencia_cmd', content: JSON.stringify(cmds), updated_at: new Date().toISOString() })
     setCfgMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo usa en máx. 1 minuto')
     if (!error) cargarBrains()
@@ -343,6 +350,8 @@ export default function Whatsapp() {
       { key: 'sec_aviso_hora', value: secCfg.avisoHora ? '1' : '0', updated_at: now },
       { key: 'sec_feedback', value: secCfg.feedback ? '1' : '0', updated_at: now },
       { key: 'hora_feedback_sec', value: String(secCfg.feedbackHora).slice(0, 5), updated_at: now },
+      { key: 'sec_saludo_activo', value: secCfg.saludoActivo ? '1' : '0', updated_at: now },
+      { key: 'sec_saludo_hora', value: String(secCfg.saludoHora).slice(0, 5), updated_at: now },
     ]
     const { error } = await supabase.from('bot_settings').upsert(rows)
     setSecMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo aplica en máx. 1 minuto')
@@ -496,37 +505,27 @@ export default function Whatsapp() {
           )}
           {brainSel === 'cobranza' && (
             <div>
-              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Tú defines cuántos avisos, cuántos días antes/después y cuántas insistencias. Variables: <span style={{ fontFamily: 'monospace' }}>{'{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias} {deuda}'}</span>.</p>
+              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Configura cada caso según cuántas cuotas debe el cliente. Variables: <span style={{ fontFamily: 'monospace' }}>{'{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias} {nvencidas} {deuda}'}</span>.</p>
 
-              <div style={{ border: '1px solid rgba(96,199,161,.4)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(96,199,161,.06)' }}>
-                <b style={{ fontSize: 12, color: '#4fc3a1' }}>⏰ Avisos ANTES de vencer</b>
-                {(cobCfg.antes || []).map((r, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
-                    <input type="number" min="0" value={r.dias} onChange={e => cobSet('antes', i, { dias: e.target.value })} style={{ width: 56 }} /><span style={{ fontSize: 11, paddingTop: 6 }}>días antes:</span>
-                    <textarea value={r.mensaje} placeholder="Hola {nombre}, tu cuota {cuota} del lote {lote} vence en {dias} días ({fecha}) por {monto}." onChange={e => cobSet('antes', i, { mensaje: e.target.value })} style={{ flex: '1 1 260px', minHeight: 40, textTransform: 'none', fontSize: 12 }} />
-                    <button className="btn-ghost" onClick={() => cobDel('antes', i)}>✕</button>
-                  </div>
-                ))}
-                <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cobAdd('antes')}>+ Aviso antes</button>
-              </div>
-
-              <div style={{ border: '1px solid rgba(240,120,92,.4)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(240,120,92,.06)' }}>
-                <b style={{ fontSize: 12, color: '#f2785c' }}>🔴 Avisos DESPUÉS de vencer</b>
-                {(cobCfg.despues || []).map((r, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
-                    <input type="number" min="0" value={r.dias} onChange={e => cobSet('despues', i, { dias: e.target.value })} style={{ width: 56 }} /><span style={{ fontSize: 11, paddingTop: 6 }}>días después:</span>
-                    <textarea value={r.mensaje} placeholder="Hola {nombre}, tu cuota {cuota} del lote {lote} venció hace {dias} días. Regulariza por favor." onChange={e => cobSet('despues', i, { mensaje: e.target.value })} style={{ flex: '1 1 260px', minHeight: 40, textTransform: 'none', fontSize: 12 }} />
-                    <button className="btn-ghost" onClick={() => cobDel('despues', i)}>✕</button>
-                  </div>
-                ))}
-                <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cobAdd('despues')}>+ Aviso después</button>
-                <div style={{ borderTop: '1px dashed rgba(255,255,255,.15)', marginTop: 8, paddingTop: 8, fontSize: 12 }}>
-                  <b style={{ fontSize: 12 }}>🔁 Insistencias</b> (tras el último aviso de arriba):{' '}
-                  <input type="number" min="0" value={cobCfg.insistencia?.veces ?? 0} onChange={e => insSet({ veces: e.target.value })} style={{ width: 44 }} /> veces, cada{' '}
-                  <input type="number" min="1" value={cobCfg.insistencia?.cada_dias ?? 3} onChange={e => insSet({ cada_dias: e.target.value })} style={{ width: 44 }} /> días
-                  <textarea value={cobCfg.insistencia?.mensaje || ''} placeholder="Hola {nombre}, seguimos esperando el pago de tu cuota {cuota} del lote {lote} ({monto}). Contáctanos para regularizar." onChange={e => insSet({ mensaje: e.target.value })} style={{ width: '100%', minHeight: 40, textTransform: 'none', fontSize: 12, marginTop: 4 }} />
+              {COB_BUCKETS.map(([b, titulo, etiq, rep]) => (
+                <div key={b} style={{ border: '1px solid rgba(255,255,255,.14)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(0,0,0,.12)' }}>
+                  <b style={{ fontSize: 12 }}>{titulo}</b>
+                  {((cobCfg[b] || {}).avisos || []).map((r, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
+                      <input type="number" min="0" value={r.dias} onChange={e => cbSet(b, i, { dias: e.target.value })} style={{ width: 52 }} /><span style={{ fontSize: 10, paddingTop: 6 }}>{etiq}:</span>
+                      <textarea value={r.mensaje} placeholder="Mensaje…" onChange={e => cbSet(b, i, { mensaje: e.target.value })} style={{ flex: '1 1 240px', minHeight: 38, textTransform: 'none', fontSize: 12 }} />
+                      <button className="btn-ghost" onClick={() => cbDel(b, i)}>✕</button>
+                    </div>
+                  ))}
+                  <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cbAdd(b)}>+ Aviso</button>
+                  {rep && (
+                    <div style={{ borderTop: '1px dashed rgba(255,255,255,.15)', marginTop: 8, paddingTop: 8, fontSize: 12 }}>
+                      🔁 Si sigue sin pagar, repetir cada <input type="number" min="1" value={(cobCfg[b] || {}).repetir?.cada_dias ?? 3} onChange={e => cbRep(b, { cada_dias: e.target.value })} style={{ width: 44 }} /> días:
+                      <textarea value={(cobCfg[b] || {}).repetir?.mensaje || ''} placeholder="Mensaje de insistencia (opcional)…" onChange={e => cbRep(b, { mensaje: e.target.value })} style={{ width: '100%', minHeight: 36, textTransform: 'none', fontSize: 12, marginTop: 4 }} />
+                    </div>
+                  )}
                 </div>
-              </div>
+              ))}
               <div style={{ border: '1px solid rgba(126,200,227,.4)', borderRadius: 8, padding: 10, margin: '8px 0', background: 'rgba(126,200,227,.06)' }}>
                 <b style={{ fontSize: 12, color: '#7ec8e3' }}>💬 Flujo: cuando el cliente responde</b>
                 <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Regla por palabra clave: responde un texto o deriva al asesor. La primera que coincida gana.</p>
@@ -551,6 +550,12 @@ export default function Whatsapp() {
             <>
               <div style={{ border: '1px solid rgba(184,161,217,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(184,161,217,.06)' }}>
                 <b style={{ color: '#b8a1d9', fontSize: 13 }}>🗓️ HORARIOS DEL SEGUIMIENTO</b>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0', fontSize: 12 }}>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={secCfg.saludoActivo} onChange={e => setSecCfg(c => ({ ...c, saludoActivo: e.target.checked }))} /> ☀️ Saludo matutino con los pendientes del día a las
+                  </label>
+                  <input type="time" value={secCfg.saludoHora} onChange={e => setSecCfg(c => ({ ...c, saludoHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
+                </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
                   <label style={{ fontSize: 12 }}>Pases de lista al día:{' '}
                     <select value={secCfg.checkins.length} onChange={e => setCheckinCount(Number(e.target.value))} style={{ fontSize: 12, padding: '4px 8px' }}>
@@ -599,17 +604,20 @@ export default function Whatsapp() {
             <div>
               <div style={{ border: '1px solid rgba(111,208,201,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(111,208,201,.06)' }}>
                 <b style={{ fontSize: 12, color: '#6fd0c9' }}>🔑 Comandos por palabra clave</b>
-                <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Cuando gerencia escribe una palabra clave, el bot consulta el sistema o responde un texto fijo. Ej: <b>lotes, stock</b> → consulta lotes · <b>horario</b> → texto fijo.</p>
+                <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Gerencia escribe una palabra clave y el bot: <b>consulta</b> el sistema, responde un <b>texto fijo</b>, o ejecuta una <b>acción</b> (programar/reprogramar tareas). Las acciones van al inicio del mensaje: <i>{'<palabra> <secretaria> <fecha/hora> <descripción>'}</i>. Ej: <b>agenda</b> cami mañana 10am llevar contratos.</p>
                 {gerCmds.map((c, i) => (
                   <div key={i} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
-                    <input value={c.claves} placeholder="palabras clave: lotes, stock" onChange={e => gcSet(i, { claves: e.target.value })} style={{ flex: '1 1 150px', textTransform: 'none' }} />
+                    <input value={c.claves} placeholder="palabras clave: agenda, asignar" onChange={e => gcSet(i, { claves: e.target.value })} style={{ flex: '1 1 140px', textTransform: 'none' }} />
                     <select value={c.tipo} onChange={e => gcSet(i, { tipo: e.target.value })} style={{ fontSize: 11 }}>
                       <option value="consulta">consulta al sistema</option>
                       <option value="texto">texto fijo</option>
+                      <option value="accion">acción (tareas)</option>
                     </select>
                     {c.tipo === 'consulta'
                       ? <select value={c.consulta} onChange={e => gcSet(i, { consulta: e.target.value })} style={{ fontSize: 11 }}>{CONSULTAS_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-                      : <input value={c.texto} placeholder="texto que responde" onChange={e => gcSet(i, { texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
+                      : c.tipo === 'accion'
+                        ? <select value={c.accion} onChange={e => gcSet(i, { accion: e.target.value })} style={{ fontSize: 11 }}>{ACCIONES_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                        : <input value={c.texto} placeholder="texto que responde" onChange={e => gcSet(i, { texto: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none' }} />}
                     <button className="btn-ghost" onClick={() => gcDel(i)}>✕</button>
                   </div>
                 ))}

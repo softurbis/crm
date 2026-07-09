@@ -386,6 +386,52 @@ async function comandoDirecto(texto) {
       const { count } = await supabase.from('clients').select('doc_number', { count: 'exact', head: true })
       return '👥 *CLIENTES*\nTotal registrados: *' + (count || 0) + '*.' + PIE_COMANDO
     }
+    if (/cartera|deuda total|por cobrar|saldo total/.test(t)) {
+      const { data: ins } = await supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status)').neq('status', 'pagado')
+      let tot = 0, n = 0
+      for (const q of (ins || [])) { if (q.sale?.status !== 'en_proceso') continue; const d = Number(q.amount) - Number(q.amount_paid); if (d > 0.05) { tot += d; n++ } }
+      return '📊 *CARTERA POR COBRAR*\nSaldo pendiente total: *' + soles(tot) + '* en ' + n + ' cuotas.' + PIE_COMANDO
+    }
+    if (/pipeline|\bleads?\b|prospecto|kanban/.test(t)) {
+      const { data: lds } = await supabase.from('leads').select('status')
+      const by = {}; for (const l of (lds || [])) by[l.status] = (by[l.status] || 0) + 1
+      const orden = ['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion', 'ganado', 'perdido']
+      return '📇 *PIPELINE DE LEADS*\n' + (orden.filter(k => by[k]).map(k => '• ' + k.toUpperCase().replace('_', ' ') + ': ' + by[k]).join('\n') || 'Sin leads.') + PIE_COMANDO
+    }
+    if (/pagos de hoy|ingresos de hoy|recaudado hoy/.test(t)) {
+      const hoy = new Date().toISOString().slice(0, 10)
+      const { data: ing } = await supabase.from('daily_income').select('amount, date').eq('date', hoy)
+      return '💵 *PAGOS DE HOY*\n' + (ing || []).length + ' pagos · ' + soles((ing || []).reduce((s, x) => s + Number(x.amount || 0), 0)) + '.' + PIE_COMANDO
+    }
+    if (/entregad/.test(t)) {
+      const { data: lots } = await supabase.from('lots').select('status')
+      return '🏡 *LOTES ENTREGADOS*\nTotal entregados: *' + (lots || []).filter(l => l.status === 'entregado').length + '*.' + PIE_COMANDO
+    }
+    if (/top asesor|mejor asesor|ranking asesor/.test(t)) {
+      const { data: coms } = await supabase.from('commissions').select('amount, advisor:advisors(code, full_name)').eq('status', 'pendiente')
+      const by = {}; for (const c of (coms || [])) { const k = c.advisor?.full_name || c.advisor?.code || '—'; by[k] = (by[k] || 0) + Number(c.amount || 0) }
+      const arr = Object.entries(by).sort((a, b) => b[1] - a[1])
+      if (!arr.length) return '🏆 *TOP ASESOR*\nSin comisiones pendientes.' + PIE_COMANDO
+      return '🏆 *TOP ASESOR (comisiones por cobrar)*\n' + arr.slice(0, 5).map(([k, val], i) => (i + 1) + '. ' + k + ': ' + soles(val)).join('\n') + PIE_COMANDO
+    }
+    if (/pendientes|tareas pend|checklist/.test(t)) {
+      const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+      const { data: tk } = await supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).eq('status', 'pendiente').order('time')
+      if (!tk || !tk.length) return '📋 *PENDIENTES DE HOY*\nNo hay tareas pendientes. 🎉' + PIE_COMANDO
+      const bySec = {}; for (const x of tk) { const k = x.secretary?.full_name || '—'; (bySec[k] = bySec[k] || []).push(x) }
+      let out = '📋 *PENDIENTES DE HOY*\n'
+      for (const [k, arr] of Object.entries(bySec)) out += '\n*' + k + '*:\n' + arr.map(x => '• ' + (x.time ? String(x.time).slice(0, 5) + ' ' : '') + x.title).join('\n') + '\n'
+      return out + PIE_COMANDO
+    }
+    if (/cumplimiento|cumplieron|productividad|reporte sec/.test(t)) {
+      const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+      const { data: tk } = await supabase.from('secretary_tasks').select('status, secretary:secretaries(full_name)').eq('date', hoyL)
+      if (!tk || !tk.length) return '📊 *CUMPLIMIENTO DE HOY*\nSin tareas registradas hoy.' + PIE_COMANDO
+      const bySec = {}; for (const x of tk) { const k = x.secretary?.full_name || '—'; const s = bySec[k] = bySec[k] || { h: 0, t: 0 }; s.t++; if (x.status === 'hecha') s.h++ }
+      let out = '📊 *CUMPLIMIENTO DE HOY*\n'
+      for (const [k, s] of Object.entries(bySec)) out += '• ' + k + ': ' + s.h + '/' + s.t + ' (' + Math.round(s.h / s.t * 100) + '%)\n'
+      return out + PIE_COMANDO
+    }
 
     return null
   } catch (e) { log('COMANDO ERROR:', String(e.message || e)); return null }
@@ -399,38 +445,80 @@ async function atenderInterno(jid, phone, texto, quien) {
   return false
 }
 
-// Comandos privilegiados (ADMIN y GERENCIA): "tarea <nombre> ..." y "aprende: <dato>".
-// Devuelve true si manejó el mensaje (responde al que escribió, no solo al ADMIN).
-async function comandosPrivilegiados(jid, phone, texto) {
-  const mt = String(texto).match(/^\s*tarea\s+(\S+)\s+([\s\S]+)/i)
-  if (mt) {
-    const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
-    const sec = (cands || [])[0]
-    if (!sec) { await enviar(jid, '❌ No encontré a la secretaria "' + mt[1] + '". Usa: TAREA <nombre> <fecha/hora> <descripción>', { tipo: 'aviso_admin' }); return true }
-    const fh = parseFechaHora(mt[2])
-    let titulo = mt[2]
-    if (fh.matchFecha) titulo = titulo.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
-    if (fh.matchHora) titulo = titulo.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
-    titulo = titulo.replace(/\s+/g, ' ').replace(/^[,\s\-:]+|[,\s\-:]+$/g, '').trim()
-    if (!titulo) { await enviar(jid, '❌ Falta la descripción. Ej: TAREA ' + mt[1] + ' el 5 a las 10 llevar contratos', { tipo: 'aviso_admin' }); return true }
-    const fecha = fh.date || secHoy()
-    const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: titulo.toUpperCase(), date: fecha, time: fh.time, slot: slotDeHora(fh.time) })
-    await enviar(jid, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
-    return true
+// Crea una tarea para una secretaria a partir de "<nombre> <fecha/hora> <descripción>".
+async function crearTareaSec(jid, resto) {
+  const mt = String(resto).match(/^\s*(\S+)\s+([\s\S]+)/)
+  if (!mt) { await enviar(jid, '❌ Usa: <palabra> <secretaria> <fecha/hora> <descripción>', { tipo: 'aviso_admin' }); return true }
+  const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
+  const sec = (cands || [])[0]
+  if (!sec) { await enviar(jid, '❌ No encontré a la secretaria "' + mt[1] + '".', { tipo: 'aviso_admin' }); return true }
+  const fh = parseFechaHora(mt[2])
+  let titulo = mt[2]
+  if (fh.matchFecha) titulo = titulo.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+  if (fh.matchHora) titulo = titulo.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+  titulo = titulo.replace(/\s+/g, ' ').replace(/^[,\s\-:]+|[,\s\-:]+$/g, '').trim()
+  if (!titulo) { await enviar(jid, '❌ Falta la descripción de la tarea.', { tipo: 'aviso_admin' }); return true }
+  const fecha = fh.date || secHoy()
+  const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: titulo.toUpperCase(), date: fecha, time: fh.time, slot: slotDeHora(fh.time) })
+  await enviar(jid, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
+  return true
+}
+// Reprograma una tarea existente: "<nombre_sec> <parte del título> <nueva fecha/hora>".
+async function reprogramarTareaSec(jid, resto) {
+  const mt = String(resto).match(/^\s*(\S+)\s+([\s\S]+)/)
+  if (!mt) { await enviar(jid, '❌ Usa: <palabra> <secretaria> <parte del título> <nueva fecha/hora>', { tipo: 'aviso_admin' }); return true }
+  const { data: cands } = await supabase.from('secretaries').select('*').ilike('full_name', '%' + mt[1] + '%').eq('active', true).limit(1)
+  const sec = (cands || [])[0]
+  if (!sec) { await enviar(jid, '❌ No encontré a la secretaria "' + mt[1] + '".', { tipo: 'aviso_admin' }); return true }
+  const fh = parseFechaHora(mt[2])
+  if (!fh.date && !fh.time) { await enviar(jid, '❌ No entendí la nueva fecha/hora.', { tipo: 'aviso_admin' }); return true }
+  let filtro = mt[2]
+  if (fh.matchFecha) filtro = filtro.replace(new RegExp(fh.matchFecha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+  if (fh.matchHora) filtro = filtro.replace(new RegExp(fh.matchHora.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' ')
+  filtro = filtro.replace(/\s+/g, ' ').trim().toUpperCase()
+  const hoy = secHoy()
+  const { data: tasks } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).gte('date', hoy).neq('status', 'hecha').order('date')
+  const tarea = (tasks || []).find(t => filtro && String(t.title || '').toUpperCase().includes(filtro)) || (tasks || [])[0]
+  if (!tarea) { await enviar(jid, '❌ ' + sec.full_name + ' no tiene esa tarea pendiente.', { tipo: 'aviso_admin' }); return true }
+  const nd = fh.date || tarea.date
+  await supabase.from('secretary_tasks').update({ date: nd, time: fh.time || tarea.time, slot: fh.time ? slotDeHora(fh.time) : tarea.slot, status: 'pendiente', ask_index: null, asked_at: null, reminded_at: null, answered_at: null, notified_at: null }).eq('id', tarea.id)
+  await enviar(jid, '🔄 Reprogramada la tarea de *' + sec.full_name + '*: "' + tarea.title + '" para el ' + fmtFechaEs(nd) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
+  return true
+}
+// devuelve el texto tras la palabra clave (si el mensaje EMPIEZA con alguna), o null
+function restoTrasClave(texto, claves) {
+  const t = String(texto || '')
+  for (const k of String(claves || '').split(',').map(x => x.trim()).filter(Boolean)) {
+    const re = new RegExp('^\\s*' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i')
+    if (re.test(t)) return t.replace(re, '').trim()
   }
+  return null
+}
+
+// Comandos privilegiados (ADMIN y GERENCIA): "tarea <nombre> <fecha> <desc>" (palabra fija de fábrica).
+async function comandosPrivilegiados(jid, phone, texto) {
+  const mt = String(texto).match(/^\s*tarea\s+([\s\S]+)/i)
+  if (mt) return await crearTareaSec(jid, mt[1])
   return false
 }
 
 // Comandos configurables de GERENCIA (bot_brains 'gerencia_cmd' = JSON):
-// [{ claves:"lotes, stock", tipo:"consulta"|"texto", consulta:"lotes", texto:"..." }]
-// consulta reutiliza las plantillas gratis existentes (lotes/comisiones/vencidas/gastos/visitas/resumen).
+// [{ claves, tipo:"consulta"|"texto"|"accion", consulta, texto, accion:"crear_tarea"|"reprogramar_tarea" }]
 async function comandosGerencia(jid, phone, texto) {
   const cmds = parseJSON(await brain('gerencia_cmd'))
   if (!Array.isArray(cmds) || !cmds.length) return false
-  const cmd = cmds.find(c => matchClaves(c.claves, texto))
+  // 1) ACCIONES: deben ir al inicio del mensaje ("<palabra> <argumentos>")
+  for (const c of cmds) {
+    if (c.tipo === 'accion') {
+      const resto = restoTrasClave(texto, c.claves)
+      if (resto !== null) return c.accion === 'reprogramar_tarea' ? await reprogramarTareaSec(jid, resto) : await crearTareaSec(jid, resto)
+    }
+  }
+  // 2) CONSULTA / TEXTO: por coincidencia de palabra clave en cualquier parte
+  const cmd = cmds.find(c => c.tipo !== 'accion' && matchClaves(c.claves, texto))
   if (!cmd) return false
   if (cmd.tipo === 'texto') { await enviar(jid, String(cmd.texto || '').trim() || '—', { tipo: 'interno' }); return true }
-  const resp = await comandoDirecto(cmd.consulta || '')   // reusa la consulta al sistema
+  const resp = await comandoDirecto(cmd.consulta || '')
   if (resp) { await enviar(jid, resp, { tipo: 'interno' }); return true }
   return false
 }
@@ -710,6 +798,26 @@ async function secretariaTick() {
       if (error && !/duplicate|unique/i.test(error.message)) log('SEC gen:', error.message)
     }
 
+    // 1b) SALUDO MATUTINO (default 07:30): buenos días con TODOS los pendientes del día y su hora
+    if ((await ajuste('sec_saludo_activo', '1')) !== '0') {
+      const saludoHora = String(await ajuste('sec_saludo_hora', '07:30')).slice(0, 5)
+      if (hhmm >= saludoHora && (await ajuste('sec_saludo', '')) !== hoy) {
+        await setAjuste('sec_saludo', hoy)
+        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente')
+        const porSec = {}
+        for (const tk of (hoyTasks || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
+        for (const sec of secs) {
+          const tareas = (porSec[sec.id] || []).sort((a, b) => String(a.time || '99').localeCompare(String(b.time || '99')))
+          const nombre = (sec.full_name || '').split(' ')[0]
+          const lista = tareas.length
+            ? tareas.map(tk => '• ' + (tk.time ? String(tk.time).slice(0, 5) + ' — ' : '') + tk.title).join('\n')
+            : '(sin actividades programadas hoy)'
+          const msj = secTpl(md, 'SALUDO', { nombre, lista }, '¡Buenos días {nombre}! ☀️ Estos son tus pendientes de hoy:\n\n{lista}\n\n¡Que tengas un gran día! 💪')
+          await enviar(sec.phone, msj, { tipo: 'secretaria' })
+        }
+      }
+    }
+
     // 2) PASES DE LISTA configurables: a cada hora fijada (1 vez al día c/u), re-pregunta
     //    lo que sigue pendiente sin responder. Se configura desde el panel (cerebro Seguimiento).
     let checkins = ['11:00', '16:30']
@@ -925,8 +1033,10 @@ async function manejarSecretaria(jid, phone, texto) {
   }
 }
 
-// Cobranza CONFIGURABLE por días (bot_brains 'cobranza_cfg' = JSON):
-// { antes:[{dias,mensaje}], despues:[{dias,mensaje}], insistencia:{veces,cada_dias,mensaje} }
+// Cobranza CONFIGURABLE por BUCKET de cuotas vencidas (bot_brains 'cobranza_cfg' = JSON):
+// { al_dia:{avisos:[{dias,mensaje}]},           <- dias = días ANTES de vencer
+//   v1:{avisos:[{dias,mensaje}], repetir:{cada_dias,mensaje}},   <- 1 vencida; dias = días DESPUÉS
+//   v2:{...}, v3:{...}, v4:{...} }               <- 2, 3, 4+ vencidas
 function tokensCob(msg, v) {
   return String(msg || '').split('{nombre}').join(v.nombre).split('{lote}').join(v.lote).split('{proyecto}').join(v.proy)
     .split('{cuota}').join(v.q?.installment_number ?? '').split('{monto}').join(soles(v.deuda)).split('{fecha}').join(v.q?.due_date ?? '')
@@ -940,35 +1050,40 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
   const vencidas = (v.installments || []).filter(i => i.status === 'vencido').sort((a, b) => a.installment_number - b.installment_number)
   const pendientes = (v.installments || []).filter(i => i.status === 'pendiente').sort((a, b) => a.installment_number - b.installment_number)
   const nV = vencidas.length
-  // ANTES de vencer: sobre la próxima cuota pendiente
-  if (pendientes.length) {
+  // AL DÍA (0 vencidas): avisos X días ANTES sobre la próxima cuota pendiente
+  if (nV === 0) {
+    const b = cfg.al_dia
+    if (!b || !pendientes.length) return
     const q = pendientes[0], d = diasEntre(q.due_date, hoyISO), deuda = Number(q.amount) - Number(q.amount_paid)
-    for (const r of (cfg.antes || [])) {
-      if (Number(r.dias) === d && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_a' + d, dias: 25 }))) {
-        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_a' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
+    for (const r of (b.avisos || [])) {
+      if (Number(r.dias) === d && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_al' + d, dias: 25 }))) {
+        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_al' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       }
+    }
+    return
+  }
+  // 1/2/3/4+ vencidas: bucket correspondiente, sobre la cuota vencida más antigua (dias = días DESPUÉS)
+  const key = nV >= 4 ? 'v4' : 'v' + nV
+  const b = cfg[key]
+  if (!b || !vencidas.length) return
+  const q = vencidas[0], dd = diasEntre(hoyISO, q.due_date), deuda = Number(q.amount) - Number(q.amount_paid)
+  const vars = { nombre, lote, proy, q, deuda, nV, dias: dd }
+  let mando = false
+  for (const r of (b.avisos || [])) {
+    if (Number(r.dias) === dd && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_' + dd, dias: 45 }))) {
+      await enviar(c.phone, tokensCob(r.mensaje, vars), { tipo: 'cob_' + key, installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await espera(delayAleatorio()); mando = true
     }
   }
-  // DESPUÉS de vencer + INSISTENCIA: sobre la cuota vencida más antigua
-  if (vencidas.length) {
-    const q = vencidas[0], dd = diasEntre(hoyISO, q.due_date), deuda = Number(q.amount) - Number(q.amount_paid)
-    let mando = false
-    for (const r of (cfg.despues || [])) {
-      if (Number(r.dias) === dd && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_d' + dd, dias: 40 }))) {
-        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: dd }), { tipo: 'cob_d' + dd, installment_id: q.id, sale_id: v.id, client_id: c.id })
-        await espera(delayAleatorio()); mando = true
-      }
-    }
-    const ins = cfg.insistencia
-    if (!mando && ins && Number(ins.veces) > 0 && (ins.mensaje || '').trim()) {
-      const base = Math.max(0, ...(cfg.despues || []).map(r => Number(r.dias) || 0))
-      const cada = Math.max(1, Number(ins.cada_dias) || 3)
-      const over = dd - base
-      if (over > 0 && over % cada === 0 && (over / cada) <= Number(ins.veces) && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_ins' + dd, dias: 90 }))) {
-        await enviar(c.phone, tokensCob(ins.mensaje, { nombre, lote, proy, q, deuda, nV, dias: dd }), { tipo: 'cob_ins' + dd, installment_id: q.id, sale_id: v.id, client_id: c.id })
-        await espera(delayAleatorio())
-      }
+  const rep = b.repetir
+  if (!mando && rep && (rep.mensaje || '').trim() && Number(rep.cada_dias) > 0) {
+    const base = Math.max(0, ...(b.avisos || []).map(r => Number(r.dias) || 0))
+    const cada = Math.max(1, Number(rep.cada_dias) || 3)
+    const over = dd - base
+    if (over > 0 && over % cada === 0 && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_rep' + dd, dias: 90 }))) {
+      await enviar(c.phone, tokensCob(rep.mensaje, vars), { tipo: 'cob_' + key + '_rep', installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await espera(delayAleatorio())
     }
   }
 }
@@ -996,7 +1111,7 @@ async function cobranza() {
   if (error) { log('ERROR consultando ventas:', error.message); return }
 
   const cfg = parseJSON(await brain('cobranza_cfg'))
-  const usarCfg = cfg && (Array.isArray(cfg.antes) || Array.isArray(cfg.despues) || cfg.insistencia)
+  const usarCfg = cfg && (cfg.al_dia || cfg.v1 || cfg.v2 || cfg.v3 || cfg.v4)
   let alertasHumanas = []
   for (const v of ventas || []) {
     const c = v.client
