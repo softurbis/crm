@@ -1329,10 +1329,7 @@ async function correrFlujo(jid, phone, lead, proy, flow, idx) {
 async function iniciarFlujoProyecto(jid, phone, lead) {
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
   const flow = parseFlow(proy)
-  if (proy && flow) {
-    if (Array.isArray(flow.bombardeo) && flow.bombardeo.length) await enviarMediaLib(jid, flow.media_lib || [], flow.bombardeo)   // bombardeo inicial
-    await correrFlujo(jid, phone, lead, proy, flow, 0); return
-  }
+  if (proy && flow) { await correrFlujo(jid, phone, lead, proy, flow, 0); return }
   if (proy) await bombardear(jid, proy)
   await enviar(jid, '¿Te gustaría coordinar una *visita* o tienes alguna pregunta? 🙌 Escríbeme y con gusto te ayudo.', { tipo: 'lead_flujo', lead_id: lead.id })
   await setConv(phone, { flow_state: 'espera_interes' })
@@ -1750,15 +1747,17 @@ async function reaskFlow() {
       const { data: proy } = await supabase.from('projects').select('bot_flow').eq('id', lead.project_id).maybeSingle()
       const flow = parseFlow(proy)
       if (!flow) continue
-      const reMin = Number(flow.reask_min) || 5
-      const maxRe = Number(flow.max_reasks) || 1
-      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue
-      if ((c.flow_reasks || 0) >= maxRe) continue
       const step = pasoPorId(flow, c.flow_step)
       if (!step) continue
+      // re-pregunta POR PASO (si el paso no la define, usa la global del flujo como default)
+      const reMin = Number(step.reask_min ?? flow.reask_min) || 5
+      const maxRe = Number(step.reask_veces ?? flow.max_reasks) || 1
+      if (maxRe <= 0) continue
+      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue
+      if ((c.flow_reasks || 0) >= maxRe) continue
       const jid = c.wa_jid || jidDe(c.phone)
       const ops = (step.opciones || []).map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-      const texto = (flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
+      const texto = (step.reask_text || flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
       await enviar(c.phone, texto, { tipo: 'lead_flujo', lead_id: c.lead_id })
       await supabase.from('whatsapp_conversations').update({ flow_reasks: (c.flow_reasks || 0) + 1, last_message_at: new Date().toISOString() }).eq('id', c.id)
     } catch (e) { log('reask:', String(e.message || e)) }

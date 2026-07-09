@@ -219,7 +219,7 @@ export default function Whatsapp() {
         reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
         bienvenida: fl?.bienvenida || '', pide_nombre: fl?.pide_nombre || '', no_nombre: fl?.no_nombre || '',
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
-        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
+        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
     }
   }
@@ -260,6 +260,9 @@ export default function Whatsapp() {
       bombardeo: projFlow.bombardeo || [],
       steps: (projFlow.steps || []).map(s => ({
         id: s.id, tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: (s.texto || '').trim(), media: s.media || [], pasar_asesor: !!s.pasar_asesor,
+        ...(s.tipo === 'pregunta' && String(s.reask_min).trim() !== '' ? { reask_min: Number(s.reask_min) || 5 } : {}),
+        ...(s.tipo === 'pregunta' && String(s.reask_veces).trim() !== '' ? { reask_veces: Number(s.reask_veces) || 0 } : {}),
+        ...(s.tipo === 'pregunta' && (s.reask_text || '').trim() ? { reask_text: (s.reask_text || '').trim() } : {}),
         opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
       })).filter(s => s.texto || (s.opciones && s.opciones.length)),
     }
@@ -663,14 +666,11 @@ export default function Whatsapp() {
                     {m.tipo === 'link'
                       ? <input value={m.url} placeholder="https://…" onChange={e => libSet(m.id, { url: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
                       : <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#7ec8e3', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ver archivo</a>}
-                    <input value={m.desc} placeholder="descripción (opcional)" onChange={e => libSet(m.id, { desc: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
-                    <label style={{ fontSize: 10, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer', color: (projFlow.bombardeo || []).includes(m.id) ? '#e8975a' : undefined }}>
-                      <input type="checkbox" checked={(projFlow.bombardeo || []).includes(m.id)} onChange={() => bombToggle(m.id)} /> bombardeo
-                    </label>
+                    <input value={m.desc} placeholder="descripción / texto que acompaña la imagen" onChange={e => libSet(m.id, { desc: e.target.value })} style={{ flex: '1 1 200px', textTransform: 'none', fontSize: 11 }} />
                     <button className="btn-ghost" onClick={() => libDel(m.id)}>✕</button>
                   </div>
                 ))}
-                <p className="muted" style={{ fontSize: 10, marginTop: 4 }}>💥 <b>Bombardeo</b>: lo marcado se manda todo junto al inicio (tras “info por aquí”). Cada paso puede adjuntar cualquier material de esta lista.</p>
+                <p className="muted" style={{ fontSize: 10, marginTop: 4 }}>Cada material se envía <b>uno por uno</b> con su descripción como texto. Adjunta los que quieras en cada paso del flujo (abajo).</p>
               </div>
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8, fontSize: 12 }}>
@@ -726,6 +726,13 @@ export default function Whatsapp() {
                         </div>
                       ))}
                       <button className="btn-ghost" onClick={() => optAdd(i)}>+ Opción</button>
+                      <div style={{ marginTop: 8, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        🔁 Si no responde a esta pregunta, re-preguntar a los
+                        <input type="number" min="1" value={s.reask_min} placeholder={String(projFlow.reask_min || 5)} onChange={e => flowSet(i, { reask_min: e.target.value })} style={{ width: 50 }} /> min,
+                        <input type="number" min="0" value={s.reask_veces} placeholder={String(projFlow.max_reasks ?? 1)} onChange={e => flowSet(i, { reask_veces: e.target.value })} style={{ width: 44 }} /> vez(es)
+                        <input value={s.reask_text} placeholder="texto del recordatorio (opcional)" onChange={e => flowSet(i, { reask_text: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none' }} />
+                        <span className="muted" style={{ fontSize: 9 }}>vacío = usa el global de arriba</span>
+                      </div>
                     </div>
                   )}
                 </div>
