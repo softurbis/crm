@@ -365,6 +365,28 @@ async function comandoDirecto(texto) {
       return out + PIE_COMANDO
     }
 
+    if (/\bventas?\b|vendid/.test(t)) {
+      const { data: sales } = await supabase.from('sales').select('status, lot:lots(project_id)')
+      const by = {}; for (const s of (sales || [])) by[s.status] = (by[s.status] || 0) + 1
+      let out = '🏷️ *VENTAS*\nEn proceso: *' + (by.en_proceso || 0) + '* · Pagadas: *' + (by.pagado || 0) + '*' + (by.expropiado ? ' · Expropiadas: ' + by.expropiado : '')
+      return out + PIE_COMANDO
+    }
+    if (/ingres|recaud|cobrado|caja/.test(t)) {
+      const mes = new Date().toISOString().slice(0, 7)
+      const { data: ing } = await supabase.from('daily_income').select('amount, date').gte('date', mes + '-01')
+      const totMes = (ing || []).filter(x => String(x.date || '').slice(0, 7) === mes).reduce((s, x) => s + Number(x.amount || 0), 0)
+      return '💵 *INGRESOS DEL MES (' + mes + ')*\nTotal recaudado: *' + soles(totMes) + '* en ' + (ing || []).length + ' pagos.' + PIE_COMANDO
+    }
+    if (/separacion|separad|apartad/.test(t)) {
+      const { data: seps } = await supabase.from('separations').select('amount, status').eq('status', 'vigente')
+      const tot = (seps || []).reduce((s, x) => s + Number(x.amount || 0), 0)
+      return '📝 *SEPARACIONES VIGENTES*\n*' + (seps || []).length + '* separaciones · ' + soles(tot) + ' apartado.' + PIE_COMANDO
+    }
+    if (/\bclientes?\b|comprador/.test(t)) {
+      const { count } = await supabase.from('clients').select('doc_number', { count: 'exact', head: true })
+      return '👥 *CLIENTES*\nTotal registrados: *' + (count || 0) + '*.' + PIE_COMANDO
+    }
+
     return null
   } catch (e) { log('COMANDO ERROR:', String(e.message || e)); return null }
 }
@@ -903,9 +925,57 @@ async function manejarSecretaria(jid, phone, texto) {
   }
 }
 
+// Cobranza CONFIGURABLE por días (bot_brains 'cobranza_cfg' = JSON):
+// { antes:[{dias,mensaje}], despues:[{dias,mensaje}], insistencia:{veces,cada_dias,mensaje} }
+function tokensCob(msg, v) {
+  return String(msg || '').split('{nombre}').join(v.nombre).split('{lote}').join(v.lote).split('{proyecto}').join(v.proy)
+    .split('{cuota}').join(v.q?.installment_number ?? '').split('{monto}').join(soles(v.deuda)).split('{fecha}').join(v.q?.due_date ?? '')
+    .split('{dias}').join(v.dias ?? '').split('{nvencidas}').join(v.nV ?? '').split('{deuda}').join(soles(v.deuda))
+}
+async function cobranzaVentaCfg(v, cfg, hoyISO) {
+  const c = v.client
+  const nombre = (c.full_name || '').split(' ')[0]
+  const lote = `Mz ${v.lot.mz} Lt ${v.lot.lt}`
+  const proy = v.lot.project?.name || 'su proyecto'
+  const vencidas = (v.installments || []).filter(i => i.status === 'vencido').sort((a, b) => a.installment_number - b.installment_number)
+  const pendientes = (v.installments || []).filter(i => i.status === 'pendiente').sort((a, b) => a.installment_number - b.installment_number)
+  const nV = vencidas.length
+  // ANTES de vencer: sobre la próxima cuota pendiente
+  if (pendientes.length) {
+    const q = pendientes[0], d = diasEntre(q.due_date, hoyISO), deuda = Number(q.amount) - Number(q.amount_paid)
+    for (const r of (cfg.antes || [])) {
+      if (Number(r.dias) === d && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_a' + d, dias: 25 }))) {
+        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_a' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await espera(delayAleatorio())
+      }
+    }
+  }
+  // DESPUÉS de vencer + INSISTENCIA: sobre la cuota vencida más antigua
+  if (vencidas.length) {
+    const q = vencidas[0], dd = diasEntre(hoyISO, q.due_date), deuda = Number(q.amount) - Number(q.amount_paid)
+    let mando = false
+    for (const r of (cfg.despues || [])) {
+      if (Number(r.dias) === dd && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_d' + dd, dias: 40 }))) {
+        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: dd }), { tipo: 'cob_d' + dd, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await espera(delayAleatorio()); mando = true
+      }
+    }
+    const ins = cfg.insistencia
+    if (!mando && ins && Number(ins.veces) > 0 && (ins.mensaje || '').trim()) {
+      const base = Math.max(0, ...(cfg.despues || []).map(r => Number(r.dias) || 0))
+      const cada = Math.max(1, Number(ins.cada_dias) || 3)
+      const over = dd - base
+      if (over > 0 && over % cada === 0 && (over / cada) <= Number(ins.veces) && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_ins' + dd, dias: 90 }))) {
+        await enviar(c.phone, tokensCob(ins.mensaje, { nombre, lote, proy, q, deuda, nV, dias: dd }), { tipo: 'cob_ins' + dd, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await espera(delayAleatorio())
+      }
+    }
+  }
+}
+
 async function cobranza() {
   if (!(await flag('bot_activo')) || !(await flag('cobranza_activa'))) { log('COBRANZA DESACTIVADA desde el panel'); return }
-  log('=== BARRIDO DE COBRANZA (4 NIVELES) ===')
+  log('=== BARRIDO DE COBRANZA ===')
   CEREBRO_COB = await brain('cobranza')
   try { await supabase.rpc('mark_overdue_installments') } catch (e) { log('mark_overdue:', e.message) }
   // tolerancia de redondeo: cuotas con faltante <= S/2 se consideran pagadas (condonacion de residuo)
@@ -925,10 +995,13 @@ async function cobranza() {
     .eq('status', 'en_proceso').eq('auto_cobranza', true)
   if (error) { log('ERROR consultando ventas:', error.message); return }
 
+  const cfg = parseJSON(await brain('cobranza_cfg'))
+  const usarCfg = cfg && (Array.isArray(cfg.antes) || Array.isArray(cfg.despues) || cfg.insistencia)
   let alertasHumanas = []
   for (const v of ventas || []) {
     const c = v.client
     if (!c?.phone_valid || !c?.phone) continue
+    if (usarCfg) { await cobranzaVentaCfg(v, cfg, hoyISO); continue }   // reglas por días configurables
     const nombre = (c.full_name || '').split(' ')[0]
     const lote = `Mz ${v.lot.mz} Lt ${v.lot.lt}`
     const proy = v.lot.project?.name || 'su proyecto'
@@ -1091,7 +1164,19 @@ async function preguntarCanal(jid, phone, lead, nombre) {
 // ============ FLUJO CONFIGURABLE POR PROYECTO (projects.bot_flow) ============
 // steps[]: { id, tipo:'mensaje'|'pregunta', texto, media[], pasar_asesor,
 //            opciones[{label, claves, ir_a, pasar_asesor}] }
-const MEDIA_ARCHIVO = { foto1: 'foto', foto2: 'foto', foto3: 'foto', video: 'video', plano: 'plano', brochure: 'brochure' }
+// Biblioteca de material del flujo: media_lib=[{id,tipo:'imagen'|'video'|'link',url,desc}]; los pasos
+// y el bombardeo referencian por id. Envía cada item según su tipo.
+async function enviarMediaLib(jid, lib, ids) {
+  if (!Array.isArray(ids) || !ids.length) return
+  const byId = {}; for (const it of (lib || [])) byId[String(it.id)] = it
+  for (const id of ids) {
+    const it = byId[String(id)]
+    if (!it || !it.url) continue
+    if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', it.desc || '')
+    else if (it.tipo === 'link') await enviar(jid, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo' })
+    else await enviarArchivo(jid, it.url, 'foto', it.desc || '')
+  }
+}
 function parseFlow(proy) {
   try { const f = proy?.bot_flow; const o = typeof f === 'string' ? JSON.parse(f) : f; return (o && Array.isArray(o.steps) && o.steps.length) ? o : null } catch { return null }
 }
@@ -1104,13 +1189,6 @@ function textoFlujo(flow, key, def, proyName) {
 }
 const pasoPorId = (flow, id) => (flow.steps || []).find(s => String(s.id) === String(id))
 const idxDePaso = (flow, id) => (flow.steps || []).findIndex(s => String(s.id) === String(id))
-async function enviarMediaPaso(jid, proy, media) {
-  for (const m of (media || [])) {
-    if (m === 'maps' && proy.maps_url) await enviar(jid, '📌 *Ubicación en Google Maps:*\n' + proy.maps_url, { tipo: 'lead_flujo' })
-    else if (m === 'vista360' && proy.vista360_url) await enviar(jid, '🔄 *Recorrido virtual 360°:*\n' + proy.vista360_url, { tipo: 'lead_flujo' })
-    else if (MEDIA_ARCHIVO[m] && proy[m + '_url']) await enviarArchivo(jid, proy[m + '_url'], MEDIA_ARCHIVO[m], '')
-  }
-}
 // ejecuta pasos desde un índice; envía mensajes+adjuntos y se detiene en la 1ª pregunta (o al final)
 async function correrFlujo(jid, phone, lead, proy, flow, idx) {
   const steps = flow.steps || []
@@ -1118,7 +1196,7 @@ async function correrFlujo(jid, phone, lead, proy, flow, idx) {
   while (idx >= 0 && idx < steps.length && guard++ < 50) {
     const s = steps[idx]
     if (s.texto) await enviar(jid, s.texto, { tipo: 'lead_flujo', lead_id: lead.id })
-    await enviarMediaPaso(jid, proy, s.media)
+    await enviarMediaLib(jid, flow.media_lib || [], s.media)
     if (s.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
     if (s.tipo === 'pregunta' && (s.opciones || []).length) {
       const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
@@ -1136,7 +1214,10 @@ async function correrFlujo(jid, phone, lead, proy, flow, idx) {
 async function iniciarFlujoProyecto(jid, phone, lead) {
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
   const flow = parseFlow(proy)
-  if (proy && flow) { await correrFlujo(jid, phone, lead, proy, flow, 0); return }
+  if (proy && flow) {
+    if (Array.isArray(flow.bombardeo) && flow.bombardeo.length) await enviarMediaLib(jid, flow.media_lib || [], flow.bombardeo)   // bombardeo inicial
+    await correrFlujo(jid, phone, lead, proy, flow, 0); return
+  }
   if (proy) await bombardear(jid, proy)
   await enviar(jid, '¿Te gustaría coordinar una *visita* o tienes alguna pregunta? 🙌 Escríbeme y con gusto te ayudo.', { tipo: 'lead_flujo', lead_id: lead.id })
   await setConv(phone, { flow_state: 'espera_interes' })
@@ -1331,8 +1412,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
       }
     } else {
       nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
-      if (nombre.length < 3) { await enviar(jid, 'Disculpa, no logré leer tu nombre 🙏 ¿Me lo escribes? O si prefieres, dime *prefiero no decirlo* y seguimos.', { tipo: 'lead_flujo', lead_id: lead.id }); return }
-      await supabase.from('leads').update({ full_name: nombre, status: 'contactado' }).eq('id', lead.id)
+      if (nombre.length < 2) nombre = null   // no insistir: si no es un nombre claro, seguimos como anónimo
+      await supabase.from('leads').update({ status: 'contactado', ...(nombre ? { full_name: nombre } : {}) }).eq('id', lead.id)
     }
     if (!lead.project_id) {
       const { proys } = await detectarProyecto('')

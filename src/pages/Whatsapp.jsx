@@ -28,7 +28,7 @@ const parseSecc = txt => { const o = {}; ('\n' + String(txt || '')).split(/\n##[
 const armarSecc = (obj, order) => order.filter(([k]) => (obj[k] || '').trim()).map(([k]) => '## ' + k + '\n' + (obj[k] || '').trim()).join('\n\n')
 const parseArr = s => { try { const o = JSON.parse(String(s || '')); return Array.isArray(o) ? o : [] } catch { return [] } }
 // consultas que puede mapear un comando de gerencia (reutilizan las plantillas gratis del bot)
-const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponibles y precios'], ['comisiones', 'Comisiones por cobrar'], ['vencidas', 'Cuotas vencidas'], ['gastos', 'Gastos del año/mes'], ['visitas', 'Visitas programadas']]
+const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponibles y precios'], ['comisiones', 'Comisiones por cobrar'], ['vencidas', 'Cuotas vencidas'], ['gastos', 'Gastos del año/mes'], ['visitas', 'Visitas programadas'], ['ventas', 'Ventas (en proceso/pagadas)'], ['ingresos', 'Ingresos del mes'], ['separaciones', 'Separaciones vigentes'], ['clientes', 'Total de clientes']]
 
 function ReplyBox({ phone, onSent }) {
   const [txt, setTxt] = useState('')
@@ -78,8 +78,9 @@ export default function Whatsapp() {
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
-  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', bienvenida: '', pide_nombre: '', no_nombre: '', steps: [] })
-  const [cobCards, setCobCards] = useState({})       // tarjetas de cobranza (por sección)
+  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', bienvenida: '', pide_nombre: '', no_nombre: '', media_lib: [], bombardeo: [], steps: [] })
+  const [subiendo, setSubiendo] = useState(false)
+  const [cobCfg, setCobCfg] = useState({ antes: [], despues: [], insistencia: { veces: 3, cada_dias: 3, mensaje: '' } })  // cobranza por días
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
   const [secCards, setSecCards] = useState({})       // tarjetas de seguimiento (por sección)
   const [gerCmds, setGerCmds] = useState([])         // comandos configurables de gerencia
@@ -195,7 +196,7 @@ export default function Whatsapp() {
     setBrainSel(k); setBrainMsg(''); setProjQMsg(''); setCfgMsg('')
     if (!k.startsWith('p:')) {
       setBrainTxt(B.find(x => x.key === k)?.content || '')
-      if (k === 'cobranza') { setCobCards(parseSecc(B.find(x => x.key === 'cobranza')?.content || '')); setCobFlow(parseArr(B.find(x => x.key === 'cobranza_flow')?.content)) }
+      if (k === 'cobranza') { let cfg = null; try { cfg = JSON.parse(B.find(x => x.key === 'cobranza_cfg')?.content || '') } catch {}; setCobCfg({ antes: Array.isArray(cfg?.antes) ? cfg.antes : [], despues: Array.isArray(cfg?.despues) ? cfg.despues : [], insistencia: cfg?.insistencia || { veces: 3, cada_dias: 3, mensaje: '' } }); setCobFlow(parseArr(B.find(x => x.key === 'cobranza_flow')?.content)) }
       else if (k === 'secretaria') setSecCards(parseSecc(B.find(x => x.key === 'secretaria')?.content || ''))
       else if (k === 'gerencia') setGerCmds(parseArr(B.find(x => x.key === 'gerencia_cmd')?.content))
     }
@@ -211,6 +212,7 @@ export default function Whatsapp() {
       setProjFlow({
         reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
         bienvenida: fl?.bienvenida || '', pide_nombre: fl?.pide_nombre || '', no_nombre: fl?.no_nombre || '',
+        media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
         steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
     }
@@ -224,11 +226,32 @@ export default function Whatsapp() {
   const optSet = (i, oi, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).map((o, k) => k === oi ? { ...o, ...patch } : o) } : s) }))
   const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', ir_a: '', pasar_asesor: false }] } : s) }))
   const optDel = (i, oi) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).filter((_, k) => k !== oi) } : s) }))
+  // ---- biblioteca de material del flujo (subir imágenes/videos + links con descripción) ----
+  const libAdd = it => setProjFlow(f => ({ ...f, media_lib: [...(f.media_lib || []), it] }))
+  const libSet = (id, patch) => setProjFlow(f => ({ ...f, media_lib: f.media_lib.map(x => x.id === id ? { ...x, ...patch } : x) }))
+  const libDel = id => setProjFlow(f => ({ ...f, media_lib: (f.media_lib || []).filter(x => x.id !== id), bombardeo: (f.bombardeo || []).filter(b => b !== id), steps: f.steps.map(s => ({ ...s, media: (s.media || []).filter(m => m !== id) })) }))
+  const bombToggle = id => setProjFlow(f => ({ ...f, bombardeo: (f.bombardeo || []).includes(id) ? f.bombardeo.filter(b => b !== id) : [...(f.bombardeo || []), id] }))
+  const subirMedia = async (e, tipo) => {
+    const files = Array.from(e.target.files || []); e.target.value = ''
+    if (!files.length) return
+    setSubiendo(true)
+    for (const file of files) {
+      const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
+      const path = 'bot-flow/' + brainSel.slice(2) + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '.' + ext
+      const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
+      if (error) { alert('No se pudo subir ' + file.name + ': ' + error.message); continue }
+      const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+      libAdd({ id: nuevoPasoId(), tipo, url, desc: '' })
+    }
+    setSubiendo(false)
+  }
   const guardarFlujo = async () => {
     setProjQMsg('GUARDANDO...')
     const clean = {
       reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(),
       bienvenida: (projFlow.bienvenida || '').trim(), pide_nombre: (projFlow.pide_nombre || '').trim(), no_nombre: (projFlow.no_nombre || '').trim(),
+      media_lib: (projFlow.media_lib || []).filter(m => (m.url || '').trim()).map(m => ({ id: m.id, tipo: m.tipo, url: (m.url || '').trim(), desc: (m.desc || '').trim() })),
+      bombardeo: projFlow.bombardeo || [],
       steps: (projFlow.steps || []).map(s => ({
         id: s.id, tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: (s.texto || '').trim(), media: s.media || [], pasar_asesor: !!s.pasar_asesor,
         opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
@@ -240,8 +263,11 @@ export default function Whatsapp() {
     if (!error) cargarBrains()
   }
   // ---- guardado de los paneles estructurados (cobranza / seguimiento / gerencia) ----
-  const setCob = (tag, v) => setCobCards(c => ({ ...c, [tag]: v }))
   const setSec = (tag, v) => setSecCards(c => ({ ...c, [tag]: v }))
+  const cobAdd = grupo => setCobCfg(c => ({ ...c, [grupo]: [...(c[grupo] || []), { dias: grupo === 'antes' ? 3 : 1, mensaje: '' }] }))
+  const cobSet = (grupo, i, patch) => setCobCfg(c => ({ ...c, [grupo]: c[grupo].map((x, j) => j === i ? { ...x, ...patch } : x) }))
+  const cobDel = (grupo, i) => setCobCfg(c => ({ ...c, [grupo]: c[grupo].filter((_, j) => j !== i) }))
+  const insSet = patch => setCobCfg(c => ({ ...c, insistencia: { ...c.insistencia, ...patch } }))
   const cfSet = (i, patch) => setCobFlow(a => a.map((x, j) => j === i ? { ...x, ...patch } : x))
   const cfAdd = () => setCobFlow(a => [...a, { claves: '', accion: 'responder', respuesta: '' }])
   const cfDel = i => setCobFlow(a => a.filter((_, j) => j !== i))
@@ -250,8 +276,10 @@ export default function Whatsapp() {
   const gcDel = i => setGerCmds(a => a.filter((_, j) => j !== i))
   const guardarCobranza = async () => {
     setCfgMsg('GUARDANDO...')
+    const limpDias = arr => (arr || []).map(r => ({ dias: Number(r.dias) || 0, mensaje: (r.mensaje || '').trim() })).filter(r => r.mensaje)
+    const cfg = { antes: limpDias(cobCfg.antes), despues: limpDias(cobCfg.despues), insistencia: { veces: Number(cobCfg.insistencia?.veces) || 0, cada_dias: Number(cobCfg.insistencia?.cada_dias) || 3, mensaje: (cobCfg.insistencia?.mensaje || '').trim() } }
     const flow = cobFlow.map(r => ({ claves: (r.claves || '').trim(), accion: r.accion === 'asesor' ? 'asesor' : 'responder', respuesta: (r.respuesta || '').trim() })).filter(r => r.claves)
-    const e1 = (await supabase.from('bot_brains').upsert({ key: 'cobranza', content: armarSecc(cobCards, COB_CARDS), updated_at: new Date().toISOString() })).error
+    const e1 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_cfg', content: JSON.stringify(cfg), updated_at: new Date().toISOString() })).error
     const e2 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_flow', content: JSON.stringify(flow), updated_at: new Date().toISOString() })).error
     setCfgMsg(e1 || e2 ? 'ERROR: ' + ((e1 || e2).message) : '✅ GUARDADO — el bot lo usa en máx. 1 minuto')
     if (!e1 && !e2) cargarBrains()
@@ -436,7 +464,7 @@ export default function Whatsapp() {
             El cerebro del bot dividido por áreas. Toca un nodo del mapa para editarlo. Si un cerebro está VACÍO,
             el bot usa su versión por defecto. Los cambios rigen en máximo 1 minuto, sin reiniciar nada.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: brainSel.startsWith('p:') ? 'minmax(200px, 260px) 1fr' : 'minmax(260px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
             <div className="glass" style={{ padding: 8, background: 'rgba(0,0,0,.18)' }}>
               <BrainMap nodes={buildNodes()} selected={brainSel} onSelect={elegirBrain} />
             </div>
@@ -468,14 +496,37 @@ export default function Whatsapp() {
           )}
           {brainSel === 'cobranza' && (
             <div>
-              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Un cuadro por cada aviso. Vacío = usa la plantilla por defecto. Variables entre llaves se reemplazan solas.</p>
-              {COB_CARDS.map(([tag, lbl, toks]) => (
-                <div key={tag} style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 12, fontWeight: 700 }}>{lbl}</label>
-                  <div className="muted" style={{ fontSize: 10 }}>{toks}</div>
-                  <textarea value={cobCards[tag] || ''} onChange={e => setCob(tag, e.target.value)} style={{ width: '100%', minHeight: 44, textTransform: 'none', fontSize: 12.5, marginTop: 2 }} />
+              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Tú defines cuántos avisos, cuántos días antes/después y cuántas insistencias. Variables: <span style={{ fontFamily: 'monospace' }}>{'{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias} {deuda}'}</span>.</p>
+
+              <div style={{ border: '1px solid rgba(96,199,161,.4)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(96,199,161,.06)' }}>
+                <b style={{ fontSize: 12, color: '#4fc3a1' }}>⏰ Avisos ANTES de vencer</b>
+                {(cobCfg.antes || []).map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
+                    <input type="number" min="0" value={r.dias} onChange={e => cobSet('antes', i, { dias: e.target.value })} style={{ width: 56 }} /><span style={{ fontSize: 11, paddingTop: 6 }}>días antes:</span>
+                    <textarea value={r.mensaje} placeholder="Hola {nombre}, tu cuota {cuota} del lote {lote} vence en {dias} días ({fecha}) por {monto}." onChange={e => cobSet('antes', i, { mensaje: e.target.value })} style={{ flex: '1 1 260px', minHeight: 40, textTransform: 'none', fontSize: 12 }} />
+                    <button className="btn-ghost" onClick={() => cobDel('antes', i)}>✕</button>
+                  </div>
+                ))}
+                <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cobAdd('antes')}>+ Aviso antes</button>
+              </div>
+
+              <div style={{ border: '1px solid rgba(240,120,92,.4)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(240,120,92,.06)' }}>
+                <b style={{ fontSize: 12, color: '#f2785c' }}>🔴 Avisos DESPUÉS de vencer</b>
+                {(cobCfg.despues || []).map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
+                    <input type="number" min="0" value={r.dias} onChange={e => cobSet('despues', i, { dias: e.target.value })} style={{ width: 56 }} /><span style={{ fontSize: 11, paddingTop: 6 }}>días después:</span>
+                    <textarea value={r.mensaje} placeholder="Hola {nombre}, tu cuota {cuota} del lote {lote} venció hace {dias} días. Regulariza por favor." onChange={e => cobSet('despues', i, { mensaje: e.target.value })} style={{ flex: '1 1 260px', minHeight: 40, textTransform: 'none', fontSize: 12 }} />
+                    <button className="btn-ghost" onClick={() => cobDel('despues', i)}>✕</button>
+                  </div>
+                ))}
+                <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cobAdd('despues')}>+ Aviso después</button>
+                <div style={{ borderTop: '1px dashed rgba(255,255,255,.15)', marginTop: 8, paddingTop: 8, fontSize: 12 }}>
+                  <b style={{ fontSize: 12 }}>🔁 Insistencias</b> (tras el último aviso de arriba):{' '}
+                  <input type="number" min="0" value={cobCfg.insistencia?.veces ?? 0} onChange={e => insSet({ veces: e.target.value })} style={{ width: 44 }} /> veces, cada{' '}
+                  <input type="number" min="1" value={cobCfg.insistencia?.cada_dias ?? 3} onChange={e => insSet({ cada_dias: e.target.value })} style={{ width: 44 }} /> días
+                  <textarea value={cobCfg.insistencia?.mensaje || ''} placeholder="Hola {nombre}, seguimos esperando el pago de tu cuota {cuota} del lote {lote} ({monto}). Contáctanos para regularizar." onChange={e => insSet({ mensaje: e.target.value })} style={{ width: '100%', minHeight: 40, textTransform: 'none', fontSize: 12, marginTop: 4 }} />
                 </div>
-              ))}
+              </div>
               <div style={{ border: '1px solid rgba(126,200,227,.4)', borderRadius: 8, padding: 10, margin: '8px 0', background: 'rgba(126,200,227,.06)' }}>
                 <b style={{ fontSize: 12, color: '#7ec8e3' }}>💬 Flujo: cuando el cliente responde</b>
                 <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Regla por palabra clave: responde un texto o deriva al asesor. La primera que coincida gana.</p>
@@ -589,6 +640,31 @@ export default function Whatsapp() {
                 <textarea value={projFlow.no_nombre} placeholder="¡Sin problema! Seguimos igual 😊" onChange={e => setProjFlow(f => ({ ...f, no_nombre: e.target.value }))} style={{ width: '100%', minHeight: 36, textTransform: 'none', fontSize: 12, margin: '3px 0 0' }} />
               </div>
 
+              <div style={{ border: '1px solid rgba(232,151,90,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
+                <b style={{ fontSize: 12, color: '#e8975a' }}>📎 Material del flujo (se sube aquí, no del proyecto)</b>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '6px 0 8px' }}>
+                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Subir imágenes<input type="file" accept="image/*" multiple onChange={e => subirMedia(e, 'imagen')} style={{ display: 'none' }} /></label>
+                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>🎬 Subir videos<input type="file" accept="video/*" multiple onChange={e => subirMedia(e, 'video')} style={{ display: 'none' }} /></label>
+                  <button className="btn-ghost" onClick={() => libAdd({ id: nuevoPasoId(), tipo: 'link', url: '', desc: '' })}>🔗 Agregar link</button>
+                  {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
+                </div>
+                {(projFlow.media_lib || []).length === 0 && <p className="muted" style={{ fontSize: 11 }}>Aún no hay material. Sube imágenes/videos o agrega links.</p>}
+                {(projFlow.media_lib || []).map(m => (
+                  <div key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap', padding: '4px 6px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6 }}>
+                    <span style={{ fontSize: 11 }}>{m.tipo === 'video' ? '🎬' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
+                    {m.tipo === 'link'
+                      ? <input value={m.url} placeholder="https://…" onChange={e => libSet(m.id, { url: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
+                      : <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#7ec8e3', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ver archivo</a>}
+                    <input value={m.desc} placeholder="descripción (opcional)" onChange={e => libSet(m.id, { desc: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
+                    <label style={{ fontSize: 10, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer', color: (projFlow.bombardeo || []).includes(m.id) ? '#e8975a' : undefined }}>
+                      <input type="checkbox" checked={(projFlow.bombardeo || []).includes(m.id)} onChange={() => bombToggle(m.id)} /> bombardeo
+                    </label>
+                    <button className="btn-ghost" onClick={() => libDel(m.id)}>✕</button>
+                  </div>
+                ))}
+                <p className="muted" style={{ fontSize: 10, marginTop: 4 }}>💥 <b>Bombardeo</b>: lo marcado se manda todo junto al inicio (tras “info por aquí”). Cada paso puede adjuntar cualquier material de esta lista.</p>
+              </div>
+
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8, fontSize: 12 }}>
                 <label>👤 Asesor (recibe el lead):</label>
                 <input value={projNotify} placeholder="51 + número" onChange={e => setProjNotify(e.target.value)} style={{ width: 160 }} />
@@ -617,10 +693,11 @@ export default function Whatsapp() {
                   </div>
                   <textarea value={s.texto} placeholder={s.tipo === 'pregunta' ? 'Texto de la pregunta (ej. ¿Para qué buscas el lote?)' : 'Texto del mensaje'} onChange={e => flowSet(i, { texto: e.target.value })} style={{ width: '100%', minHeight: 44, textTransform: 'none', fontSize: 12.5 }} />
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>
-                    <span className="muted" style={{ fontSize: 11 }}>Adjuntar:</span>
-                    {MEDIA_OPTS.map(([k, lbl]) => (
-                      <label key={k} style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={(s.media || []).includes(k)} onChange={() => flowMedia(i, k)} /> {lbl}
+                    <span className="muted" style={{ fontSize: 11 }}>Adjuntar de la biblioteca:</span>
+                    {(projFlow.media_lib || []).length === 0 && <span className="muted" style={{ fontSize: 10 }}>(sube material arriba)</span>}
+                    {(projFlow.media_lib || []).map(m => (
+                      <label key={m.id} style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={(s.media || []).includes(m.id)} onChange={() => flowMedia(i, m.id)} /> {m.tipo === 'video' ? '🎬' : m.tipo === 'link' ? '🔗' : '🖼️'}{m.desc ? ' ' + m.desc.slice(0, 14) : ''}
                       </label>
                     ))}
                   </div>
