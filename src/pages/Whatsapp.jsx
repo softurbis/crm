@@ -219,7 +219,7 @@ export default function Whatsapp() {
         reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
         bienvenida: fl?.bienvenida || '', pide_nombre: fl?.pide_nombre || '', no_nombre: fl?.no_nombre || '',
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
-        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
+        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
     }
   }
@@ -263,6 +263,8 @@ export default function Whatsapp() {
         ...(s.tipo === 'pregunta' && String(s.reask_min).trim() !== '' ? { reask_min: Number(s.reask_min) || 5 } : {}),
         ...(s.tipo === 'pregunta' && String(s.reask_veces).trim() !== '' ? { reask_veces: Number(s.reask_veces) || 0 } : {}),
         ...(s.tipo === 'pregunta' && (s.reask_text || '').trim() ? { reask_text: (s.reask_text || '').trim() } : {}),
+        ...(s.tipo === 'pregunta' ? { sin_respuesta: ['mensaje', 'asesor'].includes(s.sin_respuesta) ? s.sin_respuesta : 'siguiente' } : {}),
+        ...(s.tipo === 'pregunta' && s.sin_respuesta === 'mensaje' && (s.sin_respuesta_texto || '').trim() ? { sin_respuesta_texto: (s.sin_respuesta_texto || '').trim() } : {}),
         opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
       })).filter(s => s.texto || (s.opciones && s.opciones.length)),
     }
@@ -732,6 +734,15 @@ export default function Whatsapp() {
                         <input type="number" min="0" value={s.reask_veces} placeholder={String(projFlow.max_reasks ?? 1)} onChange={e => flowSet(i, { reask_veces: e.target.value })} style={{ width: 44 }} /> vez(es)
                         <input value={s.reask_text} placeholder="texto del recordatorio (opcional)" onChange={e => flowSet(i, { reask_text: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none' }} />
                         <span className="muted" style={{ fontSize: 9 }}>vacío = usa el global de arriba</span>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        ➡️ Si aun así no responde:
+                        <select value={s.sin_respuesta || 'siguiente'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })} style={{ fontSize: 11 }}>
+                          <option value="siguiente">pasar a la siguiente pregunta</option>
+                          <option value="mensaje">enviar un mensaje y seguir</option>
+                          <option value="asesor">pasar al asesor</option>
+                        </select>
+                        {s.sin_respuesta === 'mensaje' && <input value={s.sin_respuesta_texto} placeholder="mensaje predeterminado" onChange={e => flowSet(i, { sin_respuesta_texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
                       </div>
                     </div>
                   )}

@@ -136,8 +136,11 @@ async function enviarArchivo(jid, url, clase, caption) {
     return
   }
   try {
-    await espera(2500 + Math.floor(Math.random() * 2500))
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
+    // pausa natural con indicador (grabando para video, escribiendo para el resto)
+    try { await sock.sendPresenceUpdate(clase === 'video' ? 'recording' : 'composing', dest) } catch (e) {}
+    await espera(3000 + Math.floor(Math.random() * 3000))
+    try { await sock.sendPresenceUpdate('paused', dest) } catch (e) {}
     const low = String(url).toLowerCase()
     if (clase === 'video') guardarMsg(await sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
     else if ((clase === 'plano' || clase === 'brochure') && low.includes('.pdf')) guardarMsg(await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: clase === 'brochure' ? 'BROCHURE.pdf' : 'PLANO-ACTUALIZADO.pdf', caption: caption || undefined }))
@@ -1742,24 +1745,31 @@ async function reaskFlow() {
     .eq('flow_state', 'flow').neq('is_test', true).limit(30)
   for (const c of (data || [])) {
     try {
-      const { data: lead } = await supabase.from('leads').select('id, project_id').eq('id', c.lead_id).maybeSingle()
+      const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
       if (!lead) continue
-      const { data: proy } = await supabase.from('projects').select('bot_flow').eq('id', lead.project_id).maybeSingle()
+      const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
       const flow = parseFlow(proy)
       if (!flow) continue
       const step = pasoPorId(flow, c.flow_step)
       if (!step) continue
       // re-pregunta POR PASO (si el paso no la define, usa la global del flujo como default)
       const reMin = Number(step.reask_min ?? flow.reask_min) || 5
-      const maxRe = Number(step.reask_veces ?? flow.max_reasks) || 1
-      if (maxRe <= 0) continue
-      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue
-      if ((c.flow_reasks || 0) >= maxRe) continue
+      const maxRe = Number(step.reask_veces ?? flow.max_reasks ?? 1)
+      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue   // aún no vence el intervalo
       const jid = c.wa_jid || jidDe(c.phone)
-      const ops = (step.opciones || []).map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-      const texto = (step.reask_text || flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
-      await enviar(c.phone, texto, { tipo: 'lead_flujo', lead_id: c.lead_id })
-      await supabase.from('whatsapp_conversations').update({ flow_reasks: (c.flow_reasks || 0) + 1, last_message_at: new Date().toISOString() }).eq('id', c.id)
+      if ((c.flow_reasks || 0) < maxRe) {
+        // RE-PREGUNTAR
+        const ops = (step.opciones || []).map((o, i) => (i + 1) + '. ' + o.label).join('\n')
+        const texto = (step.reask_text || flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
+        await enviar(c.phone, texto, { tipo: 'lead_flujo', lead_id: c.lead_id })
+        await supabase.from('whatsapp_conversations').update({ flow_reasks: (c.flow_reasks || 0) + 1, last_message_at: new Date().toISOString() }).eq('id', c.id)
+      } else {
+        // AGOTÓ LAS RE-PREGUNTAS -> acción configurable: siguiente / mensaje / asesor
+        const acc = step.sin_respuesta || 'siguiente'
+        if (acc === 'asesor') { await pasarAsesor(jid, c.phone, lead, 'sin_respuesta'); continue }
+        if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id })
+        await correrFlujo(jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
+      }
     } catch (e) { log('reask:', String(e.message || e)) }
   }
 }
