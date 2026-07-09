@@ -20,12 +20,15 @@ export default function Visitas() {
   const [equipo, setEquipo] = useState([])
   const [semana, setSemana] = useState(lunesDe(hoyISO()))
   const [mes, setMes] = useState(hoyISO().slice(0, 7))
+  const [vista, setVista] = useState('mes')   // 'mes' | 'semana'
   const [form, setForm] = useState(null)
   const hoy = hoyISO()
   const esJefe = ['admin', 'superuser'].includes(role)
 
   const cargar = async () => {
-    const d1 = addDias(semana, -35), d2 = addDias(semana, 70)
+    const md = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate()
+    const d1 = [addDias(mes + '-01', -10), addDias(semana, -10)].sort()[0]
+    const d2 = [addDias(mes + '-' + String(md).padStart(2, '0'), 10), addDias(semana, 17)].sort().reverse()[0]
     const [v, p, s] = await Promise.all([
       supabase.from('visits').select('*, project:projects(name)').gte('date', d1).lte('date', d2).order('date').order('time'),
       supabase.from('projects').select('id, name').order('name'),
@@ -33,8 +36,8 @@ export default function Visitas() {
     ])
     setVisitas(v.data || []); setProys(p.data || []); setEquipo(s.data || [])
   }
-  useEffect(() => { cargar() }, [semana])
-  useEffect(() => { const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [semana])
+  useEffect(() => { cargar() }, [semana, mes])
+  useEffect(() => { const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [semana, mes])
 
   if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
   const puedeCrear = role !== 'manager'
@@ -74,6 +77,18 @@ export default function Visitas() {
   const dow1 = (new Date(anio, mnum - 1, 1).getDay() + 6) % 7
   const celdas = [...Array(dow1).fill(null), ...Array.from({ length: nDias }, (_, i) => i + 1)]
   const cambiarMes = p => { const d = new Date(anio, mnum - 1 + p, 1); setMes(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')) }
+  const irHoy = () => { setSemana(lunesDe(hoy)); setMes(hoy.slice(0, 7)) }
+  const fmtCorta = iso => new Date(iso + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric' })
+
+  // resumen
+  const prog = arr => arr.filter(v => v.status === 'programada')
+  const finSem = addDias(semana, 6)
+  const visSem = visitas.filter(v => v.date >= semana && v.date <= finSem)
+  const mesIni = mes + '-01', mesFin = mes + '-' + String(nDias).padStart(2, '0')
+  const visMes = visitas.filter(v => v.date >= mesIni && v.date <= mesFin)
+  const proxima = prog(visitas).filter(v => v.date >= hoy).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0]
+  const porProy = {}; prog(visMes).forEach(v => { const k = v.project?.name || 'Sin proyecto'; porProy[k] = (porProy[k] || 0) + 1 })
+  const porEnc = {}; prog(visMes).forEach(v => { const k = v.encargado_name || '—'; porEnc[k] = (porEnc[k] || 0) + 1 })
 
   const Card = v => {
     const e = EST[v.status] || EST.programada
@@ -103,14 +118,31 @@ export default function Visitas() {
     <div>
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h1>Visitas</h1>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button className="btn-ghost" onClick={() => setSemana(addDias(semana, -7))}>‹ SEMANA</button>
-          <button className="btn-ghost" onClick={() => setSemana(lunesDe(hoy))}>HOY</button>
-          <button className="btn-ghost" onClick={() => setSemana(addDias(semana, 7))}>SEMANA ›</button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className={`chip ${vista === 'mes' ? 'on' : ''}`} onClick={() => setVista('mes')}>🗓️ MES</button>
+          <button className={`chip ${vista === 'semana' ? 'on' : ''}`} onClick={() => setVista('semana')}>📅 SEMANA</button>
+          <span style={{ width: 8 }} />
+          {vista === 'mes' ? (<>
+            <button className="btn-ghost" onClick={() => cambiarMes(-1)}>‹</button>
+            <b style={{ minWidth: 130, textAlign: 'center' }}>{MESES[mnum - 1]} {anio}</b>
+            <button className="btn-ghost" onClick={() => cambiarMes(1)}>›</button>
+          </>) : (<>
+            <button className="btn-ghost" onClick={() => setSemana(addDias(semana, -7))}>‹ SEM</button>
+            <button className="btn-ghost" onClick={() => setSemana(addDias(semana, 7))}>SEM ›</button>
+          </>)}
+          <button className="btn-ghost" onClick={irHoy}>HOY</button>
           {puedeCrear && <button className="btn" onClick={() => setForm({ date: hoy, time: '10:00' })}>+ PROGRAMAR VISITA</button>}
         </div>
       </div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>El bot recuerda cada visita 1 día antes: al encargado con todos los datos y al cliente con hora y punto de encuentro.</p>
+
+      <div className="glass" style={{ padding: '9px 14px', marginBottom: 12, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+        <span>📅 <b style={{ color: '#7ba7f7' }}>{prog(visSem).length}</b> esta semana</span>
+        <span>🗓️ <b style={{ color: '#7ba7f7' }}>{prog(visMes).length}</b> del mes · ✅ {visMes.filter(v => v.status === 'realizada').length} realizadas</span>
+        {proxima && <span>⏭️ Próxima: <b>{fmtCorta(proxima.date)} {String(proxima.time).slice(0, 5)}</b> · {proxima.client_name}{proxima.encargado_name ? ' · 👤 ' + proxima.encargado_name.split(' ')[0] : ''}</span>}
+        {Object.keys(porProy).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>🏗️ {Object.entries(porProy).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ').slice(-1)[0]}:{n}</span>)}</span>}
+        {Object.keys(porEnc).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>👤 {Object.entries(porEnc).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ')[0]}:{n}</span>)}</span>}
+      </div>
 
       {form && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
@@ -144,49 +176,61 @@ export default function Visitas() {
         </div>
       )}
 
-      {/* SEMANA GRANDE */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 16, alignItems: 'start' }}>
-        {diasSemana.map(iso => {
-          const d = new Date(iso + 'T12:00:00')
-          const vs = delDia(iso)
-          return (
-            <div key={iso} className="glass" style={{ padding: 8, minHeight: 150, border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : undefined }}>
-              <div style={{ textAlign: 'center', marginBottom: 6 }}>
-                <div className="muted" style={{ fontSize: 10, fontWeight: 700 }}>{d.toLocaleDateString('es-PE', { weekday: 'short' }).toUpperCase()}</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: iso === hoy ? '#9ccb86' : undefined }}>{d.getDate()}</div>
-              </div>
-              {vs.map(Card)}
-              {puedeCrear && <button className="btn-ghost" style={{ width: '100%', fontSize: 10, padding: '3px 0' }} onClick={() => setForm({ date: iso, time: '10:00' })}>+ VISITA</button>}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* MES COMPLETO */}
-      <div className="glass" style={{ padding: 12, maxWidth: 560 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <button className="btn-ghost" onClick={() => cambiarMes(-1)}>‹</button>
-          <b style={{ flex: 1, textAlign: 'center' }}>{MESES[mnum - 1]} {anio}</b>
-          <button className="btn-ghost" onClick={() => cambiarMes(1)}>›</button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
-          {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d, i) => <div key={i} className="muted" style={{ fontSize: 10, textAlign: 'center', fontWeight: 700 }}>{d}</div>)}
-          {celdas.map((n, i) => {
-            if (!n) return <div key={i} />
-            const iso = mes + '-' + String(n).padStart(2, '0')
-            const cnt = visitas.filter(v => v.date === iso && v.status === 'programada').length
+      {/* VISTA SEMANA (detalle) */}
+      {vista === 'semana' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 16, alignItems: 'start' }}>
+          {diasSemana.map(iso => {
+            const d = new Date(iso + 'T12:00:00')
+            const vs = delDia(iso)
             return (
-              <button key={i} onClick={() => setSemana(lunesDe(iso))}
-                title={cnt ? cnt + ' visita(s) — clic para ver la semana' : 'Ir a esta semana'}
-                style={{ minHeight: 40, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', background: 'rgba(255,255,255,.02)', color: 'inherit', border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : '1px solid rgba(255,255,255,.07)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, padding: 3 }}>
-                <span style={{ fontSize: 11 }}>{n}</span>
-                {cnt > 0 && <span style={{ fontSize: 9, fontWeight: 800, padding: '0 6px', borderRadius: 8, background: 'rgba(123,167,247,.25)', color: '#7ba7f7' }}>{cnt}</span>}
-              </button>
+              <div key={iso} className="glass" style={{ padding: 8, minHeight: 150, border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : undefined }}>
+                <div style={{ textAlign: 'center', marginBottom: 6 }}>
+                  <div className="muted" style={{ fontSize: 10, fontWeight: 700 }}>{d.toLocaleDateString('es-PE', { weekday: 'short' }).toUpperCase()}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: iso === hoy ? '#9ccb86' : undefined }}>{d.getDate()}</div>
+                </div>
+                {vs.map(Card)}
+                {puedeCrear && <button className="btn-ghost" style={{ width: '100%', fontSize: 10, padding: '3px 0' }} onClick={() => setForm({ date: iso, time: '10:00' })}>+ VISITA</button>}
+              </div>
             )
           })}
         </div>
-        <p className="muted" style={{ fontSize: 10, marginTop: 6 }}>Clic en un día del mes para saltar a esa semana.</p>
-      </div>
+      )}
+
+      {/* VISTA MES GRANDE (con las visitas dentro de cada día) */}
+      {vista === 'mes' && (
+        <div className="glass" style={{ padding: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 5 }}>
+            {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map(d => <div key={d} className="muted" style={{ fontSize: 11, textAlign: 'center', fontWeight: 700 }}>{d}</div>)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+            {celdas.map((n, i) => {
+              if (!n) return <div key={i} />
+              const iso = mes + '-' + String(n).padStart(2, '0')
+              const vs = visitas.filter(v => v.date === iso).sort((a, b) => String(a.time).localeCompare(String(b.time)))
+              return (
+                <div key={i} style={{ minHeight: 116, borderRadius: 8, padding: 5, border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : '1px solid rgba(255,255,255,.07)', background: iso === hoy ? 'rgba(156,203,134,.06)' : 'rgba(255,255,255,.02)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: iso === hoy ? 800 : 600, color: iso === hoy ? '#9ccb86' : undefined }}>{n}</span>
+                    {puedeCrear && <button className="btn-ghost" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.3 }} title="Nueva visita" onClick={() => setForm({ date: iso, time: '10:00' })}>+</button>}
+                  </div>
+                  {vs.slice(0, 4).map(v => {
+                    const e = EST[v.status] || EST.programada
+                    return (
+                      <button key={v.id} title={`${String(v.time).slice(0, 5)} · ${v.client_name} · ${v.project?.name || 'sin proyecto'} · ${v.encargado_name || ''} · ${e.t}`}
+                        onClick={() => (v.status === 'programada' && puedeCrear) ? setForm({ ...v, time: String(v.time).slice(0, 5) }) : setVista('semana') || setSemana(lunesDe(iso))}
+                        style={{ textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', background: e.c + '22', color: 'inherit', border: 'none', borderLeft: `2px solid ${e.c}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {e.i} {String(v.time).slice(0, 5)} {(v.client_name || '').split(' ')[0]}
+                      </button>
+                    )
+                  })}
+                  {vs.length > 4 && <button className="btn-ghost" style={{ fontSize: 9, padding: '0 4px' }} onClick={() => { setSemana(lunesDe(iso)); setVista('semana') }}>+{vs.length - 4} más</button>}
+                </div>
+              )
+            })}
+          </div>
+          <p className="muted" style={{ fontSize: 10, marginTop: 8 }}>Clic en el <b>+</b> para agregar · clic en una visita para editarla · <b>{prog(visMes).length}</b> programadas este mes.</p>
+        </div>
+      )}
     </div>
   )
 }
