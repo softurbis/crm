@@ -96,6 +96,8 @@ let diaActual = new Date().toDateString()
 
 const log = (...a) => console.log(new Date().toLocaleString('es-PE'), '|', ...a)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+const parseJSON = s => { try { const o = JSON.parse(String(s || '')); return o } catch { return null } }
+const matchClaves = (claves, texto) => String(claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => String(texto || '').toLowerCase().includes(k))
 const espera = ms => new Promise(r => setTimeout(r, process.env.SIMULACRO === '1' ? 5 : ms))
 const delayAleatorio = () => 20000 + Math.floor(Math.random() * 25000) // 20-45 s
 
@@ -394,6 +396,20 @@ async function comandosPrivilegiados(jid, phone, texto) {
     await enviar(jid, error ? '❌ ERROR: ' + error.message : '✅ Tarea creada para *' + sec.full_name + '*: ' + titulo.toUpperCase() + ' — ' + fmtFechaEs(fecha) + (fh.time ? ' a las ' + fh.time : ''), { tipo: 'aviso_admin' })
     return true
   }
+  return false
+}
+
+// Comandos configurables de GERENCIA (bot_brains 'gerencia_cmd' = JSON):
+// [{ claves:"lotes, stock", tipo:"consulta"|"texto", consulta:"lotes", texto:"..." }]
+// consulta reutiliza las plantillas gratis existentes (lotes/comisiones/vencidas/gastos/visitas/resumen).
+async function comandosGerencia(jid, phone, texto) {
+  const cmds = parseJSON(await brain('gerencia_cmd'))
+  if (!Array.isArray(cmds) || !cmds.length) return false
+  const cmd = cmds.find(c => matchClaves(c.claves, texto))
+  if (!cmd) return false
+  if (cmd.tipo === 'texto') { await enviar(jid, String(cmd.texto || '').trim() || '—', { tipo: 'interno' }); return true }
+  const resp = await comandoDirecto(cmd.consulta || '')   // reusa la consulta al sistema
+  if (resp) { await enviar(jid, resp, { tipo: 'interno' }); return true }
   return false
 }
 
@@ -1187,7 +1203,8 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
 
   if (phone === ADMIN) {
     if (await comandosPrivilegiados(jid, phone, texto)) return
-    // el ADMIN: comando gratis o Q&A con IA (sin importar el checklist)
+    // el ADMIN: comandos configurables, comando gratis o Q&A con IA (sin importar el checklist)
+    if (await comandosGerencia(jid, phone, texto)) return
     if (await atenderInterno(jid, phone, texto, 'GERENCIA')) return
     // si el admin esta registrado en el control de actividades, sus respuestas tambien cuentan
     await manejarSecretaria(jid, phone, texto).catch(() => {})
@@ -1220,7 +1237,10 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     // las secretarias solo hacen su control de actividades. No se interrumpe un checklist con IA.
     if (tnum === 'gerencia') {
       if (await comandosPrivilegiados(jid, phone, texto)) return
-      if (!(await tieneChecklistAbierto(phone)) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
+      if (!(await tieneChecklistAbierto(phone))) {
+        if (await comandosGerencia(jid, phone, texto)) return           // comandos configurables (palabra clave -> consulta o texto)
+        if (await atenderInterno(jid, phone, texto, 'GERENCIA')) return  // comandos gratis + IA de respaldo
+      }
     }
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
@@ -1231,8 +1251,21 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   const cliente = (clientes || [])[0]
   if (tnum === 'cliente' && !cliente) return
   if (cliente) {
+    const primer = (cliente.full_name || '').split(' ')[0]
+    // Flujo de respuesta configurable (bot_brains 'cobranza_flow' = JSON):
+    // [{ claves:"ya pague, voucher", accion:"responder"|"asesor", respuesta:"..." }]
+    const reglas = parseJSON(await brain('cobranza_flow'))
+    if (Array.isArray(reglas) && reglas.length) {
+      const r = reglas.find(x => matchClaves(x.claves, corto))
+      if (r) {
+        await enviar(jid, String(r.respuesta || '').trim() || (r.accion === 'asesor' ? 'Con gusto, un asesor se comunicará contigo en breve. 🙌' : '¡Gracias! 🙌 Recibido.'), { tipo: 'auto_cliente', client_id: cliente.id })
+        if (ADMIN) await enviar(ADMIN, (r.accion === 'asesor' ? '📞 CLIENTE PIDE AYUDA/ASESOR' : '🤖 CLIENTE') + ` *${cliente.full_name}* (${phone}):\n"${corto}"`, { tipo: 'aviso_admin' })
+        return
+      }
+    }
+    // por defecto: reconocer "ya pagué"
     if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto)) {
-      await enviar(jid, `¡Gracias ${cliente.full_name.split(' ')[0]}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
+      await enviar(jid, `¡Gracias ${primer}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
       if (ADMIN) await enviar(ADMIN, `🤖 CLIENTE *${cliente.full_name}* (${phone}) escribió:\n"${corto}"\n\n→ Posible pago por verificar en CUOTAS.`, { tipo: 'aviso_admin' })
     }
     return // clientes: no aplicar flujo de leads
