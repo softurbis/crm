@@ -7,6 +7,7 @@ import Logo from './Logo'
 const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/whatsapp', label: 'WhatsApp Bot', icon: '🤖', staff: true, color: '#58c482' },
+  { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7' },
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8' },

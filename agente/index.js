@@ -12,6 +12,14 @@ const qrcode = require('qrcode-terminal')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+
+// ===== MODO PRUEBAS (consola / chat virtual) =====
+// Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
+// TEST_PROFILES fuerza la clasificación del número (lead/cliente/secretaria/gerencia).
+// En este modo NADA sale por WhatsApp real: todo se captura en scheduled_messages
+// bajo el teléfono de la sesión para mostrarlo en la consola.
+let TEST_ACTIVE = null
+const TEST_PROFILES = new Map()   // últimos 9 dígitos -> tipoNumero ('cliente'|'secretaria'|'gerencia'|null)
 // el numero admin se puede cambiar desde el panel (bot_settings.admin_phone); el .env queda de fallback
 async function refrescarAdmin() {
   try {
@@ -99,7 +107,11 @@ function jidDe(phone) {
 function telDeJid(jid) { return (jid || '').split('@')[0].replace(/\D/g, '') }
 
 async function flag(k) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return !data || data.value !== '0' }
-async function tipoNumero(soloDig) { const { data } = await supabase.from('whatsapp_numbers').select('tipo').ilike('phone', '%' + String(soloDig).slice(-9) + '%').limit(1); return (data || [])[0]?.tipo || null }
+async function tipoNumero(soloDig) {
+  const k9 = String(soloDig).slice(-9)
+  if (TEST_PROFILES.has(k9)) return TEST_PROFILES.get(k9)   // modo prueba: perfil forzado
+  const { data } = await supabase.from('whatsapp_numbers').select('tipo').ilike('phone', '%' + k9 + '%').limit(1); return (data || [])[0]?.tipo || null
+}
 
 let _brains = { t: 0, v: {} }
 async function brain(k) {
@@ -116,6 +128,11 @@ const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 
 async function enviarArchivo(jid, url, clase, caption) {
+  const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
+  if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
+    await supabase.from('scheduled_messages').insert({ recipient_phone: TEST_ACTIVE, body: etiqueta, tipo: 'test_media', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
+    return
+  }
   try {
     await espera(2500 + Math.floor(Math.random() * 2500))
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
@@ -493,6 +510,18 @@ async function responderIA(jid, phone, lead, conv, texto) {
 }
 
 async function enviar(phone, texto, meta = {}) {
+  // MODO PRUEBA: capturar todo bajo el teléfono de la sesión, sin tocar WhatsApp real.
+  if (TEST_ACTIVE) {
+    const rp = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
+    const esSesion = rp.slice(-9) === String(TEST_ACTIVE).slice(-9)
+    const body = esSesion ? texto : '📨 (aviso interno → +' + rp + '):\n' + texto
+    await supabase.from('scheduled_messages').insert({
+      recipient_phone: TEST_ACTIVE, body, tipo: 'test_' + (meta.tipo || 'msj'),
+      lead_id: meta.lead_id || null, client_id: meta.client_id || null,
+      scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString(),
+    })
+    return true
+  }
   if (process.env.SIMULACRO === '1') {
     const dig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone)
     log('[SIM] ' + dig + ' | ' + (meta.tipo || 'msj') + ' | ' + String(texto).replace(/\n+/g, ' ⏎ '))
@@ -1323,3 +1352,61 @@ async function procesarSalientesPanel() {
   }
 }
 setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 5000)
+
+// ---------- CONSOLA DE PRUEBAS (chat virtual, sin WhatsApp real) ----------
+async function purgarPruebas() {
+  const { data: ls } = await supabase.from('leads').select('id').eq('is_test', true)
+  for (const l of (ls || [])) {
+    await supabase.from('lead_activities').delete().eq('lead_id', l.id)
+    await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', l.id)
+    await supabase.from('leads').delete().eq('id', l.id)
+  }
+  const { data: cs } = await supabase.from('whatsapp_conversations').select('id, phone').eq('is_test', true)
+  for (const c of (cs || [])) {
+    await supabase.from('whatsapp_messages').delete().eq('conversation_id', c.id)
+    await supabase.from('scheduled_messages').delete().eq('recipient_phone', c.phone)
+    await supabase.from('whatsapp_conversations').delete().eq('id', c.id)
+  }
+  await supabase.from('clients').delete().eq('is_test', true)
+  await supabase.from('bot_test_messages').delete().neq('status', 'pendiente')
+  log('[TEST] datos de prueba purgados: leads=' + (ls || []).length + ' convs=' + (cs || []).length)
+}
+
+async function procesarPruebas() {
+  const { data } = await supabase.from('bot_test_messages').select('*').eq('status', 'pendiente').order('created_at').limit(5)
+  for (const t of (data || [])) {
+    const ph = String(t.session_phone).replace(/\D/g, '')
+    const d9 = ph.slice(-9)
+    const prof = t.profile || 'lead'
+    try {
+      if (prof === 'purge') { await purgarPruebas(); await supabase.from('bot_test_messages').update({ status: 'procesado', processed_at: new Date().toISOString() }).eq('id', t.id); continue }
+      // provisión mínima según el perfil que se prueba
+      if (prof === 'cliente') {
+        const { data: ex } = await supabase.from('clients').select('id').ilike('phone', '%' + d9 + '%').limit(1)
+        if (!ex || !ex.length) await supabase.from('clients').insert({ doc_type: 'PEND', doc_number: 'TEST-' + ph, full_name: 'CLIENTE PRUEBA', phone: ph, is_test: true }).then(() => {}).catch(() => {})
+      }
+      // lead nuevo: pre-crear con el proyecto elegido en la consola (marca is_test).
+      // Así el bot saluda, pide el nombre y salta la pregunta de "¿qué proyecto?".
+      if (prof === 'lead') {
+        const { data: exL } = await supabase.from('leads').select('id').ilike('phone', '%' + d9 + '%').limit(1)
+        if (!exL || !exL.length) await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: t.project_id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
+      }
+      const tipo = prof === 'cliente' ? 'cliente' : prof === 'secretaria' ? 'secretaria' : prof === 'gerencia' ? 'gerencia' : null
+      TEST_PROFILES.set(d9, tipo)
+      TEST_ACTIVE = ph
+      const jid = jidDe(ph)
+      await manejarEntrante(jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
+      // marcar como prueba todo lo que se haya creado con este teléfono
+      await supabase.from('leads').update({ is_test: true }).ilike('phone', '%' + d9 + '%').eq('is_test', false).then(() => {}).catch(() => {})
+      await supabase.from('whatsapp_conversations').update({ is_test: true }).eq('phone', ph).then(() => {}).catch(() => {})
+      await supabase.from('bot_test_messages').update({ status: 'procesado', processed_at: new Date().toISOString() }).eq('id', t.id)
+    } catch (e) {
+      log('[TEST] error:', String(e.message || e))
+      await supabase.from('bot_test_messages').update({ status: 'error', error: String(e.message || e) }).eq('id', t.id)
+    } finally {
+      TEST_ACTIVE = null
+      TEST_PROFILES.delete(d9)
+    }
+  }
+}
+setInterval(() => { procesarPruebas().catch(() => {}) }, 3000)

@@ -97,6 +97,14 @@ export default function Leads() {
     load()
   }
 
+  async function borrarPruebas() {
+    const n = leads.filter(l => l.is_test).length
+    if (!confirm(`¿Borrar ${n} lead(s) de PRUEBA y sus datos?\n\nLos leads reales no se tocan. El agente lo ejecuta en unos segundos.`)) return
+    await supabase.from('bot_test_messages').insert({ session_phone: '0', profile: 'purge', text: '' })
+    setMsg({ ok: true, t: '🧹 PURGA SOLICITADA — se borran en unos segundos' })
+    setTimeout(load, 3500)
+  }
+
   async function agregarNota() {
     if (!nota.trim()) return
     await supabase.from('lead_activities').insert({ lead_id: sel.id, note: nota.toUpperCase(), created_by: profile?.id })
@@ -142,8 +150,9 @@ export default function Leads() {
   const Card = l => (
     <div key={l.id} className="kcard glass" draggable={puedeEditar}
       onDragStart={() => setDragId(l.id)}
-      onClick={() => abrir(l)}>
-      <p className="kname">{l.full_name}</p>
+      onClick={() => abrir(l)}
+      style={l.is_test ? { border: '1px dashed #c58ae0', background: 'rgba(197,138,224,.08)' } : undefined}>
+      <p className="kname">{l.is_test && <span title="Lead de prueba" style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, border: '1px solid #c58ae0', color: '#c58ae0', marginRight: 6 }}>🧪 PRUEBA</span>}{l.full_name}</p>
       <p className="small muted">{l.phone} {l.project ? `| ${l.project.name}` : ''}</p>
       <p className="small">
         <span className="st-chip" style={{ background: (TEMP[l.temperature] || TEMP.frio)[1] + '33', color: (TEMP[l.temperature] || TEMP.frio)[1] }}>
@@ -177,6 +186,11 @@ export default function Leads() {
         <button className={`chip ${vista === 'pipeline' ? 'on' : ''}`} onClick={() => setVista('pipeline')}>PIPELINE</button>
         <button className={`chip ${vista === 'ganado' ? 'on' : ''}`} onClick={() => setVista('ganado')}>&#127942; GANADOS ({ganados.length})</button>
         <button className={`chip ${vista === 'perdido' ? 'on' : ''}`} onClick={() => setVista('perdido')}>PERDIDOS ({perdidos.length})</button>
+        {puedeEditar && leads.some(l => l.is_test) && (
+          <button className="chip" style={{ borderColor: '#c58ae0', color: '#c58ae0' }} onClick={borrarPruebas}>
+            🧪 {leads.filter(l => l.is_test).length} · 🧹 BORRAR PRUEBAS
+          </button>
+        )}
       </div>
       {msg && !sel && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 

@@ -13,6 +13,7 @@ import Users from './pages/Users'
 import Projects from './pages/Projects'
 import Contracts from './pages/Contracts'
 import Whatsapp from './pages/Whatsapp'
+import TestBot from './pages/TestBot'
 import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
 import Visitas from './pages/Visitas'
@@ -33,6 +34,7 @@ export default function App() {
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
         <Route path="whatsapp" element={<Whatsapp />} />
+        <Route path="probar-bot" element={<TestBot />} />
         <Route path="secretarias" element={<Secretarias />} />
         <Route path="visitas" element={<Visitas />} />
         <Route path="lotes" element={<Lots />} />
