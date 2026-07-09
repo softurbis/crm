@@ -478,7 +478,7 @@ export default function Whatsapp() {
             El cerebro del bot dividido por áreas. Toca un nodo del mapa para editarlo. Si un cerebro está VACÍO,
             el bot usa su versión por defecto. Los cambios rigen en máximo 1 minuto, sin reiniciar nada.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: brainSel.startsWith('p:') ? 'minmax(200px, 260px) 1fr' : 'minmax(260px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 520px) 1fr', gap: 16, alignItems: 'start' }}>
             <div className="glass" style={{ padding: 8, background: 'rgba(0,0,0,.18)' }}>
               <BrainMap nodes={buildNodes()} selected={brainSel} onSelect={elegirBrain} />
             </div>

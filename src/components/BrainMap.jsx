@@ -10,7 +10,7 @@ export default function BrainMap({ nodes, selected, onSelect, titulo = 'Cerebro 
     return { ...n, x: CX + R * Math.cos(ang), y: CY + R * Math.sin(ang), ang }
   })
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: 460, margin: '0 auto' }}>
+    <div style={{ position: 'relative', width: '100%', maxWidth: 520, margin: '0 auto' }}>
       <style>{`
         @keyframes bm-pulse { 0%,100%{opacity:.35} 50%{opacity:.9} }
         .bm-node { cursor: pointer; }
