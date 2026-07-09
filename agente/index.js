@@ -1372,6 +1372,53 @@ async function purgarPruebas() {
   log('[TEST] datos de prueba purgados: leads=' + (ls || []).length + ' convs=' + (cs || []).length)
 }
 
+// Cobranza SCOPED a un solo cliente (para el botón "simular cobranza"): misma lógica
+// de 4 niveles que la real, pero sin dedup (siempre muestra el mensaje que enviaría).
+async function cobranzaTest(clientId, sessionPhone) {
+  if (!clientId) { await enviar(sessionPhone, '(prueba) Elige un cliente para simular su cobranza.', { tipo: 'test' }); return }
+  CEREBRO_COB = await brain('cobranza')
+  const hoyISO = new Date().toISOString().slice(0, 10)
+  const { data: ventas } = await supabase.from('sales')
+    .select('id, client:clients!sales_client_id_fkey(id, full_name, phone), lot:lots!inner(mz, lt, project:projects(name)), installments(id, installment_number, amount, amount_paid, due_date, status)')
+    .eq('client_id', clientId).eq('status', 'en_proceso')
+  if (!ventas || !ventas.length) { await enviar(sessionPhone, '(prueba) Este cliente no tiene ventas en proceso; no hay cobranza que simular.', { tipo: 'test' }); return }
+  for (const v of ventas) {
+    const c = v.client
+    const nombre = (c?.full_name || '').split(' ')[0]
+    const lote = `Mz ${v.lot.mz} Lt ${v.lot.lt}`
+    const proy = v.lot.project?.name || 'su proyecto'
+    const vencidas = (v.installments || []).filter(i => i.status === 'vencido').sort((a, b) => a.installment_number - b.installment_number)
+    const pendientes = (v.installments || []).filter(i => i.status === 'pendiente').sort((a, b) => a.installment_number - b.installment_number)
+    const nV = vencidas.length
+    const deudaVenc = vencidas.reduce((s, i) => s + Number(i.amount) - Number(i.amount_paid), 0)
+    if (nV >= 3) await enviar(sessionPhone, msjC(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_C', client_id: c.id })
+    else if (nV === 2) await enviar(sessionPhone, msjB(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_B', client_id: c.id })
+    else if (nV === 1) { const q = vencidas[0]; await enviar(sessionPhone, msjInsist(nombre, lote, proy, q, Number(q.amount) - Number(q.amount_paid), diasEntre(hoyISO, q.due_date)), { tipo: 'insist', client_id: c.id }) }
+    else if (pendientes.length) {
+      const q = pendientes[0]; const d = diasEntre(q.due_date, hoyISO); const deuda = Number(q.amount) - Number(q.amount_paid)
+      const cuando = d <= 0 ? 'A0' : d <= 3 ? 'A3' : 'A5'
+      await enviar(sessionPhone, msjA(nombre, lote, proy, q, deuda, cuando) + (d > 5 ? '\n\n(prueba: en real este aviso recién sale a 5 días de vencer; hoy faltan ' + d + ')' : ''), { tipo: 'nivel_A', client_id: c.id })
+    } else await enviar(sessionPhone, '(prueba) El lote ' + lote + ' no tiene cuotas pendientes.', { tipo: 'test' })
+  }
+}
+
+// Pase de lista SCOPED a una secretaria (botón "pasar lista"): marca sus tareas de hoy
+// como preguntadas para que sus respuestas (LISTO/números) se puedan probar.
+async function pasarListaTest(secId, sessionPhone) {
+  if (!secId) { await enviar(sessionPhone, '(prueba) Elige una secretaria para pasarle lista.', { tipo: 'test' }); return }
+  const md = await brain('secretaria')
+  const { data: sec } = await supabase.from('secretaries').select('*').eq('id', secId).maybeSingle()
+  if (!sec) { await enviar(sessionPhone, '(prueba) No encontré esa secretaria.', { tipo: 'test' }); return }
+  const nombre = (sec.full_name || '').split(' ')[0]
+  const hoy = secHoy()
+  const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', secId).eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).order('slot')
+  if (!pend || !pend.length) { await enviar(sessionPhone, '(prueba) ' + nombre + ' no tiene actividades pendientes hoy. Asígnale tareas en Seguimiento (o con "tarea ' + nombre.toLowerCase() + ' …") y vuelve a pasar lista.', { tipo: 'test' }); return }
+  let idx = 0
+  for (const tk of pend) { idx++; tk.ask_index = idx; await supabase.from('secretary_tasks').update({ ask_index: idx, asked_at: new Date().toISOString(), reminded_at: null }).eq('id', tk.id) }
+  const lista = pend.map(t => t.ask_index + '. ' + t.title).join('\n')
+  await enviar(sessionPhone, secTpl(md, 'PREGUNTA', { nombre, lista, momento: 'hoy' }, 'Hola {nombre} 👋 ¿cómo va todo? Pasando lista de tus actividades de {momento}:\n\n{lista}\n\nRespóndeme *LISTO* si ya completaste todo, o los *números* de lo que ya está (ej: 1 y 3). 🙌'), { tipo: 'secretaria' })
+}
+
 async function procesarPruebas() {
   const { data } = await supabase.from('bot_test_messages').select('*').eq('status', 'pendiente').order('created_at').limit(5)
   for (const t of (data || [])) {
@@ -1380,25 +1427,27 @@ async function procesarPruebas() {
     const prof = t.profile || 'lead'
     try {
       if (prof === 'purge') { await purgarPruebas(); await supabase.from('bot_test_messages').update({ status: 'procesado', processed_at: new Date().toISOString() }).eq('id', t.id); continue }
-      // provisión mínima según el perfil que se prueba
-      if (prof === 'cliente') {
-        const { data: ex } = await supabase.from('clients').select('id').ilike('phone', '%' + d9 + '%').limit(1)
-        if (!ex || !ex.length) await supabase.from('clients').insert({ doc_type: 'PEND', doc_number: 'TEST-' + ph, full_name: 'CLIENTE PRUEBA', phone: ph, is_test: true }).then(() => {}).catch(() => {})
-      }
-      // lead nuevo: pre-crear con el proyecto elegido en la consola (marca is_test).
-      // Así el bot saluda, pide el nombre y salta la pregunta de "¿qué proyecto?".
-      if (prof === 'lead') {
-        const { data: exL } = await supabase.from('leads').select('id').ilike('phone', '%' + d9 + '%').limit(1)
-        if (!exL || !exL.length) await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: t.project_id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
-      }
-      const tipo = prof === 'cliente' ? 'cliente' : prof === 'secretaria' ? 'secretaria' : prof === 'gerencia' ? 'gerencia' : null
-      TEST_PROFILES.set(d9, tipo)
+
       TEST_ACTIVE = ph
-      const jid = jidDe(ph)
-      await manejarEntrante(jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
-      // marcar como prueba todo lo que se haya creado con este teléfono
-      await supabase.from('leads').update({ is_test: true }).ilike('phone', '%' + d9 + '%').eq('is_test', false).then(() => {}).catch(() => {})
-      await supabase.from('whatsapp_conversations').update({ is_test: true }).eq('phone', ph).then(() => {}).catch(() => {})
+      if (prof === 'cobranza_now') { TEST_PROFILES.set(d9, 'cliente'); await cobranzaTest(t.emulate_id, ph) }
+      else if (prof === 'pasar_lista_now') { TEST_PROFILES.set(d9, 'secretaria'); await pasarListaTest(t.emulate_id, ph) }
+      else {
+        // lead nuevo: pre-crear con el proyecto elegido (marca is_test); saluda y salta "¿qué proyecto?"
+        if (prof === 'lead') {
+          const { data: exL } = await supabase.from('leads').select('id').ilike('phone', '%' + d9 + '%').limit(1)
+          if (!exL || !exL.length) await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: t.project_id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
+        }
+        const tipo = prof === 'cliente' ? 'cliente' : prof === 'secretaria' ? 'secretaria' : prof === 'gerencia' ? 'gerencia' : null
+        TEST_PROFILES.set(d9, tipo)
+        const jid = jidDe(ph)
+        await manejarEntrante(jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
+        // marcar como PRUEBA solo las sesiones sintéticas (lead/gerencia). Cliente/secretaria
+        // usan el teléfono REAL de la entidad emulada, así que NO se marcan (son datos reales).
+        if (prof === 'lead' || prof === 'gerencia') {
+          await supabase.from('leads').update({ is_test: true }).ilike('phone', '%' + d9 + '%').eq('is_test', false).then(() => {}).catch(() => {})
+          await supabase.from('whatsapp_conversations').update({ is_test: true }).eq('phone', ph).then(() => {}).catch(() => {})
+        }
+      }
       await supabase.from('bot_test_messages').update({ status: 'procesado', processed_at: new Date().toISOString() }).eq('id', t.id)
     } catch (e) {
       log('[TEST] error:', String(e.message || e))
