@@ -18,10 +18,14 @@ export default function TestBot() {
   const [projects, setProjects] = useState([])
   const [projectId, setProjectId] = useState('')
   const [clientes, setClientes] = useState([])
+  const [clientesProj, setClientesProj] = useState([])   // clientes con venta en el proyecto elegido
   const [clienteId, setClienteId] = useState('')
   const [secs, setSecs] = useState([])
   const [secId, setSecId] = useState('')
-  const [sesion, setSesion] = useState(nuevoPhone())   // sesión sintética para lead/gerencia
+  const [sesion, setSesion] = useState(() => {         // sesión sintética para lead/gerencia (persiste al recargar)
+    try { const s = localStorage.getItem('testbot_sesion'); if (s) return s } catch {}
+    const p = nuevoPhone(); try { localStorage.setItem('testbot_sesion', p) } catch {}; return p
+  })
   const [msgs, setMsgs] = useState([])
   const [echoes, setEchoes] = useState([])
   const [input, setInput] = useState('')
@@ -30,7 +34,7 @@ export default function TestBot() {
   const phoneRef = useRef('')
   const endRef = useRef(null)
 
-  const cliente = clientes.find(c => c.id === clienteId)
+  const cliente = (perfil === 'cliente' ? clientesProj : clientes).find(c => c.id === clienteId)
   const sec = secs.find(s => s.id === secId)
   // teléfono activo según el perfil: sintético para lead/gerencia, REAL para cliente/secretaria
   const activePhone = perfil === 'cliente' ? (cliente?.phone || '').replace(/\D/g, '')
@@ -45,8 +49,21 @@ export default function TestBot() {
     supabase.from('secretaries').select('id, full_name, phone').eq('active', true).order('full_name').then(({ data }) => setSecs((data || []).filter(s => (s.phone || '').replace(/\D/g, '').length >= 9)))
   }, [])
 
+  // clientes del proyecto elegido (los que tienen venta en ese proyecto) — para el filtro de cobranza
+  useEffect(() => {
+    if (perfil !== 'cliente' || !projectId) { setClientesProj([]); return }
+    supabase.from('sales').select('client:clients!sales_client_id_fkey(id, full_name, phone), lot:lots!inner(project_id)').eq('lot.project_id', projectId)
+      .then(({ data }) => {
+        const seen = new Set(); const list = []
+        for (const s of (data || [])) { const c = s.client; if (c && !seen.has(c.id) && (c.phone || '').replace(/\D/g, '').length >= 9) { seen.add(c.id); list.push(c) } }
+        list.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+        setClientesProj(list)
+        if (!list.some(c => c.id === clienteId)) setClienteId('')
+      })
+  }, [perfil, projectId])
+
   const nuevaConversacion = () => {
-    if (perfil === 'lead' || perfil === 'gerencia') { const p = nuevoPhone(); setSesion(p); phoneRef.current = p }
+    if (perfil === 'lead' || perfil === 'gerencia') { const p = nuevoPhone(); try { localStorage.setItem('testbot_sesion', p) } catch {}; setSesion(p); phoneRef.current = p }
     setMsgs([]); setEchoes([]); setPensando(false); setPendDesde(0)
   }
 
@@ -76,7 +93,8 @@ export default function TestBot() {
     if (!ph || ph.length < 9) { alert('Elige primero un ' + (perfil === 'cliente' ? 'cliente' : 'secretaria') + ' para emular.'); return }
     if (echo) setEchoes(e => [...e, { body: echo, at: new Date().toISOString() }])
     setPensando(true); setPendDesde(Date.now())
-    await supabase.from('bot_test_messages').insert({ session_phone: ph, profile: perfil, project_id: perfil === 'lead' ? (projectId || null) : null, emulate_id: emulateId || null, text: '', ...extra })
+    const { error } = await supabase.from('bot_test_messages').insert({ session_phone: ph, profile: perfil, project_id: perfil === 'lead' ? (projectId || null) : null, emulate_id: emulateId || null, text: '', ...extra })
+    if (error) { setPensando(false); setEchoes(e => e.filter(x => x.body !== echo)); alert('No se pudo enviar el mensaje de prueba:\n\n' + error.message + '\n\nProbablemente falta correr la migración SQL (columna emulate_id).') }
   }
   const enviar = async () => { const text = input.trim(); if (!text) return; setInput(''); await encolar({ profile: perfil, text }, text) }
   const simularCobranza = () => encolar({ profile: 'cobranza_now', emulate_id: clienteId }, null)
@@ -119,19 +137,20 @@ export default function TestBot() {
             ))}
           </div>
 
-          {perfil === 'lead' && (<>
-            <b style={{ fontSize: 13 }}>2 · Proyecto de contexto</b>
+          {(perfil === 'lead' || perfil === 'cliente') && (<>
+            <b style={{ fontSize: 13 }}>2 · {perfil === 'cliente' ? 'Proyecto (filtra clientes)' : 'Proyecto de contexto'}</b>
             <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ width: '100%', margin: '8px 0 14px' }}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </>)}
 
           {perfil === 'cliente' && (<>
-            <b style={{ fontSize: 13 }}>2 · Cliente a emular</b>
-            <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={{ width: '100%', margin: '8px 0 8px' }}>
+            <b style={{ fontSize: 13 }}>3 · Cliente a emular</b>
+            <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={{ width: '100%', margin: '8px 0 4px' }}>
               <option value="">— elige un cliente —</option>
-              {clientes.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+              {clientesProj.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
             </select>
+            <p className="muted" style={{ fontSize: 10, margin: '0 0 10px' }}>{clientesProj.length} cliente(s) con venta en este proyecto.</p>
             <button className="btn" style={{ width: '100%', marginBottom: 14 }} disabled={!clienteId} onClick={simularCobranza}>▶️ SIMULAR ENVÍO DE COBRANZA</button>
           </>)}
 

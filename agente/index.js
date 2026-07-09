@@ -601,20 +601,20 @@ function tpl(tag, vars) {
 function msjA(nombre, lote, proy, q, deuda, cuando) {
   const p = tpl(cuando, { nombre, lote, proyecto: proy, cuota: q.installment_number, monto: soles(deuda), fecha: q.due_date })
   if (p) return p
-  const base = `Hola ${nombre} 👋 le saludamos de *Urbis Group*.\n\n`
-  if (cuando === 'A5') return base + `Le recordamos con anticipación que su cuota N° ${q.installment_number} del lote *${lote}* (${proy}) por *${soles(deuda)}* vence en 5 días, el *${q.due_date}*. ¡Gracias por mantenerse al día! 🙌`
-  if (cuando === 'A3') return base + `Su cuota N° ${q.installment_number} del lote *${lote}* (${proy}) por *${soles(deuda)}* vence en 3 días, el *${q.due_date}*. Puede pagar por transferencia o depósito. 🙌`
-  return base + `*Hoy vence* su cuota N° ${q.installment_number} del lote *${lote}* (${proy}) por *${soles(deuda)}*.\n\nCuando realice el pago, envíe la *foto de su voucher por este mismo chat* y nuestro equipo lo registrará. ¡Gracias! 📄✅`
+  const base = `Hola ${nombre} 👋 le saludamos de *Urbis Group* — proyecto *${proy}*.\n\n`
+  if (cuando === 'A5') return base + `Le recordamos con anticipación que su cuota N° ${q.installment_number} del lote *${lote}* por *${soles(deuda)}* vence en 5 días, el *${q.due_date}*. ¡Gracias por mantenerse al día! 🙌`
+  if (cuando === 'A3') return base + `Su cuota N° ${q.installment_number} del lote *${lote}* por *${soles(deuda)}* vence en 3 días, el *${q.due_date}*. Puede pagar por transferencia o depósito. 🙌`
+  return base + `*Hoy vence* su cuota N° ${q.installment_number} del lote *${lote}* por *${soles(deuda)}*.\n\nCuando realice el pago, envíe la *foto de su voucher por este mismo chat* y nuestro equipo lo registrará. ¡Gracias! 📄✅`
 }
 function msjInsist(nombre, lote, proy, q, deuda, dd) {
   const p = tpl('INSISTENCIA', { nombre, lote, proyecto: proy, cuota: q.installment_number, monto: soles(deuda), fecha: q.due_date, dias: dd })
   if (p) return p
-  return `Hola ${nombre}, le saludamos de *Urbis Group*.\n\nSu cuota N° ${q.installment_number} del lote *${lote}* (${proy}) por *${soles(deuda)}* venció hace ${dd} días.\n\nSi ya realizó el pago, envíenos el voucher por aquí; si tuvo un inconveniente, escríbanos para ayudarle a regularizar. 🙏`
+  return `Hola ${nombre}, le saludamos de *Urbis Group* — proyecto *${proy}*.\n\nSu cuota N° ${q.installment_number} del lote *${lote}* por *${soles(deuda)}* venció hace ${dd} días.\n\nSi ya realizó el pago, envíenos el voucher por aquí; si tuvo un inconveniente, escríbanos para ayudarle a regularizar. 🙏`
 }
 function msjB(nombre, lote, proy, nVenc, deudaTotal) {
   const p = tpl('B', { nombre, lote, proyecto: proy, nvencidas: nVenc, deuda: soles(deudaTotal) })
   if (p) return p
-  return `Hola ${nombre}, le saludamos de *Urbis Group*.\n\nSu lote *${lote}* (${proy}) registra *${nVenc} cuotas vencidas* por un total de *${soles(deudaTotal)}*.\n\nLe pedimos regularizar sus pagos para evitar mayores penalidades por mora. Si necesita una reprogramación, escríbanos y lo coordinamos. 🙏`
+  return `Hola ${nombre}, le saludamos de *Urbis Group* — proyecto *${proy}*.\n\nSu lote *${lote}* registra *${nVenc} cuotas vencidas* por un total de *${soles(deudaTotal)}*.\n\nLe pedimos regularizar sus pagos para evitar mayores penalidades por mora. Si necesita una reprogramación, escríbanos y lo coordinamos. 🙏`
 }
 function msjC(nombre, lote, proy, nVenc, deudaTotal) {
   const p = tpl('C', { nombre, lote, proyecto: proy, nvencidas: nVenc, deuda: soles(deudaTotal) })
