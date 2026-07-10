@@ -1191,6 +1191,19 @@ async function iniciarFlujoProyecto(jid, phone, lead) {
   await setConv(phone, { flow_state: 'completado', flow_step: null })
   await finalizarLead(jid, phone, lead)
 }
+// Único paso fijo aparte del reconocimiento automático: si no se identificó el proyecto, preguntar cuál.
+// Con un solo proyecto no se pregunta; con varios, se listan y se elige por número o palabra clave.
+async function pedirProyecto(jid, phone, lead, proys) {
+  const lista = proys || []
+  if (lista.length === 1) {
+    await supabase.from('leads').update({ project_id: lista[0].id }).eq('id', lead.id)
+    lead.project_id = lista[0].id
+    await iniciarFlujoProyecto(jid, phone, lead)
+    return
+  }
+  await setConv(phone, { flow_state: 'espera_proyecto' })
+  await enviar(jid, `¡Hola! 👋 ¿Sobre qué proyecto quieres información?${lista.map((p, i) => `\n${i + 1}. *${p.name}*`).join('')}\n\nRespóndeme con el número o el nombre.`, { tipo: 'lead_flujo', lead_id: lead.id })
+}
 // respuesta del lead dentro de un flujo (número o palabra clave -> rama)
 async function responderFlujo(jid, phone, lead, conv, corto) {
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
@@ -1349,56 +1362,22 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     return
   }
 
-  // 1) PRIMER CONTACTO: detectar proyecto del mensaje (ej. "info sobre X"), crear lead, pedir nombre
+  // 1) PRIMER CONTACTO: lo ÚNICO fijo es reconocer el proyecto; luego corre el flujo del panel (sin pedir nombre).
   if (!lead) {
-    const { pr } = await detectarProyecto(corto)
+    const { pr, proys } = await detectarProyecto(corto)
     const { data: nuevoLead } = await supabase.from('leads').insert({
       full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
       source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
       optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
-    await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead?.id })
-    // La bienvenida ya NO va aquí: es el 1er paso del flujo del panel. Lo único fijo es pedir el nombre.
-    const { data: pfW } = pr ? await supabase.from('projects').select('bot_flow').eq('id', pr.id).maybeSingle() : { data: null }
-    const flowW = parseFlowRaw(pfW)
-    const pide = textoFlujo(flowW, 'pide_nombre', '¡Hola! 👋 Gracias por escribir a *Urbis Group Real Estate*. Para atenderte mejor, ¿me dices tu *nombre*? _(o escribe *prefiero no decirlo* y seguimos igual)_', pr?.name)
-    await enviar(jid, pide, { tipo: 'lead_flujo', lead_id: lead?.id })
     if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
+    if (pr) { await iniciarFlujoProyecto(jid, phone, lead); return }   // proyecto identificado → directo al flujo del panel
+    await pedirProyecto(jid, phone, lead, proys)                       // no identificado → pedir cuál (parte del reconocimiento)
     return
   }
 
-  // 2) NOMBRE (con opción "prefiero no decirlo")
-  if (estado === 'espera_nombre') {
-    const declina = /prefiero no|no.*(decir|dar)|omitir|an[oó]nimo|reservado|luego te digo|despu[eé]s|no quiero dar/i.test(corto)
-    let nombre = null
-    if (declina) {
-      await supabase.from('leads').update({ status: 'contactado' }).eq('id', lead.id)
-      if (lead.project_id) {
-        const { data: pfN } = await supabase.from('projects').select('bot_flow').eq('id', lead.project_id).maybeSingle()
-        const noNom = parseFlowRaw(pfN)?.no_nombre
-        if (noNom && String(noNom).trim()) await enviar(jid, String(noNom).trim(), { tipo: 'lead_flujo', lead_id: lead.id })
-      }
-    } else {
-      nombre = corto.replace(/^\s*(mi nombre es|me llamo|yo soy|soy)\s+/i, '').replace(/[^\p{L} .'-]/gu, '').trim().toUpperCase()
-      if (nombre.length < 2) nombre = null   // no insistir: si no es un nombre claro, seguimos como anónimo
-      await supabase.from('leads').update({ status: 'contactado', ...(nombre ? { full_name: nombre } : {}) }).eq('id', lead.id)
-    }
-    if (!lead.project_id) {
-      const { proys } = await detectarProyecto('')
-      if (proys.length === 1) { await supabase.from('leads').update({ project_id: proys[0].id }).eq('id', lead.id); lead.project_id = proys[0].id }
-      else {
-        await setConv(phone, { flow_state: 'espera_proyecto' })
-        await enviar(jid, `${nombre ? '¡Un gusto, ' + nombre.split(' ')[0] + '! ' : '¡Perfecto! '}😊 ¿Qué proyecto te interesa?${proys.map((p, i) => `\n${i + 1}. *${p.name}*`).join('')}\n\nRespóndeme con el número o el nombre.`, { tipo: 'lead_flujo', lead_id: lead.id })
-        return
-      }
-    }
-    // Nombre capturado + proyecto conocido → arranca directo el flujo del panel (sin pregunta INFO/ASESOR)
-    await iniciarFlujoProyecto(jid, phone, lead)
-    return
-  }
-
-  // 2b) PROYECTO (si no se detectó al inicio o quedó ambiguo)
+  // 2) PROYECTO (si no se detectó al inicio o quedó ambiguo)
   if (estado === 'espera_proyecto') {
     const { proys } = await detectarProyecto('')
     const n = parseInt(corto.replace(/\D/g, ''), 10)
@@ -1418,10 +1397,12 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     return
   }
 
-  // 4) lead huérfano sin estado: reiniciar
+  // 4) lead huérfano sin estado: reiniciar (re-reconoce proyecto y arranca el flujo del panel)
   if (!estado && lead?.id) {
-    await setConv(phone, { flow_state: 'espera_nombre', lead_id: lead.id })
-    await enviar(jid, '¡Hola de nuevo! 👋 Para atenderte mejor, ¿me dices tu *nombre*? _(o *prefiero no decirlo*)_', { tipo: 'lead_flujo', lead_id: lead.id })
+    if (lead.project_id) { await iniciarFlujoProyecto(jid, phone, lead); return }
+    const { pr, proys } = await detectarProyecto(corto)
+    if (pr) { await supabase.from('leads').update({ project_id: pr.id }).eq('id', lead.id); lead.project_id = pr.id; await iniciarFlujoProyecto(jid, phone, lead); return }
+    await pedirProyecto(jid, phone, lead, proys)
     return
   }
 

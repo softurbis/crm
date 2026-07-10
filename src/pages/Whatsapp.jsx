@@ -82,7 +82,7 @@ export default function Whatsapp() {
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
-  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', pide_nombre: '', no_nombre: '', media_lib: [], bombardeo: [], steps: [] })
+  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
   const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
@@ -217,7 +217,6 @@ export default function Whatsapp() {
       try { fl = typeof p?.bot_flow === 'string' ? JSON.parse(p.bot_flow) : p?.bot_flow } catch {}
       setProjFlow({
         reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
-        pide_nombre: fl?.pide_nombre || '', no_nombre: fl?.no_nombre || '',
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
         steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
@@ -255,7 +254,6 @@ export default function Whatsapp() {
     setProjQMsg('GUARDANDO...')
     const clean = {
       reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(),
-      pide_nombre: (projFlow.pide_nombre || '').trim(), no_nombre: (projFlow.no_nombre || '').trim(),
       media_lib: (projFlow.media_lib || []).filter(m => (m.url || '').trim()).map(m => ({ id: m.id, tipo: m.tipo, url: (m.url || '').trim(), desc: (m.desc || '').trim() })),
       bombardeo: projFlow.bombardeo || [],
       steps: (projFlow.steps || []).map(s => ({
@@ -640,16 +638,7 @@ export default function Whatsapp() {
           {brainSel.startsWith('p:') && (
             <div style={{ border: '1px solid rgba(156,203,134,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(156,203,134,.06)' }}>
               <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 FLUJO DEL BOT (sin IA)</b>
-              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>El bot identifica el proyecto por el mensaje del cliente (o le pregunta cuál), pide el nombre y luego corre <b>estos pasos, tal cual</b>: mensajes con material adjunto y preguntas que responden por <b>número o palabra clave</b>, con ramas (ir a otro paso) y disparadores de <b>pasar al asesor</b>. <b>El 1er paso es tu bienvenida.</b> Vacío = el bot solo registra el lead y avisa al asesor. Usa <b>{'{proyecto}'}</b> y <b>{'{nombre}'}</b> en cualquier texto y se reemplazan solos.</p>
-
-              <div style={{ border: '1px solid rgba(126,200,227,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(126,200,227,.06)' }}>
-                <b style={{ fontSize: 12, color: '#7ec8e3' }}>⭐ Pedir el nombre (paso fijo antes del flujo)</b>
-                <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Usa <b>{'{proyecto}'}</b> y se reemplaza por el nombre del proyecto. Vacío = usa el texto por defecto. La bienvenida ya no va aquí: ponla como <b>Paso 1</b> del flujo (abajo).</p>
-                <label style={{ fontSize: 11 }}>🙋 Pedir el nombre (menciona que puede no darlo)</label>
-                <textarea value={projFlow.pide_nombre} placeholder="Para atenderte mejor, ¿me dices tu *nombre*? _(o escribe *prefiero no decirlo*)_" onChange={e => setProjFlow(f => ({ ...f, pide_nombre: e.target.value }))} style={{ width: '100%', minHeight: 40, textTransform: 'none', fontSize: 12, margin: '3px 0 8px' }} />
-                <label style={{ fontSize: 11 }}>🤐 Si NO quiere dar el nombre</label>
-                <textarea value={projFlow.no_nombre} placeholder="¡Sin problema! Seguimos igual 😊" onChange={e => setProjFlow(f => ({ ...f, no_nombre: e.target.value }))} style={{ width: '100%', minHeight: 36, textTransform: 'none', fontSize: 12, margin: '3px 0 0' }} />
-              </div>
+              <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Lo único fijo es que el bot <b>reconoce el proyecto</b> por el mensaje del cliente (y si no lo identifica, le pregunta cuál). De ahí en adelante corre <b>SOLO estos pasos, tal cual</b>: mensajes con material adjunto y preguntas cerradas que responden por <b>número o palabra clave</b>, con ramas (ir a otro paso) y disparadores de <b>pasar al asesor</b>. <b>El 1er paso es tu bienvenida</b> (no hay nada predeterminado: ni nombre, ni preguntas por defecto). Vacío = el bot solo registra el lead y avisa al asesor. Usa <b>{'{proyecto}'}</b> y <b>{'{nombre}'}</b> en cualquier texto y se reemplazan solos.</p>
 
               <div style={{ border: '1px solid rgba(232,151,90,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
                 <b style={{ fontSize: 12, color: '#e8975a' }}>📎 Material del flujo (se sube aquí, no del proyecto)</b>
