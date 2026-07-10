@@ -1633,12 +1633,13 @@ async function procesarPruebas() {
       else if (prof === 'pasar_lista_now') { TEST_PROFILES.set(d9, 'secretaria'); await pasarListaTest(t.emulate_id, ph) }
       else {
         // lead nuevo: igual que WhatsApp real, el proyecto se DETECTA del mensaje.
-        // Solo si el mensaje no identifica ninguno se usa el del dropdown como respaldo.
+        // Si el mensaje no identifica uno (o es ambiguo entre varios), queda en null y el
+        // bot PREGUNTA cuál (no se fuerza el del dropdown).
         if (prof === 'lead') {
           const { data: exL } = await supabase.from('leads').select('id').ilike('phone', '%' + d9 + '%').limit(1)
           if (!exL || !exL.length) {
             const { pr } = await detectarProyecto(t.text || '')
-            await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: pr?.id || t.project_id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
+            await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
           }
         }
         const tipo = prof === 'cliente' ? 'cliente' : prof === 'secretaria' ? 'secretaria' : prof === 'gerencia' ? 'gerencia' : null
