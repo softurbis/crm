@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 // Perfiles que se pueden simular. El agente fuerza la clasificación del número.
 const PERFILES = [
-  { v: 'lead',       t: '🟢 Lead nuevo (ventas)',      d: 'Escribe por primera vez: nombre → preguntas cerradas → calificado. Verás también el aviso al admin.', c: '#9ccb86' },
+  { v: 'lead',       t: '🟢 Lead nuevo (ventas)',      d: 'Escribe por primera vez: identifica el proyecto → pide el nombre → corre el flujo del panel de ese proyecto. Verás también el aviso al admin.', c: '#9ccb86' },
   { v: 'cliente',    t: '💵 Cliente (cobranza)',        d: 'Emula a un cliente REAL: su cobranza según su deuda y su respuesta a “ya pagué”.', c: '#b8a1d9' },
   { v: 'secretaria', t: '🗓️ Secretaria (seguimiento)', d: 'Emula a una secretaria REAL: pase de lista con sus tareas de hoy y sus respuestas.', c: '#7ec8e3' },
   { v: 'gerencia',   t: '👑 Gerencia (Q&A)',            d: 'Comandos (lotes, comisiones, vencidas…) y preguntas libres con IA.', c: '#e7c15a' },
