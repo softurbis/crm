@@ -9,3 +9,8 @@ dist
 agente/.env
 agente/auth/
 agente/node_modules/
+
+# agentes Python (marketing / negocio): CODIGO + DATOS sensibles NUNCA al repo publico.
+# Van al droplet por canal privado. El panel /marketing vive en src/ y ese SI se sube.
+agente marketing urbis/
+agente-negocio/
