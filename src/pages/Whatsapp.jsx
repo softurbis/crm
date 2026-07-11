@@ -82,7 +82,7 @@ export default function Whatsapp() {
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
-  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', pausa_seg: 3, media_lib: [], bombardeo: [], steps: [] })
+  const [projFlow, setProjFlow] = useState({ reask_min: 0, max_reasks: 1, reask_text: '', reask_unit: 'min', pausa_seg: 3, media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
   const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
@@ -216,9 +216,9 @@ export default function Whatsapp() {
       let fl = null
       try { fl = typeof p?.bot_flow === 'string' ? JSON.parse(p.bot_flow) : p?.bot_flow } catch {}
       setProjFlow({
-        reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '', pausa_seg: fl?.pausa_seg ?? 3,
+        reask_min: fl?.reask_min ?? 0, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '', reask_unit: fl?.reask_unit || 'min', pausa_seg: fl?.pausa_seg ?? 3,
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
-        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
+        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_unit: s.reask_unit || '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
     }
   }
@@ -254,18 +254,18 @@ export default function Whatsapp() {
   const guardarFlujo = async () => {
     setProjQMsg('GUARDANDO...')
     const clean = {
-      reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(), pausa_seg: Math.max(0, Number(projFlow.pausa_seg) || 0),
+      reask_min: Math.max(0, parseInt(projFlow.reask_min) || 0), reask_unit: projFlow.reask_unit === 'seg' ? 'seg' : 'min', max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(), pausa_seg: Math.max(0, Number(projFlow.pausa_seg) || 0),
       media_lib: (projFlow.media_lib || []).filter(m => (m.url || '').trim()).map(m => ({ id: m.id, tipo: m.tipo, url: (m.url || '').trim(), desc: (m.desc || '').trim() })),
       bombardeo: projFlow.bombardeo || [],
       steps: (projFlow.steps || []).map(s => ({
         id: s.id, tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: (s.texto || '').trim(), media: s.media || [], pasar_asesor: !!s.pasar_asesor,
-        ...(s.tipo === 'pregunta' && String(s.reask_min).trim() !== '' ? { reask_min: Number(s.reask_min) || 5 } : {}),
-        ...(s.tipo === 'pregunta' && String(s.reask_veces).trim() !== '' ? { reask_veces: Number(s.reask_veces) || 0 } : {}),
+        ...(s.tipo === 'pregunta' && String(s.reask_min).trim() !== '' ? { reask_min: Math.max(0, parseInt(s.reask_min) || 0) } : {}),
+        ...(s.tipo === 'pregunta' && (s.reask_unit === 'seg' || s.reask_unit === 'min') ? { reask_unit: s.reask_unit } : {}),
         ...(s.tipo === 'pregunta' && (s.reask_text || '').trim() ? { reask_text: (s.reask_text || '').trim() } : {}),
         ...(s.tipo === 'pregunta' ? { sin_respuesta: ['mensaje', 'asesor'].includes(s.sin_respuesta) ? s.sin_respuesta : 'siguiente' } : {}),
         ...(s.tipo === 'pregunta' && s.sin_respuesta === 'mensaje' && (s.sin_respuesta_texto || '').trim() ? { sin_respuesta_texto: (s.sin_respuesta_texto || '').trim() } : {}),
         opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
-      })).filter(s => s.texto || (s.opciones && s.opciones.length)),
+      })).filter(s => s.texto || (s.media && s.media.length) || (s.opciones && s.opciones.length)),
     }
     const notify = String(projNotify || '').replace(/\D/g, '') || null
     const { error } = await supabase.from('projects').update({ bot_flow: clean, lead_notify_phone: notify }).eq('id', brainSel.slice(2))
@@ -668,10 +668,13 @@ export default function Whatsapp() {
                 <label>👤 Asesor (recibe el lead):</label>
                 <input value={projNotify} placeholder="51 + número" onChange={e => setProjNotify(e.target.value)} style={{ width: 160 }} />
                 <span style={{ width: 8 }} />
-                <label>🔁 Si no responde, re-preguntar a los</label>
-                <input type="number" min="1" value={projFlow.reask_min} onChange={e => setProjFlow(f => ({ ...f, reask_min: e.target.value }))} style={{ width: 54 }} /> min,
-                <input type="number" min="0" value={projFlow.max_reasks} onChange={e => setProjFlow(f => ({ ...f, max_reasks: e.target.value }))} style={{ width: 44 }} /> vez(es)
-                <input value={projFlow.reask_text} placeholder="Texto del recordatorio (opcional)" onChange={e => setProjFlow(f => ({ ...f, reask_text: e.target.value }))} style={{ flex: '1 1 180px', textTransform: 'none' }} />
+                <label title="Si el lead no responde una pregunta, tras este tiempo el bot pasa al siguiente paso">⏭️ Si no responde, pasar al siguiente a los</label>
+                <input type="number" min="0" value={projFlow.reask_min} onChange={e => setProjFlow(f => ({ ...f, reask_min: e.target.value }))} style={{ width: 54 }} />
+                <select value={projFlow.reask_unit || 'min'} onChange={e => setProjFlow(f => ({ ...f, reask_unit: e.target.value }))} style={{ fontSize: 12 }}>
+                  <option value="seg">segundos</option>
+                  <option value="min">minutos</option>
+                </select>
+                <span className="muted" style={{ fontSize: 9 }}>(default; 0 = espera indefinida. Ajustable por pregunta.)</span>
                 <span style={{ width: 8 }} />
                 <label title="Tiempo que 'escribe' entre cada mensaje/imagen del flujo">⏱️ Pausa entre mensajes</label>
                 <input type="number" min="0" max="30" value={projFlow.pausa_seg} onChange={e => setProjFlow(f => ({ ...f, pausa_seg: e.target.value }))} style={{ width: 44 }} /> seg
@@ -736,20 +739,21 @@ export default function Whatsapp() {
                       ))}
                       <button className="btn-ghost" onClick={() => optAdd(i)}>+ Opción</button>
                       <div style={{ marginTop: 8, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        🔁 Si no responde a esta pregunta, re-preguntar a los
-                        <input type="number" min="1" value={s.reask_min} placeholder={String(projFlow.reask_min || 5)} onChange={e => flowSet(i, { reask_min: e.target.value })} style={{ width: 50 }} /> min,
-                        <input type="number" min="0" value={s.reask_veces} placeholder={String(projFlow.max_reasks ?? 1)} onChange={e => flowSet(i, { reask_veces: e.target.value })} style={{ width: 44 }} /> vez(es)
-                        <input value={s.reask_text} placeholder="texto del recordatorio (opcional)" onChange={e => flowSet(i, { reask_text: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none' }} />
-                        <span className="muted" style={{ fontSize: 9 }}>vacío = usa el global de arriba</span>
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        ➡️ Si aun así no responde:
+                        ⏭️ Si no responde en
+                        <input type="number" min="0" value={s.reask_min} placeholder={String(projFlow.reask_min || 0)} onChange={e => flowSet(i, { reask_min: e.target.value })} style={{ width: 50 }} />
+                        <select value={s.reask_unit || ''} onChange={e => flowSet(i, { reask_unit: e.target.value })} style={{ fontSize: 11 }}>
+                          <option value="">(unidad global)</option>
+                          <option value="seg">segundos</option>
+                          <option value="min">minutos</option>
+                        </select>
+                        →
                         <select value={s.sin_respuesta || 'siguiente'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })} style={{ fontSize: 11 }}>
-                          <option value="siguiente">pasar a la siguiente pregunta</option>
+                          <option value="siguiente">pasar al siguiente paso</option>
                           <option value="mensaje">enviar un mensaje y seguir</option>
                           <option value="asesor">pasar al asesor</option>
                         </select>
-                        {s.sin_respuesta === 'mensaje' && <input value={s.sin_respuesta_texto} placeholder="mensaje predeterminado" onChange={e => flowSet(i, { sin_respuesta_texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
+                        {s.sin_respuesta === 'mensaje' && <input value={s.sin_respuesta_texto} placeholder="mensaje antes de seguir" onChange={e => flowSet(i, { sin_respuesta_texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
+                        <span className="muted" style={{ fontSize: 9 }}>vacío/0 = espera indefinida</span>
                       </div>
                     </div>
                   )}

@@ -102,6 +102,8 @@ const espera = ms => new Promise(r => setTimeout(r, process.env.SIMULACRO === '1
 const delayAleatorio = () => 20000 + Math.floor(Math.random() * 25000) // 20-45 s
 // Pausa entre mensajes del flujo de leads (configurable por proyecto: bot_flow.pausa_seg). correrFlujo la ajusta.
 let PAUSA_MS = 3000
+// Mutex compartido para que procesarPruebas y avanzarFlujo no se solapen (evita doble envío en pruebas).
+let _procPruebasBusy = false
 
 function jidDe(phone) {
   let p = String(phone || '').replace(/\D/g, '')
@@ -1529,44 +1531,45 @@ async function procesarSalientesPanel() {
 }
 setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 5000)
 
-// ---------- RE-PREGUNTAR dentro del flujo del proyecto (si no responde) ----------
-async function reaskFlow() {
-  if (TEST_ACTIVE) return
-  if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
-  const { data } = await supabase.from('whatsapp_conversations')
-    .select('id, phone, wa_jid, lead_id, flow_step, flow_reasks, last_message_at')
-    .eq('flow_state', 'flow').neq('is_test', true).limit(30)
-  for (const c of (data || [])) {
-    try {
-      const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
-      if (!lead) continue
-      const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
-      const flow = parseFlow(proy)
-      if (!flow) continue
-      const step = pasoPorId(flow, c.flow_step)
-      if (!step) continue
-      // re-pregunta POR PASO (si el paso no la define, usa la global del flujo como default)
-      const reMin = Number(step.reask_min ?? flow.reask_min) || 5
-      const maxRe = Number(step.reask_veces ?? flow.max_reasks ?? 1)
-      if (new Date(c.last_message_at).getTime() > Date.now() - reMin * 60000) continue   // aún no vence el intervalo
-      const jid = c.wa_jid || jidDe(c.phone)
-      if ((c.flow_reasks || 0) < maxRe) {
-        // RE-PREGUNTAR
-        const ops = (step.opciones || []).map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-        const texto = (step.reask_text || flow.reask_text || '¿Sigues por ahí? 😊').trim() + (step.texto ? '\n\n' + step.texto : '') + (ops ? '\n' + ops : '')
-        await enviar(c.phone, texto, { tipo: 'lead_flujo', lead_id: c.lead_id })
-        await supabase.from('whatsapp_conversations').update({ flow_reasks: (c.flow_reasks || 0) + 1, last_message_at: new Date().toISOString() }).eq('id', c.id)
-      } else {
-        // AGOTÓ LAS RE-PREGUNTAS -> acción configurable: siguiente / mensaje / asesor
+// ---------- AUTO-AVANZAR dentro del flujo: si el lead no responde en N seg/min, pasa al siguiente paso ----------
+// (No hay re-insistencia; solo se espera el tiempo del paso y se ejecuta su acción: siguiente / mensaje / asesor.)
+async function avanzarFlujo() {
+  if (_procPruebasBusy) return                       // no solaparse con el procesamiento de pruebas
+  _procPruebasBusy = true
+  try {
+    if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
+    const { data } = await supabase.from('whatsapp_conversations')
+      .select('id, phone, wa_jid, lead_id, flow_step, last_message_at, is_test')
+      .eq('flow_state', 'flow').limit(30)
+    for (const c of (data || [])) {
+      try {
+        const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
+        if (!lead) continue
+        const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+        const flow = parseFlow(proy)
+        if (!flow) continue
+        const step = pasoPorId(flow, c.flow_step)
+        if (!step) continue
+        // tiempo de espera de este paso (o el global). 0/vacío = espera indefinida (no avanza solo).
+        const num = Number(step.reask_min ?? flow.reask_min ?? 0)
+        if (!num || num <= 0) continue
+        const unit = step.reask_unit ?? flow.reask_unit ?? 'min'
+        const reMs = num * (unit === 'seg' ? 1000 : 60000)
+        if (Date.now() - new Date(c.last_message_at).getTime() < reMs) continue   // aún no vence el tiempo
+        const jid = c.wa_jid || jidDe(c.phone)
         const acc = step.sin_respuesta || 'siguiente'
-        if (acc === 'asesor') { await pasarAsesor(jid, c.phone, lead, 'sin_respuesta'); continue }
-        if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id })
-        await correrFlujo(jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
-      }
-    } catch (e) { log('reask:', String(e.message || e)) }
-  }
+        const correr = async () => {
+          if (acc === 'asesor') { await pasarAsesor(jid, c.phone, lead, 'sin_respuesta'); return }
+          if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id })
+          await correrFlujo(jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
+        }
+        if (c.is_test) { TEST_ACTIVE = c.phone; try { await correr() } finally { TEST_ACTIVE = null } }
+        else await correr()
+      } catch (e) { log('avanzar:', String(e.message || e)) }
+    }
+  } finally { _procPruebasBusy = false }
 }
-setInterval(() => { reaskFlow().catch(() => {}) }, 60000)
+setInterval(() => { avanzarFlujo().catch(() => {}) }, 8000)
 
 // ---------- CONSOLA DE PRUEBAS (chat virtual, sin WhatsApp real) ----------
 async function purgarPruebas() {
@@ -1678,5 +1681,4 @@ async function procesarPruebas() {
     }
   }
 }
-let _procPruebasBusy = false
 setInterval(async () => { if (_procPruebasBusy) return; _procPruebasBusy = true; try { await procesarPruebas() } catch (e) {} finally { _procPruebasBusy = false } }, 3000)
