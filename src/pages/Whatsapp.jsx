@@ -82,7 +82,7 @@ export default function Whatsapp() {
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
   const [projQMsg, setProjQMsg] = useState('')
-  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', media_lib: [], bombardeo: [], steps: [] })
+  const [projFlow, setProjFlow] = useState({ reask_min: 5, max_reasks: 1, reask_text: '', pausa_seg: 3, media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
   const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
@@ -216,7 +216,7 @@ export default function Whatsapp() {
       let fl = null
       try { fl = typeof p?.bot_flow === 'string' ? JSON.parse(p.bot_flow) : p?.bot_flow } catch {}
       setProjFlow({
-        reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '',
+        reask_min: fl?.reask_min ?? 5, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '', pausa_seg: fl?.pausa_seg ?? 3,
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
         steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
@@ -228,6 +228,7 @@ export default function Whatsapp() {
   const flowDel = i => setProjFlow(f => ({ ...f, steps: f.steps.filter((_, j) => j !== i) }))
   const flowMove = (i, d) => setProjFlow(f => { const a = [...f.steps]; const j = i + d; if (j < 0 || j >= a.length) return f;[a[i], a[j]] = [a[j], a[i]]; return { ...f, steps: a } })
   const flowMedia = (i, key) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, media: (s.media || []).includes(key) ? s.media.filter(m => m !== key) : [...(s.media || []), key] } : s) }))
+  const flowMediaMove = (i, mi, d) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => { if (j !== i) return s; const a = [...(s.media || [])]; const k = mi + d; if (k < 0 || k >= a.length) return s;[a[mi], a[k]] = [a[k], a[mi]]; return { ...s, media: a } }) }))
   const optSet = (i, oi, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).map((o, k) => k === oi ? { ...o, ...patch } : o) } : s) }))
   const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', ir_a: '', pasar_asesor: false }] } : s) }))
   const optDel = (i, oi) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).filter((_, k) => k !== oi) } : s) }))
@@ -253,7 +254,7 @@ export default function Whatsapp() {
   const guardarFlujo = async () => {
     setProjQMsg('GUARDANDO...')
     const clean = {
-      reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(),
+      reask_min: Number(projFlow.reask_min) || 5, max_reasks: Number(projFlow.max_reasks) || 0, reask_text: (projFlow.reask_text || '').trim(), pausa_seg: Math.max(0, Number(projFlow.pausa_seg) || 0),
       media_lib: (projFlow.media_lib || []).filter(m => (m.url || '').trim()).map(m => ({ id: m.id, tipo: m.tipo, url: (m.url || '').trim(), desc: (m.desc || '').trim() })),
       bombardeo: projFlow.bombardeo || [],
       steps: (projFlow.steps || []).map(s => ({
@@ -671,6 +672,9 @@ export default function Whatsapp() {
                 <input type="number" min="1" value={projFlow.reask_min} onChange={e => setProjFlow(f => ({ ...f, reask_min: e.target.value }))} style={{ width: 54 }} /> min,
                 <input type="number" min="0" value={projFlow.max_reasks} onChange={e => setProjFlow(f => ({ ...f, max_reasks: e.target.value }))} style={{ width: 44 }} /> vez(es)
                 <input value={projFlow.reask_text} placeholder="Texto del recordatorio (opcional)" onChange={e => setProjFlow(f => ({ ...f, reask_text: e.target.value }))} style={{ flex: '1 1 180px', textTransform: 'none' }} />
+                <span style={{ width: 8 }} />
+                <label title="Tiempo que 'escribe' entre cada mensaje/imagen del flujo">⏱️ Pausa entre mensajes</label>
+                <input type="number" min="0" max="30" value={projFlow.pausa_seg} onChange={e => setProjFlow(f => ({ ...f, pausa_seg: e.target.value }))} style={{ width: 44 }} /> seg
               </div>
 
               {projFlow.steps.map((s, i) => (
@@ -690,14 +694,29 @@ export default function Whatsapp() {
                     <button className="btn-ghost" onClick={() => flowDel(i)} title="Quitar paso">✕</button>
                   </div>
                   <textarea value={s.texto} placeholder={s.tipo === 'pregunta' ? 'Texto de la pregunta (ej. ¿Para qué buscas el lote?)' : 'Texto del mensaje'} onChange={e => flowSet(i, { texto: e.target.value })} style={{ width: '100%', minHeight: 44, textTransform: 'none', fontSize: 12.5 }} />
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>
-                    <span className="muted" style={{ fontSize: 11 }}>Adjuntar de la biblioteca:</span>
-                    {(projFlow.media_lib || []).length === 0 && <span className="muted" style={{ fontSize: 10 }}>(sube material arriba)</span>}
-                    {(projFlow.media_lib || []).map(m => (
-                      <label key={m.id} style={{ fontSize: 11, display: 'flex', gap: 3, alignItems: 'center', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={(s.media || []).includes(m.id)} onChange={() => flowMedia(i, m.id)} /> {m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}{m.desc ? ' ' + m.desc.slice(0, 14) : ''}
-                      </label>
-                    ))}
+                  <div style={{ margin: '6px 0' }}>
+                    <span className="muted" style={{ fontSize: 11 }}>📎 Material a enviar (en este orden, después del texto):</span>
+                    {(projFlow.media_lib || []).length === 0 && <span className="muted" style={{ fontSize: 10 }}> (sube material arriba)</span>}
+                    {(s.media || []).map((mid, mi) => {
+                      const m = (projFlow.media_lib || []).find(x => x.id === mid)
+                      if (!m) return null
+                      const ic = m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'
+                      return (
+                        <div key={mid} style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 3, fontSize: 11 }}>
+                          <b style={{ width: 16 }}>{mi + 1}.</b> <span>{ic}</span>
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'none' }}>{m.desc ? m.desc.slice(0, 30) : '(sin descripción)'}</span>
+                          <button className="btn-ghost" onClick={() => flowMediaMove(i, mi, -1)} title="Subir">▲</button>
+                          <button className="btn-ghost" onClick={() => flowMediaMove(i, mi, 1)} title="Bajar">▼</button>
+                          <button className="btn-ghost" onClick={() => flowMedia(i, mid)} title="Quitar">✕</button>
+                        </div>
+                      )
+                    })}
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 5 }}>
+                      {(projFlow.media_lib || []).filter(m => !(s.media || []).includes(m.id)).map(m => {
+                        const ic = m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'
+                        return <button key={m.id} className="btn-ghost" style={{ fontSize: 10, textTransform: 'none' }} onClick={() => flowMedia(i, m.id)}>+ {ic} {m.desc ? m.desc.slice(0, 14) : 'material'}</button>
+                      })}
+                    </div>
                   </div>
                   {s.tipo === 'pregunta' && (
                     <div style={{ borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 6, marginTop: 4 }}>

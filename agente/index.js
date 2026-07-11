@@ -100,6 +100,8 @@ const parseJSON = s => { try { const o = JSON.parse(String(s || '')); return o }
 const matchClaves = (claves, texto) => String(claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => String(texto || '').toLowerCase().includes(k))
 const espera = ms => new Promise(r => setTimeout(r, process.env.SIMULACRO === '1' ? 5 : ms))
 const delayAleatorio = () => 20000 + Math.floor(Math.random() * 25000) // 20-45 s
+// Pausa entre mensajes del flujo de leads (configurable por proyecto: bot_flow.pausa_seg). correrFlujo la ajusta.
+let PAUSA_MS = 3000
 
 function jidDe(phone) {
   let p = String(phone || '').replace(/\D/g, '')
@@ -130,6 +132,7 @@ const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 async function enviarArchivo(jid, url, clase, caption) {
   const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : clase === 'documento' ? '📄 DOCUMENTO' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
   if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
+    await espera(PAUSA_MS)
     await supabase.from('scheduled_messages').insert({ recipient_phone: TEST_ACTIVE, body: etiqueta, tipo: 'test_media', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     return
   }
@@ -137,7 +140,7 @@ async function enviarArchivo(jid, url, clase, caption) {
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
     // pausa natural con indicador (grabando para video, escribiendo para el resto)
     try { await sock.sendPresenceUpdate(clase === 'video' ? 'recording' : 'composing', dest) } catch (e) {}
-    await espera(3000 + Math.floor(Math.random() * 3000))
+    await espera(PAUSA_MS)
     try { await sock.sendPresenceUpdate('paused', dest) } catch (e) {}
     const low = String(url).toLowerCase()
     const esDoc = (clase === 'plano' || clase === 'brochure' || clase === 'documento') && low.includes('.pdf')
@@ -527,6 +530,11 @@ async function comandosGerencia(jid, phone, texto) {
 
 
 async function enviar(phone, texto, meta = {}) {
+  // pausa natural entre mensajes del flujo (configurable), tanto en real como en la consola de prueba
+  if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
+    if (!TEST_ACTIVE) { try { await sock.sendPresenceUpdate('composing', String(phone).includes('@') ? String(phone) : jidDe(phone)) } catch (e) {} }
+    await espera(PAUSA_MS)
+  }
   // MODO PRUEBA: capturar todo bajo el teléfono de la sesión, sin tocar WhatsApp real.
   if (TEST_ACTIVE) {
     const rp = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
@@ -553,10 +561,6 @@ async function enviar(phone, texto, meta = {}) {
     if (tnumEnv === 'desactivado' && !['secretaria', 'aviso_admin', 'reporte'].includes(meta.tipo || '')) { log('NUMERO ADMINISTRATIVO: solo avisos internos, no se envia a', soloDig); return false }
   }
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
-  if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
-    try { await sock.sendPresenceUpdate('composing', destJid) } catch (e) {}
-    await espera(4000 + Math.floor(Math.random() * 8000))
-  }
   try {
     guardarMsg(await sock.sendMessage(destJid, { text: texto }))
     enviadosHoy++
@@ -1160,6 +1164,7 @@ const idxDePaso = (flow, id) => (flow.steps || []).findIndex(s => String(s.id) =
 // ejecuta pasos desde un índice; envía mensajes+adjuntos y se detiene en la 1ª pregunta (o al final)
 async function correrFlujo(jid, phone, lead, proy, flow, idx) {
   const steps = flow.steps || []
+  PAUSA_MS = Math.max(0, Math.round(Number(flow.pausa_seg ?? 3) * 1000))   // pausa entre mensajes de este flujo
   let guard = 0
   while (idx >= 0 && idx < steps.length && guard++ < 50) {
     const s = steps[idx]
@@ -1170,9 +1175,12 @@ async function correrFlujo(jid, phone, lead, proy, flow, idx) {
     }
     await enviarMediaLib(jid, flow.media_lib || [], s.media)
     if (s.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
-    if (s.tipo === 'pregunta' && (s.opciones || []).length) {
-      const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-      await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+    if (s.tipo === 'pregunta') {
+      // una pregunta SIEMPRE espera la respuesta del lead (tenga opciones cerradas o sea abierta)
+      if ((s.opciones || []).length) {
+        const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
+        await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+      }
       await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 })
       return
     }
@@ -1211,6 +1219,13 @@ async function responderFlujo(jid, phone, lead, conv, corto) {
   const step = flow ? pasoPorId(flow, conv.flow_step) : null
   if (!proy || !flow || !step) { await setConv(phone, { flow_state: 'completado', flow_step: null }); await finalizarLead(jid, phone, lead); return }
   const ops = step.opciones || []
+  // pregunta ABIERTA (sin opciones): acepta cualquier respuesta, la guarda y avanza al siguiente paso
+  if (!ops.length) {
+    await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + corto).slice(0, 500) })
+    if (step.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
+    await correrFlujo(jid, phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
+    return
+  }
   let elegida = null
   const soloNum = /^\s*\d+\s*$/.test(corto)
   const n = parseInt(corto.replace(/\D/g, ''), 10)
@@ -1663,4 +1678,5 @@ async function procesarPruebas() {
     }
   }
 }
-setInterval(() => { procesarPruebas().catch(() => {}) }, 3000)
+let _procPruebasBusy = false
+setInterval(async () => { if (_procPruebasBusy) return; _procPruebasBusy = true; try { await procesarPruebas() } catch (e) {} finally { _procPruebasBusy = false } }, 3000)
