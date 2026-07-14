@@ -89,6 +89,18 @@ export default function Marketing() {
 
       {tab === 'chat' && (
         <div className="glass" style={{ padding: 14, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
+          {/* nota de estado / pendientes del panel */}
+          <details style={{ marginBottom: 10, fontSize: 12.5, background: 'rgba(232,193,90,.08)', border: '1px solid rgba(232,193,90,.35)', borderRadius: 8, padding: '8px 12px' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#e8c15a' }}>ℹ️ Estado y pendientes de este panel</summary>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
+              <li><b>El chat responde solo cuando el “motor” (worker) esté conectado en el servidor.</b> Si escribes y no contesta, es que aún falta prenderlo en el droplet.</li>
+              <li>La pestaña <b>Configuración</b> ya funciona: se llena sola la primera vez que el worker arranca (sube tus instrucciones y fichas actuales). También puedes editarla a mano.</li>
+              <li><b>Fase 1 (actual):</b> chat de texto + parrilla + prompt para GPT.</li>
+              <li><b>Fase 2 (pendiente):</b> descargar la parrilla en Excel y el documento por semana en Word.</li>
+              <li><b>Fase 3 (pendiente):</b> generar las imágenes con IA (gpt-image-1), con confirmación de costo.</li>
+              <li><b>Candado anti-cruce:</b> elige el proyecto arriba antes de pedir nada; el agente queda bloqueado a ese proyecto.</li>
+            </ul>
+          </details>
           {/* selector de proyecto (candado) */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
             <span style={{ fontSize: 13 }}>🔒 Proyecto activo:</span>
