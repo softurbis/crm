@@ -235,6 +235,7 @@ export default function Whatsapp() {
   // ---- biblioteca de material del flujo (subir imágenes/videos + links con descripción) ----
   const libAdd = it => setProjFlow(f => ({ ...f, media_lib: [...(f.media_lib || []), it] }))
   const libSet = (id, patch) => setProjFlow(f => ({ ...f, media_lib: f.media_lib.map(x => x.id === id ? { ...x, ...patch } : x) }))
+  const libMove = (id, d) => setProjFlow(f => { const a = [...(f.media_lib || [])]; const i = a.findIndex(x => x.id === id); const j = i + d; if (i < 0 || j < 0 || j >= a.length) return f;[a[i], a[j]] = [a[j], a[i]]; return { ...f, media_lib: a } })
   const libDel = id => setProjFlow(f => ({ ...f, media_lib: (f.media_lib || []).filter(x => x.id !== id), bombardeo: (f.bombardeo || []).filter(b => b !== id), steps: f.steps.map(s => ({ ...s, media: (s.media || []).filter(m => m !== id) })) }))
   const bombToggle = id => setProjFlow(f => ({ ...f, bombardeo: (f.bombardeo || []).includes(id) ? f.bombardeo.filter(b => b !== id) : [...(f.bombardeo || []), id] }))
   const subirMedia = async (e, tipo) => {
@@ -651,8 +652,11 @@ export default function Whatsapp() {
                   {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
                 </div>
                 {(projFlow.media_lib || []).length === 0 && <p className="muted" style={{ fontSize: 11 }}>Aún no hay material. Sube imágenes/videos o agrega links.</p>}
-                {(projFlow.media_lib || []).map(m => (
+                {(projFlow.media_lib || []).map((m, mli) => (
                   <div key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap', padding: '4px 6px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6 }}>
+                    <b style={{ fontSize: 10, opacity: .6, width: 16 }}>{mli + 1}.</b>
+                    <button className="btn-ghost" onClick={() => libMove(m.id, -1)} title="Subir">▲</button>
+                    <button className="btn-ghost" onClick={() => libMove(m.id, 1)} title="Bajar">▼</button>
                     <span style={{ fontSize: 11 }}>{m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
                     {m.tipo === 'link'
                       ? <input value={m.url} placeholder="https://…" onChange={e => libSet(m.id, { url: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />

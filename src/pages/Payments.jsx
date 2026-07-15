@@ -43,6 +43,7 @@ export default function Payments() {
   const { profile, role } = useAuth()
   const { pidOp } = useProject()
   const [tipo, setTipo] = useState('cuota')
+  const [cuadreTipo, setCuadreTipo] = useState('inicial') // 'inicial' | 'separacion' (modo cuadre superusuario)
   const [lots, setLots] = useState([])
   const [clients, setClients] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -100,6 +101,7 @@ export default function Payments() {
   const lotesFiltrados = useMemo(() => {
     if (tipo === 'separacion') return lots.filter(l => l.status === 'disponible')
     if (tipo === 'inicial') return lots.filter(l => ['separado', 'disponible'].includes(l.status))
+    // 'cuota' y 'cuadre' operan sobre ventas ya existentes (lote vendido)
     return lots.filter(l => l.status === 'vendido')
   }, [lots, tipo])
 
@@ -135,6 +137,22 @@ export default function Payments() {
         setPrecioVenta(String(lote?.total_price ?? ''))
       }
       if (tipo === 'separacion') { setMonto('100'); setVenc(addDays(hoy(), 7)) }
+      if (tipo === 'cuadre') {
+        const { data: sale } = await supabase.from('sales')
+          .select('id, client_id, total_sale_price, initial_amount_paid, financed_amount, client:clients!sales_client_id_fkey(full_name)')
+          .eq('lot_id', lotId).in('status', ['en_proceso', 'pagado']).maybeSingle()
+        if (!sale) { setCtx({ error: 'Este lote no tiene venta registrada' }); return }
+        const { data: pays } = await supabase.from('daily_income')
+          .select('amount, income_type').eq('sale_id', sale.id)
+        let iniPag = 0, sepPag = 0
+        for (const p of (pays || [])) {
+          if (p.income_type === 'inicial') iniPag += Number(p.amount)
+          else if (p.income_type === 'separacion') sepPag += Number(p.amount)
+        }
+        setCtx({ sale, iniPag, sepPag })
+        setClientId(sale.client_id)
+        setMonto('')
+      }
     }
     load()
   }, [lotId, tipo])
@@ -171,11 +189,12 @@ export default function Payments() {
 
   async function submit(e) {
     e.preventDefault()
-    if (!fVoucher) { setMsg({ ok: false, t: 'OBLIGATORIO: adjunta la foto del voucher del cliente.' }); return }
+    // en cuadre el voucher es opcional (regulariza data migrada antigua); en el resto es obligatorio
+    if (tipo !== 'cuadre' && !fVoucher) { setMsg({ ok: false, t: 'OBLIGATORIO: adjunta la foto del voucher del cliente.' }); return }
     setBusy(true); setMsg(null)
     try {
       const op = (nroOp || 'SIN-REF').toUpperCase()
-      const voucherUrl = await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, fVoucher)
+      const voucherUrl = fVoucher ? await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, fVoucher) : null
       const base = {
         project_id: pidOp,
         lot_id: lotId, client_id: clientId, date: fecha,
@@ -256,7 +275,18 @@ export default function Payments() {
         }
       }
 
-      setMsg({ ok: true, t: 'PAGO REGISTRADO. RECUERDA SUBIR EL COMPROBANTE INTERNO CUANDO LO GENERES.' })
+      if (tipo === 'cuadre') {
+        if (!ctx?.sale) throw new Error('Selecciona un lote con venta registrada')
+        const amt = Number(monto)
+        if (!(amt > 0)) throw new Error('Monto invalido')
+        const nota = ('CUADRE ' + cuadreTipo.toUpperCase() + ' POR SUPERUSUARIO' + (obs ? ' | ' + obs.toUpperCase() : '')).slice(0, 400)
+        const { error: e1 } = await supabase.from('daily_income').insert({
+          ...base, amount: amt, income_type: cuadreTipo, sale_id: ctx.sale.id, observation: nota,
+        })
+        if (e1) throw e1
+      }
+
+      setMsg({ ok: true, t: tipo === 'cuadre' ? 'CUADRE REGISTRADO. YA SUMA EN EL DESGLOSADO DEL LOTE.' : 'PAGO REGISTRADO. RECUERDA SUBIR EL COMPROBANTE INTERNO CUANDO LO GENERES.' })
       reset(); loadBase()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + (err.message || err) }) }
     setBusy(false)
@@ -378,9 +408,25 @@ export default function Payments() {
       </div>
 
       {!readOnly && <div className="chips">
-        {[['cuota', 'Cuota'], ['separacion', 'Separacion'], ['inicial', 'Pago inicial']].map(([v, l]) => (
+        {[['cuota', 'Cuota'], ['separacion', 'Separacion'], ['inicial', 'Pago inicial'],
+        ...(role === 'superuser' ? [['cuadre', 'Cuadre inicial/separacion']] : [])].map(([v, l]) => (
           <button key={v} className={`chip ${tipo === v ? 'on' : ''}`} onClick={() => { setTipo(v); reset() }}>{l}</button>
         ))}
+      </div>}
+
+      {tipo === 'cuadre' && <div className="glass" style={{ padding: '10px 14px', margin: '0 0 10px', borderLeft: '3px solid #e0b34c' }}>
+        <p style={{ margin: 0, fontSize: 13 }}><b style={{ color: '#e0b34c' }}>CUADRE (solo superusuario).</b> Registra una <b>inicial</b> o <b>separacion</b> que no se cargo en la migracion, sobre una <b>venta ya existente</b> (lote vendido). Entra a caja ligada a la venta y <b>suma en el desglosado del lote</b>. No crea venta nueva ni toca el cronograma de cuotas.</p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="muted" style={{ fontSize: 12 }}>Registrar como:</span>
+          {[['inicial', 'Inicial'], ['separacion', 'Separacion']].map(([v, l]) => (
+            <button type="button" key={v} className={`chip ${cuadreTipo === v ? 'on' : ''}`} onClick={() => setCuadreTipo(v)}>{l}</button>
+          ))}
+        </div>
+        {ctx?.sale && <p className="hint" style={{ marginTop: 8 }}>
+          Venta de <b>{ctx.sale.client?.full_name}</b> · Precio {soles(ctx.sale.total_sale_price)} · Inicial ya registrada: {soles(ctx.iniPag)} · Separacion ya registrada: {soles(ctx.sepPag)}.
+          {cuadreTipo === 'inicial' && ctx.iniPag > 0 && <b className="bad"> Ojo: esta venta ya tiene inicial registrada ({soles(ctx.iniPag)}), no la dupliques.</b>}
+          {cuadreTipo === 'separacion' && ctx.sepPag > 0 && <b className="bad"> Ojo: esta venta ya tiene separacion registrada ({soles(ctx.sepPag)}), no la dupliques.</b>}
+        </p>}
       </div>}
 
       {!readOnly && <form className="glass form-card" onSubmit={submit}>
@@ -393,7 +439,7 @@ export default function Payments() {
           </label>
           <label>Cliente
             <select value={clientId} onChange={e => setClientId(e.target.value)} required
-              disabled={tipo === 'cuota' && !!ctx?.sale}>
+              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale}>
               <option value="">- elegir -</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.full_name} ({c.doc_number})</option>)}
             </select>
@@ -412,8 +458,8 @@ export default function Payments() {
               {['TRANSFERENCIA', 'DEPOSITO', 'BILLETERA DIGITAL', 'EFECTIVO'].map(t => <option key={t}>{t}</option>)}
             </select>
           </label>
-          <label className={fVoucher ? '' : 'req-file'}>Voucher del cliente <b className="bad">(obligatorio)</b>
-            <input type="file" accept="image/*,.pdf" required onChange={e => setFVoucher(e.target.files[0] || null)} />
+          <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')}>Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
+            <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'} onChange={e => setFVoucher(e.target.files[0] || null)} />
           </label>
           {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>

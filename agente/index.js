@@ -720,10 +720,9 @@ async function secretariaTick() {
         for (const tk of (hoyTasks || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
         for (const sec of secs) {
           const tareas = (porSec[sec.id] || []).sort((a, b) => String(a.time || '99').localeCompare(String(b.time || '99')))
+          if (!tareas.length) continue   // sin actividades configuradas para hoy = NO se saluda (silencio)
           const nombre = (sec.full_name || '').split(' ')[0]
-          const lista = tareas.length
-            ? tareas.map(tk => '• ' + (tk.time ? String(tk.time).slice(0, 5) + ' — ' : '') + tk.title).join('\n')
-            : '(sin actividades programadas hoy)'
+          const lista = tareas.map(tk => '• ' + (tk.time ? String(tk.time).slice(0, 5) + ' — ' : '') + tk.title).join('\n')
           const msj = secTpl(md, 'SALUDO', { nombre, lista }, '¡Buenos días {nombre}! ☀️ Estos son tus pendientes de hoy:\n\n{lista}\n\n¡Que tengas un gran día! 💪')
           await enviar(sec.phone, msj, { tipo: 'secretaria' })
         }
@@ -786,7 +785,11 @@ async function secretariaTick() {
     // 3b) feedback de fin de dia: ¿hiciste algo extra? (configurable: se puede apagar)
     const hfeed = await ajuste('hora_feedback_sec', '17:30')
     if ((await ajuste('sec_feedback', '1')) !== '0' && hhmm >= hfeed) {
+      // solo se pide feedback a quien SÍ tuvo actividades hoy (sin nada configurado = silencio)
+      const { data: fdTasks } = await supabase.from('secretary_tasks').select('secretary_id').eq('date', hoy).neq('cancelada', true)
+      const secConTareas = new Set((fdTasks || []).map(t => t.secretary_id))
       for (const sec of secs) {
+        if (!secConTareas.has(sec.id)) continue
         if (sec.feedback_asked === hoy) continue
         await supabase.from('secretaries').update({ feedback_asked: hoy }).eq('id', sec.id)
         const nombre = (sec.full_name || '').split(' ')[0]
@@ -1449,7 +1452,7 @@ async function iniciar() {
   sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS AGENTE', 'Chrome', '120.0'], getMessage: async key => msgStore.get(key && key.id) })
 
   sock.ev.on('creds.update', saveCreds)
-  sock.ev.on('connection.update', u => {
+  sock.ev.on('connection.update', async u => {
     if (u.qr) {
       console.log('\n============================================')
       console.log('  ESCANEA ESTE QR CON EL WHATSAPP DEL AGENTE')
@@ -1463,7 +1466,17 @@ async function iniciar() {
       log('✅ CONECTADO A WHATSAPP')
       setAjuste('wa_qr', '').catch(() => {})
       setAjuste('wa_estado', 'conectado').catch(() => {})
-      if (ADMIN) enviar(ADMIN, '🤖 AGENTE URBIS conectado y en servicio.', { tipo: 'reporte' })
+      // aviso al admin como MÁXIMO 1 vez por hora: evita el spam de "conectado y en
+      // servicio" por reconexiones/reinicios seguidos. El estado en vivo se ve en el panel.
+      if (ADMIN) {
+        try {
+          const last = await ajuste('wa_aviso_conectado', '')
+          if (!last || (Date.now() - new Date(last).getTime()) > 3600000) {
+            await setAjuste('wa_aviso_conectado', new Date().toISOString())
+            enviar(ADMIN, '🤖 AGENTE URBIS conectado y en servicio.', { tipo: 'reporte' })
+          }
+        } catch {}
+      }
     }
     if (u.connection === 'close') {
       const code = u.lastDisconnect?.error?.output?.statusCode

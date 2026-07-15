@@ -5,7 +5,21 @@ import { useAuth } from '../context/AuthContext'
 const TABLAS_LBL = {
   daily_income: 'PAGOS', clients: 'CLIENTES', sales: 'VENTAS', separations: 'SEPARACIONES',
   expenses: 'GASTOS', lots: 'LOTES', installments: 'CUOTAS', leads: 'LEADS', visits: 'VISITAS',
+  commissions: 'COMISIONES',
+  // configuración del bot
+  projects: 'CONFIG BOT / PROYECTO', bot_brains: 'CONFIG BOT (COB/SEC/GER)',
+  // operación / administración
+  financial_accounts: 'CUENTAS', advisors: 'VENDEDORES', secretaries: 'SECRETARIAS',
+  secretary_tasks: 'TAREAS SECRET.', contracts: 'CONTRATOS', profiles: 'USUARIOS',
+  // corretaje
+  corr_propiedades: 'CORRETAJE · PROP.', corr_config: 'CORRETAJE · CONFIG',
+  corr_gastos: 'CORRETAJE · GASTOS', corr_documentos: 'CORRETAJE · DOCS',
+  corr_consultas: 'CORRETAJE · CONSULTAS', corr_proyectos_pub: 'CORRETAJE · PROYECTOS',
+  // marketing
+  mkt_brains: 'MKT · CEREBRO', mkt_proyectos: 'MKT · PROYECTOS',
 }
+// tablas cuyos cambios cuentan como "configuración del bot" en el resumen
+const CONFIG_BOT = new Set(['projects', 'bot_brains'])
 
 export default function Bitacora() {
   const { role } = useAuth()
@@ -46,7 +60,7 @@ export default function Bitacora() {
     const m = {}
     for (const r of filtradas) {
       const u = r.user_email || 'SISTEMA'
-      if (!m[u]) m[u] = { pagos: 0, clientes: 0, ventas: 0, separaciones: 0, gastos: 0, lotes: 0, otras: 0, total: 0 }
+      if (!m[u]) m[u] = { pagos: 0, clientes: 0, ventas: 0, separaciones: 0, gastos: 0, lotes: 0, config: 0, otras: 0, total: 0 }
       m[u].total++
       if (r.entity_type === 'daily_income' && r.action === 'INSERT') m[u].pagos++
       else if (r.entity_type === 'clients' && r.action === 'INSERT') m[u].clientes++
@@ -54,6 +68,7 @@ export default function Bitacora() {
       else if (r.entity_type === 'separations' && r.action === 'INSERT') m[u].separaciones++
       else if (r.entity_type === 'expenses' && r.action === 'INSERT') m[u].gastos++
       else if (r.entity_type === 'lots') m[u].lotes++
+      else if (CONFIG_BOT.has(r.entity_type)) m[u].config++
       else m[u].otras++
     }
     return Object.entries(m).sort((a, b) => b[1].total - a[1].total)
@@ -96,17 +111,17 @@ export default function Bitacora() {
       <h2 className="sub">Avance por usuario ({fper === 'hoy' ? 'hoy' : fper === 'todo' ? 'historico' : `ultimos ${fper} dias`})</h2>
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Usuario</th><th>Pagos reg.</th><th>Clientes</th><th>Ventas</th><th>Separaciones</th><th>Gastos</th><th>Cambios en lotes</th><th>Otras</th><th>Total acciones</th></tr></thead>
+          <thead><tr><th>Usuario</th><th>Pagos reg.</th><th>Clientes</th><th>Ventas</th><th>Separaciones</th><th>Gastos</th><th>Cambios en lotes</th><th>Config. bot</th><th>Otras</th><th>Total acciones</th></tr></thead>
           <tbody>
             {resumen.map(([u, x]) => (
               <tr key={u}>
                 <td><b>{u}</b></td>
                 <td>{x.pagos}</td><td>{x.clientes}</td><td>{x.ventas}</td>
                 <td>{x.separaciones}</td><td>{x.gastos}</td><td>{x.lotes}</td>
-                <td>{x.otras}</td><td><b>{x.total}</b></td>
+                <td>{x.config}</td><td>{x.otras}</td><td><b>{x.total}</b></td>
               </tr>
             ))}
-            {resumen.length === 0 && <tr><td colSpan="9" className="muted">Sin actividad en el periodo.</td></tr>}
+            {resumen.length === 0 && <tr><td colSpan="10" className="muted">Sin actividad en el periodo.</td></tr>}
           </tbody>
         </table>
       </div>

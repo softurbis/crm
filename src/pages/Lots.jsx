@@ -95,11 +95,21 @@ export default function Lots() {
         .eq('lot_id', saleLotId).in('status', ['en_proceso', 'pagado'])
         .maybeSingle()
       let inst = []
+      // montos REALES de inicial/separación registrados en caja para esta venta
+      // (cuadre del superusuario incluido) — para que el desglosado los sume aunque
+      // sale.initial_amount_paid haya quedado en 0 tras la migración.
+      let iniPagado = 0, sepPagado = 0
       if (sale) {
         const { data } = await supabase.from('installments')
           .select('id, installment_number, due_date, amount, amount_paid, status')
           .eq('sale_id', sale.id).order('installment_number')
         inst = data || []
+        const { data: pays } = await supabase.from('daily_income')
+          .select('amount, income_type').eq('sale_id', sale.id)
+        for (const p of (pays || [])) {
+          if (p.income_type === 'inicial') iniPagado += Number(p.amount)
+          else if (p.income_type === 'separacion') sepPagado += Number(p.amount)
+        }
       }
       let sep = null
       if (sel.status === 'separado' || !sale) {
@@ -130,7 +140,7 @@ export default function Lots() {
         for (const p of (incs || [])) pagosPorVenta[p.sale_id] = (pagosPorVenta[p.sale_id] || 0) + Number(p.amount)
         expropiaciones = exps.map(e => ({ ...e, pagado: pagosPorVenta[e.id] || 0 }))
       }
-      setDetail({ sale, inst, sep, grupo, hermanosLotes, expropiaciones })
+      setDetail({ sale, inst, sep, iniPagado, sepPagado, grupo, hermanosLotes, expropiaciones })
       const { data: hist } = await supabase.from('lot_status_changes')
         .select('new_status, previous_status, reason, document_url, changed_at')
         .eq('lot_id', sel.id).order('changed_at', { ascending: false }).limit(5)
@@ -662,7 +672,12 @@ export default function Lots() {
                   </p>
                   <p><span className="muted">Asesor:</span> {detail.sale.advisor?.code} | <span className="muted">Precio venta:</span> S/ {Number(detail.sale.total_sale_price).toLocaleString('es-PE')}</p>
                   {(() => {
-                    const pagado = detail.inst.reduce((s, i) => s + Number(i.amount_paid), 0) + Number(detail.sale.initial_amount_paid)
+                    const s = detail.sale
+                    const pagCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
+                    const sepDeriv = Math.max(0, Math.round((Number(s.total_sale_price) - Number(s.initial_amount_paid) - Number(s.financed_amount)) * 100) / 100)
+                    const iniReal = detail.iniPagado > 0 ? detail.iniPagado : Number(s.initial_amount_paid)
+                    const sepReal = detail.sepPagado > 0 ? detail.sepPagado : sepDeriv
+                    const pagado = pagCuotas + iniReal + sepReal
                     const pct = (pagado / Number(detail.sale.total_sale_price) * 100).toFixed(1)
                     const venc = detail.inst.filter(i => i.status === 'vencido').length
                     const pag = detail.inst.filter(i => i.status === 'pagado').length
@@ -789,13 +804,16 @@ export default function Lots() {
             {(() => {
               const sale = detail.sale
               const pagCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
-              const sepAmt = Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100
-              const pagado = pagCuotas + Number(sale.initial_amount_paid) + sepAmt
+              const sepDeriv = Math.max(0, Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100)
+              // prefiere el monto REAL registrado en caja (incluye el cuadre del superusuario)
+              const iniReal = detail.iniPagado > 0 ? detail.iniPagado : Number(sale.initial_amount_paid)
+              const sepReal = detail.sepPagado > 0 ? detail.sepPagado : sepDeriv
+              const pagado = Math.round((pagCuotas + iniReal + sepReal) * 100) / 100
               const saldo = Math.round((Number(sale.total_sale_price) - pagado) * 100) / 100
               const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
               return (
                 <p>
-                  <span className="muted">Precio:</span> <b>{f(sale.total_sale_price)}</b> · <span className="muted">Separación:</span> {f(sepAmt)} · <span className="muted">Inicial:</span> {f(sale.initial_amount_paid)} · <span className="muted">Cuotas pagadas:</span> {f(pagCuotas)} · <span className="muted">SALDO:</span> <b className={saldo > 0 ? 'warn' : 'ok'}>{f(saldo)}</b>
+                  <span className="muted">Precio:</span> <b>{f(sale.total_sale_price)}</b> · <span className="muted">Separación:</span> {f(sepReal)} · <span className="muted">Inicial:</span> {f(iniReal)} · <span className="muted">Cuotas pagadas:</span> {f(pagCuotas)} · <span className="muted">TOTAL PAGADO:</span> <b style={{ color: '#7ec8a0' }}>{f(pagado)}</b> · <span className="muted">SALDO:</span> <b className={saldo > 0 ? 'warn' : 'ok'}>{f(saldo)}</b>
                 </p>
               )
             })()}
@@ -805,9 +823,9 @@ export default function Lots() {
               <tbody>
                 {(() => {
                   const sale = detail.sale
-                  const sepAmt = Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100
-                  const sepP = (pagosDesg || []).find(p => (p.income_type || '') === 'separacion')
-                  const iniP = (pagosDesg || []).find(p => (p.income_type || '') === 'inicial')
+                  const sepAmt = Math.max(0, Math.round((Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount)) * 100) / 100)
+                  const sepPagos = (pagosDesg || []).filter(p => (p.income_type || '') === 'separacion')
+                  const iniPagos = (pagosDesg || []).filter(p => (p.income_type || '') === 'inicial')
                   const mkRow = (key, label, fecha, monto) => (
                     <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,.07)', background: 'rgba(80,160,120,.07)' }}>
                       <td><b>{label}</b></td>
@@ -819,8 +837,12 @@ export default function Lots() {
                     </tr>
                   )
                   const rows = []
-                  if (sepAmt > 0 || sepP) rows.push(mkRow('sep', 'SEPARACIÓN', sepP?.date, sepP?.amount ?? sepAmt))
-                  if (Number(sale.initial_amount_paid) > 0 || iniP) rows.push(mkRow('ini', 'INICIAL', iniP?.date, iniP?.amount ?? sale.initial_amount_paid))
+                  // muestra cada pago real de separación/inicial (incluye el cuadre); si no hay
+                  // ninguno registrado, cae al monto derivado/campo de la venta.
+                  if (sepPagos.length) sepPagos.forEach((p, k) => rows.push(mkRow('sep' + k, 'SEPARACIÓN', p.date, p.amount)))
+                  else if (sepAmt > 0) rows.push(mkRow('sep', 'SEPARACIÓN', null, sepAmt))
+                  if (iniPagos.length) iniPagos.forEach((p, k) => rows.push(mkRow('ini' + k, 'INICIAL', p.date, p.amount)))
+                  else if (Number(sale.initial_amount_paid) > 0) rows.push(mkRow('ini', 'INICIAL', null, sale.initial_amount_paid))
                   return rows
                 })()}
                 {detail.inst.map(q => (
