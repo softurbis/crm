@@ -20,6 +20,7 @@ import Visitas from './pages/Visitas'
 import Commissions from './pages/Commissions'
 import Marketing from './pages/Marketing'
 import Corretaje from './pages/Corretaje'
+import Publico from './pages/Publico'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -33,6 +34,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/reset" element={<Reset />} />
+      <Route path="/propiedades" element={<Publico />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
         <Route path="whatsapp" element={<Whatsapp />} />
