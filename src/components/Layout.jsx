@@ -19,6 +19,7 @@ const GLOBAL = [
   { to: '/whatsapp', label: 'WhatsApp Bot', icon: '🤖', staff: true, color: '#58c482' },
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0' },
   { to: '/marketing', label: 'Marketing', icon: '🎨', staff: true, color: '#e6a4d0' },
+  { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7' },
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8' },
