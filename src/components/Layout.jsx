@@ -35,6 +35,8 @@ const PROYECTO = [
   { to: '/contratos', label: 'Contratos', icon: '📄', color: '#c9a97f' },
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f' },
 ]
+// Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
+export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
@@ -42,6 +44,9 @@ export default function Layout() {
   const [open, setOpen] = useState(false)
   const [conectados, setConectados] = useState([])
   const esAdmin = ['admin', 'superuser'].includes(role)
+  // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
+  const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
+  const enPanel = m => role === 'superuser' || m.to === '/' || m.admin || !panelsUser || panelsUser.includes(m.to)
 
   // latido de presencia del usuario actual (cada 45s)
   useEffect(() => {
@@ -84,11 +89,11 @@ export default function Layout() {
         </div>
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
-          {GLOBAL.filter(m => (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role))).map(Item)}
+          {GLOBAL.filter(m => (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && enPanel(m)).map(Item)}
           <p className="menu-section">
             Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
           </p>
-          {PROYECTO.filter(m => !m.roles || m.roles.includes(role)).map(Item)}
+          {PROYECTO.filter(m => (!m.roles || m.roles.includes(role)) && enPanel(m)).map(Item)}
         </nav>
         {esAdmin && conectados.length > 0 && (
           <div style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 11 }}>

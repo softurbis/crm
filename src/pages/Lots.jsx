@@ -681,7 +681,11 @@ export default function Lots() {
                     const { data } = await supabase.from('daily_income')
                       .select('date, amount, income_type, operation_number, voucher_url, observation, installment_id')
                       .eq('sale_id', detail.sale.id).order('date')
-                    setPagosDesg(data || []); setDesg(true)
+                    // orden: por fecha y, si empatan, por N° de cuota (cuota1, cuota2, cuota3…)
+                    const numDe = id => detail.inst.find(q => q.id === id)?.installment_number ?? 999
+                    const ordenado = (data || []).slice().sort((a, b) =>
+                      (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
+                    setPagosDesg(ordenado); setDesg(true)
                   }}>📑 Ver desglosado de pagos</button></p>
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
@@ -797,7 +801,7 @@ export default function Lots() {
             })()}
             <h4 style={{ margin: '10px 0 4px' }}>CRONOGRAMA DE CUOTAS ({detail.inst.length})</h4>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
-              <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th></tr></thead>
+              <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th><th>PAGADA EL</th></tr></thead>
               <tbody>
                 {(() => {
                   const sale = detail.sale
@@ -811,6 +815,7 @@ export default function Lots() {
                       <td>S/ {Number(monto).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                       <td>S/ {Number(monto).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                       <td><span className="ok">&#9679; PAGADO</span></td>
+                      <td>{fecha ? fecha.split('-').reverse().join('/') : '-'}</td>
                     </tr>
                   )
                   const rows = []
@@ -825,6 +830,7 @@ export default function Lots() {
                     <td>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                     <td>S/ {Number(q.amount_paid).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                     <td><span className={q.status === 'pagado' ? 'ok' : q.status === 'vencido' ? 'bad' : 'warn'}>&#9679; {q.status.toUpperCase()}</span></td>
+                    <td>{(() => { const ps = (pagosDesg || []).filter(p => p.installment_id === q.id).map(p => p.date).filter(Boolean).sort(); return ps.length ? ps[ps.length - 1].split('-').reverse().join('/') : '-' })()}</td>
                   </tr>
                 ))}
               </tbody>

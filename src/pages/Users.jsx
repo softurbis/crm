@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
+import { PANELS } from '../components/Layout'
 
 const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -127,6 +128,13 @@ export default function Users() {
     load()
   }
 
+  async function togglePanel(u, to, on) {
+    const cur = Array.isArray(u.panels) ? u.panels : PANELS.map(p => p.to)   // null = ve todos (según rol)
+    const next = on ? [...new Set([...cur, to])] : cur.filter(x => x !== to)
+    await supabase.from('profiles').update({ panels: next }).eq('id', u.id)
+    load()
+  }
+
   return (
     <>
       <h1>Usuarios y permisos</h1>
@@ -151,7 +159,7 @@ export default function Users() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Seguimiento WSP</th><th>Proyectos asignados</th></tr></thead>
+          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Seguimiento WSP</th><th>Proyectos asignados</th><th>Paneles visibles</th></tr></thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id} className={u.active === false ? 'row-perdida' : ''}>
@@ -214,6 +222,20 @@ export default function Users() {
                       </label>
                     )
                   })}
+                </td>
+                <td>
+                  {u.role === 'superuser'
+                    ? <span className="muted" style={{ fontSize: 11 }}>Todos</span>
+                    : PANELS.map(p => {
+                      const on = Array.isArray(u.panels) ? u.panels.includes(p.to) : true
+                      return (
+                        <label key={p.to} className="inline-check" style={{ fontSize: 11 }}>
+                          <input type="checkbox" checked={on} onChange={e => togglePanel(u, p.to, e.target.checked)} />
+                          {p.label}
+                        </label>
+                      )
+                    })}
+                  {u.role !== 'superuser' && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
                 </td>
               </tr>
             ))}
