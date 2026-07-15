@@ -34,6 +34,11 @@ export default function Corretaje() {
   const [gastos, setGastos] = useState([])
   const [docs, setDocs] = useState([])
   const [plantilla, setPlantilla] = useState('')
+  const [vista, setVista] = useState('propiedades')
+  const [projs, setProjs] = useState([])
+  const [consultas, setConsultas] = useState([])
+  const [nombresProp, setNombresProp] = useState({})
+  const [nombresProy, setNombresProy] = useState({})
 
   const cargarLista = () => supabase.from('corr_propiedades')
     .select('id, codigo, tipo, titulo, estado, precio, moneda, publicado, zona, copia_literal_vence, cri_vence, excl_fin')
@@ -43,6 +48,17 @@ export default function Corretaje() {
   useEffect(() => {
     supabase.from('corr_config').select('content').eq('key', 'contrato_exclusividad').maybeSingle()
       .then(({ data }) => setPlantilla(data?.content || ''))
+  }, [])
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('projects').select('id, name, photo_url').order('name'),
+      supabase.from('corr_proyectos_pub').select('*'),
+    ]).then(([pr, cp]) => {
+      const m = {}; (cp.data || []).forEach(x => { m[x.project_id] = x })
+      setProjs((pr.data || []).map(p => ({ ...p, pub: m[p.id] || { publicado: false, cuota_desde: '', pdf_url: '', foto_url: '', orden: 0 } })))
+    })
+    recargarConsultas()
   }, [])
 
   // cargar sub-tablas al abrir una propiedad
@@ -125,6 +141,35 @@ export default function Corretaje() {
   }
   const borrarDoc = async id => { await supabase.from('corr_documentos').delete().eq('id', id); setDocs(d => d.filter(x => x.id !== id)) }
 
+  // --- proyectos públicos / consultas / contrato ---
+  const recargarConsultas = async () => {
+    const { data } = await supabase.from('corr_consultas').select('*').order('created_at', { ascending: false })
+    setConsultas(data || [])
+    const propIds = [...new Set((data || []).filter(c => c.propiedad_id).map(c => c.propiedad_id))]
+    const proyIds = [...new Set((data || []).filter(c => c.project_id).map(c => c.project_id))]
+    if (propIds.length) { const { data: pp } = await supabase.from('corr_propiedades').select('id, titulo').in('id', propIds); const m = {}; (pp || []).forEach(x => { m[x.id] = x.titulo }); setNombresProp(m) }
+    if (proyIds.length) { const { data: pj } = await supabase.from('projects').select('id, name').in('id', proyIds); const m = {}; (pj || []).forEach(x => { m[x.id] = x.name }); setNombresProy(m) }
+  }
+  const toggleAtendido = async c => { await supabase.from('corr_consultas').update({ atendido: !c.atendido }).eq('id', c.id); setConsultas(cs => cs.map(x => x.id === c.id ? { ...x, atendido: !c.atendido } : x)) }
+  const setProjPub = (id, patch) => setProjs(ps => ps.map(p => p.id === id ? { ...p, pub: { ...p.pub, ...patch } } : p))
+  const guardarProy = async id => {
+    const p = projs.find(x => x.id === id); if (!p) return
+    const { error } = await supabase.from('corr_proyectos_pub').upsert({ project_id: id, publicado: !!p.pub.publicado, cuota_desde: p.pub.cuota_desde || null, pdf_url: p.pub.pdf_url || null, foto_url: p.pub.foto_url || null, orden: Number(p.pub.orden) || 0, updated_at: new Date().toISOString() })
+    setMsg(error ? 'ERROR: ' + error.message : '✅ Proyecto guardado')
+  }
+  const subirProy = async (id, campo, e) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setSubiendo(true)
+    try { const url = await subir(file, 'proyectos/' + id); setProjPub(id, { [campo]: url }); await supabase.from('corr_proyectos_pub').upsert({ project_id: id, [campo]: url }) }
+    catch (err) { alert('No se pudo subir: ' + err.message) }
+    setSubiendo(false)
+  }
+  const guardarContrato = async () => {
+    setMsg('Guardando…')
+    const { error } = await supabase.from('corr_config').update({ content: plantilla, updated_at: new Date().toISOString() }).eq('key', 'contrato_exclusividad')
+    setMsg(error ? 'ERROR: ' + error.message : '✅ Plantilla guardada')
+  }
+
   const generarContrato = () => {
     const vars = {
       propietario: sel.propietario || '____', propietario_dni: sel.propietario_dni || '____',
@@ -154,11 +199,17 @@ export default function Corretaje() {
   // ---------------- LISTA ----------------
   if (!sel) return (
     <div className="page">
-      <div className="page-head" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h1 style={{ margin: 0 }}>🏠 Corretaje — Propiedades</h1>
-        <button className="btn" style={{ marginLeft: 'auto' }} onClick={nuevo}>➕ Nueva propiedad</button>
+      <div className="page-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>🏠 Corretaje</h1>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['propiedades', 'Propiedades'], ['proyectos', 'Proyectos'], ['consultas', 'Consultas'], ['contrato', 'Contrato']].map(([v, t]) => (
+            <button key={v} className={vista === v ? 'btn' : 'btn-ghost'} onClick={() => setVista(v)}>{t}</button>
+          ))}
+        </div>
+        {vista === 'propiedades' && <button className="btn" style={{ marginLeft: 'auto' }} onClick={nuevo}>➕ Nueva propiedad</button>}
       </div>
 
+      {vista === 'propiedades' && (<>
       {alertas.length > 0 && (
         <div className="glass" style={{ padding: 10, marginBottom: 10, border: '1px solid rgba(240,160,160,.4)' }}>
           <b style={{ color: '#f0a0a0', fontSize: 13 }}>⏰ Vencimientos próximos</b>
@@ -185,6 +236,59 @@ export default function Corretaje() {
           </div>
         ))}
       </div>
+      </>)}
+
+      {vista === 'proyectos' && (
+        <div className="glass" style={{ padding: 12 }}>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Marca qué proyectos salen en el link público y su info. Los contadores (disponibles/vendidos/reservados) se calculan solos de tus lotes.</p>
+          {!projs.length && <p className="muted" style={{ fontSize: 12 }}>No hay proyectos.</p>}
+          {projs.map(pr => (
+            <div key={pr.id} style={{ borderBottom: '1px solid rgba(255,255,255,.08)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                  <input type="checkbox" checked={!!pr.pub.publicado} onChange={e => setProjPub(pr.id, { publicado: e.target.checked })} /> {pr.name}
+                </label>
+                <input placeholder="Cuota desde (ej. S/ 300/mes)" value={pr.pub.cuota_desde || ''} onChange={e => setProjPub(pr.id, { cuota_desde: e.target.value })} style={{ flex: '1 1 170px', textTransform: 'none' }} />
+                <input type="number" placeholder="orden" value={pr.pub.orden ?? ''} onChange={e => setProjPub(pr.id, { orden: e.target.value })} style={{ width: 64 }} />
+                <button className="btn-ghost" onClick={() => guardarProy(pr.id)}>💾 Guardar</button>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap', fontSize: 12 }}>
+                <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 PDF (plano/brochure)<input type="file" accept="application/pdf" onChange={e => subirProy(pr.id, 'pdf_url', e)} style={{ display: 'none' }} /></label>
+                {pr.pub.pdf_url && <a href={pr.pub.pdf_url} target="_blank" rel="noreferrer" style={{ color: '#7ec8e3' }}>ver PDF</a>}
+                <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Foto de portada<input type="file" accept="image/*" onChange={e => subirProy(pr.id, 'foto_url', e)} style={{ display: 'none' }} /></label>
+                {(pr.pub.foto_url || pr.photo_url) && <img src={pr.pub.foto_url || pr.photo_url} alt="" style={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
+              </div>
+            </div>
+          ))}
+          {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
+        </div>
+      )}
+
+      {vista === 'consultas' && (
+        <div className="glass" style={{ padding: 12 }}>
+          {!consultas.length && <p className="muted" style={{ fontSize: 12 }}>Aún no hay consultas del formulario público.</p>}
+          {consultas.map(c => (
+            <div key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,.08)', padding: '8px 0', opacity: c.atendido ? .55 : 1 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 13 }}>{c.nombre || '—'}</b>
+                <a href={'https://wa.me/' + (c.telefono || '').replace(/\D/g, '')} target="_blank" rel="noreferrer" style={{ color: '#6fdd9b', fontSize: 13 }}>📱 {c.telefono}</a>
+                <span className="muted" style={{ fontSize: 12 }}>{c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
+                <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleString('es-PE')}</span>
+                <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!c.atendido} onChange={() => toggleAtendido(c)} /> atendido</label>
+              </div>
+              {c.mensaje && <div style={{ fontSize: 13, marginTop: 3 }} className="muted">{c.mensaje}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {vista === 'contrato' && (
+        <div className="glass" style={{ padding: 12 }}>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Plantilla del contrato de exclusividad. Variables (se reemplazan al generar el contrato en cada propiedad): {'{propietario} {propietario_dni} {titulo} {direccion} {area} {area_unidad} {partida} {excl_inicio} {excl_fin} {moneda} {precio} {comision_valor} {comision_tipo}'}.</p>
+          <textarea value={plantilla} onChange={e => setPlantilla(e.target.value)} style={{ width: '100%', minHeight: 'calc(100vh - 300px)', textTransform: 'none', fontSize: 12.5, fontFamily: 'monospace', lineHeight: 1.5 }} />
+          <div style={{ marginTop: 8 }}><button className="btn" onClick={guardarContrato}>💾 Guardar plantilla</button>{msg && <span style={{ fontSize: 12, marginLeft: 8 }}>{msg}</span>}</div>
+        </div>
+      )}
     </div>
   )
 
