@@ -150,6 +150,25 @@ const unirCajas = cs => cs.length ? {
   x1: Math.max(...cs.map(b => b.x1)), y1: Math.max(...cs.map(b => b.y1)),
 } : null
 
+// TODOS los montos que aparecen en el voucher, con su caja. Sirve para que la
+// persona elija el correcto con un clic: hay vouchers con "monto + comision =
+// total" y el que entra a caja NO siempre es el mas alto.
+export function candidatosMonto(words) {
+  const out = []
+  for (const w of words) {
+    const limpio = String(w.text || '').replace(/[^\d.,]/g, '')
+    if (!/\d/.test(limpio)) continue
+    // que parezca dinero: con decimales (270.80) o con separador de miles (1,270)
+    const pareceDinero = /[.,]\d{1,2}$/.test(limpio) || /^\d{1,3}(?:[.,]\d{3})+([.,]\d{1,2})?$/.test(limpio)
+    if (!pareceDinero) continue
+    const n = aNumero(limpio)
+    if (n == null || n <= 0 || n > 10000000) continue
+    if (out.some(o => Math.abs(o.valor - n) < 0.005)) continue   // sin repetidos
+    out.push({ valor: n, bbox: w.bbox || null, texto: String(w.text || '') })
+  }
+  return out
+}
+
 // el monto: la palabra cuyo numero coincide con lo detectado
 function cajaMonto(words, monto) {
   if (monto == null) return null
@@ -219,6 +238,10 @@ export async function leerVoucher(file) {
       operacion: cajaDigitos(words, operacion),
       fecha: cajaFecha(words, fecha),
     },
+    // todos los montos del voucher: la persona elige el correcto con un clic.
+    // Hace falta porque el automatico toma el MAS ALTO, y en un voucher con
+    // "monto + comision = total" el que entra a caja es el menor.
+    candidatos: candidatosMonto(words),
     imagen: await tamImagen(file),
   }
 }

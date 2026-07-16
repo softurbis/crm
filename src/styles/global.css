@@ -792,3 +792,26 @@ select { cursor: pointer; }
 .paso.listo .paso-n { text-indent: -9999px; position: relative; }
 .paso.listo .paso-n::after { position: absolute; inset: 0; display: grid; place-items: center; text-indent: 0; }
 .paso-t { font-size: .78rem; color: var(--muted); font-weight: 600; }
+
+/* ---- montos alternativos del voucher (clic para elegir el correcto) ---- */
+.vr-alt {
+  position: absolute; border-radius: 4px; cursor: pointer;
+  border: 1px dashed rgba(255,255,255,.55);
+  background: rgba(255,255,255,.10);
+  transition: background .15s, border-color .15s, transform .12s;
+}
+.vr-alt:hover {
+  background: color-mix(in srgb, var(--ok) 30%, transparent);
+  border: 2px solid var(--ok); transform: scale(1.05);
+}
+.vr-alt-tag {
+  position: absolute; top: -15px; left: -2px;
+  font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px;
+  background: var(--ok); color: #0d150f; white-space: nowrap;
+  opacity: 0; transition: opacity .15s; pointer-events: none;
+}
+.vr-alt:hover .vr-alt-tag { opacity: 1; }
+.vr-multi {
+  padding: .35rem .5rem; border-radius: 8px; font-size: .7rem; line-height: 1.35;
+  background: rgba(224,178,63,.12); border: 1px solid rgba(224,178,63,.4); color: #e0b23f;
+}

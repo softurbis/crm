@@ -10,7 +10,7 @@ const CAMPOS = [
   { k: 'fecha', label: 'Fecha', color: '#e8b04f', fmt: v => v.split('-').reverse().join('/') },
 ]
 
-export default function VoucherReview({ file, ocr, cuentaSugerida, onAplicar, onAplicarTodo }) {
+export default function VoucherReview({ file, ocr, cuentaSugerida, montoActual, onAplicar, onAplicarTodo, onElegirMonto }) {
   const [url, setUrl] = useState(null)
   const [foco, setFoco] = useState(null)      // dato resaltado
   const [render, setRender] = useState({ w: 0, h: 0 })
@@ -44,8 +44,33 @@ export default function VoucherReview({ file, ocr, cuentaSugerida, onAplicar, on
     <div className="vr span2">
       <div className="vr-img">
         <img ref={imgRef} src={url} alt="voucher" onLoad={e => setRender({ w: e.target.clientWidth, h: e.target.clientHeight })} />
+
+        {/* Todo monto del voucher es clickeable: si el automatico agarro el que
+            no era (ej. el total con comision), se elige el correcto con un clic. */}
+        {esc > 0 && (ocr.candidatos || []).map((m, i) => {
+          if (!m.bbox) return null
+          const elegido = montoActual != null && Math.abs(Number(montoActual) - m.valor) < 0.005
+          if (elegido) return null   // ese ya lo dibuja el cuadro verde del monto
+          return (
+            <span key={'c' + i} className="vr-alt"
+              style={{
+                left: m.bbox.x0 * esc - 2, top: m.bbox.y0 * esc - 2,
+                width: (m.bbox.x1 - m.bbox.x0) * esc + 4, height: (m.bbox.y1 - m.bbox.y0) * esc + 4,
+              }}
+              onClick={() => onElegirMonto(m.valor)}
+              title={`Usar S/ ${m.valor.toFixed(2)} como monto`}>
+              <b className="vr-alt-tag">S/ {m.valor.toFixed(2)}</b>
+            </span>
+          )
+        })}
+
         {esc > 0 && CAMPOS.map(c => {
-          const b = ocr.cajas?.[c.k]
+          let b = ocr.cajas?.[c.k]
+          // si eligieron otro monto del voucher, el cuadro se mueve a ese
+          if (c.k === 'monto' && montoActual != null) {
+            const sel = (ocr.candidatos || []).find(m => Math.abs(m.valor - Number(montoActual)) < 0.005)
+            if (sel?.bbox) b = sel.bbox
+          }
           if (!b) return null
           const apagado = foco && foco !== c.k
           return (
@@ -65,6 +90,15 @@ export default function VoucherReview({ file, ocr, cuentaSugerida, onAplicar, on
 
       <div className="vr-datos">
         <p className="vr-tit">📸 Leído del voucher <span className="muted small">({ocr.confianza}%)</span></p>
+
+        {/* Aviso clave: en vouchers con comision hay varios montos y el automatico
+            toma el mas alto, que suele ser el total y NO lo que entra a caja. */}
+        {(ocr.candidatos || []).length > 1 && (
+          <div className="vr-multi">
+            Hay <b>{ocr.candidatos.length} montos</b> en este voucher (¿comisión?).
+            Si tomé el que no era, <b>haz clic sobre el correcto</b> en la imagen.
+          </div>
+        )}
 
         {hallados.map(c => (
           <button type="button" key={c.k} className="vr-fila"

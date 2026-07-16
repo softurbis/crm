@@ -513,6 +513,7 @@ export default function Payments() {
         {ocr?.vacio && <div className="ocr-box"><span className="muted">No pude leer datos de esta imagen — llénalos a mano abajo.</span></div>}
         {ocr?.error && <div className="ocr-box"><span className="muted">No se pudo analizar la imagen — llénalos a mano abajo.</span></div>}
         <VoucherReview file={fVoucher} ocr={ocr} cuentaSugerida={cuentaSugerida}
+          montoActual={monto} onElegirMonto={v => setMonto(String(v))}
           onAplicar={aplicarDato} onAplicarTodo={usarTodo} />
 
         <div className="paso">
