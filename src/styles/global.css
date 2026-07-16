@@ -711,3 +711,8 @@ select { cursor: pointer; }
 /* la ultima palabra es la que distingue (CASHIBO / PUCALLPA): que resalte */
 .proj-name b { color: var(--pc); font-weight: 800; }
 .proj-head { align-items: center; padding: .45rem .55rem; }
+.ocr-aviso {
+  padding: .28rem .55rem; border-radius: 20px;
+  background: rgba(224,178,63,.14); border: 1px solid rgba(224,178,63,.45);
+  color: #e0b23f; font-size: .72rem; font-weight: 700;
+}

@@ -76,6 +76,51 @@ function buscarMonto(t) {
   return dec.length ? Math.max(...dec) : null
 }
 
+// Bancos y billeteras del Peru. 'claves' son las palabras que aparecen en el
+// voucher; 'nombre' es como lo mostramos. El orden importa: primero las
+// billeteras, porque un voucher de Yape tambien puede decir "BCP".
+const BANCOS = [
+  { nombre: 'YAPE', tipo: 'BILLETERA DIGITAL', claves: ['yape', 'yapeaste', 'yapeo'] },
+  { nombre: 'PLIN', tipo: 'BILLETERA DIGITAL', claves: ['plin'] },
+  { nombre: 'AGORA', tipo: 'BILLETERA DIGITAL', claves: ['agora', 'ágora'] },
+  { nombre: 'TUNKI', tipo: 'BILLETERA DIGITAL', claves: ['tunki'] },
+  { nombre: 'BCP', tipo: null, claves: ['bcp', 'banco de credito', 'credito del peru', 'viabcp'] },
+  { nombre: 'BBVA', tipo: null, claves: ['bbva', 'continental'] },
+  { nombre: 'INTERBANK', tipo: null, claves: ['interbank'] },
+  { nombre: 'SCOTIABANK', tipo: null, claves: ['scotiabank', 'scotia'] },
+  { nombre: 'BANBIF', tipo: null, claves: ['banbif', 'interamericano de finanzas'] },
+  { nombre: 'PICHINCHA', tipo: null, claves: ['pichincha'] },
+  { nombre: 'MIBANCO', tipo: null, claves: ['mibanco', 'mi banco'] },
+  { nombre: 'FALABELLA', tipo: null, claves: ['falabella'] },
+  { nombre: 'RIPLEY', tipo: null, claves: ['ripley'] },
+  { nombre: 'GNB', tipo: null, claves: ['gnb'] },
+  { nombre: 'CAJA PIURA', tipo: null, claves: ['caja piura'] },
+  { nombre: 'CAJA HUANCAYO', tipo: null, claves: ['caja huancayo'] },
+  { nombre: 'CAJA AREQUIPA', tipo: null, claves: ['caja arequipa'] },
+  { nombre: 'CAJA TRUJILLO', tipo: null, claves: ['caja trujillo'] },
+  { nombre: 'CAJA CUSCO', tipo: null, claves: ['caja cusco'] },
+  { nombre: 'CAJA SULLANA', tipo: null, claves: ['caja sullana'] },
+  { nombre: 'COMPARTAMOS', tipo: null, claves: ['compartamos'] },
+  { nombre: 'BANCO DE LA NACION', tipo: null, claves: ['banco de la nacion', 'nacion'] },
+]
+
+function buscarBanco(t) {
+  const b = t.toLowerCase()
+  for (const x of BANCOS) if (x.claves.some(k => b.includes(k))) return x
+  return null
+}
+
+// Los 4 tipos que maneja el formulario: TRANSFERENCIA | DEPOSITO | BILLETERA DIGITAL | EFECTIVO
+function buscarTipoOperacion(t, banco) {
+  const b = t.toLowerCase()
+  if (/dep[oó]sito|depositaste|deposito en efectivo/.test(b)) return 'DEPOSITO'
+  if (/transferencia|transferiste|transferido|interbancaria|cci/.test(b)) return 'TRANSFERENCIA'
+  if (/efectivo|ventanilla|agente/.test(b)) return 'EFECTIVO'
+  if (banco?.tipo) return banco.tipo          // Yape/Plin => BILLETERA DIGITAL
+  if (/yapeaste|enviaste|pagaste/.test(b)) return 'BILLETERA DIGITAL'
+  return null
+}
+
 function buscarOperacion(t) {
   // el numero que sigue a "operacion" / "nro de operacion" / "codigo de operacion"
   const etiquetas = [
@@ -97,10 +142,13 @@ export async function leerVoucher(file) {
   const texto = data?.text || ''
   // se normaliza para que los regex no dependan de tildes ni de saltos raros
   const t = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ')
+  const banco = buscarBanco(t)
   return {
     monto: buscarMonto(t),
     operacion: buscarOperacion(t),
     fecha: buscarFecha(t),
+    banco: banco?.nombre || null,
+    tipoOperacion: buscarTipoOperacion(t, banco),
     texto,
     confianza: Math.round(data?.confidence || 0),
   }

@@ -188,10 +188,23 @@ export default function Payments() {
     } catch (err) { setOcr({ error: err.message || 'no se pudo analizar' }) }
     setOcrBusy(false)
   }
+  // El banco detectado (BCP, YAPE...) se busca entre TUS cuentas del proyecto:
+  // si alguna la menciona, se sugiere. Si no, no se inventa nada.
+  const cuentaSugerida = useMemo(() => {
+    if (!ocr?.banco || !accounts.length) return null
+    const b = ocr.banco.toLowerCase()
+    return accounts.find(a => {
+      const n = (a.name || '').toLowerCase()
+      return n.includes(b) || b.includes(n.split(/\s+/)[0])
+    }) || null
+  }, [ocr, accounts])
+
   const usarTodo = () => {
     if (ocr?.monto != null) setMonto(String(ocr.monto))
     if (ocr?.operacion) setNroOp(ocr.operacion)
     if (ocr?.fecha) setFecha(ocr.fecha)
+    if (ocr?.tipoOperacion) setOpTipo(ocr.tipoOperacion)
+    if (cuentaSugerida) setAcctId(cuentaSugerida.id)
   }
 
   function reset() {
@@ -524,6 +537,19 @@ export default function Payments() {
                 {ocr.fecha && (
                   <button type="button" className="ocr-chip" title="Poner esta fecha"
                     onClick={() => setFecha(ocr.fecha)}>Fecha {ocr.fecha}</button>
+                )}
+                {ocr.tipoOperacion && (
+                  <button type="button" className="ocr-chip" title="Poner este tipo de operación"
+                    onClick={() => setOpTipo(ocr.tipoOperacion)}>{ocr.tipoOperacion}</button>
+                )}
+                {cuentaSugerida && (
+                  <button type="button" className="ocr-chip" title={'Detecté ' + ocr.banco + ' → poner esta cuenta'}
+                    onClick={() => setAcctId(cuentaSugerida.id)}>Cuenta: {cuentaSugerida.name}</button>
+                )}
+                {ocr.banco && !cuentaSugerida && (
+                  <span className="ocr-aviso" title="No hay ninguna cuenta de este banco en el proyecto">
+                    Banco {ocr.banco} — sin cuenta que coincida
+                  </span>
                 )}
                 <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={usarTodo}>Usar todo</button>
                 <span className="muted small">lectura automática ({ocr.confianza}%) — <b>revísala siempre</b></span>
