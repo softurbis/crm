@@ -856,10 +856,14 @@ export default function Lots() {
                       setSel(x => ({ ...x }))
                     }}>Ajustar precio de la venta (admin)</button></p>
                   )}
-                  {role === 'superuser' && detail.sale.status === 'en_proceso' && (
+                  {role === 'superuser' && (
                     <p style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {/* corregir/transferir el titular vale tambien en ventas PAGADAS (un nombre mal
+                          escrito se corrige igual) y en ventas conjuntas (aplica a todo el grupo). */}
                       <button className="btn-ghost" onClick={() => { setUMsg(null); setTitNew(''); setTitReason(''); setTitModo('correccion'); setTit(true) }}>&#128100; Cambiar titular</button>
-                      <button className="btn-ghost" onClick={() => { setUMsg(null); setConsDest(''); setConsReason(''); setConsFate('disponible'); setCons(true) }}>&#128260; Consolidar en otro lote</button>
+                      {/* consolidar solo tiene sentido con una venta activa: mueve plata a cuotas pendientes */}
+                      {detail.sale.status === 'en_proceso' &&
+                        <button className="btn-ghost" onClick={() => { setUMsg(null); setConsDest(''); setConsReason(''); setConsFate('disponible'); setCons(true) }}>&#128260; Consolidar en otro lote</button>}
                     </p>
                   )}
                 </div>
@@ -1020,6 +1024,17 @@ export default function Lots() {
               <button className="btn-ghost" onClick={() => setTit(false)}>&#10005;</button>
             </div>
             <p className="muted small">Titular actual: <b>{detail.sale.client?.full_name}</b></p>
+            {detail.grupo && (
+              <p className="hint" style={{ margin: '4px 0' }}>
+                &#128279; Este lote es parte de la <b>VENTA CONJUNTA {detail.grupo.join(' + ')}</b>. La venta vive en el lote
+                principal <b>{detail.grupo[0]}</b>, asi que el cambio de titular aplica a <b>todo el grupo</b> ({detail.grupo.length} lotes).
+              </p>
+            )}
+            {detail.sale.status !== 'en_proceso' && (
+              <p className="hint" style={{ margin: '4px 0' }}>
+                Esta venta esta <b>{String(detail.sale.status).toUpperCase()}</b>. El cambio de titular se aplica igual (un nombre mal registrado se corrige este pagada o no).
+              </p>
+            )}
             <label>Tipo de cambio
               <select value={titModo} onChange={e => setTitModo(e.target.value)}>
                 <option value="correccion">CORRECCION — el lote siempre fue de esta persona (los pagos tambien pasan)</option>
