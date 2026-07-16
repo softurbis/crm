@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { PALETA_PROYECTOS } from '../context/ProjectContext'
 
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -88,6 +89,7 @@ export default function Projects() {
     setEdit(p ? p.id : 'nuevo')
     const base = {}
     for (const [k] of CAMPOS) base[k] = p?.[k] ?? ''
+    base.color = p?.color ?? ''
     base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
     base.copia_literal_note = p?.copia_literal_note ?? ''
     base.bot_knowledge = p?.bot_knowledge ?? ''
@@ -134,6 +136,7 @@ export default function Projects() {
       }
       payload.latitude = f.latitude ? Number(f.latitude) : null
       payload.longitude = f.longitude ? Number(f.longitude) : null
+      payload.color = f.color || null        // color identificador (menu y selector)
       payload.copia_literal_url = literalUrl
       payload.copia_literal_expiry = f.copia_literal_expiry || null
       payload.copia_literal_note = (f.copia_literal_note || '').trim() || null
@@ -184,6 +187,19 @@ export default function Projects() {
               onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} />
           </label>
         ))}
+        {/* color identificador: se ve en el menu izquierdo y en el selector de proyecto */}
+        <label className="span2">Color del proyecto <span className="muted small">(lo distingue en el menu y en el selector)</span>
+          <div className="color-pick">
+            {PALETA_PROYECTOS.map(c => (
+              <button type="button" key={c} title={c}
+                className={`color-op ${(f.color || '').toLowerCase() === c.toLowerCase() ? 'on' : ''}`}
+                style={{ '--co': c }} onClick={() => setF(x => ({ ...x, color: c }))} />
+            ))}
+            <input type="color" value={f.color || '#8fd16f'} title="Otro color"
+              onChange={e => setF(x => ({ ...x, color: e.target.value }))} className="color-libre" />
+            {f.color && <button type="button" className="link-btn" onClick={() => setF(x => ({ ...x, color: '' }))}>quitar</button>}
+          </div>
+        </label>
         <label>Partida / copia literal (PDF o foto) {edit === 'nuevo' && <b className="bad">*</b>}
           <input type="file" accept="image/*,.pdf" onChange={e => setFLiteral(e.target.files[0] || null)} />
           <input value={f.copia_literal_note || ''} placeholder="nota / comentario del documento"

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useProject } from '../context/ProjectContext'
+import { useProject, colorProyecto } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 
@@ -56,13 +56,17 @@ export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && m.to !== 
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
-  const { current, projects } = useProject()
+  const { projects, pid, select } = useProject()
   const [open, setOpen] = useState(false)
+  const [expandido, setExpandido] = useState(null)   // proyecto con su menu desplegado
   const [conectados, setConectados] = useState([])
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
   const enPanel = m => role === 'superuser' || m.to === '/' || m.admin || !panelsUser || panelsUser.includes(m.to)
+
+  // el proyecto seleccionado arranca desplegado (asi entras y ya ves sus modulos)
+  useEffect(() => { if (pid && pid !== 'general') setExpandido(x => x ?? pid) }, [pid])
 
   // latido de presencia del usuario actual (cada 45s)
   useEffect(() => {
@@ -106,10 +110,35 @@ export default function Layout() {
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
           {GLOBAL.filter(m => (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && enPanel(m)).map(Item)}
-          <p className="menu-section">
-            Proyecto{projects.length > 0 && <>: <span className="accent">{current ? current.name : projects[0]?.name}</span></>}
-          </p>
-          {PROYECTO.filter(m => (!m.roles || m.roles.includes(role)) && enPanel(m)).map(Item)}
+          {/* Cada proyecto asignado, con su color y su propio desplegable de modulos.
+              Al abrir uno se selecciona ese proyecto, asi los modulos operan sobre el. */}
+          <p className="menu-section">Proyectos{projects.length > 1 && <span className="muted"> ({projects.length})</span>}</p>
+          {projects.map((p, i) => {
+            const pc = colorProyecto(p, i)
+            const abierto = expandido === p.id
+            const activo = pid === p.id
+            return (
+              <div key={p.id} className={`proj-grp ${abierto ? 'open' : ''}`} style={{ '--pc': pc }}>
+                <button type="button" className={`proj-head ${activo ? 'on' : ''}`}
+                  onClick={e => { e.stopPropagation(); select(p.id); setExpandido(abierto ? null : p.id) }}>
+                  <span className="proj-dot" />
+                  <span className="proj-name" title={p.name}>{p.name}</span>
+                  <span className={`proj-caret ${abierto ? 'open' : ''}`}>&#9656;</span>
+                </button>
+                {abierto && (
+                  <div className="proj-items">
+                    {PROYECTO.filter(m => (!m.roles || m.roles.includes(role)) && enPanel(m)).map(m => (
+                      <NavLink key={m.to} to={m.to} style={{ '--mi': m.color }}
+                        onClick={() => select(p.id)}
+                        className={({ isActive }) => (isActive && activo) ? 'nav-item active' : 'nav-item'}>
+                        <span>{m.icon}</span> {m.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
         {esAdmin && conectados.length > 0 && (
           // lista con scroll propio: aunque haya muchos conectados, nunca empuja el pie fuera de vista
