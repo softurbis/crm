@@ -62,6 +62,19 @@ export default function Lots() {
   const [cBusy, setCBusy] = useState(false)
   const [cMsg, setCMsg] = useState(null)
 
+  // ---- cuadre de migracion (SOLO superusuario): cambiar titular / consolidar lotes ----
+  const [tit, setTit] = useState(false)
+  const [titNew, setTitNew] = useState('')
+  const [titModo, setTitModo] = useState('correccion')   // 'correccion' | 'transferencia'
+  const [titReason, setTitReason] = useState('')
+  const [cons, setCons] = useState(false)
+  const [consDest, setConsDest] = useState('')           // venta destino (el lote que se queda)
+  const [consFate, setConsFate] = useState('disponible') // que pasa con el lote que suelta
+  const [consReason, setConsReason] = useState('')
+  const [consOpts, setConsOpts] = useState([])           // otras ventas activas del mismo cliente
+  const [uBusy, setUBusy] = useState(false)
+  const [uMsg, setUMsg] = useState(null)
+
   async function loadLots() {
     if (!pidOp) return
     const { data } = await supabase.from('lots').select('*').eq('project_id', pidOp).order('mz').order('lt')
@@ -77,6 +90,113 @@ export default function Lots() {
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
       .then(({ data }) => { const m = new Map(); for (const r of (data || [])) m.set(r.lot_id, (m.get(r.lot_id) || 0) + 1); setExpropiados(m) })
   }, [pidOp])
+
+  // otras ventas ACTIVAS del mismo cliente = posibles destinos al consolidar
+  useEffect(() => {
+    if (!cons || !detail?.sale?.client_id) { setConsOpts([]); return }
+    supabase.from('sales')
+      .select('id, lot_id, client_id, lot:lots!inner(mz, lt, project_id)')
+      .eq('client_id', detail.sale.client_id).eq('status', 'en_proceso').eq('lot.project_id', pidOp)
+      .then(({ data }) => setConsOpts((data || []).filter(s => s.lot_id !== sel?.id)))
+  }, [cons, detail, pidOp, sel])
+
+  // ---- CAMBIAR TITULAR (superusuario) ----
+  //  correccion    = el lote SIEMPRE fue de esta persona (se registro con otro nombre por error)
+  //                  -> los pagos historicos tambien se re-ligan al nuevo titular.
+  //  transferencia = el lote pasa de una persona a otra -> los pagos historicos QUEDAN con el
+  //                  titular anterior (mismo criterio que las expropiaciones).
+  async function cambiarTitular() {
+    if (!titNew) { setUMsg({ ok: false, t: 'ELIGE EL NUEVO TITULAR' }); return }
+    if (titReason.trim().length < 5) { setUMsg({ ok: false, t: 'EL MOTIVO ES OBLIGATORIO' }); return }
+    setUBusy(true); setUMsg(null)
+    try {
+      const sale = detail.sale
+      const antes = sale.client?.full_name || '?'
+      const despues = clientes.find(c => c.id === titNew)?.full_name || '?'
+      const { error } = await supabase.from('sales').update({ client_id: titNew }).eq('id', sale.id)
+      if (error) throw error
+      if (titModo === 'correccion') {
+        const { error: e2 } = await supabase.from('daily_income').update({ client_id: titNew }).eq('sale_id', sale.id)
+        if (e2) throw e2
+      }
+      await supabase.from('activity_log').insert({
+        user_id: profile?.id, user_email: profile?.email,
+        action: 'UPDATE', entity_type: 'sales', entity_id: sale.id,
+        details: {
+          cambio: 'cambio_titular', modo: titModo, lote: sel.mz + '-' + sel.lt,
+          antes, despues, motivo: titReason.trim().toUpperCase(), project_id: pidOp,
+        },
+      })
+      setUMsg({ ok: true, t: 'TITULAR ACTUALIZADO: ' + antes + ' → ' + despues })
+      setTit(false); setTitNew(''); setTitReason(''); setSel(x => ({ ...x }))
+    } catch (e) { setUMsg({ ok: false, t: 'ERROR: ' + e.message }) }
+    setUBusy(false)
+  }
+
+  // ---- CONSOLIDAR 2 LOTES EN 1 (superusuario) ----
+  // El cliente suelta ESTE lote: todo lo que pago aqui se pasa al lote que se queda y se aplica
+  // a sus cuotas pendientes (de la mas antigua a la mas nueva). Las cuotas de este lote se revierten.
+  async function consolidar() {
+    if (!consDest) { setUMsg({ ok: false, t: 'ELIGE EL LOTE QUE SE QUEDA' }); return }
+    if (consReason.trim().length < 5) { setUMsg({ ok: false, t: 'EL MOTIVO ES OBLIGATORIO' }); return }
+    const dest = consOpts.find(o => o.id === consDest)
+    if (!dest) { setUMsg({ ok: false, t: 'DESTINO INVALIDO' }); return }
+    setUBusy(true); setUMsg(null)
+    try {
+      const origen = detail.sale
+      // 1) todo lo realmente pagado en este lote
+      const { data: pays, error: e0 } = await supabase.from('daily_income').select('id, amount').eq('sale_id', origen.id)
+      if (e0) throw e0
+      const total = Math.round((pays || []).reduce((s, p) => s + Number(p.amount), 0) * 100) / 100
+      if (!total) { setUMsg({ ok: false, t: 'ESTE LOTE NO TIENE PAGOS QUE MOVER' }); setUBusy(false); return }
+      // 2) revertir las cuotas del lote que se suelta
+      const { error: e1 } = await supabase.from('installments').update({ amount_paid: 0, status: 'pendiente' }).eq('sale_id', origen.id)
+      if (e1) throw e1
+      // 3) mover cada pago al lote destino (conserva fecha/voucher/n° operacion; queda como credito de cuota)
+      const nota = ('TRASPASO DESDE MZ ' + sel.mz + ' LT ' + sel.lt + ' — ' + consReason.trim().toUpperCase()).slice(0, 400)
+      for (const p of (pays || [])) {
+        const { error: e2 } = await supabase.from('daily_income').update({
+          sale_id: dest.id, lot_id: dest.lot_id, client_id: dest.client_id,
+          installment_id: null, income_type: 'cuota', observation: nota,
+        }).eq('id', p.id)
+        if (e2) throw e2
+      }
+      // 4) aplicar el total a las cuotas pendientes del destino, en orden
+      const { data: pend } = await supabase.from('installments')
+        .select('id, amount, amount_paid').eq('sale_id', dest.id).neq('status', 'pagado').order('installment_number')
+      let rest = total
+      for (const q of (pend || [])) {
+        if (rest <= 0.004) break
+        const deuda = Math.round((Number(q.amount) - Number(q.amount_paid)) * 100) / 100
+        const take = Math.min(rest, deuda)
+        const nuevo = Math.round((Number(q.amount_paid) + take) * 100) / 100
+        await supabase.from('installments').update({
+          amount_paid: nuevo, status: nuevo >= Number(q.amount) - 0.004 ? 'pagado' : 'pendiente',
+        }).eq('id', q.id)
+        rest = Math.round((rest - take) * 100) / 100
+      }
+      // 5) cerrar el lote que se suelta segun lo elegido
+      const { error: e3 } = await supabase.from('sales').update({ status: consFate === 'expropiado' ? 'expropiado' : 'anulado' }).eq('id', origen.id)
+      if (e3) throw e3
+      const { error: e4 } = await supabase.from('lots').update({ status: consFate }).eq('id', sel.id)
+      if (e4) throw e4
+      // 6) bitacora con el motivo
+      await supabase.from('activity_log').insert({
+        user_id: profile?.id, user_email: profile?.email,
+        action: 'UPDATE', entity_type: 'sales', entity_id: origen.id,
+        details: {
+          cambio: 'consolidacion_lotes', desde: sel.mz + '-' + sel.lt, hacia: dest.lot.mz + '-' + dest.lot.lt,
+          monto_movido: total, sobrante: rest, lote_queda: consFate,
+          motivo: consReason.trim().toUpperCase(), project_id: pidOp,
+        },
+      })
+      alert('CONSOLIDADO: S/ ' + total.toFixed(2) + ' movido a MZ ' + dest.lot.mz + ' LT ' + dest.lot.lt +
+        (rest > 0.01 ? '\n\nOJO: SOBRAN S/ ' + rest.toFixed(2) + ' (el lote destino ya quedo totalmente cubierto). Ese saldo queda a favor del cliente en la venta destino.' : ''))
+      setCons(false); setConsDest(''); setConsReason('')
+      loadLots(); setSel(null); setDetail(null)
+    } catch (e) { setUMsg({ ok: false, t: 'ERROR: ' + e.message }) }
+    setUBusy(false)
+  }
 
   useEffect(() => {
     if (!sel) { setDetail(null); setHistorial([]); return }
@@ -736,6 +856,12 @@ export default function Lots() {
                       setSel(x => ({ ...x }))
                     }}>Ajustar precio de la venta (admin)</button></p>
                   )}
+                  {role === 'superuser' && detail.sale.status === 'en_proceso' && (
+                    <p style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn-ghost" onClick={() => { setUMsg(null); setTitNew(''); setTitReason(''); setTitModo('correccion'); setTit(true) }}>&#128100; Cambiar titular</button>
+                      <button className="btn-ghost" onClick={() => { setUMsg(null); setConsDest(''); setConsReason(''); setConsFate('disponible'); setCons(true) }}>&#128260; Consolidar en otro lote</button>
+                    </p>
+                  )}
                 </div>
               </>
             ) : detail && !detail.sep && sel.status !== 'disponible' ? (
@@ -881,6 +1007,75 @@ export default function Lots() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- CAMBIAR TITULAR (superusuario) ---- */}
+      {tit && detail?.sale && (
+        <div className="modal-bg" onClick={() => setTit(false)}>
+          <div className="glass modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Cambiar titular — MZ {sel.mz} LT {sel.lt}</h2>
+              <button className="btn-ghost" onClick={() => setTit(false)}>&#10005;</button>
+            </div>
+            <p className="muted small">Titular actual: <b>{detail.sale.client?.full_name}</b></p>
+            <label>Tipo de cambio
+              <select value={titModo} onChange={e => setTitModo(e.target.value)}>
+                <option value="correccion">CORRECCION — el lote siempre fue de esta persona (los pagos tambien pasan)</option>
+                <option value="transferencia">TRANSFERENCIA — pasa a otra persona (los pagos historicos quedan con el anterior)</option>
+              </select>
+            </label>
+            <label>Nuevo titular
+              <select value={titNew} onChange={e => setTitNew(e.target.value)}>
+                <option value="">- elegir -</option>
+                {clientes.filter(c => c.id !== detail.sale.client_id).map(c =>
+                  <option key={c.id} value={c.id}>{c.full_name} ({c.doc_number})</option>)}
+              </select>
+            </label>
+            <label>Motivo (obligatorio)
+              <textarea value={titReason} onChange={e => setTitReason(e.target.value)}
+                style={{ textTransform: 'none', minHeight: 54 }} placeholder="Ej: el lote se registro a nombre del hermano por error" />
+            </label>
+            {uMsg && <p className={uMsg.ok ? 'ok' : 'error'}>{uMsg.t}</p>}
+            <button className="btn-primary" disabled={uBusy} onClick={cambiarTitular}>{uBusy ? 'GUARDANDO...' : 'CAMBIAR TITULAR'}</button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- CONSOLIDAR 2 LOTES EN 1 (superusuario) ---- */}
+      {cons && detail?.sale && (
+        <div className="modal-bg" onClick={() => setCons(false)}>
+          <div className="glass modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Consolidar — el cliente suelta MZ {sel.mz} LT {sel.lt}</h2>
+              <button className="btn-ghost" onClick={() => setCons(false)}>&#10005;</button>
+            </div>
+            <p className="muted small">
+              Todo el dinero pagado en <b>MZ {sel.mz} LT {sel.lt}</b> se pasa al lote que el cliente se queda y se aplica
+              a sus cuotas pendientes, de la mas antigua a la mas nueva. Las cuotas de este lote se revierten.
+              Los pagos conservan su fecha, voucher y N° de operacion.
+            </p>
+            <label>Lote que se queda (destino)
+              <select value={consDest} onChange={e => setConsDest(e.target.value)}>
+                <option value="">- elegir -</option>
+                {consOpts.map(o => <option key={o.id} value={o.id}>MZ {o.lot.mz} LT {o.lot.lt}</option>)}
+              </select>
+            </label>
+            {!consOpts.length && <p className="error">Este cliente no tiene otro lote con venta activa en este proyecto. Primero registra la venta del lote que se queda.</p>}
+            <label>Que pasa con MZ {sel.mz} LT {sel.lt}
+              <select value={consFate} onChange={e => setConsFate(e.target.value)}>
+                <option value="disponible">DISPONIBLE — vuelve a estar en venta</option>
+                <option value="expropiado">EXPROPIADO — queda el historico de que lo tuvo</option>
+                <option value="eliminado">ELIMINADO — el lote ya no existe</option>
+              </select>
+            </label>
+            <label>Motivo (obligatorio)
+              <textarea value={consReason} onChange={e => setConsReason(e.target.value)}
+                style={{ textTransform: 'none', minHeight: 54 }} placeholder="Ej: el cliente decidio quedarse solo con un lote y juntar todo su pago ahi" />
+            </label>
+            {uMsg && <p className={uMsg.ok ? 'ok' : 'error'}>{uMsg.t}</p>}
+            <button className="btn-primary" disabled={uBusy || !consOpts.length} onClick={consolidar}>{uBusy ? 'PROCESANDO...' : 'CONSOLIDAR'}</button>
           </div>
         </div>
       )}
