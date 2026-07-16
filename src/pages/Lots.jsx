@@ -198,6 +198,49 @@ export default function Lots() {
     setUBusy(false)
   }
 
+  // ---- RECUADRAR CUOTAS (superusuario) ----
+  // Data migrada: una cuota quedo sobrepagada (ej. 787 de 777) y otra corta (767 de 777).
+  // El excedente NO corre solo a la siguiente porque cada cuota cuenta unicamente los pagos
+  // ligados a ella. Esto redistribuye el TOTAL ya pagado en cuotas, en orden (1, 2, 3...),
+  // sin tocar los pagos reales de caja (vouchers, fechas y montos quedan intactos).
+  async function recuadrarCuotas() {
+    const r2 = n => Math.round(n * 100) / 100
+    const inst = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
+    const total = r2(inst.reduce((s, i) => s + Number(i.amount_paid), 0))
+    let rest = total
+    const cambios = []
+    for (const q of inst) {
+      const take = r2(Math.min(rest, Number(q.amount)))
+      rest = r2(rest - take)
+      if (take !== r2(Number(q.amount_paid))) cambios.push({ q, nuevo: take })
+    }
+    if (!cambios.length) { alert('LAS CUOTAS YA ESTAN BIEN DISTRIBUIDAS. No hay nada que recuadrar.'); return }
+    const lineas = cambios.map(c => 'Cuota ' + c.q.installment_number + ': S/ ' + Number(c.q.amount_paid).toFixed(2) + ' → S/ ' + c.nuevo.toFixed(2)).join('\n')
+    const motivo = prompt('RECUADRAR CUOTAS — se redistribuye lo ya pagado (S/ ' + total.toFixed(2) + ') en orden.\nLos pagos de caja NO se tocan.\n\nCambios:\n' + lineas + (rest > 0.01 ? '\n\nOJO: sobran S/ ' + rest.toFixed(2) + ' por encima del cronograma (queda a favor del cliente).' : '') + '\n\nMotivo del recuadre (obligatorio):')
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    for (const { q, nuevo } of cambios) {
+      const full = nuevo >= Number(q.amount) - 0.05
+      const { error } = await supabase.from('installments').update({
+        amount_paid: nuevo,
+        status: full ? 'pagado' : (q.due_date < hoyStr ? 'vencido' : 'pendiente'),
+      }).eq('id', q.id)
+      if (error) { alert('ERROR: ' + error.message); return }
+    }
+    await supabase.from('activity_log').insert({
+      user_id: profile?.id, user_email: profile?.email,
+      action: 'UPDATE', entity_type: 'installments', entity_id: detail.sale.id,
+      details: {
+        cambio: 'recuadre_cuotas', lote: sel.mz + '-' + sel.lt, cliente: detail.sale.client?.full_name || null,
+        total_redistribuido: total, cambios: cambios.map(c => ({ cuota: c.q.installment_number, antes: Number(c.q.amount_paid), despues: c.nuevo })),
+        motivo: motivo.trim().toUpperCase(), project_id: pidOp,
+      },
+    })
+    alert('CUOTAS RECUADRADAS (' + cambios.length + ' corregidas). MOTIVO EN BITACORA.')
+    setDesg(false); setSel(x => ({ ...x }))
+  }
+
   useEffect(() => {
     if (!sel) { setDetail(null); setHistorial([]); return }
     async function load() {
@@ -947,7 +990,13 @@ export default function Lots() {
                 </p>
               )
             })()}
-            <h4 style={{ margin: '10px 0 4px' }}>CRONOGRAMA DE CUOTAS ({detail.inst.length})</h4>
+            <h4 style={{ margin: '10px 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              CRONOGRAMA DE CUOTAS ({detail.inst.length})
+              {role === 'superuser' && (
+                <button className="btn-ghost" style={{ fontSize: 11 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
+                  onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
+              )}
+            </h4>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
               <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th><th>PAGADA EL</th></tr></thead>
               <tbody>
