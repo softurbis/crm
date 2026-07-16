@@ -815,3 +815,35 @@ select { cursor: pointer; }
   padding: .35rem .5rem; border-radius: 8px; font-size: .7rem; line-height: 1.35;
   background: rgba(224,178,63,.12); border: 1px solid rgba(224,178,63,.4); color: #e0b23f;
 }
+
+/* ---- buscador (reemplaza al select cuando la lista es larga) ---- */
+.bsc { position: relative; display: flex; align-items: center; }
+.bsc-in { width: 100%; padding-right: 2.6rem !important; cursor: text; }
+.bsc.off .bsc-in { opacity: .55; cursor: not-allowed; }
+.bsc-caret { position: absolute; right: .55rem; font-size: .65rem; color: var(--muted); pointer-events: none; }
+.bsc-x {
+  position: absolute; right: 1.5rem; width: 16px; height: 16px; padding: 0;
+  border-radius: 50%; border: none; background: rgba(255,255,255,.1);
+  color: var(--muted); font-size: 9px; line-height: 1; display: grid; place-items: center;
+}
+.bsc-x:hover { background: var(--error); color: #0d150f; }
+
+.bsc-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 45;
+  width: 100%; min-width: 210px;
+  padding: .25rem;
+  animation: pp-in .12s ease-out;
+}
+.bsc-cnt { font-size: .62rem; padding: .1rem .4rem .25rem; letter-spacing: .04em; }
+.bsc-lista { max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.bsc-op {
+  display: flex; align-items: baseline; gap: .4rem;
+  padding: .35rem .5rem; border-radius: 6px;
+  background: transparent; border: none; text-align: left;
+  color: var(--text); font-size: .78rem;
+}
+.bsc-op.foco { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.bsc-op.on { border-left: 3px solid var(--accent); font-weight: 700; }
+.bsc-lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bsc-sub { font-size: .66rem; flex: none; }
+.bsc-nada { padding: .5rem; font-size: .72rem; text-transform: none; }

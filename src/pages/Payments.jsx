@@ -5,6 +5,7 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import { leerVoucher, esImagen } from '../lib/leerVoucher'
 import VoucherReview from '../components/VoucherReview'
+import Buscador from '../components/Buscador'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const estadoDe = r => {
@@ -460,6 +461,15 @@ export default function Payments() {
     })
   }, [pagos, fq, ftipo, fdoc])
   const pag = usePaginacion(pagosFiltrados, 50)   // 50 por pagina, sin recargar
+
+  // opciones para los buscadores. El lote se puede escribir como "G7" o "G-7"
+  // (sub incluye ambos), asi la secretaria teclea como le salga.
+  const opcLotes = useMemo(() => lotesFiltrados.map(l => ({
+    id: l.id, label: `MZ ${l.mz} LT ${l.lt}`, sub: `${l.mz}${l.lt} ${l.mz}-${l.lt}`,
+  })), [lotesFiltrados])
+  const opcClientes = useMemo(() => clients.map(c => ({
+    id: c.id, label: c.full_name, sub: c.doc_number || '',
+  })), [clients])
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = pagos.filter(p => !p.voucher_url).length
   const sinComprobante = pagos.filter(p => !p.receipt_url).length
@@ -521,18 +531,14 @@ export default function Payments() {
           <span className="paso-t">Elige el lote y el cliente, y revisa lo que se llenó solo</span>
         </div>
         <div className="form-grid">
-          <label>Lote
-            <select value={lotId} onChange={e => setLotId(e.target.value)} required>
-              <option value="">- elegir -</option>
-              {lotesFiltrados.map(l => <option key={l.id} value={l.id}>MZ {l.mz} LT {l.lt}</option>)}
-            </select>
+          <label>Lote <span className="muted small">({lotesFiltrados.length})</span>
+            <Buscador opciones={opcLotes} valor={lotId} onChange={setLotId} required
+              placeholder="Escribe la mz o el lote… (ej. G7)" />
           </label>
-          <label>Cliente
-            <select value={clientId} onChange={e => setClientId(e.target.value)} required
-              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale}>
-              <option value="">- elegir -</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.full_name} ({c.doc_number})</option>)}
-            </select>
+          <label>Cliente <span className="muted small">({clients.length})</span>
+            <Buscador opciones={opcClientes} valor={clientId} onChange={setClientId} required
+              placeholder="Escribe el nombre o el DNI…"
+              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale} />
           </label>
           <label>Fecha <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} required /></label>
           <label>Monto S/ <input type="number" step="0.01" min="0.01" value={monto} onChange={e => setMonto(e.target.value)} required /></label>
