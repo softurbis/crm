@@ -96,20 +96,24 @@ export default function Layout() {
           {PROYECTO.filter(m => (!m.roles || m.roles.includes(role)) && enPanel(m)).map(Item)}
         </nav>
         {esAdmin && conectados.length > 0 && (
-          <div style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 11 }}>
-            <p className="muted" style={{ fontWeight: 700, letterSpacing: '.5px', margin: '0 0 6px' }}>🟢 CONECTADOS ({conectados.length})</p>
-            {conectados.map(u => (
-              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, padding: '2px 0' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: '#6fdd9b' }}>●</span> {u.full_name || '—'}</span>
-                <span className="muted" style={{ whiteSpace: 'nowrap' }}>{haceCuanto(u.online_since)}</span>
-              </div>
-            ))}
+          // lista con scroll propio: aunque haya muchos conectados, nunca empuja el pie fuera de vista
+          <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 11, display: 'flex', flexDirection: 'column', maxHeight: '32vh', minHeight: 0 }}>
+            <p className="muted" style={{ fontWeight: 700, letterSpacing: '.5px', margin: '0 0 4px', flexShrink: 0 }}>🟢 CONECTADOS ({conectados.length})</p>
+            <div style={{ overflowY: 'auto', minHeight: 0 }}>
+              {conectados.map(u => (
+                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, padding: '2px 0' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: '#6fdd9b' }}>●</span> {u.full_name || '—'}</span>
+                  <span className="muted" style={{ whiteSpace: 'nowrap' }}>{haceCuanto(u.online_since)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         <div className="sidebar-footer">
-          <p className="muted">{profile?.full_name}</p>
-          <p className="muted small">{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
-          <button className="btn-ghost" onClick={logout}>Cerrar sesión</button>
+          <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={profile?.full_name}>{profile?.full_name}</p>
+          <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
+          <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 3 }} onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
       <main className="content" style={{ '--accent-mod': accentMod }}>

@@ -130,8 +130,12 @@ export default function Contracts() {
   }, [ventas, q])
 
   async function subirFirmado(v, file) {
-    // todo documento se sube con su nota/comentario
-    const nota = prompt('Comentario / nota de este contrato (opcional, Enter para saltar):\n\nEj: firmado con poder · falta legalizar · copia escaneada que mando el cliente')
+    // todo documento se sube con su nota/comentario. Si ya habia contrato, esto lo REEMPLAZA.
+    const reemplaza = !!v.signed_contract_url
+    const nota = prompt(
+      (reemplaza ? '⚠ REEMPLAZANDO el contrato firmado actual por este archivo nuevo.\n\n' : '') +
+      'Comentario / nota de este contrato (opcional, Enter para saltar):\n\nEj: firmado con poder · falta legalizar · copia escaneada que mando el cliente',
+      v.contract_note || '')
     if (nota === null) return   // cancelo: no se sube nada
     const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
     const path = `contratos/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
@@ -140,6 +144,14 @@ export default function Contracts() {
     const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
     await supabase.from('sales').update({ signed_contract_url: url, contract_note: nota.trim() || null }).eq('id', v.id)
     setMsg({ ok: true, t: 'CONTRATO FIRMADO SUBIDO' }); load()
+  }
+
+  // quitar el contrato firmado (superusuario): la venta vuelve a figurar SIN CONTRATO
+  async function quitarContrato(v) {
+    if (!confirm('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volvera a figurar como SIN CONTRATO FIRMADO y podras subir otro. El archivo anterior queda en el almacenamiento.')) return
+    const { error } = await supabase.from('sales').update({ signed_contract_url: null, contract_note: null }).eq('id', v.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'CONTRATO QUITADO — YA PUEDES SUBIR OTRO' }); load()
   }
 
   // editar/agregar la nota de un contrato ya subido
@@ -212,6 +224,13 @@ export default function Contracts() {
                     ? <>
                         <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>{' '}
                         <button className="link-btn" onClick={() => notaContrato(v)}>&#128221; nota</button>
+                        {role === 'superuser' && (<>
+                          {' '}
+                          <label className="link-btn" style={{ cursor: 'pointer' }}>&#128260; reemplazar
+                            <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(v, e.target.files[0])} />
+                          </label>{' '}
+                          <button className="link-btn" onClick={() => quitarContrato(v)}>&#128465; quitar</button>
+                        </>)}
                         {v.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{v.contract_note}</div>}
                       </>
                     : <label className="upload-btn bad">&#9888; subir firmado
