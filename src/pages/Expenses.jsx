@@ -127,10 +127,23 @@ export default function Expenses() {
 
   async function subirDoc(g, file, campo, carpeta) {
     try {
+      // todo documento se sube con su nota/comentario
+      const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
+      if (nota === null) return   // cancelo: no se sube nada
       const url = await upload(`gastos/${carpeta}/${g.id}`, file)
-      await supabase.from('expenses').update({ [campo]: url }).eq('id', g.id)
+      await supabase.from('expenses').update({ [campo]: url, [campo.replace('_url', '_note')]: nota.trim() || null }).eq('id', g.id)
       setMsg({ ok: true, t: 'DOCUMENTO SUBIDO' }); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
+  }
+
+  // editar/agregar la nota de un documento de gasto ya subido
+  async function notaDoc(g, campo) {
+    const kn = campo.replace('_url', '_note')
+    const nota = prompt('Comentario / nota de este documento:', g[kn] || '')
+    if (nota === null) return
+    const { error } = await supabase.from('expenses').update({ [kn]: nota.trim() || null }).eq('id', g.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'NOTA GUARDADA' }); load()
   }
 
   async function guardarPlantilla() {
@@ -139,16 +152,21 @@ export default function Expenses() {
     load()
   }
 
-  const UpBtn = ({ g, campo, carpeta, label, alerta }) => (
-    g[campo]
-      ? <a href={g[campo]} target="_blank" rel="noreferrer">VER</a>
+  const UpBtn = ({ g, campo, carpeta, label, alerta }) => {
+    const nota = g[campo.replace('_url', '_note')]
+    return g[campo]
+      ? <>
+          <a href={g[campo]} target="_blank" rel="noreferrer">VER</a>
+          {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
+          {nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}
+        </>
       : readOnly
       ? <span className="muted">-</span>
       : <label className={`upload-btn ${alerta ? 'bad' : ''}`}>{alerta ? '⚠ ' : ''}{label}
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
         </label>
-  )
+  }
 
   const IN = (k, label, type = 'text', req = false) => (
     <label key={k}>{label}

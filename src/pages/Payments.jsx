@@ -73,6 +73,7 @@ export default function Payments() {
   const [meses, setMeses] = useState(48)
   const [venc, setVenc] = useState(addDays(hoy(), 7))
   const [fVoucher, setFVoucher] = useState(null)
+  const [vNota, setVNota] = useState('')   // comentario del voucher que se sube al registrar
   const [ctx, setCtx] = useState(null)
   const [view, setView] = useState(null)
   const [advisors, setAdvisors] = useState([])
@@ -91,7 +92,7 @@ export default function Payments() {
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name'),
       supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)')
+        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)')
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(sq.data || [])
@@ -173,7 +174,7 @@ export default function Payments() {
 
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setAdvId(''); setCoId(''); setComision(''); setComUrbis(''); setNotifIds([])
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setVNota(''); setAdvId(''); setCoId(''); setComision(''); setComUrbis(''); setNotifIds([])
   }
 
   async function nuevoAsesor() {
@@ -200,7 +201,7 @@ export default function Payments() {
         lot_id: lotId, client_id: clientId, date: fecha,
         operation_number: op, operation_type: opTipo,
         financial_account_id: acctId || null, observation: obs.toUpperCase(), origin: 'sistema',
-        voucher_url: voucherUrl,
+        voucher_url: voucherUrl, voucher_note: vNota.trim() || null,
         registered_by: profile?.id, approved: true, approved_at: new Date().toISOString(),
       }
 
@@ -292,22 +293,38 @@ export default function Payments() {
     setBusy(false)
   }
 
+  const campoNota = campo => campo.replace('_url', '_note')   // voucher_url -> voucher_note
+
   async function subirDoc(row, file, campo) {
     try {
+      // todo documento se sube con su nota/comentario
+      const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
+      if (nota === null) return   // cancelo: no se sube nada
       const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
-      await supabase.from('daily_income').update({ [campo]: url }).eq('id', row.id)
+      await supabase.from('daily_income').update({ [campo]: url, [campoNota(campo)]: nota.trim() || null }).eq('id', row.id)
       setMsg({ ok: true, t: campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO' })
       loadBase()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
   }
 
+  // editar/agregar la nota de un documento ya subido
+  async function notaDoc(campo) {
+    const kn = campoNota(campo)
+    const nota = prompt('Comentario / nota de este documento:', view[kn] || '')
+    if (nota === null) return
+    const { error } = await supabase.from('daily_income').update({ [kn]: nota.trim() || null }).eq('id', view.id)
+    if (error) { setMsg({ ok: false, t: error.message }); return }
+    setMsg({ ok: true, t: 'NOTA GUARDADA' })
+    setView(v => ({ ...v, [kn]: nota.trim() || null })); loadBase()
+  }
+
   // ---- correcciones del SUPERUSUARIO ----
   async function quitarDoc(campo) {
     if (!confirm('¿Quitar este documento del pago? (podrás subir otro)')) return
-    const { error } = await supabase.from('daily_income').update({ [campo]: null }).eq('id', view.id)
+    const { error } = await supabase.from('daily_income').update({ [campo]: null, [campoNota(campo)]: null }).eq('id', view.id)
     if (error) { setMsg({ ok: false, t: error.message }); return }
     setMsg({ ok: true, t: 'DOCUMENTO QUITADO' })
-    setView(v => ({ ...v, [campo]: null })); loadBase()
+    setView(v => ({ ...v, [campo]: null, [campoNota(campo)]: null })); loadBase()
   }
   async function editarFecha() {
     const nueva = prompt('NUEVA FECHA del pago (AAAA-MM-DD):', view.date)
@@ -460,6 +477,8 @@ export default function Payments() {
           </label>
           <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')}>Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
             <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'} onChange={e => setFVoucher(e.target.files[0] || null)} />
+            <input value={vNota} placeholder="nota / comentario del voucher (opcional)" style={{ textTransform: 'none', marginTop: 4 }}
+              onChange={e => setVNota(e.target.value)} />
           </label>
           {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
@@ -658,13 +677,17 @@ export default function Payments() {
                       <input type="file" accept="image/*,.pdf" hidden onChange={async e => {
                         if (!e.target.files[0]) return
                         try {
+                          const nota = prompt('Comentario / nota de este anexo (opcional, Enter para saltar):')
+                          if (nota === null) return
                           const url = await upload(`anexos/${view.id}`, e.target.files[0])
-                          await supabase.from('daily_income').update({ extra_url: url }).eq('id', view.id)
+                          await supabase.from('daily_income').update({ extra_url: url, extra_note: nota.trim() || null }).eq('id', view.id)
                           setMsg({ ok: true, t: 'ANEXO SUBIDO' }); loadBase()
-                          setView(v => ({ ...v, extra_url: url }))
+                          setView(v => ({ ...v, extra_url: url, extra_note: nota.trim() || null }))
                         } catch (err) { setMsg({ ok: false, t: err.message }) }
                       }} />
                     </label>}
+                {view.extra_url && !readOnly && <> <button className="link-btn" onClick={() => notaDoc('extra_url')}>&#128221; nota</button></>}
+                {view.extra_note && <p className="muted small" style={{ textTransform: 'none', margin: '2px 0 0' }}>{view.extra_note}</p>}
               </div>
             </div>
             <div className="docs-grid">
@@ -680,9 +703,11 @@ export default function Payments() {
                   <p className="muted" style={{ fontSize: 10 }}>El N° de operación se corrige arriba. Al eliminar un pago de cuota, la cuota vuelve a deber ese monto.</p>
                 </div>
               )}
-              {[['VOUCHER DEL CLIENTE', view.voucher_url], ['COMPROBANTE INTERNO', view.receipt_url]].map(([t, u]) => (
+              {[['VOUCHER DEL CLIENTE', view.voucher_url, 'voucher_url'], ['COMPROBANTE INTERNO', view.receipt_url, 'receipt_url']].map(([t, u, campo]) => (
                 <div key={t} className="doc-panel">
-                  <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}</p>
+                  <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}
+                    {u && !readOnly && <> | <button className="link-btn" onClick={() => notaDoc(campo)}>&#128221; nota</button></>}</p>
+                  {view[campoNota(campo)] && <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{view[campoNota(campo)]}</p>}
                   {!u
                     ? <p className="bad big-alert">&#9888; NO SUBIDO</p>
                     : u.toLowerCase().includes('.pdf')

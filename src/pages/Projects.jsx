@@ -89,8 +89,10 @@ export default function Projects() {
     const base = {}
     for (const [k] of CAMPOS) base[k] = p?.[k] ?? ''
     base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
+    base.copia_literal_note = p?.copia_literal_note ?? ''
     base.bot_knowledge = p?.bot_knowledge ?? ''
     base.poder_expiry = p?.poder_expiry ?? ''
+    base.carta_poder_note = p?.carta_poder_note ?? ''
     setF(base); setFLiteral(null); setFPoder(null); setFPlano(null); setFFoto1(null); setFFoto2(null); setFFoto3(null); setFVideo(null); setFBrochure(null); setFLogo(null); setMsg(null)
   }
 
@@ -134,8 +136,10 @@ export default function Projects() {
       payload.longitude = f.longitude ? Number(f.longitude) : null
       payload.copia_literal_url = literalUrl
       payload.copia_literal_expiry = f.copia_literal_expiry || null
+      payload.copia_literal_note = (f.copia_literal_note || '').trim() || null
       payload.carta_poder_url = poderUrl
       payload.poder_expiry = f.poder_expiry || null
+      payload.carta_poder_note = (f.carta_poder_note || '').trim() || null
       payload.bot_knowledge = f.bot_knowledge || null
       payload.plano_url = planoUrl
       payload.brochure_url = brochureUrl
@@ -182,6 +186,9 @@ export default function Projects() {
         ))}
         <label>Partida / copia literal (PDF o foto) {edit === 'nuevo' && <b className="bad">*</b>}
           <input type="file" accept="image/*,.pdf" onChange={e => setFLiteral(e.target.files[0] || null)} />
+          <input value={f.copia_literal_note || ''} placeholder="nota / comentario del documento"
+            style={{ textTransform: 'none', marginTop: 4 }}
+            onChange={e => setF(x => ({ ...x, copia_literal_note: e.target.value }))} />
         </label>
         <label>Vencimiento de la partida <b className="bad">*</b>
           <input type="date" value={f.copia_literal_expiry || ''} required
@@ -189,6 +196,9 @@ export default function Projects() {
         </label>
         <label>Carta poder (si aplica)
           <input type="file" accept="image/*,.pdf" onChange={e => setFPoder(e.target.files[0] || null)} />
+          <input value={f.carta_poder_note || ''} placeholder="nota / comentario del documento"
+            style={{ textTransform: 'none', marginTop: 4 }}
+            onChange={e => setF(x => ({ ...x, carta_poder_note: e.target.value }))} />
         </label>
         <label>Vigencia del poder
           <input type="date" value={f.poder_expiry || ''}
