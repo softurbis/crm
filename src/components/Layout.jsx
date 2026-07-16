@@ -5,6 +5,22 @@ import { useProject } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 
+// Boton flotante "volver arriba": aparece al bajar y desaparece arriba del todo.
+// En listas largas (clientes, cuotas, contratos) evita tener que scrollear a mano.
+function VolverArriba() {
+  const [ver, setVer] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setVer(window.scrollY > 400)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  return (
+    <button className={`to-top ${ver ? 'show' : ''}`} title="Volver arriba" aria-label="Volver arriba"
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>&#8593;</button>
+  )
+}
+
 const haceCuanto = desde => {
   if (!desde) return ''
   const m = Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 60000))
@@ -119,6 +135,7 @@ export default function Layout() {
       <main className="content" style={{ '--accent-mod': accentMod }}>
         <Outlet />
       </main>
+      <VolverArriba />
     </div>
   )
 }
