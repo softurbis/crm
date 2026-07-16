@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import Paginador, { usePaginacion } from '../components/Paginador'
 
 const TABLAS_LBL = {
   daily_income: 'PAGOS', clients: 'CLIENTES', sales: 'VENTAS', separations: 'SEPARACIONES',
@@ -75,6 +76,7 @@ export default function Bitacora() {
   }, [filtradas])
 
   const tablas = useMemo(() => [...new Set(rows.map(r => r.entity_type))].sort(), [rows])
+  const pag = usePaginacion(filtradas, 50)   // 50 por pagina, sin recargar
 
   if (role !== 'superuser') return <p className="error">Solo el SUPERUSUARIO puede ver la bitacora.</p>
 
@@ -131,7 +133,7 @@ export default function Bitacora() {
         <table>
           <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Accion</th><th>Tabla</th><th></th></tr></thead>
           <tbody>
-            {filtradas.slice(0, 200).map(r => (
+            {pag.pagina.map(r => (
               <tr key={r.id}>
                 <td>{new Date(r.created_at).toLocaleString('es-PE')}</td>
                 <td>{r.user_email || 'SISTEMA'}</td>
@@ -142,8 +144,8 @@ export default function Bitacora() {
             ))}
           </tbody>
         </table>
-        {filtradas.length > 200 && <p className="muted small">Mostrando 200 de {filtradas.length}.</p>}
       </div>
+      <Paginador {...pag} />
 
       {det && (
         <div className="modal-bg" onClick={() => setDet(null)}>

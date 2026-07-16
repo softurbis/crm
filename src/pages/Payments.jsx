@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import Paginador, { usePaginacion } from '../components/Paginador'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const estadoDe = r => {
@@ -413,6 +414,7 @@ export default function Payments() {
         (p.operation_number || '').toLowerCase().includes(t)
     })
   }, [pagos, fq, ftipo, fdoc])
+  const pag = usePaginacion(pagosFiltrados, 50)   // 50 por pagina, sin recargar
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = pagos.filter(p => !p.voucher_url).length
   const sinComprobante = pagos.filter(p => !p.receipt_url).length
@@ -579,7 +581,7 @@ export default function Payments() {
         <table>
           <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Estado</th><th>Monto</th><th>Voucher</th><th>Comprobante</th><th>Cliente</th><th>N Op.</th><th>Banco</th></tr></thead>
           <tbody>
-            {pagosFiltrados.slice(0, 300).map(r => (
+            {pag.pagina.map(r => (
               <tr key={r.id} className={'row-' + estadoDe(r).toLowerCase()}>
                 <td>{r.date}</td>
                 <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
@@ -611,8 +613,8 @@ export default function Payments() {
             ))}
           </tbody>
         </table>
-        {pagosFiltrados.length > 300 && <p className="muted small">Mostrando 300 de {pagosFiltrados.length} - usa los filtros.</p>}
       </div>
+      <Paginador {...pag} />
 
       {view && (
         <div className="modal-bg" onClick={() => setView(null)}>

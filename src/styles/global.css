@@ -449,7 +449,12 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
   min-height: 160px;
   overflow: auto;
   overscroll-behavior: contain;
+  /* SIN padding vertical: con el encabezado fijo, ese hueco dejaba ver las filas
+     pasando POR ENCIMA del encabezado al scrollear. El aire va en las celdas. */
+  padding: 0 .8rem;
 }
+thead th:first-child { border-top-left-radius: 10px; }
+thead th:last-child { border-top-right-radius: 10px; }
 thead th {
   position: sticky; top: 0; z-index: 2;
   background: var(--panel);
@@ -524,3 +529,19 @@ select { cursor: pointer; }
 .to-top:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,.55), 0 0 0 1px var(--accent); }
 
 @media (max-width: 860px) { .to-top { right: 14px; bottom: 14px; } }
+
+/* ---- paginador ---- */
+.paginador {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .8rem; flex-wrap: wrap;
+  padding: .7rem .2rem .1rem;
+}
+.pag-btns { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.pag-btns .btn-ghost { padding: .35rem .6rem; font-size: .8rem; }
+.pag-num { min-width: 32px; text-align: center; }
+.pag-num.on {
+  background: linear-gradient(135deg, #bfe3a6, #86c26b);
+  color: #0d150f; border-color: transparent; font-weight: 700;
+  box-shadow: 0 2px 10px rgba(156,203,134,.3);
+}
+.pag-num.on:hover { color: #0d150f; transform: none; }
