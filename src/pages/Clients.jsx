@@ -3,10 +3,16 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 
+// 'phone' se maneja aparte (abajo): son 2 celulares, cada uno con nota y check de bot.
 const CAMPOS = [
   ['doc_number', 'DNI / Documento'], ['full_name', 'Nombres completos'],
-  ['phone', 'Celular'], ['address', 'Direccion'], ['district', 'Distrito'],
+  ['address', 'Direccion'], ['district', 'Distrito'],
   ['province', 'Provincia'], ['department', 'Departamento'], ['civil_status', 'Estado civil'],
+]
+// [campo del numero, campo de la nota, campo del check de bot, etiqueta]
+const CELULARES = [
+  ['phone', 'phone_note', 'phone_bot', 'Celular principal'],
+  ['phone2', 'phone2_note', 'phone2_bot', 'Celular 2 (opcional)'],
 ]
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
@@ -85,7 +91,12 @@ export default function Clients() {
 
   function abrir(c) {
     setSel(c); setNuevo(!c.id)
-    setForm(Object.fromEntries(CAMPOS.map(([k]) => [k, c[k] || ''])))
+    setForm({
+      ...Object.fromEntries(CAMPOS.map(([k]) => [k, c[k] || ''])),
+      phone: c.phone || '', phone_note: c.phone_note || '', phone_bot: c.phone_bot !== false,
+      phone2: c.phone2 || '', phone2_note: c.phone2_note || '', phone2_bot: !!c.phone2_bot,
+      dni_front_note: c.dni_front_note || '', dni_back_note: c.dni_back_note || '',
+    })
     setDocType(['DNI', 'CE', 'PASAPORTE', 'RUC'].includes(c.doc_type) ? c.doc_type : 'DNI')
     setFFrente(null); setFReverso(null); setMsg(null)
   }
@@ -110,14 +121,22 @@ export default function Clients() {
       let back = sel?.dni_back_url || null
       if (fFrente) front = await subirFoto(fFrente, 'frente', doc)
       if (fReverso) back = await subirFoto(fReverso, 'reverso', doc)
-      const tel = (form.phone || '').replace(/\D/g, '')
+      const valido = v => { const t = (v || '').replace(/\D/g, ''); return t.length >= 9 && !t.includes('999999999') }
       const payload = {}
       for (const [k] of CAMPOS) payload[k] = (form[k] || '').toUpperCase().trim() || null
       Object.assign(payload, {
         doc_number: doc,
         dni_front_url: front, dni_back_url: back,
+        dni_front_note: (form.dni_front_note || '').trim() || null,
+        dni_back_note: (form.dni_back_note || '').trim() || null,
         phone: form.phone || null,
-        phone_valid: tel.length >= 9 && !tel.includes('999999999'),
+        phone_valid: valido(form.phone),
+        phone_note: (form.phone_note || '').trim() || null,
+        phone_bot: form.phone_bot !== false,
+        phone2: form.phone2 || null,
+        phone2_valid: valido(form.phone2),
+        phone2_note: (form.phone2_note || '').trim() || null,
+        phone2_bot: !!form.phone2_bot,
         doc_type: doc.startsWith('PEND') ? 'PEND' : docType,
       })
       const r = nuevo
@@ -205,12 +224,39 @@ export default function Clients() {
                     onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
                 </label>
               ))}
+              {/* 2 celulares: cada uno con su comentario y su check de "lo usa el bot" */}
+              <div className="span2" style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, padding: '8px 10px' }}>
+                <span className="muted small">CELULARES — marca cual(es) usa el bot de WhatsApp para cobranza. Un numero sin marcar (o invalido) no recibe nada del bot.</span>
+                {CELULARES.map(([kp, kn, kb, label]) => (
+                  <div key={kp} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 8 }}>
+                    <label style={{ flex: '0 1 150px' }}>{label}
+                      <input value={form[kp] || ''} disabled={readOnly}
+                        onChange={e => setForm(f => ({ ...f, [kp]: e.target.value }))} />
+                    </label>
+                    <label style={{ flex: '1 1 200px' }}>Comentario
+                      <input value={form[kn] || ''} disabled={readOnly} placeholder="ej: es el celular de la esposa"
+                        style={{ textTransform: 'none' }}
+                        onChange={e => setForm(f => ({ ...f, [kn]: e.target.value }))} />
+                    </label>
+                    <label style={{ flex: '0 0 auto', display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer', paddingBottom: 7, whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={!!form[kb]} disabled={readOnly}
+                        onChange={e => setForm(f => ({ ...f, [kb]: e.target.checked }))} /> usa el bot
+                    </label>
+                  </div>
+                ))}
+              </div>
               <label>DNI - frente {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
                 {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />}
+                {!readOnly && <input value={form.dni_front_note || ''} placeholder="nota / comentario del documento"
+                  style={{ textTransform: 'none', marginTop: 4 }}
+                  onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />}
                 {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
               </label>
               <label>DNI - reverso {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
                 {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />}
+                {!readOnly && <input value={form.dni_back_note || ''} placeholder="nota / comentario del documento"
+                  style={{ textTransform: 'none', marginTop: 4 }}
+                  onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />}
                 {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
               </label>
               <div className="span2">

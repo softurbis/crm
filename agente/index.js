@@ -957,6 +957,19 @@ function tokensCob(msg, v) {
     .split('{cuota}').join(v.q?.installment_number ?? '').split('{monto}').join(soles(v.deuda)).split('{fecha}').join(v.q?.due_date ?? '')
     .split('{dias}').join(v.dias ?? '').split('{nvencidas}').join(v.nV ?? '').split('{deuda}').join(soles(v.deuda))
 }
+// ---- a que numero(s) del cliente escribe el bot ----
+// Cada celular tiene su check en la ficha del cliente (phone_bot / phone2_bot) y su validacion.
+// Solo se escribe a los que esten MARCADOS y VALIDADOS. Ninguno marcado = no se escribe nada.
+function telefonosBot(c) {
+  const out = []
+  if (c?.phone && c.phone_valid && c.phone_bot !== false) out.push(c.phone)
+  if (c?.phone2 && c.phone2_valid && c.phone2_bot) out.push(c.phone2)
+  return out
+}
+async function enviarCliente(c, texto, opts) {
+  for (const tel of telefonosBot(c)) await enviar(tel, texto, opts)
+}
+
 async function cobranzaVentaCfg(v, cfg, hoyISO) {
   const c = v.client
   const nombre = (c.full_name || '').split(' ')[0]
@@ -972,7 +985,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
     const q = pendientes[0], d = diasEntre(q.due_date, hoyISO), deuda = Number(q.amount) - Number(q.amount_paid)
     for (const r of (b.avisos || [])) {
       if (Number(r.dias) === d && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_al' + d, dias: 25 }))) {
-        await enviar(c.phone, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_al' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_al' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       }
     }
@@ -987,7 +1000,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
   let mando = false
   for (const r of (b.avisos || [])) {
     if (Number(r.dias) === dd && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_' + dd, dias: 45 }))) {
-      await enviar(c.phone, tokensCob(r.mensaje, vars), { tipo: 'cob_' + key, installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await enviarCliente(c, tokensCob(r.mensaje, vars), { tipo: 'cob_' + key, installment_id: q.id, sale_id: v.id, client_id: c.id })
       await espera(delayAleatorio()); mando = true
     }
   }
@@ -997,7 +1010,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
     const cada = Math.max(1, Number(rep.cada_dias) || 3)
     const over = dd - base
     if (over > 0 && over % cada === 0 && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_rep' + dd, dias: 90 }))) {
-      await enviar(c.phone, tokensCob(rep.mensaje, vars), { tipo: 'cob_' + key + '_rep', installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await enviarCliente(c, tokensCob(rep.mensaje, vars), { tipo: 'cob_' + key + '_rep', installment_id: q.id, sale_id: v.id, client_id: c.id })
       await espera(delayAleatorio())
     }
   }
@@ -1021,7 +1034,7 @@ async function cobranza() {
   const hoyISO = new Date().toISOString().slice(0, 10)
 
   const { data: ventas, error } = await supabase.from('sales')
-    .select('id, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid), lot:lots!inner(mz, lt, project:projects(name)), installments(id, installment_number, amount, amount_paid, due_date, status)')
+    .select('id, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(name)), installments(id, installment_number, amount, amount_paid, due_date, status)')
     .eq('status', 'en_proceso').eq('auto_cobranza', true)
   if (error) { log('ERROR consultando ventas:', error.message); return }
 
@@ -1030,7 +1043,7 @@ async function cobranza() {
   let alertasHumanas = []
   for (const v of ventas || []) {
     const c = v.client
-    if (!c?.phone_valid || !c?.phone) continue
+    if (!telefonosBot(c).length) continue   // ningun celular marcado/validado = el bot no le escribe
     if (usarCfg) { await cobranzaVentaCfg(v, cfg, hoyISO); continue }   // reglas por días configurables
     const nombre = (c.full_name || '').split(' ')[0]
     const lote = `Mz ${v.lot.mz} Lt ${v.lot.lt}`
@@ -1043,13 +1056,13 @@ async function cobranza() {
     if (nV >= 3) {
       // NIVEL C: severo cada 3 dias
       if (!(await yaAvisado({ sale_id: v.id, tipo: 'nivel_C', dias: 3 }))) {
-        await enviar(c.phone, msjC(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_C', sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjC(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_C', sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       }
     } else if (nV === 2) {
       // NIVEL B: cada 3 dias
       if (!(await yaAvisado({ sale_id: v.id, tipo: 'nivel_B', dias: 3 }))) {
-        await enviar(c.phone, msjB(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_B', sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjB(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_B', sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       }
     } else if (nV === 1) {
@@ -1058,10 +1071,10 @@ async function cobranza() {
       const dd = diasEntre(hoyISO, q.due_date)
       const deuda = Number(q.amount) - Number(q.amount_paid)
       if (dd === 2 && !(await yaAvisado({ installment_id: q.id, tipo: 'insist_2', dias: 30 }))) {
-        await enviar(c.phone, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_2', installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_2', installment_id: q.id, sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       } else if (dd === 4 && !(await yaAvisado({ installment_id: q.id, tipo: 'insist_4', dias: 30 }))) {
-        await enviar(c.phone, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_4', installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_4', installment_id: q.id, sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       } else if (dd >= 5 && !(await yaAvisado({ sale_id: v.id, tipo: 'gestion_humana', dias: 45 }))) {
         await supabase.from('scheduled_messages').insert({
@@ -1078,7 +1091,7 @@ async function cobranza() {
       const mapa = { 5: 'A5', 3: 'A3', 0: 'A0' }
       const cuando = mapa[d]
       if (cuando && !(await yaAvisado({ installment_id: q.id, tipo: cuando, dias: 20 }))) {
-        await enviar(c.phone, msjA(nombre, lote, proy, q, deuda, cuando), { tipo: cuando, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjA(nombre, lote, proy, q, deuda, cuando), { tipo: cuando, installment_id: q.id, sale_id: v.id, client_id: c.id })
         await espera(delayAleatorio())
       }
     }

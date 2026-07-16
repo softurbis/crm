@@ -96,7 +96,7 @@ export default function Contracts() {
     if (!pidOp) return
     const [v, p] = await Promise.all([
       supabase.from('sales')
-        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
+        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
         .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
         .order('sale_date', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
@@ -130,13 +130,25 @@ export default function Contracts() {
   }, [ventas, q])
 
   async function subirFirmado(v, file) {
+    // todo documento se sube con su nota/comentario
+    const nota = prompt('Comentario / nota de este contrato (opcional, Enter para saltar):\n\nEj: firmado con poder · falta legalizar · copia escaneada que mando el cliente')
+    if (nota === null) return   // cancelo: no se sube nada
     const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
     const path = `contratos/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
     const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
     const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
-    await supabase.from('sales').update({ signed_contract_url: url }).eq('id', v.id)
+    await supabase.from('sales').update({ signed_contract_url: url, contract_note: nota.trim() || null }).eq('id', v.id)
     setMsg({ ok: true, t: 'CONTRATO FIRMADO SUBIDO' }); load()
+  }
+
+  // editar/agregar la nota de un contrato ya subido
+  async function notaContrato(v) {
+    const nota = prompt('Comentario / nota de este contrato:', v.contract_note || '')
+    if (nota === null) return
+    const { error } = await supabase.from('sales').update({ contract_note: nota.trim() || null }).eq('id', v.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'NOTA DEL CONTRATO GUARDADA' }); load()
   }
 
   async function guardarPlantilla() {
@@ -197,7 +209,11 @@ export default function Contracts() {
                 <td>{v.sale_date}</td>
                 <td>
                   {v.signed_contract_url
-                    ? <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>
+                    ? <>
+                        <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>{' '}
+                        <button className="link-btn" onClick={() => notaContrato(v)}>&#128221; nota</button>
+                        {v.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{v.contract_note}</div>}
+                      </>
                     : <label className="upload-btn bad">&#9888; subir firmado
                         <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(v, e.target.files[0])} />
                       </label>}
