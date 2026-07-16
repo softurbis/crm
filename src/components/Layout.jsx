@@ -104,6 +104,12 @@ export default function Layout() {
   const { pathname } = useLocation()
   const accentMod = [...GLOBAL, ...PROYECTO].find(m => m.to === '/' ? pathname === '/' : pathname.startsWith(m.to))?.color
 
+  // Color del proyecto activo: se inyecta como --accent en el contenido, asi los
+  // botones, chips y el paginador se tiñen con el color de ESE proyecto. El menu
+  // izquierdo no se toca (cada modulo conserva su propio color).
+  const iProy = projects.findIndex(p => p.id === pid)
+  const colorActivo = iProy >= 0 ? colorProyecto(projects[iProy], iProy) : null
+
   const Item = m => (
     <NavLink key={m.to} to={m.to} end={m.end} style={{ '--mi': m.color }}
       className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
@@ -181,7 +187,13 @@ export default function Layout() {
           <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 5 }} onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
-      <main className="content" style={{ '--accent-mod': accentMod }}>
+      <main className="content" style={{
+        '--accent-mod': accentMod,
+        ...(colorActivo ? {
+          '--accent': colorActivo,
+          '--accent-strong': `color-mix(in srgb, ${colorActivo} 62%, #ffffff)`,
+        } : {}),
+      }}>
         <Outlet />
       </main>
       <VolverArriba />
