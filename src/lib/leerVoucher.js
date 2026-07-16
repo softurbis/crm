@@ -104,10 +104,42 @@ const BANCOS = [
   { nombre: 'BANCO DE LA NACION', tipo: null, claves: ['banco de la nacion', 'nacion'] },
 ]
 
+// Interesa el banco de ORIGEN: de donde paga el cliente (esa es la cuenta en la
+// que se registra). Un voucher suele nombrar dos (origen y destino), asi que no
+// vale con tomar el primero de la lista: hay que mirar DONDE se menciona.
+const MARCAS_ORIGEN = /cuenta\s+de\s+cargo|cuenta\s+cargo|cuenta\s+de\s+origen|cuenta\s+origen|origen|desde|enviad[oa]\s+desde|pagad[oa]\s+con|debitad[oa]\s+de|cargo\s+a/g
+
 function buscarBanco(t) {
   const b = t.toLowerCase()
-  for (const x of BANCOS) if (x.claves.some(k => b.includes(k))) return x
-  return null
+  // TODAS las menciones, no solo la primera de cada banco: el emisor se nombra
+  // en el titulo (posicion 0) y OTRA VEZ en "cuenta de cargo: X". Si solo se
+  // guarda la primera, la del titulo queda ANTES de la marca de origen, el
+  // filtro la descarta y termina ganando el banco de destino (al reves).
+  const menciones = []
+  for (const x of BANCOS)
+    for (const k of x.claves) {
+      let i = b.indexOf(k)
+      while (i >= 0) { menciones.push({ banco: x, pos: i }); i = b.indexOf(k, i + k.length) }
+    }
+  if (!menciones.length) return null
+  menciones.sort((a, c) => a.pos - c.pos)
+  if (new Set(menciones.map(m => m.banco.nombre)).size === 1) return menciones[0].banco
+
+  // Hay varios: gana el nombrado justo DESPUES de una marca de origen
+  // ("cuenta de cargo: Interbank", "enviado desde BBVA").
+  for (const m of [...b.matchAll(MARCAS_ORIGEN)].map(x => x.index)) {
+    const cerca = menciones.filter(x => x.pos > m && x.pos - m < 60).sort((a, c) => a.pos - c.pos)[0]
+    if (cerca) return cerca.banco
+  }
+  // Sin pistas: el primero que aparece. Es el que emite el voucher (logo/titulo
+  // arriba), que normalmente es el banco de origen.
+  return menciones[0].banco
+}
+
+// todos los bancos nombrados, por si hay que elegir a mano
+function bancosEn(t) {
+  const b = t.toLowerCase()
+  return BANCOS.filter(x => x.claves.some(k => b.includes(k))).map(x => x.nombre)
 }
 
 // Los 4 tipos que maneja el formulario: TRANSFERENCIA | DEPOSITO | BILLETERA DIGITAL | EFECTIVO
@@ -229,6 +261,7 @@ export async function leerVoucher(file) {
   return {
     monto, operacion, fecha,
     banco: banco?.nombre || null,
+    bancosPosibles: bancosEn(t),   // si el voucher nombra varios, para elegir a mano
     tipoOperacion: buscarTipoOperacion(t, banco),
     texto,
     confianza: Math.round(data?.confidence || 0),

@@ -847,3 +847,13 @@ select { cursor: pointer; }
 .bsc-lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bsc-sub { font-size: .66rem; flex: none; }
 .bsc-nada { padding: .5rem; font-size: .72rem; text-transform: none; }
+
+/* ---- contraste del voucher contra la cuota que toca ---- */
+.cotejo {
+  padding: .5rem .7rem; border-radius: 9px;
+  font-size: .78rem; line-height: 1.4;
+  border: 1px solid;
+}
+.cotejo.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); border-color: color-mix(in srgb, var(--ok) 45%, transparent); color: var(--ok); }
+.cotejo.dif { background: rgba(224,178,63,.13); border-color: rgba(224,178,63,.5); color: #e0b23f; }
+.cotejo b { color: inherit; }

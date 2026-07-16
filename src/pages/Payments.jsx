@@ -201,6 +201,18 @@ export default function Payments() {
     }) || null
   }, [ocr, accounts])
 
+  // Contraste voucher vs cuota que toca. Es el chequeo que evita el error caro:
+  // registrar un monto que no es el que el cliente debia. Solo avisa — igual se
+  // puede registrar (puede ser adelanto, pago parcial o pago de varias cuotas).
+  const cotejo = useMemo(() => {
+    if (tipo !== 'cuota' || !ctx?.pend?.length) return null
+    const leido = ocr?.monto != null ? Number(ocr.monto) : (monto ? Number(monto) : null)
+    if (leido == null || !Number.isFinite(leido)) return null
+    const q = ctx.pend[0]
+    const esperado = Math.round((Number(q.amount) - Number(q.amount_paid)) * 100) / 100
+    return { ok: Math.abs(leido - esperado) < 0.05, esperado, leido, n: q.installment_number }
+  }, [tipo, ctx, ocr, monto])
+
   // aplica UN dato leido (al hacer clic en su cuadro o en su fila)
   const aplicarDato = k => {
     if (k === 'monto' && ocr?.monto != null) setMonto(String(ocr.monto))
@@ -504,10 +516,27 @@ export default function Payments() {
       </div>}
 
       {!readOnly && <form className="glass form-card form-compact" onSubmit={submit}>
-        {/* PASO 1: el voucher va primero. De ahi salen solos monto, operacion,
-            fecha, tipo y cuenta; luego solo queda elegir lote y cliente. */}
-        <div className={`paso ${fVoucher ? 'listo' : ''}`}>
+        {/* PASO 1: primero el lote/cliente. Sabiendo el lote, el sistema ya sabe
+            que cuota toca y con cuanto, y despues puede CONTRASTAR el voucher. */}
+        <div className={`paso ${lotId ? 'listo' : ''}`}>
           <span className="paso-n">1</span>
+          <span className="paso-t">Busca el lote o el cliente</span>
+        </div>
+        <div className="form-grid">
+          <label>Lote <span className="muted small">({lotesFiltrados.length})</span>
+            <Buscador opciones={opcLotes} valor={lotId} onChange={setLotId} required autoFocus
+              placeholder="Escribe la mz o el lote… (ej. G7)" />
+          </label>
+          <label>Cliente <span className="muted small">({clients.length})</span>
+            <Buscador opciones={opcClientes} valor={clientId} onChange={setClientId} required
+              placeholder="Escribe el nombre o el DNI…"
+              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale} />
+          </label>
+        </div>
+
+        {/* PASO 2: el voucher. Se lee y se contrasta con lo que deberia pagar. */}
+        <div className={`paso ${fVoucher ? 'listo' : ''}`}>
+          <span className="paso-n">2</span>
           <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')} style={{ flex: 1 }}>
             Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
             <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'}
@@ -522,24 +551,25 @@ export default function Payments() {
         {ocrBusy && <div className="ocr-box"><span className="ocr-load">Leyendo el voucher…</span></div>}
         {ocr?.vacio && <div className="ocr-box"><span className="muted">No pude leer datos de esta imagen — llénalos a mano abajo.</span></div>}
         {ocr?.error && <div className="ocr-box"><span className="muted">No se pudo analizar la imagen — llénalos a mano abajo.</span></div>}
+
+        {/* contraste contra la cuota que toca: es el chequeo que evita el error caro */}
+        {cotejo && (
+          <div className={`cotejo ${cotejo.ok ? 'ok' : 'dif'}`}>
+            {cotejo.ok
+              ? <>✓ <b>Coincide</b> con la cuota N° {cotejo.n}: {soles(cotejo.esperado)}</>
+              : <>⚠ <b>No coincide.</b> La cuota N° {cotejo.n} debe <b>{soles(cotejo.esperado)}</b> y el voucher dice <b>{soles(cotejo.leido)}</b> ({cotejo.leido > cotejo.esperado ? 'paga de más' : 'falta'} {soles(Math.abs(cotejo.leido - cotejo.esperado))}). Puedes registrarlo igual si es correcto.</>}
+          </div>
+        )}
+
         <VoucherReview file={fVoucher} ocr={ocr} cuentaSugerida={cuentaSugerida}
           montoActual={monto} onElegirMonto={v => setMonto(String(v))}
           onAplicar={aplicarDato} onAplicarTodo={usarTodo} />
 
         <div className="paso">
-          <span className="paso-n">2</span>
-          <span className="paso-t">Elige el lote y el cliente, y revisa lo que se llenó solo</span>
+          <span className="paso-n">3</span>
+          <span className="paso-t">Revisa lo que se llenó solo y registra</span>
         </div>
         <div className="form-grid">
-          <label>Lote <span className="muted small">({lotesFiltrados.length})</span>
-            <Buscador opciones={opcLotes} valor={lotId} onChange={setLotId} required
-              placeholder="Escribe la mz o el lote… (ej. G7)" />
-          </label>
-          <label>Cliente <span className="muted small">({clients.length})</span>
-            <Buscador opciones={opcClientes} valor={clientId} onChange={setClientId} required
-              placeholder="Escribe el nombre o el DNI…"
-              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale} />
-          </label>
           <label>Fecha <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} required /></label>
           <label>Monto S/ <input type="number" step="0.01" min="0.01" value={monto} onChange={e => setMonto(e.target.value)} required /></label>
           <label>N operacion <input value={nroOp} onChange={e => setNroOp(e.target.value)} placeholder="del voucher" /></label>
