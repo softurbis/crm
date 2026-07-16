@@ -647,3 +647,7 @@ select { cursor: pointer; }
   transform: scale(1.1);
 }
 .color-libre { width: 40px; height: 28px; padding: 2px; cursor: pointer; }
+
+/* ---- celda de foto en Usuarios ---- */
+.ava-cel { display: flex; align-items: center; gap: .5rem; }
+.ava-acc { display: flex; flex-direction: column; gap: 1px; font-size: .7rem; line-height: 1.3; }

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useProject, colorProyecto } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
+import Avatar from './Avatar'
 
 // Boton flotante "volver arriba": aparece al bajar y desaparece arriba del todo.
 // En listas largas (clientes, cuotas, contratos) evita tener que scrollear a mano.
@@ -81,7 +82,10 @@ export default function Layout() {
   useEffect(() => {
     if (!esAdmin) return
     const cargar = () => {
-      supabase.from('profiles').select('id, full_name, role, online_since, last_seen').gte('last_seen', new Date(Date.now() - 130000).toISOString()).order('online_since')
+      // select('*') a proposito: si se nombra avatar_url y la columna aun no existe
+      // (sql/26 sin correr), PostgREST rechaza el query entero y la lista de
+      // conectados desaparece. Con '*' simplemente no hay foto y se ven las iniciales.
+      supabase.from('profiles').select('*').gte('last_seen', new Date(Date.now() - 130000).toISOString()).order('online_since')
         .then(({ data }) => setConectados(data || []))
     }
     cargar()
@@ -146,8 +150,11 @@ export default function Layout() {
             <p className="muted" style={{ fontWeight: 700, letterSpacing: '.5px', margin: '0 0 4px', flexShrink: 0 }}>🟢 CONECTADOS ({conectados.length})</p>
             <div style={{ overflowY: 'auto', minHeight: 0 }}>
               {conectados.map(u => (
-                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, padding: '2px 0' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: '#6fdd9b' }}>●</span> {u.full_name || '—'}</span>
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '3px 0' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+                    <Avatar url={u.avatar_url} nombre={u.full_name} size={20} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name || '—'}</span>
+                  </span>
                   <span className="muted" style={{ whiteSpace: 'nowrap' }}>{haceCuanto(u.online_since)}</span>
                 </div>
               ))}
@@ -155,10 +162,15 @@ export default function Layout() {
           </div>
         )}
         <div className="sidebar-footer">
-          <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            title={profile?.full_name}>{profile?.full_name}</p>
-          <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
-          <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 3 }} onClick={logout}>Cerrar sesión</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+            <Avatar url={profile?.avatar_url} nombre={profile?.full_name} size={30} title={profile?.full_name} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={profile?.full_name}>{profile?.full_name}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
+            </div>
+          </div>
+          <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 5 }} onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
       <main className="content" style={{ '--accent-mod': accentMod }}>

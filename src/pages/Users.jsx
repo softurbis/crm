@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
 import { PANELS } from '../components/Layout'
+import Avatar from '../components/Avatar'
 
 const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -107,6 +108,32 @@ export default function Users() {
     load()
   }
 
+  // ---- foto de perfil ----
+  async function subirFoto(u, file) {
+    if (!file) return
+    if (file.size > 4 * 1024 * 1024) { setMsg({ ok: false, t: 'LA FOTO NO DEBE PASAR DE 4 MB' }); return }
+    setBusy(true); setMsg(null)
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      // el nombre cambia en cada subida para que el navegador no muestre la foto vieja en cache
+      const path = `avatars/${u.id}-${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
+      if (error) throw new Error(error.message)
+      const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+      const { error: e2 } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', u.id)
+      if (e2) throw new Error(e2.message)
+      setMsg({ ok: true, t: 'FOTO ACTUALIZADA' + (u.id === profile?.id ? ' — RECARGA PARA VERLA EN TU MENU' : '') })
+      load()
+    } catch (err) { setMsg({ ok: false, t: 'ERROR AL SUBIR LA FOTO: ' + err.message }) }
+    setBusy(false)
+  }
+  async function quitarFoto(u) {
+    if (!confirm('¿Quitar la foto de ' + (u.full_name || u.email) + '? Volveran a verse sus iniciales.')) return
+    const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', u.id)
+    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'FOTO QUITADA' })
+    load()
+  }
+
   async function resetPass(u) {
     if (!confirm('¿Enviar correo de recuperación de contraseña a ' + u.email + '?\n\nRecibirá un enlace para crear su nueva clave.')) return
     const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: window.location.origin + '/crm/reset' })
@@ -159,10 +186,23 @@ export default function Users() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Seguimiento WSP</th><th>Proyectos asignados</th><th>Paneles visibles</th></tr></thead>
+          <thead><tr><th>Foto</th><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Seguimiento WSP</th><th>Proyectos asignados</th><th>Paneles visibles</th></tr></thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id} className={u.active === false ? 'row-perdida' : ''}>
+                <td>
+                  <div className="ava-cel">
+                    <Avatar url={u.avatar_url} nombre={u.full_name || u.email} size={34} />
+                    <div className="ava-acc">
+                      <label className="link-btn" style={{ cursor: 'pointer' }} title="Subir o cambiar la foto">
+                        {u.avatar_url ? 'cambiar' : 'subir'}
+                        <input type="file" accept="image/*" hidden disabled={busy}
+                          onChange={e => { subirFoto(u, e.target.files[0]); e.target.value = '' }} />
+                      </label>
+                      {u.avatar_url && <button className="link-btn" onClick={() => quitarFoto(u)} title="Quitar la foto">quitar</button>}
+                    </div>
+                  </div>
+                </td>
                 <td>{u.email}{u.id === profile?.id && <b className="accent"> (TU)</b>}</td>
                 <td><input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} /></td>
                 <td>
