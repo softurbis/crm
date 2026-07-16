@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import { leerVoucher, esImagen } from '../lib/leerVoucher'
+import VoucherReview from '../components/VoucherReview'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const estadoDe = r => {
@@ -199,6 +200,16 @@ export default function Payments() {
     }) || null
   }, [ocr, accounts])
 
+  // aplica UN dato leido (al hacer clic en su cuadro o en su fila)
+  const aplicarDato = k => {
+    if (k === 'monto' && ocr?.monto != null) setMonto(String(ocr.monto))
+    if (k === 'operacion' && ocr?.operacion) setNroOp(ocr.operacion)
+    if (k === 'fecha' && ocr?.fecha) setFecha(ocr.fecha)
+    if (k === 'cuenta') {
+      if (cuentaSugerida) setAcctId(cuentaSugerida.id)
+      if (ocr?.tipoOperacion) setOpTipo(ocr.tipoOperacion)
+    }
+  }
   const usarTodo = () => {
     if (ocr?.monto != null) setMonto(String(ocr.monto))
     if (ocr?.operacion) setNroOp(ocr.operacion)
@@ -483,6 +494,31 @@ export default function Payments() {
       </div>}
 
       {!readOnly && <form className="glass form-card form-compact" onSubmit={submit}>
+        {/* PASO 1: el voucher va primero. De ahi salen solos monto, operacion,
+            fecha, tipo y cuenta; luego solo queda elegir lote y cliente. */}
+        <div className={`paso ${fVoucher ? 'listo' : ''}`}>
+          <span className="paso-n">1</span>
+          <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')} style={{ flex: 1 }}>
+            Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
+            <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'}
+              onChange={e => { const f = e.target.files[0] || null; setFVoucher(f); analizarVoucher(f) }} />
+          </label>
+          <label style={{ flex: 1 }}>Nota del voucher <span className="muted small">(opcional)</span>
+            <input value={vNota} placeholder="ej: lo mandó por WhatsApp" style={{ textTransform: 'none' }}
+              onChange={e => setVNota(e.target.value)} />
+          </label>
+        </div>
+
+        {ocrBusy && <div className="ocr-box"><span className="ocr-load">Leyendo el voucher…</span></div>}
+        {ocr?.vacio && <div className="ocr-box"><span className="muted">No pude leer datos de esta imagen — llénalos a mano abajo.</span></div>}
+        {ocr?.error && <div className="ocr-box"><span className="muted">No se pudo analizar la imagen — llénalos a mano abajo.</span></div>}
+        <VoucherReview file={fVoucher} ocr={ocr} cuentaSugerida={cuentaSugerida}
+          onAplicar={aplicarDato} onAplicarTodo={usarTodo} />
+
+        <div className="paso">
+          <span className="paso-n">2</span>
+          <span className="paso-t">Elige el lote y el cliente, y revisa lo que se llenó solo</span>
+        </div>
         <div className="form-grid">
           <label>Lote
             <select value={lotId} onChange={e => setLotId(e.target.value)} required>
@@ -511,51 +547,6 @@ export default function Payments() {
               {['TRANSFERENCIA', 'DEPOSITO', 'BILLETERA DIGITAL', 'EFECTIVO'].map(t => <option key={t}>{t}</option>)}
             </select>
           </label>
-          <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')}>Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
-            <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'}
-              onChange={e => { const f = e.target.files[0] || null; setFVoucher(f); analizarVoucher(f) }} />
-            <input value={vNota} placeholder="nota / comentario del voucher (opcional)" style={{ textTransform: 'none', marginTop: 4 }}
-              onChange={e => setVNota(e.target.value)} />
-          </label>
-
-          {/* Lectura del voucher: se SUGIERE, tu decides que aplicar */}
-          {(ocrBusy || ocr) && (
-            <div className="ocr-box span2">
-              {ocrBusy && <span className="ocr-load">🔍 Leyendo el voucher…</span>}
-              {ocr?.vacio && <span className="muted">No pude leer datos de esta imagen — llénalos a mano.</span>}
-              {ocr?.error && <span className="muted">No se pudo analizar la imagen. Llénalos a mano.</span>}
-              {ocr && !ocr.vacio && !ocr.error && (<>
-                <b>📸 Detectado:</b>
-                {ocr.monto != null && (
-                  <button type="button" className="ocr-chip" title="Poner este monto"
-                    onClick={() => setMonto(String(ocr.monto))}>Monto S/ {Number(ocr.monto).toFixed(2)}</button>
-                )}
-                {ocr.operacion && (
-                  <button type="button" className="ocr-chip" title="Poner este N° de operación"
-                    onClick={() => setNroOp(ocr.operacion)}>Op. {ocr.operacion}</button>
-                )}
-                {ocr.fecha && (
-                  <button type="button" className="ocr-chip" title="Poner esta fecha"
-                    onClick={() => setFecha(ocr.fecha)}>Fecha {ocr.fecha}</button>
-                )}
-                {ocr.tipoOperacion && (
-                  <button type="button" className="ocr-chip" title="Poner este tipo de operación"
-                    onClick={() => setOpTipo(ocr.tipoOperacion)}>{ocr.tipoOperacion}</button>
-                )}
-                {cuentaSugerida && (
-                  <button type="button" className="ocr-chip" title={'Detecté ' + ocr.banco + ' → poner esta cuenta'}
-                    onClick={() => setAcctId(cuentaSugerida.id)}>Cuenta: {cuentaSugerida.name}</button>
-                )}
-                {ocr.banco && !cuentaSugerida && (
-                  <span className="ocr-aviso" title="No hay ninguna cuenta de este banco en el proyecto">
-                    Banco {ocr.banco} — sin cuenta que coincida
-                  </span>
-                )}
-                <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={usarTodo}>Usar todo</button>
-                <span className="muted small">lectura automática ({ocr.confianza}%) — <b>revísala siempre</b></span>
-              </>)}
-            </div>
-          )}
           {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
           <label>Vendedor (asesor) <button type="button" className="link-btn" onClick={nuevoAsesor} title="Registrar un vendedor nuevo, tambien externo">+ nuevo</button>

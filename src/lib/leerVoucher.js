@@ -136,21 +136,90 @@ function buscarOperacion(t) {
  * Lee un voucher y devuelve lo que pudo detectar.
  * @returns {{monto:number|null, operacion:string|null, fecha:string|null, texto:string, confianza:number}}
  */
+// ---- coordenadas: para poder dibujar el cuadro sobre el voucher ----
+// Tesseract entrega cada palabra con su bbox. Segun la version vienen en
+// data.words o anidadas en blocks > paragraphs > lines > words.
+function palabrasDe(data) {
+  if (data?.words?.length) return data.words
+  return (data?.blocks || []).flatMap(b =>
+    (b.paragraphs || []).flatMap(p => (p.lines || []).flatMap(l => l.words || [])))
+}
+const soloDigitos = s => String(s || '').replace(/\D/g, '')
+const unirCajas = cs => cs.length ? {
+  x0: Math.min(...cs.map(b => b.x0)), y0: Math.min(...cs.map(b => b.y0)),
+  x1: Math.max(...cs.map(b => b.x1)), y1: Math.max(...cs.map(b => b.y1)),
+} : null
+
+// el monto: la palabra cuyo numero coincide con lo detectado
+function cajaMonto(words, monto) {
+  if (monto == null) return null
+  for (const w of words) {
+    const limpio = String(w.text || '').replace(/[^\d.,]/g, '')
+    if (!limpio) continue
+    const n = aNumero(limpio)
+    if (n != null && Math.abs(n - monto) < 0.005) return w.bbox || null
+  }
+  return null
+}
+// la operacion: la palabra con exactamente esos digitos
+function cajaDigitos(words, valor) {
+  const d = soloDigitos(valor)
+  if (!d) return null
+  for (const w of words) if (soloDigitos(w.text) === d) return w.bbox || null
+  return null
+}
+// la fecha puede venir partida ("15 jul. 2026"): se unen las palabras del dia y el año
+function cajaFecha(words, iso) {
+  if (!iso) return null
+  const [a, m, d] = iso.split('-')
+  const junta = words.filter(w => /\d/.test(w.text || '') && soloDigitos(w.text).length >= 4 && (w.text || '').includes(a))
+  const dia = words.filter(w => soloDigitos(w.text) === String(Number(d)) || soloDigitos(w.text) === d)
+  const completa = words.filter(w => { const t = soloDigitos(w.text); return t.length >= 6 && t.includes(a.slice(2)) })
+  const cs = [...junta, ...dia, ...completa].map(w => w.bbox).filter(Boolean)
+  // solo se unen si estan en la misma linea (evita un cuadro gigante cruzando el voucher)
+  if (!cs.length) return null
+  const base = cs[0]
+  const mismaLinea = cs.filter(b => Math.abs(b.y0 - base.y0) < (base.y1 - base.y0) * 1.2)
+  return unirCajas(mismaLinea)
+}
+
+// Tamaño real de la imagen. NO se puede sacar de data.imageColor: ahi no viene
+// (devuelve 0x0) y la escala de los cuadros quedaria rota. Se mide del archivo.
+async function tamImagen(file) {
+  try {
+    const bmp = await createImageBitmap(file)
+    const t = { w: bmp.width, h: bmp.height }
+    bmp.close?.()
+    return t
+  } catch { return { w: 0, h: 0 } }
+}
+
 export async function leerVoucher(file) {
   const w = await worker()
-  const { data } = await w.recognize(file)
+  // blocks:true => vienen las palabras con coordenadas
+  const { data } = await w.recognize(file, {}, { blocks: true, text: true })
   const texto = data?.text || ''
   // se normaliza para que los regex no dependan de tildes ni de saltos raros
   const t = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ')
   const banco = buscarBanco(t)
+  const monto = buscarMonto(t)
+  const operacion = buscarOperacion(t)
+  const fecha = buscarFecha(t)
+  const words = palabrasDe(data)
+
   return {
-    monto: buscarMonto(t),
-    operacion: buscarOperacion(t),
-    fecha: buscarFecha(t),
+    monto, operacion, fecha,
     banco: banco?.nombre || null,
     tipoOperacion: buscarTipoOperacion(t, banco),
     texto,
     confianza: Math.round(data?.confidence || 0),
+    // de donde salio cada dato, para marcarlo sobre la imagen
+    cajas: {
+      monto: cajaMonto(words, monto),
+      operacion: cajaDigitos(words, operacion),
+      fecha: cajaFecha(words, fecha),
+    },
+    imagen: await tamImagen(file),
   }
 }
 
