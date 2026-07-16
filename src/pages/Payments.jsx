@@ -482,6 +482,8 @@ export default function Payments() {
   const opcClientes = useMemo(() => clients.map(c => ({
     id: c.id, label: c.full_name, sub: c.doc_number || '',
   })), [clients])
+  // en cuota/cuadre el cliente viene de la venta del lote: no se elige
+  const clienteFijo = (tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = pagos.filter(p => !p.voucher_url).length
   const sinComprobante = pagos.filter(p => !p.receipt_url).length
@@ -527,11 +529,21 @@ export default function Payments() {
             <Buscador opciones={opcLotes} valor={lotId} onChange={setLotId} required autoFocus
               placeholder="Escribe la mz o el lote… (ej. G7)" />
           </label>
-          <label>Cliente <span className="muted small">({clients.length})</span>
-            <Buscador opciones={opcClientes} valor={clientId} onChange={setClientId} required
-              placeholder="Escribe el nombre o el DNI…"
-              disabled={(tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale} />
-          </label>
+          {/* En cuota/cuadre el cliente lo define el lote: no tiene sentido un
+              buscador bloqueado, que parece usable y no lo es. Se muestra el dato. */}
+          {clienteFijo ? (
+            <label>Cliente <span className="muted small">(sale del lote)</span>
+              <div className="dato-fijo" title={ctx.sale.client?.full_name || ''}>
+                <span className="dato-pin" />
+                <b>{ctx.sale.client?.full_name || '—'}</b>
+              </div>
+            </label>
+          ) : (
+            <label>Cliente <span className="muted small">({clients.length})</span>
+              <Buscador opciones={opcClientes} valor={clientId} onChange={setClientId} required
+                placeholder="Escribe el nombre o el DNI…" />
+            </label>
+          )}
         </div>
 
         {/* PASO 2: el voucher. Se lee y se contrasta con lo que deberia pagar. */}

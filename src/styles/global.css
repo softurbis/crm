@@ -857,3 +857,15 @@ select { cursor: pointer; }
 .cotejo.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); border-color: color-mix(in srgb, var(--ok) 45%, transparent); color: var(--ok); }
 .cotejo.dif { background: rgba(224,178,63,.13); border-color: rgba(224,178,63,.5); color: #e0b23f; }
 .cotejo b { color: inherit; }
+
+/* ---- dato que no se elige (viene de otro lado): se muestra, no se edita ---- */
+.dato-fijo {
+  display: flex; align-items: center; gap: .45rem;
+  padding: .42rem .55rem; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-size: .84rem; min-height: 32px;
+  overflow: hidden;
+}
+.dato-fijo b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dato-pin { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
