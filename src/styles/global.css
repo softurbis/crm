@@ -684,3 +684,30 @@ select { cursor: pointer; }
   animation: ocr-spin .7s linear infinite;
 }
 @keyframes ocr-spin { to { transform: rotate(360deg); } }
+
+/* ===== Identificar proyectos de nombre parecido, SIN ensanchar el menu =====
+   "LAS PRADERAS DE CASHIBO" y "LAS PRADERAS DE PUCALLPA" se cortaban las dos
+   como "LAS PRADERAS D...": imposible distinguirlas. Dos arreglos:
+   1) el punto de color ahora si existe (el span estaba sin estilo = invisible),
+   2) el nombre se parte en varias lineas en vez de cortarse, asi se lee entero. */
+
+.proj-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: var(--pc);
+  box-shadow: 0 0 7px var(--pc), 0 0 0 1px rgba(0,0,0,.35);
+}
+.proj-head.on .proj-dot { box-shadow: 0 0 10px var(--pc), 0 0 0 2px color-mix(in srgb, var(--pc) 40%, transparent); }
+
+.proj-name {
+  flex: 1;
+  white-space: normal;      /* antes nowrap: cortaba el nombre y se perdia la palabra clave */
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.22;
+  font-size: .73rem;
+  letter-spacing: .02em;
+}
+/* la ultima palabra es la que distingue (CASHIBO / PUCALLPA): que resalte */
+.proj-name b { color: var(--pc); font-weight: 800; }
+.proj-head { align-items: center; padding: .45rem .55rem; }

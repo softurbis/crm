@@ -22,6 +22,14 @@ function VolverArriba() {
   )
 }
 
+// Resalta la ULTIMA palabra del nombre, que suele ser la que distingue proyectos
+// parecidos: "LAS PRADERAS DE **CASHIBO**" vs "LAS PRADERAS DE **PUCALLPA**".
+const nombreProy = n => {
+  const p = String(n || '').trim().split(/\s+/)
+  if (p.length < 2) return n
+  return <>{p.slice(0, -1).join(' ')} <b>{p[p.length - 1]}</b></>
+}
+
 const haceCuanto = desde => {
   if (!desde) return ''
   const m = Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 60000))
@@ -126,7 +134,7 @@ export default function Layout() {
                 <button type="button" className={`proj-head ${activo ? 'on' : ''}`}
                   onClick={e => { e.stopPropagation(); select(p.id); setExpandido(abierto ? null : p.id) }}>
                   <span className="proj-dot" />
-                  <span className="proj-name" title={p.name}>{p.name}</span>
+                  <span className="proj-name" title={p.name}>{nombreProy(p.name)}</span>
                   <span className={`proj-caret ${abierto ? 'open' : ''}`}>&#9656;</span>
                 </button>
                 {abierto && (
