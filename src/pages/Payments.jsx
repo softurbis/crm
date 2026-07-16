@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
+import { leerVoucher, esImagen } from '../lib/leerVoucher'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const estadoDe = r => {
@@ -75,6 +76,8 @@ export default function Payments() {
   const [venc, setVenc] = useState(addDays(hoy(), 7))
   const [fVoucher, setFVoucher] = useState(null)
   const [vNota, setVNota] = useState('')   // comentario del voucher que se sube al registrar
+  const [ocr, setOcr] = useState(null)     // lo detectado en el voucher (sugerencia, no se aplica solo)
+  const [ocrBusy, setOcrBusy] = useState(false)
   const [ctx, setCtx] = useState(null)
   const [view, setView] = useState(null)
   const [advisors, setAdvisors] = useState([])
@@ -173,9 +176,27 @@ export default function Payments() {
     return { parts, sobra: rest }
   }, [tipo, ctx, monto])
 
+  // Lee el voucher y SUGIERE los datos. Nunca pisa lo que ya escribiste: tu decides
+  // que aplicar. Solo se analizan imagenes (un PDF se sube igual, sin analizar).
+  async function analizarVoucher(file) {
+    setOcr(null)
+    if (!file || !esImagen(file)) return
+    setOcrBusy(true)
+    try {
+      const r = await leerVoucher(file)
+      setOcr(r.monto == null && !r.operacion && !r.fecha ? { vacio: true } : r)
+    } catch (err) { setOcr({ error: err.message || 'no se pudo analizar' }) }
+    setOcrBusy(false)
+  }
+  const usarTodo = () => {
+    if (ocr?.monto != null) setMonto(String(ocr.monto))
+    if (ocr?.operacion) setNroOp(ocr.operacion)
+    if (ocr?.fecha) setFecha(ocr.fecha)
+  }
+
   function reset() {
     setLotId(''); setClientId(''); setMonto(''); setNroOp(''); setObs(''); setCtx(null)
-    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setVNota(''); setAdvId(''); setCoId(''); setComision(''); setComUrbis(''); setNotifIds([])
+    setPrecioVenta(''); setMeses(48); setFecha(hoy()); setFVoucher(null); setVNota(''); setOcr(null); setAdvId(''); setCoId(''); setComision(''); setComUrbis(''); setNotifIds([])
   }
 
   async function nuevoAsesor() {
@@ -448,7 +469,7 @@ export default function Payments() {
         </p>}
       </div>}
 
-      {!readOnly && <form className="glass form-card" onSubmit={submit}>
+      {!readOnly && <form className="glass form-card form-compact" onSubmit={submit}>
         <div className="form-grid">
           <label>Lote
             <select value={lotId} onChange={e => setLotId(e.target.value)} required>
@@ -478,10 +499,37 @@ export default function Payments() {
             </select>
           </label>
           <label className={tipo === 'cuadre' ? '' : (fVoucher ? '' : 'req-file')}>Voucher del cliente {tipo === 'cuadre' ? <span className="muted">(opcional)</span> : <b className="bad">(obligatorio)</b>}
-            <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'} onChange={e => setFVoucher(e.target.files[0] || null)} />
+            <input type="file" accept="image/*,.pdf" required={tipo !== 'cuadre'}
+              onChange={e => { const f = e.target.files[0] || null; setFVoucher(f); analizarVoucher(f) }} />
             <input value={vNota} placeholder="nota / comentario del voucher (opcional)" style={{ textTransform: 'none', marginTop: 4 }}
               onChange={e => setVNota(e.target.value)} />
           </label>
+
+          {/* Lectura del voucher: se SUGIERE, tu decides que aplicar */}
+          {(ocrBusy || ocr) && (
+            <div className="ocr-box span2">
+              {ocrBusy && <span className="ocr-load">🔍 Leyendo el voucher…</span>}
+              {ocr?.vacio && <span className="muted">No pude leer datos de esta imagen — llénalos a mano.</span>}
+              {ocr?.error && <span className="muted">No se pudo analizar la imagen. Llénalos a mano.</span>}
+              {ocr && !ocr.vacio && !ocr.error && (<>
+                <b>📸 Detectado:</b>
+                {ocr.monto != null && (
+                  <button type="button" className="ocr-chip" title="Poner este monto"
+                    onClick={() => setMonto(String(ocr.monto))}>Monto S/ {Number(ocr.monto).toFixed(2)}</button>
+                )}
+                {ocr.operacion && (
+                  <button type="button" className="ocr-chip" title="Poner este N° de operación"
+                    onClick={() => setNroOp(ocr.operacion)}>Op. {ocr.operacion}</button>
+                )}
+                {ocr.fecha && (
+                  <button type="button" className="ocr-chip" title="Poner esta fecha"
+                    onClick={() => setFecha(ocr.fecha)}>Fecha {ocr.fecha}</button>
+                )}
+                <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={usarTodo}>Usar todo</button>
+                <span className="muted small">lectura automática ({ocr.confianza}%) — <b>revísala siempre</b></span>
+              </>)}
+            </div>
+          )}
           {tipo === 'separacion' && (<>
             <label>Vence el <input type="date" value={venc} onChange={e => setVenc(e.target.value)} required /></label>
           <label>Vendedor (asesor) <button type="button" className="link-btn" onClick={nuevoAsesor} title="Registrar un vendedor nuevo, tambien externo">+ nuevo</button>

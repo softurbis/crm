@@ -651,3 +651,36 @@ select { cursor: pointer; }
 /* ---- celda de foto en Usuarios ---- */
 .ava-cel { display: flex; align-items: center; gap: .5rem; }
 .ava-acc { display: flex; flex-direction: column; gap: 1px; font-size: .7rem; line-height: 1.3; }
+
+/* ---- formulario compacto (registro de pago) ---- */
+.form-compact { padding: .9rem 1rem; gap: .6rem; max-width: 1100px; }
+.form-compact .form-grid { grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: .55rem .7rem; }
+.form-compact label { font-size: .76rem; gap: .18rem; }
+.form-compact input, .form-compact select, .form-compact textarea { padding: .42rem .55rem; font-size: .84rem; border-radius: 8px; }
+.form-compact input[type="file"] { padding: .3rem; font-size: .74rem; }
+.form-compact .btn-primary { padding: .55rem 1rem; font-size: .88rem; }
+
+/* ---- lectura del voucher ---- */
+.ocr-box {
+  display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+  padding: .5rem .65rem;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  font-size: .78rem;
+}
+.ocr-chip {
+  padding: .3rem .6rem; border-radius: 20px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text); font-size: .76rem; font-weight: 700;
+}
+.ocr-chip:hover { background: var(--accent); color: #0d150f; transform: translateY(-1px); }
+.ocr-load { display: inline-flex; align-items: center; gap: .4rem; }
+.ocr-load::after {
+  content: ''; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  animation: ocr-spin .7s linear infinite;
+}
+@keyframes ocr-spin { to { transform: rotate(360deg); } }
