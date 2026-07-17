@@ -90,18 +90,36 @@ export default function Payments() {
   const [notifIds, setNotifIds] = useState([])
   const readOnly = role === 'manager'
 
+  // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
+  // por request, asi que sin esto en proyectos grandes (Pucallpa ~2200) el
+  // historial salia incompleto: los mas antiguos (iniciales, lotes entregados)
+  // se perdian y los filtros parecian rotos.
+  async function traerPagos() {
+    const cols = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
+    const paso = 1000
+    let desde = 0, todo = []
+    for (let guard = 0; guard < 50; guard++) {
+      const { data, error } = await supabase.from('daily_income').select(cols)
+        .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false })
+        .range(desde, desde + paso - 1)
+      if (error || !data?.length) break
+      todo = todo.concat(data)
+      if (data.length < paso) break
+      desde += paso
+    }
+    return todo
+  }
+
   async function loadBase() {
-    const [l, c, a, adv, r, sq] = await Promise.all([
+    const [l, c, a, adv, r, pagosTodos] = await Promise.all([
       supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').eq('project_id', pidOp).order('mz').order('lt'),
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
       supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name'),
-      supabase.from('daily_income')
-        .select('id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)')
-        .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false }),
+      traerPagos(),
     ])
-    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(sq.data || [])
+    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(pagosTodos || [])
   }
   useEffect(() => { if (pidOp) loadBase() }, [pidOp])
 
@@ -458,20 +476,24 @@ export default function Payments() {
   }
 
   const pagosFiltrados = useMemo(() => {
-    const t = fq.trim().toLowerCase()
+    // busqueda avanzada: cada palabra puede ir en cualquier orden y contra
+    // cualquier dato (lote, cliente, N operacion, concepto). "nilsson g7" o
+    // "g7 cuota" encuentran igual.
+    const terms = fq.trim().toLowerCase().split(/\s+/).filter(Boolean)
     return pagos.filter(p => {
       if (ftipo !== 'todos' && p.income_type !== ftipo) return false
       if (fdoc === 'sin_voucher' && p.voucher_url) return false
       if (fdoc === 'sin_comprobante' && p.receipt_url) return false
       if (fest !== 'todos' && estadoDe(p) !== fest) return false
-      if (!t) return true
-      const lote = p.lot ? `${p.lot.mz}-${p.lot.lt}`.toLowerCase() : ''
-      const lote2 = p.lot ? `mz ${p.lot.mz} lt ${p.lot.lt}`.toLowerCase() : ''
-      return lote.includes(t) || lote2.includes(t) ||
-        (p.client?.full_name || '').toLowerCase().includes(t) ||
-        (p.operation_number || '').toLowerCase().includes(t)
+      if (!terms.length) return true
+      const heno = [
+        p.lot ? `${p.lot.mz}${p.lot.lt} ${p.lot.mz}-${p.lot.lt} mz ${p.lot.mz} lt ${p.lot.lt}` : '',
+        p.client?.full_name || '', p.operation_number || '',
+        p.income_type || '', p.installment ? 'cuota ' + p.installment.installment_number : '',
+      ].join(' ').toLowerCase()
+      return terms.every(w => heno.includes(w))
     })
-  }, [pagos, fq, ftipo, fdoc])
+  }, [pagos, fq, ftipo, fdoc, fest])   // fest FALTABA: por eso el filtro de estado no reaccionaba
   const pag = usePaginacion(pagosFiltrados, 50)   // 50 por pagina, sin recargar
 
   // opciones para los buscadores. El lote se puede escribir como "G7" o "G-7"
@@ -487,6 +509,8 @@ export default function Payments() {
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = pagos.filter(p => !p.voucher_url).length
   const sinComprobante = pagos.filter(p => !p.receipt_url).length
+  const hayFiltro = !!fq || ftipo !== 'todos' || fdoc !== 'todos' || fest !== 'todos'
+  const limpiarFiltros = () => { setFq(''); setFtipo('todos'); setFdoc('todos'); setFest('todos') }
 
   return (
     <>
@@ -669,26 +693,27 @@ export default function Payments() {
         {!readOnly && sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
         {!readOnly && sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
       </h2>
-      <div className="toolbar">
-        <input className="search" placeholder="Filtrar por lote (G-7), cliente o N operacion..."
+      <div className="filtros">
+        <input className="search fx-search" placeholder="Buscar: lote (G7), cliente, N° operación… (varias palabras)"
           value={fq} onChange={e => setFq(e.target.value)} />
-        <select value={ftipo} onChange={e => setFtipo(e.target.value)}>
-          <option value="todos">TODOS</option>
-          <option value="cuota">CUOTAS</option>
-          <option value="inicial">INICIALES</option>
-          <option value="separacion">SEPARACIONES</option>
+        <select className={`fx-sel ${ftipo !== 'todos' ? 'on' : ''}`} value={ftipo} onChange={e => setFtipo(e.target.value)}>
+          <option value="todos">🔖 Tipo: todos</option>
+          <option value="cuota">Cuotas</option>
+          <option value="inicial">Iniciales</option>
+          <option value="separacion">Separaciones</option>
         </select>
-        <select value={fdoc} onChange={e => setFdoc(e.target.value)}>
-          <option value="todos">DOCS: TODOS</option>
-          <option value="sin_voucher">SIN VOUCHER</option>
-          <option value="sin_comprobante">SIN COMPROBANTE</option>
+        <select className={`fx-sel ${fdoc !== 'todos' ? 'on' : ''}`} value={fdoc} onChange={e => setFdoc(e.target.value)}>
+          <option value="todos">📎 Docs: todos</option>
+          <option value="sin_voucher">Sin voucher</option>
+          <option value="sin_comprobante">Sin comprobante</option>
         </select>
-        <select value={fest} onChange={e => setFest(e.target.value)}>
-          <option value="todos">ESTADO: TODOS</option>
-          <option value="ACEPTADO">ACEPTADOS</option>
-          <option value="EXPROPIADO">EXPROPIADOS</option>
-          <option value="PERDIDA">PERDIDAS</option>
+        <select className={`fx-sel ${fest !== 'todos' ? 'on' : ''}`} value={fest} onChange={e => setFest(e.target.value)}>
+          <option value="todos">● Estado: todos</option>
+          <option value="ACEPTADO">Aceptados</option>
+          <option value="EXPROPIADO">Expropiados</option>
+          <option value="PERDIDA">Pérdidas</option>
         </select>
+        {hayFiltro && <button className="fx-clear" onClick={limpiarFiltros} title="Quitar todos los filtros">✕ Limpiar</button>}
       </div>
 
       <div className="glass table-wrap">
