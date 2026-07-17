@@ -126,8 +126,10 @@ export default function Payments() {
   const lotesFiltrados = useMemo(() => {
     if (tipo === 'separacion') return lots.filter(l => l.status === 'disponible')
     if (tipo === 'inicial') return lots.filter(l => ['separado', 'disponible'].includes(l.status))
-    // 'cuota' y 'cuadre' operan sobre ventas ya existentes (lote vendido)
-    return lots.filter(l => l.status === 'vendido')
+    // 'cuota' y 'cuadre' operan sobre ventas ya existentes. Se incluye 'entregado':
+    // un lote entregado con un hueco de la migracion (cuota sin pago registrado)
+    // debe poder recibir ese pago. Antes solo 'vendido' los ocultaba.
+    return lots.filter(l => ['vendido', 'entregado'].includes(l.status))
   }, [lots, tipo])
 
   useEffect(() => {
@@ -136,15 +138,18 @@ export default function Payments() {
     const lote = lots.find(l => l.id === lotId)
     async function load() {
       if (tipo === 'cuota') {
-        const { data: sale } = await supabase.from('sales')
-          .select('id, client_id, client:clients!sales_client_id_fkey(full_name)')
-          .eq('lot_id', lotId).eq('status', 'en_proceso').maybeSingle()
-        if (!sale) { setCtx({ error: 'Este lote no tiene venta activa' }); return }
+        // se acepta la venta 'en_proceso' o 'pagado': un lote entregado/pagado con
+        // un hueco de la migracion (cuota sin pago) igual necesita registrar ese pago.
+        const { data: ventas } = await supabase.from('sales')
+          .select('id, client_id, status, client:clients!sales_client_id_fkey(full_name)')
+          .eq('lot_id', lotId).in('status', ['en_proceso', 'pagado']).order('created_at', { ascending: false })
+        const sale = (ventas || []).find(s => s.status === 'en_proceso') || (ventas || [])[0]
+        if (!sale) { setCtx({ error: 'Este lote no tiene venta registrada' }); return }
         const { data: pend } = await supabase.from('installments')
           .select('id, installment_number, amount, amount_paid, due_date, status')
           .eq('sale_id', sale.id).neq('status', 'pagado')
           .order('installment_number')
-        if (!pend?.length) { setCtx({ error: 'Todas las cuotas estan pagadas' }); return }
+        if (!pend?.length) { setCtx({ error: 'Este lote no tiene cuotas pendientes (todas pagadas)' }); return }
         setCtx({ sale, pend })
         setClientId(sale.client_id)
         setMonto((Number(pend[0].amount) - Number(pend[0].amount_paid)).toFixed(2))
