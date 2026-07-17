@@ -33,6 +33,8 @@ export default function Clients() {
   const [docType, setDocType] = useState('DNI')
   const [fFrente, setFFrente] = useState(null)
   const [fReverso, setFReverso] = useState(null)
+  const [fUnico, setFUnico] = useState(null)          // DNI como un solo documento
+  const [dniModo, setDniModo] = useState('unico')     // 'unico' | 'caras'
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
   const [fproj, setFproj] = useState('todos') // filtro por proyecto
@@ -113,9 +115,13 @@ export default function Clients() {
       phone: c.phone || '', phone_note: c.phone_note || '', phone_bot: c.phone_bot !== false,
       phone2: c.phone2 || '', phone2_note: c.phone2_note || '', phone2_bot: !!c.phone2_bot,
       dni_front_note: c.dni_front_note || '', dni_back_note: c.dni_back_note || '',
+      dni_note: c.dni_note || '',
     })
     setDocType(['DNI', 'CE', 'PASAPORTE', 'RUC'].includes(c.doc_type) ? c.doc_type : 'DNI')
-    setFFrente(null); setFReverso(null); setMsg(null)
+    // modo del DNI: si ya está en un solo documento => 'unico'; si tiene frente/reverso => 'caras';
+    // los nuevos arrancan en 'unico' (un solo documento). No cambia a los ya subidos en partes.
+    setDniModo(c.dni_url ? 'unico' : ((c.dni_front_url || c.dni_back_url) ? 'caras' : 'unico'))
+    setFFrente(null); setFReverso(null); setFUnico(null); setMsg(null)
   }
 
   async function subirFoto(file, cara, doc) {
@@ -128,14 +134,18 @@ export default function Clients() {
 
   async function guardar(e) {
     e.preventDefault()
-    if (nuevo && (!fFrente || !fReverso)) {
-      setMsg({ ok: false, t: 'OBLIGATORIO: sube la foto del DNI por ambas caras.' }); return
+    // DNI obligatorio al crear: en modo 'unico' basta 1 documento; en 'caras', ambas.
+    if (nuevo) {
+      if (dniModo === 'unico' && !fUnico) { setMsg({ ok: false, t: 'OBLIGATORIO: sube el DNI (un documento con ambas caras o PDF).' }); return }
+      if (dniModo === 'caras' && (!fFrente || !fReverso)) { setMsg({ ok: false, t: 'OBLIGATORIO: sube la foto del DNI por ambas caras.' }); return }
     }
     setBusy(true); setMsg(null)
     try {
       const doc = form.doc_number.trim().toUpperCase()
       let front = sel?.dni_front_url || null
       let back = sel?.dni_back_url || null
+      let unico = sel?.dni_url || null
+      if (fUnico) unico = await subirFoto(fUnico, 'completo', doc)
       if (fFrente) front = await subirFoto(fFrente, 'frente', doc)
       if (fReverso) back = await subirFoto(fReverso, 'reverso', doc)
       const valido = v => { const t = (v || '').replace(/\D/g, ''); return t.length >= 9 && !t.includes('999999999') }
@@ -143,6 +153,7 @@ export default function Clients() {
       for (const [k] of CAMPOS) payload[k] = (form[k] || '').toUpperCase().trim() || null
       Object.assign(payload, {
         doc_number: doc,
+        dni_url: unico, dni_note: (form.dni_note || '').trim() || null,
         dni_front_url: front, dni_back_url: back,
         dni_front_note: (form.dni_front_note || '').trim() || null,
         dni_back_note: (form.dni_back_note || '').trim() || null,
@@ -202,7 +213,7 @@ export default function Clients() {
                     <span className="bad" style={{ marginLeft: 6, fontSize: '.66rem', fontWeight: 700 }}>&#9888; EXPROPIADO</span>}
                 </td>
                 <td>{c.phone_valid ? c.phone : <span className="bad">{c.phone || 'sin celular'}</span>}</td>
-                <td>{c.dni_front_url && c.dni_back_url ? <span className="ok">completo</span> : <span className="warn">falta</span>}</td>
+                <td>{c.dni_url || (c.dni_front_url && c.dni_back_url) ? <span className="ok">completo</span> : <span className="warn">falta</span>}</td>
                 <td>
                   {proysDe(c).length === 0 ? <span className="muted">-</span> : proysDe(c).map(pid => (
                     <span key={pid} className="st-chip" title={allowed.has(pid) ? nombreProyFull(pid) : nombreProyFull(pid) + ' (no asignado a tu usuario: solo referencia)'}
@@ -282,20 +293,43 @@ export default function Clients() {
                   </div>
                 ))}
               </div>
-              <label>DNI - frente {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
-                {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />}
-                {!readOnly && <input value={form.dni_front_note || ''} placeholder="nota / comentario del documento"
-                  style={{ textTransform: 'none', marginTop: 4 }}
-                  onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />}
-                {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
-              </label>
-              <label>DNI - reverso {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
-                {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />}
-                {!readOnly && <input value={form.dni_back_note || ''} placeholder="nota / comentario del documento"
-                  style={{ textTransform: 'none', marginTop: 4 }}
-                  onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />}
-                {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
-              </label>
+              {/* DNI: un solo documento (ambas caras/PDF) o por frente y reverso */}
+              <div className="span2">
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                  <span className="muted small" style={{ marginRight: 4 }}>DOCUMENTO (DNI):</span>
+                  {!readOnly && [['unico', '📄 Un solo documento'], ['caras', '🪪 Frente y reverso']].map(([v, t]) => (
+                    <button type="button" key={v} className={`chip ${dniModo === v ? 'on' : ''}`} style={{ fontSize: 12 }} onClick={() => setDniModo(v)}>{t}</button>
+                  ))}
+                </div>
+
+                {dniModo === 'unico' ? (
+                  <label style={{ margin: 0 }}>DNI — un documento (ambas caras o PDF) {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
+                    {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFUnico(e.target.files[0] || null)} />}
+                    {!readOnly && <input value={form.dni_note || ''} placeholder="nota / comentario del documento"
+                      style={{ textTransform: 'none', marginTop: 4 }}
+                      onChange={e => setForm(f => ({ ...f, dni_note: e.target.value }))} />}
+                    {!nuevo && sel.dni_url && <a href={sel.dni_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_url} alt="DNI" /></a>}
+                    {!nuevo && !sel.dni_url && (sel.dni_front_url || sel.dni_back_url) && <span className="hint" style={{ display: 'block', marginTop: 4 }}>Este cliente tiene el DNI en 2 partes (frente/reverso). Sube uno aquí solo si quieres reemplazarlo por un documento único.</span>}
+                  </label>
+                ) : (
+                  <div className="form-grid" style={{ margin: 0 }}>
+                    <label style={{ margin: 0 }}>DNI - frente {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
+                      {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFFrente(e.target.files[0] || null)} />}
+                      {!readOnly && <input value={form.dni_front_note || ''} placeholder="nota / comentario"
+                        style={{ textTransform: 'none', marginTop: 4 }}
+                        onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />}
+                      {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
+                    </label>
+                    <label style={{ margin: 0 }}>DNI - reverso {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
+                      {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => setFReverso(e.target.files[0] || null)} />}
+                      {!readOnly && <input value={form.dni_back_note || ''} placeholder="nota / comentario"
+                        style={{ textTransform: 'none', marginTop: 4 }}
+                        onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />}
+                      {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
+                    </label>
+                  </div>
+                )}
+              </div>
               <div className="span2">
                 {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
                 {!readOnly && <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : 'Guardar'}</button>}
