@@ -35,11 +35,12 @@ export default function Clients() {
   const [fReverso, setFReverso] = useState(null)
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
+  const [fproj, setFproj] = useState('todos') // filtro por proyecto
 
   async function load() {
     const [{ data, error }, prj] = await Promise.all([
       supabase.from('clients')
-        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(project_id)), separations(id, status, lot:lots(project_id))')
+        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), separations(id, status, lot:lots(mz, lt, project_id))')
         .order('full_name'),
       supabase.from('projects').select('id, name').order('created_at'),
     ])
@@ -56,6 +57,16 @@ export default function Clients() {
     return [...ids]
   }
   const nombreProyFull = id => allProjects.find(p => p.id === id)?.name || 'PROYECTO'
+  // lotes del cliente agrupados por proyecto: { project_id: ['G-7', 'H-3 (exp)'] }
+  function lotesDe(c) {
+    const m = {}
+    for (const s of (c.sales || [])) {
+      const pid = s.lot?.project_id
+      if (!pid || !s.lot?.mz) continue
+      ;(m[pid] = m[pid] || []).push(`${s.lot.mz}-${s.lot.lt}` + (s.status === 'expropiado' ? ' ⚠' : ''))
+    }
+    return m
+  }
   useEffect(() => { load() }, [])
 
   // ---- estado de cuenta: ventas + cuotas + pagos con voucher ----
@@ -79,12 +90,14 @@ export default function Clients() {
 
   const filtrada = useMemo(() => {
     const t = q.trim().toLowerCase()
-    if (!t) return list
-    return list.filter(c =>
-      c.full_name?.toLowerCase().includes(t) ||
-      c.doc_number?.toLowerCase().includes(t) ||
-      (c.phone || '').replace(/\s/g, '').includes(t.replace(/\s/g, '')))
-  }, [list, q])
+    return list.filter(c => {
+      if (fproj !== 'todos' && !proysDe(c).includes(fproj)) return false
+      if (!t) return true
+      return c.full_name?.toLowerCase().includes(t) ||
+        c.doc_number?.toLowerCase().includes(t) ||
+        (c.phone || '').replace(/\s/g, '').includes(t.replace(/\s/g, ''))
+    })
+  }, [list, q, fproj])
 
   const pendientes = list.filter(c => c.doc_type === 'PEND').length
   const telInvalidos = list.filter(c => !c.phone_valid).length
@@ -154,11 +167,17 @@ export default function Clients() {
     <>
       <h1>Clientes</h1>
 
-      <div className="toolbar">
-        <input className="search" placeholder="Buscar por nombre, DNI o celular..."
+      <div className="filtros">
+        <input className="search fx-search" placeholder="Buscar por nombre, DNI o celular..."
           value={q} onChange={e => setQ(e.target.value)} />
-        {!readOnly && <button className="btn-primary" onClick={() => abrir({})}>+ Nuevo cliente</button>}
+        <select className={`fx-sel ${fproj !== 'todos' ? 'on' : ''}`} value={fproj} onChange={e => setFproj(e.target.value)}>
+          <option value="todos">🏗️ Proyecto: todos</option>
+          {allProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {(q || fproj !== 'todos') && <button className="fx-clear" onClick={() => { setQ(''); setFproj('todos') }} title="Quitar filtros">✕ Limpiar</button>}
+        {!readOnly && <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => abrir({})}>+ Nuevo cliente</button>}
       </div>
+      <p className="muted small" style={{ margin: '0 0 10px' }}>{filtrada.length} de {list.length} clientes{fproj !== 'todos' ? ' en ' + nombreProyFull(fproj) : ''}</p>
 
       {(pendientes > 0 || telInvalidos > 0) && (
         <p className="hint">
@@ -188,11 +207,25 @@ export default function Clients() {
                     </span>
                   ))}
                 </td>
-                <td>{c.sales?.length || 0}</td>
+                <td>{(() => {
+                  const porProy = lotesDe(c)
+                  // con filtro activo: solo los lotes de ese proyecto; sin filtro: todos, agrupados
+                  const entradas = fproj !== 'todos'
+                    ? (porProy[fproj] ? [[fproj, porProy[fproj]]] : [])
+                    : Object.entries(porProy)
+                  if (!entradas.length) return <span className="muted">-</span>
+                  return entradas.map(([pid, lotes]) => (
+                    <span key={pid} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginRight: 6 }} title={nombreProyFull(pid)}>
+                      {lotes.map((l, i) => <span key={i} className="lote-chip">{l}</span>)}
+                    </span>
+                  ))
+                })()}</td>
                 <td>
-                  <button className="btn-ghost" onClick={() => abrir(c)}>{readOnly ? 'ver' : 'editar'}</button>{' '}
-                  {(c.sales?.length || 0) > 0 &&
-                    <button className="btn-ghost" onClick={() => setCta(c)}>estado de cuenta</button>}
+                  <div className="acc-row">
+                    <button className="btn-act" onClick={() => abrir(c)}>{readOnly ? '👁️ Ver' : '✏️ Editar'}</button>
+                    {(c.sales?.length || 0) > 0 &&
+                      <button className="btn-act alt" onClick={() => setCta(c)}>📄 Estado de cuenta</button>}
+                  </div>
                 </td>
               </tr>
             ))}

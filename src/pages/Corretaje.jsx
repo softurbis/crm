@@ -258,9 +258,9 @@ export default function Corretaje() {
               <span className="muted corr-sub">{nombreTipo(p.tipo)}{p.zona ? ' · ' + p.zona : ''}</span>
               <div className="corr-precio">{p.precio != null ? simbolo(p.moneda) + ' ' + Number(p.precio).toLocaleString('es-PE') : '—'}</div>
               <div className="corr-acc">
-                <button className="btn-ghost" title={p.publicado ? 'Publicada (clic para ocultar)' : 'Oculta (clic para publicar)'} onClick={() => togglePublicado(p)}>{p.publicado ? '🌐' : '🔒'}</button>
-                <button className="btn-ghost" onClick={() => setSel(p)}>✏️ Editar</button>
-                <button className="btn-ghost" onClick={() => borrar(p)}>🗑️</button>
+                <button className={`corr-btn pub ${p.publicado ? 'on' : ''}`} title={p.publicado ? 'Publicada — clic para ocultar' : 'Oculta — clic para publicar'} onClick={() => togglePublicado(p)}>{p.publicado ? '🌐' : '🔒'}</button>
+                <button className="corr-btn edit" onClick={() => setSel(p)}>✏️ Editar</button>
+                <button className="corr-btn del" title="Eliminar propiedad" onClick={() => borrar(p)}>🗑️</button>
               </div>
             </div>
           </div>

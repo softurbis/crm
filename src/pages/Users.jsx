@@ -164,7 +164,11 @@ export default function Users() {
 
   return (
     <>
-      <h1>Usuarios y permisos</h1>
+      <div className="toolbar">
+        <h1 style={{ margin: 0, flex: 1 }}>Usuarios y permisos</h1>
+        <a className="btn-act" href="https://claude.ai/code/artifact/5dfca0de-e60d-4bb7-9b7d-acd3fcbc3635" target="_blank" rel="noreferrer"
+          title="Abrir la referencia visual: qué ve y qué edita cada rol">📖 Ver permisos por rol</a>
+      </div>
       <p className="muted small">Jerarquia: SUPERUSUARIO (tu) &#8594; ADMINISTRADOR (edita todo, sin acceso a usuarios ni bitacora) &#8594; SECRETARIA (opera) &#8594; GERENCIA (solo ver).</p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
