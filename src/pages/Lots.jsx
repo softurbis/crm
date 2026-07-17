@@ -241,6 +241,105 @@ export default function Lots() {
     setDesg(false); setSel(x => ({ ...x }))
   }
 
+  const reload = () => setSel(x => ({ ...x }))   // dispara el useEffect que recarga el detalle
+  const logCambio = (entity, id, details) => supabase.from('activity_log').insert({
+    user_id: profile?.id, user_email: profile?.email, action: 'UPDATE', entity_type: entity, entity_id: id,
+    details: { ...details, project_id: pidOp },
+  })
+
+  // carga (o recarga) el desglosado de pagos de la venta actual. `abrir` = abre el modal.
+  async function cargarDesglose(abrir = false) {
+    if (!detail?.sale) return
+    const { data } = await supabase.from('daily_income')
+      .select('date, amount, income_type, operation_number, voucher_url, observation, installment_id')
+      .eq('sale_id', detail.sale.id).order('date')
+    const numDe = id => detail.inst.find(q => q.id === id)?.installment_number ?? 999
+    const ordenado = (data || []).slice().sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
+    setPagosDesg(ordenado)
+    if (abrir) setDesg(true)
+  }
+
+  // ---- INSERTAR CUOTA FALTANTE (superusuario) ----
+  // Migración con hueco (ej. falta la 11). Crea solo esa cuota; NO toca las demás.
+  async function insertarCuota() {
+    const sale = detail.sale
+    const nums = detail.inst.map(i => i.installment_number)
+    const max = nums.length ? Math.max(...nums) : 0
+    const faltan = []
+    for (let i = 1; i <= max; i++) if (!nums.includes(i)) faltan.push(i)
+    const sug = faltan[0] || (max + 1)
+    const nStr = prompt('N° de la cuota a CREAR' + (faltan.length ? '  (faltan: ' + faltan.join(', ') + ')' : '  (no hay huecos; se agregaría al final)') + ':', String(sug))
+    if (nStr === null) return
+    const n = parseInt(nStr)
+    if (!n || n < 1 || n > 120) { alert('N° inválido (1-120).'); return }
+    if (nums.includes(n)) { alert('La cuota ' + n + ' ya existe. Para corregirla usa las columnas del cronograma.'); return }
+    const refMonto = detail.inst.find(i => i.installment_number > 1)?.amount || detail.inst[0]?.amount || sale.monthly_amount || ''
+    const montoStr = prompt('Monto de la cuota ' + n + ' (S/):', String(refMonto))
+    if (montoStr === null) return
+    const monto = Number(montoStr)
+    if (!(monto > 0)) { alert('Monto inválido.'); return }
+    const fecha = prompt('Fecha de vencimiento de la cuota ' + n + ' (AAAA-MM-DD):', '')
+    if (fecha === null) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Ej: 2025-11-30'); return }
+    const motivo = prompt('Motivo (obligatorio):')
+    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    const { error } = await supabase.from('installments').insert({
+      sale_id: sale.id, installment_number: n, amount: monto, amount_paid: 0,
+      due_date: fecha, status: fecha < hoyStr ? 'vencido' : 'pendiente',
+    })
+    if (error) { alert('ERROR: ' + error.message); return }
+    await logCambio('installments', sale.id, { cambio: 'insertar_cuota', lote: sel.mz + '-' + sel.lt, cuota: n, monto, vence: fecha, motivo: motivo.trim().toUpperCase() })
+    alert('CUOTA ' + n + ' CREADA (S/ ' + monto.toFixed(2) + ', vence ' + fecha + '). MOTIVO EN BITÁCORA.')
+    reload()
+  }
+
+  // ---- EDITAR FECHA DE VENCIMIENTO de una cuota (superusuario) ----
+  async function editarVence(q) {
+    const nueva = prompt('Nueva fecha de VENCIMIENTO de la cuota ' + q.installment_number + ' (AAAA-MM-DD):', q.due_date || '')
+    if (nueva === null) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato inválido. Ej: 2025-11-30'); return }
+    if (nueva === q.due_date) return
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    // no se re-vence una cuota ya pagada; si no, se recalcula por la fecha nueva
+    const status = q.status === 'pagado' ? 'pagado' : (nueva < hoyStr ? 'vencido' : 'pendiente')
+    const { error } = await supabase.from('installments').update({ due_date: nueva, status }).eq('id', q.id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    await logCambio('installments', detail.sale.id, { cambio: 'vence_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: q.due_date, despues: nueva })
+    reload()
+  }
+
+  // ---- EDITAR "PAGADA EL": la fecha del pago que cubrió la cuota (superusuario) ----
+  async function editarPagadaEl(q) {
+    const { data: pays } = await supabase.from('daily_income').select('id, date').eq('installment_id', q.id).order('date')
+    if (!pays?.length) { alert('Esta cuota no tiene un pago registrado con fecha para editar.'); return }
+    const ultimo = pays[pays.length - 1]
+    const nueva = prompt('Fecha en que se PAGÓ la cuota ' + q.installment_number + ' (AAAA-MM-DD):', ultimo.date || '')
+    if (nueva === null) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato inválido. Ej: 2025-11-30'); return }
+    const { error } = await supabase.from('daily_income').update({ date: nueva }).eq('id', ultimo.id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    await logCambio('daily_income', ultimo.id, { cambio: 'fecha_pago_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: ultimo.date, despues: nueva })
+    cargarDesglose()   // la columna "PAGADA EL" sale de pagosDesg, no de detail
+  }
+
+  // ---- EDITAR fecha de ENTREGA / de VENTA del lote (superusuario) ----
+  async function editarFechaLote(campo, label, actual, tabla, id) {
+    const nueva = prompt('Nueva ' + label + ' (AAAA-MM-DD)' + (campo === 'delivered_at' ? ', vacío para quitarla' : '') + ':', actual || '')
+    if (nueva === null) return
+    const val = nueva.trim()
+    if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) { alert('Formato inválido. Ej: 2025-11-30'); return }
+    if (!val && campo !== 'delivered_at') { alert('Esta fecha no puede quedar vacía.'); return }
+    const { error } = await supabase.from(tabla).update({ [campo]: val || null }).eq('id', id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    await logCambio(tabla, id, { cambio: campo, lote: sel.mz + '-' + sel.lt, antes: actual || null, despues: val || null })
+    // delivered_at es columna del LOTE: hay que refrescar sel (el detalle no lo trae).
+    // sale_date vive en la venta, que se recarga sola con reload().
+    if (tabla === 'lots') { setSel(s => ({ ...s, [campo]: val || null })); loadLots() }
+    else reload()
+  }
+
   useEffect(() => {
     if (!sel) { setDetail(null); setHistorial([]); return }
     async function load() {
@@ -656,7 +755,10 @@ export default function Lots() {
             <div className="ficha">
               <p><span className="muted">Area:</span> {sel.area_m2} m2 | <span className="muted">Precio/m2:</span> S/ {Number(sel.price_per_m2).toFixed(2)}</p>
               <p><span className="muted">{detail?.sale ? 'Precio de venta:' : 'Precio lista:'}</span> <b>S/ {Number(detail?.sale ? detail.sale.total_sale_price : sel.total_price).toLocaleString('es-PE')}</b>{detail?.grupo && <span className="muted small"> (venta conjunta {detail.grupo.join('+')})</span>}</p>
-              {sel.status === 'entregado' && <p><span className="muted">Entregado el:</span> <b>{sel.delivered_at || '- (sin fecha)'}</b></p>}
+              {sel.status === 'entregado' && <p><span className="muted">Entregado el:</span> <b>{sel.delivered_at ? sel.delivered_at.split('-').reverse().join('/') : '- (sin fecha)'}</b>
+                {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">✎</button>}</p>}
+              {detail?.sale && <p><span className="muted">Fecha de venta:</span> <b>{detail.sale.sale_date ? detail.sale.sale_date.split('-').reverse().join('/') : '—'}</b>
+                {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('sale_date', 'fecha de venta', detail.sale.sale_date, 'sales', detail.sale.id)} title="Corregir fecha de venta">✎</button>}</p>}
               {expropiados.get(sel.id) && <p className="hint" style={{ color: '#c39ce0', margin: '4px 0' }}>&#9888; Este lote fue EXPROPIADO <b>{expropiados.get(sel.id)} {expropiados.get(sel.id) > 1 ? 'veces' : 'vez'}</b> (histórico). Ver el detalle y el dinero perdido más abajo.</p>}
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
@@ -855,16 +957,7 @@ export default function Lots() {
                       </>
                     )
                   })()}
-                  <p><button className="btn-ghost" onClick={async () => {
-                    const { data } = await supabase.from('daily_income')
-                      .select('date, amount, income_type, operation_number, voucher_url, observation, installment_id')
-                      .eq('sale_id', detail.sale.id).order('date')
-                    // orden: por fecha y, si empatan, por N° de cuota (cuota1, cuota2, cuota3…)
-                    const numDe = id => detail.inst.find(q => q.id === id)?.installment_number ?? 999
-                    const ordenado = (data || []).slice().sort((a, b) =>
-                      (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
-                    setPagosDesg(ordenado); setDesg(true)
-                  }}>📑 Ver desglosado de pagos</button></p>
+                  <p><button className="btn-ghost" onClick={() => cargarDesglose(true)}>📑 Ver desglosado de pagos</button></p>
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
                     : <p className="error">Telefono no valido - actualizar en la ficha del cliente</p>}
@@ -992,11 +1085,14 @@ export default function Lots() {
             })()}
             <h4 style={{ margin: '10px 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
               CRONOGRAMA DE CUOTAS ({detail.inst.length})
-              {role === 'superuser' && (
+              {role === 'superuser' && (<>
                 <button className="btn-ghost" style={{ fontSize: 11 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
                   onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
-              )}
+                <button className="btn-ghost" style={{ fontSize: 11 }} title="Crear una cuota que faltó en la migración (ej. la 11). No toca las demás."
+                  onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
+              </>)}
             </h4>
+            {role === 'superuser' && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en una fecha de <b>VENCE</b> o <b>PAGADA EL</b> para corregirla.</p>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
               <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th><th>PAGADA EL</th></tr></thead>
               <tbody>
@@ -1024,16 +1120,24 @@ export default function Lots() {
                   else if (Number(sale.initial_amount_paid) > 0) rows.push(mkRow('ini', 'INICIAL', null, sale.initial_amount_paid))
                   return rows
                 })()}
-                {detail.inst.map(q => (
-                  <tr key={q.id} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
-                    <td>{q.installment_number}</td>
-                    <td>{q.due_date?.split('-').reverse().join('/')}</td>
-                    <td>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
-                    <td>S/ {Number(q.amount_paid).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
-                    <td><span className={q.status === 'pagado' ? 'ok' : q.status === 'vencido' ? 'bad' : 'warn'}>&#9679; {q.status.toUpperCase()}</span></td>
-                    <td>{(() => { const ps = (pagosDesg || []).filter(p => p.installment_id === q.id).map(p => p.date).filter(Boolean).sort(); return ps.length ? ps[ps.length - 1].split('-').reverse().join('/') : '-' })()}</td>
-                  </tr>
-                ))}
+                {detail.inst.map(q => {
+                  const pagadaEl = (() => { const ps = (pagosDesg || []).filter(p => p.installment_id === q.id).map(p => p.date).filter(Boolean).sort(); return ps.length ? ps[ps.length - 1] : null })()
+                  const sup = role === 'superuser'
+                  return (
+                    <tr key={q.id} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                      <td>{q.installment_number}</td>
+                      <td>{sup
+                        ? <button className="fecha-edit" onClick={() => editarVence(q)} title="Corregir vencimiento">{q.due_date?.split('-').reverse().join('/')} <span>✎</span></button>
+                        : q.due_date?.split('-').reverse().join('/')}</td>
+                      <td>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td>S/ {Number(q.amount_paid).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td><span className={q.status === 'pagado' ? 'ok' : q.status === 'vencido' ? 'bad' : 'warn'}>&#9679; {q.status.toUpperCase()}</span></td>
+                      <td>{sup && pagadaEl
+                        ? <button className="fecha-edit" onClick={() => editarPagadaEl(q)} title="Corregir fecha de pago">{pagadaEl.split('-').reverse().join('/')} <span>✎</span></button>
+                        : (pagadaEl ? pagadaEl.split('-').reverse().join('/') : '-')}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             <h4 style={{ margin: '14px 0 4px' }}>PAGOS REGISTRADOS ({(pagosDesg || []).length})</h4>

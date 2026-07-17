@@ -895,3 +895,13 @@ select { cursor: pointer; }
   background: rgba(224,142,122,.14); border: 1px solid rgba(224,142,122,.45); color: var(--error);
 }
 .fx-clear:hover { background: var(--error); color: #0d150f; border-color: var(--error); }
+
+/* ---- fechas editables por superusuario (cronograma / ficha) ---- */
+.fecha-edit {
+  background: transparent; border: 1px dashed rgba(156,203,134,.4); color: inherit;
+  border-radius: 6px; padding: 1px 6px; font: inherit; font-size: inherit;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.fecha-edit span { color: var(--accent); font-size: .8em; opacity: .6; }
+.fecha-edit:hover { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.fecha-edit:hover span { opacity: 1; }
