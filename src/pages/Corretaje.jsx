@@ -40,9 +40,27 @@ export default function Corretaje() {
   const [nombresProp, setNombresProp] = useState({})
   const [nombresProy, setNombresProy] = useState({})
 
-  const cargarLista = () => supabase.from('corr_propiedades')
-    .select('id, codigo, tipo, titulo, estado, precio, moneda, publicado, zona, copia_literal_vence, cri_vence, excl_fin')
-    .order('updated_at', { ascending: false }).then(({ data }) => setLista(data || []))
+  // link de la página pública (fuera del login) para compartir
+  const LINK_PUBLICO = window.location.origin + import.meta.env.BASE_URL + 'propiedades'
+  const copiarLinkPublico = async () => {
+    try { await navigator.clipboard.writeText(LINK_PUBLICO); alert('✅ Link público copiado:\n\n' + LINK_PUBLICO + '\n\nPégalo en WhatsApp, redes o donde quieras.') }
+    catch { window.prompt('Copia este link público:', LINK_PUBLICO) }
+  }
+
+  const cargarLista = async () => {
+    const { data } = await supabase.from('corr_propiedades')
+      .select('id, codigo, tipo, titulo, estado, precio, moneda, publicado, zona, copia_literal_vence, cri_vence, excl_fin')
+      .order('updated_at', { ascending: false })
+    const props = data || []
+    // foto de portada = la primera (orden asc) de cada propiedad, para la tarjeta
+    const ids = props.map(p => p.id)
+    const portadas = {}
+    if (ids.length) {
+      const { data: fs } = await supabase.from('corr_fotos').select('propiedad_id, url, orden').in('propiedad_id', ids).order('orden')
+      for (const f of (fs || [])) if (!(f.propiedad_id in portadas)) portadas[f.propiedad_id] = f.url
+    }
+    setLista(props.map(p => ({ ...p, portada: portadas[p.id] || null })))
+  }
 
   useEffect(() => { cargarLista() }, [])
   useEffect(() => {
@@ -206,7 +224,9 @@ export default function Corretaje() {
             <button key={v} className={vista === v ? 'btn' : 'btn-ghost'} onClick={() => setVista(v)}>{t}</button>
           ))}
         </div>
-        {vista === 'propiedades' && <button className="btn" style={{ marginLeft: 'auto' }} onClick={nuevo}>➕ Nueva propiedad</button>}
+        <button className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={copiarLinkPublico} title="Copia el link de la página pública para compartir por WhatsApp, redes, etc.">🔗 Link público</button>
+        <a className="btn-ghost" href={LINK_PUBLICO} target="_blank" rel="noreferrer" title="Ver la página pública">👁️ Ver</a>
+        {vista === 'propiedades' && <button className="btn" onClick={nuevo}>➕ Nueva propiedad</button>}
       </div>
 
       {vista === 'propiedades' && (<>
@@ -222,17 +242,27 @@ export default function Corretaje() {
         </div>
       )}
 
-      <div className="glass" style={{ padding: 8 }}>
-        {!lista.length && <p className="muted" style={{ padding: 10 }}>Aún no hay propiedades. Crea la primera con “➕ Nueva propiedad”.</p>}
+      {!lista.length && <div className="glass" style={{ padding: 8 }}><p className="muted" style={{ padding: 10 }}>Aún no hay propiedades. Crea la primera con “➕ Nueva propiedad”.</p></div>}
+      <div className="corr-cards">
         {lista.map(p => (
-          <div key={p.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.07)', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 6, background: p.estado === 'vendido' ? 'rgba(123,182,224,.2)' : p.estado === 'reservado' ? 'rgba(232,193,90,.2)' : 'rgba(111,221,155,.2)' }}>{ESTADOS.find(e => e[0] === p.estado)?.[1] || p.estado}</span>
-            <b style={{ fontSize: 13 }}>{p.titulo || '(sin título)'}</b>
-            <span className="muted" style={{ fontSize: 12 }}>{nombreTipo(p.tipo)}{p.zona ? ' · ' + p.zona : ''}</span>
-            <span style={{ fontSize: 13, marginLeft: 'auto' }}>{p.precio != null ? simbolo(p.moneda) + ' ' + Number(p.precio).toLocaleString('es-PE') : '—'}</span>
-            <button className="btn-ghost" title={p.publicado ? 'Publicada (clic para ocultar)' : 'Oculta (clic para publicar)'} onClick={() => togglePublicado(p)}>{p.publicado ? '🌐 Pública' : '🔒 Oculta'}</button>
-            <button className="btn-ghost" onClick={() => setSel(p)}>✏️ Editar</button>
-            <button className="btn-ghost" onClick={() => borrar(p)}>🗑️</button>
+          <div key={p.id} className="corr-card">
+            <div className="corr-card-img" onClick={() => setSel(p)} title="Editar">
+              {p.portada
+                ? <img src={p.portada} alt={p.titulo || ''} loading="lazy" />
+                : <div className="corr-noimg"><span style={{ fontSize: 34 }}>🏠</span><span>sin foto</span></div>}
+              <span className={`corr-estado est-${p.estado}`}>{ESTADOS.find(e => e[0] === p.estado)?.[1] || p.estado}</span>
+              <span className={`corr-pub ${p.publicado ? 'on' : ''}`}>{p.publicado ? '🌐 Pública' : '🔒 Oculta'}</span>
+            </div>
+            <div className="corr-card-body">
+              <b className="corr-titulo">{p.titulo || '(sin título)'}</b>
+              <span className="muted corr-sub">{nombreTipo(p.tipo)}{p.zona ? ' · ' + p.zona : ''}</span>
+              <div className="corr-precio">{p.precio != null ? simbolo(p.moneda) + ' ' + Number(p.precio).toLocaleString('es-PE') : '—'}</div>
+              <div className="corr-acc">
+                <button className="btn-ghost" title={p.publicado ? 'Publicada (clic para ocultar)' : 'Oculta (clic para publicar)'} onClick={() => togglePublicado(p)}>{p.publicado ? '🌐' : '🔒'}</button>
+                <button className="btn-ghost" onClick={() => setSel(p)}>✏️ Editar</button>
+                <button className="btn-ghost" onClick={() => borrar(p)}>🗑️</button>
+              </div>
+            </div>
           </div>
         ))}
       </div>

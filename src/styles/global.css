@@ -905,3 +905,41 @@ select { cursor: pointer; }
 .fecha-edit span { color: var(--accent); font-size: .8em; opacity: .6; }
 .fecha-edit:hover { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .fecha-edit:hover span { opacity: 1; }
+
+/* ===== Corretaje: tarjetas grandes con foto ===== */
+.corr-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px; margin-top: 4px;
+}
+.corr-card {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0,0,0,.28);
+  transition: transform .14s, box-shadow .14s, border-color .14s;
+}
+.corr-card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,.4); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.corr-card-img {
+  position: relative; aspect-ratio: 4 / 3; background: var(--panel-2); cursor: pointer;
+  display: block;
+}
+.corr-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.corr-noimg {
+  width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+}
+.corr-estado, .corr-pub {
+  position: absolute; top: 8px; font-size: 10.5px; font-weight: 800; letter-spacing: .03em;
+  padding: 3px 8px; border-radius: 20px; text-transform: uppercase; backdrop-filter: blur(4px);
+}
+.corr-estado { left: 8px; background: rgba(111,221,155,.85); color: #0d150f; }
+.corr-estado.est-vendido { background: rgba(123,182,224,.9); }
+.corr-estado.est-reservado { background: rgba(232,193,90,.9); }
+.corr-pub { right: 8px; background: rgba(0,0,0,.55); color: #fff; }
+.corr-pub.on { background: rgba(111,221,155,.9); color: #0d150f; }
+.corr-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
+.corr-titulo { font-size: 14px; line-height: 1.25; }
+.corr-sub { font-size: 11.5px; }
+.corr-precio { font-size: 16px; font-weight: 800; color: var(--accent-strong); margin: 3px 0 6px; }
+.corr-acc { display: flex; gap: 6px; }
+.corr-acc .btn-ghost { flex: 1; font-size: 12px; padding: .38rem .4rem; text-align: center; justify-content: center; }
