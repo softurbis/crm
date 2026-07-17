@@ -93,8 +93,12 @@ export default function Clients() {
     return list.filter(c => {
       if (fproj !== 'todos' && !proysDe(c).includes(fproj)) return false
       if (!t) return true
+      // lotes del cliente en varias formas: "G7", "G-7", "mz g lt 7"
+      const lotes = (c.sales || []).map(s => s.lot?.mz
+        ? `${s.lot.mz}${s.lot.lt} ${s.lot.mz}-${s.lot.lt} mz ${s.lot.mz} lt ${s.lot.lt}` : '').join(' ').toLowerCase()
       return c.full_name?.toLowerCase().includes(t) ||
         c.doc_number?.toLowerCase().includes(t) ||
+        lotes.includes(t) ||
         (c.phone || '').replace(/\s/g, '').includes(t.replace(/\s/g, ''))
     })
   }, [list, q, fproj])
@@ -168,7 +172,7 @@ export default function Clients() {
       <h1>Clientes</h1>
 
       <div className="filtros">
-        <input className="search fx-search" placeholder="Buscar por nombre, DNI o celular..."
+        <input className="search fx-search" placeholder="Buscar por nombre, DNI, celular o lote (G-7)..."
           value={q} onChange={e => setQ(e.target.value)} />
         <select className={`fx-sel ${fproj !== 'todos' ? 'on' : ''}`} value={fproj} onChange={e => setFproj(e.target.value)}>
           <option value="todos">🏗️ Proyecto: todos</option>
