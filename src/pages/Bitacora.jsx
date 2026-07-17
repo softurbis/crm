@@ -31,6 +31,7 @@ export default function Bitacora() {
   const [ftab, setFtab] = useState('todos')
   const [fper, setFper] = useState('7')      // dias | 'hoy' | 'todo'
   const [fproj, setFproj] = useState('todos')
+  const [fuser, setFuser] = useState('todos') // filtro por usuario
   const [det, setDet] = useState(null)
 
   useEffect(() => {
@@ -50,11 +51,25 @@ export default function Bitacora() {
       if (fact !== 'todos' && r.action !== fact) return false
       if (ftab !== 'todos' && r.entity_type !== ftab) return false
       if (fproj !== 'todos' && (r.details?.project_id || null) !== fproj) return false
+      if (fuser !== 'todos' && (r.user_email || 'SISTEMA') !== fuser) return false
       if (!t) return true
       return (r.user_email || '').toLowerCase().includes(t) ||
         JSON.stringify(r.details || {}).toLowerCase().includes(t)
     })
-  }, [rows, fq, fact, ftab, fper, fproj])
+  }, [rows, fq, fact, ftab, fper, fproj, fuser])
+
+  // usuarios presentes en el log (para el filtro)
+  const usuarios = useMemo(() => [...new Set(rows.map(r => r.user_email || 'SISTEMA'))].sort(), [rows])
+
+  // actividad por HORA del día (0-23) del set filtrado → gráfico de barras
+  const porHora = useMemo(() => {
+    const h = Array.from({ length: 24 }, () => 0)
+    for (const r of filtradas) { const d = new Date(r.created_at); h[d.getHours()]++ }
+    const max = Math.max(1, ...h)
+    const total = filtradas.length
+    const picoIdx = h.indexOf(Math.max(...h))
+    return { h, max, total, picoIdx }
+  }, [filtradas])
 
   // resumen de productividad por usuario
   const resumen = useMemo(() => {
@@ -106,8 +121,31 @@ export default function Bitacora() {
           <option value="todos">TODAS LAS TABLAS</option>
           {tablas.map(t => <option key={t} value={t}>{TABLAS_LBL[t] || t}</option>)}
         </select>
+        <select value={fuser} onChange={e => setFuser(e.target.value)} title="Filtrar por usuario">
+          <option value="todos">TODOS LOS USUARIOS</option>
+          {usuarios.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
         <input className="search" placeholder="Buscar por usuario o contenido..."
           value={fq} onChange={e => setFq(e.target.value)} />
+      </div>
+
+      {/* actividad por hora del dia — resumen visual del set filtrado */}
+      <div className="glass hrs-card">
+        <div className="hrs-head">
+          <span>⏱ Actividad por hora del día {fuser !== 'todos' ? <b>· {fuser}</b> : ''}</span>
+          <span className="muted small">{porHora.total} acciones · pico a las {String(porHora.picoIdx).padStart(2, '0')}:00</span>
+        </div>
+        <div className="hrs-bars">
+          {porHora.h.map((n, hora) => (
+            <div className="hrs-col" key={hora} title={`${String(hora).padStart(2, '0')}:00 — ${n} acci${n === 1 ? 'ón' : 'ones'}`}>
+              <div className="hrs-bar-wrap">
+                {n > 0 && <span className="hrs-n">{n}</span>}
+                <div className={`hrs-bar ${hora === porHora.picoIdx && n > 0 ? 'pico' : ''}`} style={{ height: (n / porHora.max * 100) + '%' }}></div>
+              </div>
+              <span className="hrs-x">{hora % 3 === 0 ? String(hora).padStart(2, '0') : ''}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <h2 className="sub">Avance por usuario ({fper === 'hoy' ? 'hoy' : fper === 'todo' ? 'historico' : `ultimos ${fper} dias`})</h2>

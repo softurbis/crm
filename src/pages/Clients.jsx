@@ -75,10 +75,10 @@ export default function Clients() {
     async function loadCta() {
       const [v, p] = await Promise.all([
         supabase.from('sales')
-          .select('id, total_sale_price, initial_amount_paid, status, sale_date, installments_count, lot:lots(mz,lt,project_id,associated_to), installments(installment_number, due_date, amount, amount_paid, status)')
+          .select('id, total_sale_price, initial_amount_paid, financed_amount, status, sale_date, installments_count, lot:lots(mz,lt,project_id,associated_to), installments(installment_number, due_date, amount, amount_paid, status)')
           .eq('client_id', cta.id).order('sale_date'),
         supabase.from('daily_income')
-          .select('date, amount, income_type, operation_number, voucher_url, observation, lot:lots(mz,lt,project_id), installment:installments(installment_number)')
+          .select('date, amount, income_type, operation_number, voucher_url, observation, sale_id, lot:lots(mz,lt,project_id), installment:installments(installment_number)')
           .eq('client_id', cta.id).order('date'),
       ])
       const ventas = (v.data || []).filter(x => x.lot?.project_id && allowed.has(x.lot.project_id))
@@ -322,9 +322,18 @@ export default function Clients() {
               {!ctaData ? <p>Cargando...</p> : ctaData.ventas.map(v => {
                 const cuotasPag = v.installments.filter(i => i.status === 'pagado').length
                 const pagadoCuotas = v.installments.reduce((s, i) => s + Number(i.amount_paid), 0)
-                const totalPagado = pagadoCuotas + Number(v.initial_amount_paid)
-                const saldo = Number(v.total_sale_price) - totalPagado
+                // separación/inicial REALES desde caja (mismo criterio que el desglosado del lote):
+                // se prefiere el pago registrado; si no hay, la separación se deriva y la inicial usa el campo.
+                const pagosV = (ctaData.pagos || []).filter(p => p.sale_id === v.id)
+                const sepPagos = pagosV.filter(p => (p.income_type || '') === 'separacion')
+                const iniPagos = pagosV.filter(p => (p.income_type || '') === 'inicial')
+                const sepDeriv = Math.max(0, Math.round((Number(v.total_sale_price) - Number(v.initial_amount_paid) - Number(v.financed_amount || 0)) * 100) / 100)
+                const sepReal = sepPagos.length ? sepPagos.reduce((s, p) => s + Number(p.amount), 0) : sepDeriv
+                const iniReal = iniPagos.length ? iniPagos.reduce((s, p) => s + Number(p.amount), 0) : Number(v.initial_amount_paid)
+                const totalPagado = Math.round((pagadoCuotas + iniReal + sepReal) * 100) / 100
+                const saldo = Math.round((Number(v.total_sale_price) - totalPagado) * 100) / 100
                 const vencidas = v.installments.filter(i => i.status === 'vencido')
+                const fFecha = f => f ? f.split('-').reverse().join('/') : '-'
                 return (
                   <div key={v.id}>
                     <hr />
@@ -332,7 +341,7 @@ export default function Clients() {
                       ? v.lot.associated_to.split(' (')[0]
                       : `LOTE MZ ${v.lot?.mz} LT ${v.lot?.lt}`} ({v.status})</h3>
                     <p>
-                      PRECIO: <b>{soles(v.total_sale_price)}</b> | INICIAL: {soles(v.initial_amount_paid)} |
+                      PRECIO: <b>{soles(v.total_sale_price)}</b> | SEPARACIÓN: {soles(sepReal)} | INICIAL: {soles(iniReal)} |
                       PAGADO: <b>{soles(totalPagado)}</b> | SALDO: <b>{soles(saldo)}</b>
                     </p>
                     <p>
@@ -342,6 +351,18 @@ export default function Clients() {
                     <table>
                       <thead><tr><th>N</th><th>Vence</th><th>Monto</th><th>Pagado</th><th>Estado</th></tr></thead>
                       <tbody>
+                        {/* fila de SEPARACIÓN (pago real, o el derivado si no hay registro) */}
+                        {(sepPagos.length ? sepPagos.map((p, k) => ({ k: 'sep' + k, f: p.date, m: p.amount })) : (sepReal > 0 ? [{ k: 'sep', f: null, m: sepReal }] : [])).map(r => (
+                          <tr key={r.k} style={{ background: 'rgba(80,160,120,.10)' }}>
+                            <td><b>SEP.</b></td><td>{fFecha(r.f)}</td><td>{soles(r.m)}</td><td>{soles(r.m)}</td><td>PAGADO</td>
+                          </tr>
+                        ))}
+                        {/* fila de INICIAL */}
+                        {(iniPagos.length ? iniPagos.map((p, k) => ({ k: 'ini' + k, f: p.date, m: p.amount })) : (iniReal > 0 ? [{ k: 'ini', f: null, m: iniReal }] : [])).map(r => (
+                          <tr key={r.k} style={{ background: 'rgba(80,160,120,.10)' }}>
+                            <td><b>INICIAL</b></td><td>{fFecha(r.f)}</td><td>{soles(r.m)}</td><td>{soles(r.m)}</td><td>PAGADO</td>
+                          </tr>
+                        ))}
                         {v.installments.sort((a, b) => a.installment_number - b.installment_number).map(i => (
                           <tr key={i.installment_number}>
                             <td>{i.installment_number}</td>
