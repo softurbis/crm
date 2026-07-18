@@ -92,8 +92,9 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
       scheduled_for: new Date().toISOString(), conversation_id: conv.id,
       session_id: conv.session_id || null, sender_id: userId || null, ...media,
     })
-    if (error) alert('No se pudo enviar: ' + error.message)
-    setTxt(''); setAdj(null); setMandando(false); onSent && onSent()
+    if (error) { alert('No se pudo enviar: ' + error.message); setMandando(false); return }
+    const enviado = { body: body || null, media_type: media.media_type || null, media_url: media.media_url || null, media_name: media.media_name || null }
+    setTxt(''); setAdj(null); setMandando(false); onSent && onSent(enviado)
   }
   return (
     <div>
@@ -162,6 +163,41 @@ export default function Whatsapp() {
     rows.forEach(r => { const k = r[key] || ''; m.set(k, (m.get(k) || 0) + 1) })
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   }
+  // --- fluidez: no-leídos (localStorage por usuario), sonido, optimista, búsqueda global ---
+  const readKey = 'wa_unread_' + (profile?.id || 'anon')
+  const [noLeidos, setNoLeidos] = useState({})            // { conversation_id: nº de entrantes sin ver }
+  const [optimistas, setOptimistas] = useState([])        // mensajes recién enviados desde ESTE panel
+  const [globales, setGlobales] = useState([])            // resultados de búsqueda global (fuera de las 300)
+  const [buscandoG, setBuscandoG] = useState(false)
+  const audioRef = useRef(null)
+  const noLeidosRef = useRef({})
+  useEffect(() => { try { const s = JSON.parse(localStorage.getItem(readKey) || '{}'); setNoLeidos(s); noLeidosRef.current = s } catch {} }, [readKey])
+  const persistNoLeidos = obj => { noLeidosRef.current = obj; setNoLeidos(obj); try { localStorage.setItem(readKey, JSON.stringify(obj)) } catch {} }
+  const marcarLeido = c => { if (!c) return; const o = { ...noLeidosRef.current }; if (o[c.id]) { delete o[c.id]; persistNoLeidos(o) } }
+  const beep = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext
+      if (!AC) return
+      const ctx = audioRef.current || (audioRef.current = new AC())
+      const o = ctx.createOscillator(), g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.001
+      o.start(); g.gain.exponentialRampToValueAtTime(0.09, ctx.currentTime + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25); o.stop(ctx.currentTime + 0.26)
+    } catch {}
+  }
+  const notificarEntrante = (msg, conv) => {
+    const abierto = selRef.current && msg.conversation_id === selRef.current.id && document.hasFocus()
+    if (abierto) { marcarLeido(selRef.current); return }
+    if (msg.conversation_id) { const o = { ...noLeidosRef.current }; o[msg.conversation_id] = (o[msg.conversation_id] || 0) + 1; persistNoLeidos(o) }
+    beep()
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const quien = conv ? (conv.clients?.full_name || conv.leads?.full_name || '+' + conv.phone) : 'Nuevo mensaje'
+        new Notification('📩 ' + quien, { body: (msg.body || '📎 Adjunto').slice(0, 90), tag: 'wa-' + msg.conversation_id })
+      }
+    } catch {}
+  }
   // etiquetas y respuestas rápidas viven en bot_brains (chat_tags / quick_replies)
   const cargarExtras = async () => {
     const { data } = await supabase.from('bot_brains').select('key, content').in('key', ['chat_tags', 'quick_replies'])
@@ -181,6 +217,8 @@ export default function Whatsapp() {
   }
   const setTagChat = async (c, tag) => {
     await supabase.from('whatsapp_conversations').update({ tag: tag || null }).eq('id', c.id)
+    // reflejar la etiqueta como label de WhatsApp Business en el celular (best-effort en el agente)
+    await supabase.from('scheduled_messages').insert({ recipient_phone: c.phone, body: tag || null, tipo: 'label_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: c.id, session_id: c.session_id || null, sender_id: profile?.id || null }).then(() => {}, () => {})
     cargarConvs(); setSel(x => x && x.id === c.id ? { ...x, tag: tag || null } : x)
   }
   const colorTag = n => tags.find(t => t.n === n)?.c || '#9daab6'
@@ -499,11 +537,12 @@ export default function Whatsapp() {
     e.target.value = ''
   }
 
+  const convsRef = useRef([])
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
       .select('*, leads(full_name, status), clients(full_name), projects(name, color)')
       .order('last_message_at', { ascending: false, nullsFirst: false }).limit(300)
-    setConvs(data || [])
+    setConvs(data || []); convsRef.current = data || []
   }
   // sesiones (números vinculados). Si la tabla aún no existe (sql/30 sin correr), queda vacío
   // y el estado del bot se muestra con bot_settings como antes.
@@ -587,12 +626,36 @@ export default function Whatsapp() {
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
   useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
-  useEffect(() => { selRef.current = sel; cargarMsgs(sel); cargarContacto(sel) }, [sel])
+  useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); cargarContacto(sel); marcarLeido(sel) }, [sel])
+  // pedir permiso de notificación una vez
+  useEffect(() => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission() } catch {} }, [])
+  // TIEMPO REAL: mensajes al instante (RLS respeta lo que cada quien puede ver).
+  // El poll queda solo de respaldo, y más lento.
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 8000)
+    const ch = supabase.channel('wa-panel-' + (profile?.id || 'x'))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'whatsapp_messages' }, ({ new: msg }) => {
+        cargarConvs()
+        if (selRef.current && msg.conversation_id === selRef.current.id) cargarMsgs(selRef.current)
+        if ((msg.direction || 'in') === 'in') { const conv = convsRef.current.find(c => c.id === msg.conversation_id); notificarEntrante(msg, conv) }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, () => { cargarConvs(); if (verConteoRef.current) cargarConteo() })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scheduled_messages' }, ({ new: m }) => {
+        if (selRef.current && (m.conversation_id === selRef.current.id || m.recipient_phone === selRef.current.phone)) cargarMsgs(selRef.current)
+      })
+      .subscribe()
+    return () => { try { supabase.removeChannel(ch) } catch {} }
+  }, [role, profile?.id])
+  useEffect(() => {
+    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 25000)
     return () => clearInterval(t)
   }, [role])
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, optimistas.length])
+  // un optimista desaparece cuando su mensaje real ya llegó (por realtime/poll)
+  useEffect(() => {
+    if (!optimistas.length) return
+    setOptimistas(os => os.filter(o => !msgs.some(m => m.dir === 'out' && !m.pend && (m.body || '') === (o.body || '') && (!!m.media_url === !!o.media_url))))
+  }, [msgs])
+  const agregarOptimista = env => setOptimistas(o => [...o, { ...env, at: new Date().toISOString(), key: 'op' + Math.random(), dir: 'out', tipo: 'manual_panel', pend: true, sender_id: profile?.id, optim: true }])
 
   if (!['admin', 'superuser', 'secretary', 'manager', 'asesor'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso al chat de WhatsApp.</div>
 
@@ -619,6 +682,58 @@ export default function Whatsapp() {
     return [...m.entries()]
   })()
   const nombreUsuario = id => usuarios.find(u => u.id === id)?.full_name?.split(' ')[0] || '¿?'
+  // búsqueda GLOBAL: más allá de los 300 chats cargados (por teléfono o por nombre de lead/cliente)
+  const buscarGlobal = async () => {
+    const q = busca.trim()
+    if (q.length < 2) return
+    setBuscandoG(true)
+    const dig = q.replace(/\D/g, '')
+    const cols = '*, leads(full_name, status), clients(full_name), projects(name, color)'
+    const reqs = []
+    if (dig.length >= 3) reqs.push(supabase.from('whatsapp_conversations').select(cols).ilike('phone', '%' + dig + '%').limit(30))
+    const [lead, cli] = await Promise.all([
+      supabase.from('leads').select('phone').ilike('full_name', '%' + q + '%').limit(30),
+      supabase.from('clients').select('phone').ilike('full_name', '%' + q + '%').limit(30),
+    ])
+    const p9 = [...(lead.data || []), ...(cli.data || [])].map(x => String(x.phone || '').replace(/\D/g, '').slice(-9)).filter(p => p.length >= 6)
+    if (p9.length) reqs.push(supabase.from('whatsapp_conversations').select(cols).or([...new Set(p9)].map(p => `phone.ilike.%${p}%`).join(',')).limit(30))
+    const res = await Promise.all(reqs)
+    const enLista = new Set(lista.map(c => c.id))
+    const seen = new Set(), extra = []
+    for (const r of res.flatMap(x => x.data || [])) { if (enLista.has(r.id) || seen.has(r.id)) continue; seen.add(r.id); extra.push(r) }
+    setGlobales(extra); setBuscandoG(false)
+  }
+  // tarjeta de un chat en la bandeja (se reusa en la lista y en resultados globales)
+  const chatItem = c => {
+    const f = FLOW[c.flow_state]
+    const tn = tipoDe(c.phone)
+    const colProy = c.projects?.color || null
+    const nsinleer = noLeidos[c.id] || 0
+    return (
+      <div key={c.id} onClick={() => setSel(c)}
+        style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, borderLeft: colProy ? `3px solid ${colProy}` : undefined, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : nsinleer ? 'rgba(37,211,102,.07)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+          <b style={{ fontSize: 13 }}>{nombreDe(c)}</b>
+          <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+            {nsinleer > 0 && <span style={{ background: '#25d366', color: '#04210f', fontSize: 10, fontWeight: 800, borderRadius: 20, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{nsinleer}</span>}
+            <span className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fh(c.last_message_at)}</span>
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+          <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
+          <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
+            {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
+            {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
+            {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
+            {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
+            {f && c.modo !== 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
+            {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
+          </span>
+        </div>
+      </div>
+    )
+  }
   const nombreDe = c => c.clients?.full_name || c.leads?.full_name || 'SIN NOMBRE'
   const tipoDe = phone => nums.find(n => phone && (phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(phone).slice(-9))))
   const Toggle = ({ on, onClick, icon, label }) => (
@@ -1147,36 +1262,17 @@ export default function Whatsapp() {
             </div>
           )}
           {filtroAsig && <p className="muted" style={{ fontSize: 10, margin: '0 0 6px' }}>Filtrando chats de ⭐ {nombreUsuario(filtroAsig)} — <button className="link-btn" onClick={() => setFiltroAsig('')}>quitar</button></p>}
-          <input placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => setBusca(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
-          {lista.length === 0 && <p className="muted" style={{ padding: 8 }}>Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.</p>}
+          <input placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => { setBusca(e.target.value); setGlobales([]) }}
+            onKeyDown={e => { if (e.key === 'Enter') buscarGlobal() }} style={{ width: '100%', marginBottom: 8 }} />
+          {lista.length === 0 && globales.length === 0 && <p className="muted" style={{ padding: 8 }}>{busca ? 'Nada en los chats cargados.' : 'Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.'}</p>}
           <div style={vista === 'cuadros' ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 } : {}}>
-          {lista.map(c => {
-            const f = FLOW[c.flow_state]
-            const tn = tipoDe(c.phone)
-            const colProy = c.projects?.color || null
-            return (
-              <div key={c.id} onClick={() => setSel(c)}
-                style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, borderLeft: colProy ? `3px solid ${colProy}` : undefined, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                  <b style={{ fontSize: 13 }}>{nombreDe(c)}</b>
-                  <span className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fh(c.last_message_at)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                  <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
-                  <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
-                    {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
-                    {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
-                    {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
-                    {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
-                    {f && c.modo !== 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
-                    {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
+          {lista.map(chatItem)}
           </div>
+          {busca.trim().length >= 2 && (
+            globales.length > 0
+              ? <div><p className="muted" style={{ fontSize: 9, fontWeight: 700, margin: '8px 0 3px' }}>🌐 OTROS CHATS ({globales.length})</p>{globales.map(chatItem)}</div>
+              : <button className="btn-ghost" onClick={buscarGlobal} disabled={buscandoG} style={{ fontSize: 10, width: '100%', marginTop: 6 }}>{buscandoG ? 'Buscando en todos…' : '🔎 Buscar en TODOS los chats (no solo los recientes)'}</button>
+          )}
         </div>
 
         <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column', borderTop: sel?.projects?.color ? `3px solid ${sel.projects.color}` : undefined, boxShadow: rgbaDe(sel?.projects?.color, .12) ? `inset 0 0 60px ${rgbaDe(sel.projects.color, .07)}` : undefined }}>
@@ -1307,8 +1403,8 @@ export default function Whatsapp() {
                 )
               })()}
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
-                {msgs.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
-                {msgs.map((m, i) => (
+                {msgs.length === 0 && optimistas.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
+                {[...msgs, ...optimistas].map((m, i) => (
                   <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? (rgbaDe(sel.projects?.color, .28) || 'rgba(59,74,50,.9)') : 'rgba(255,255,255,.07)', border: '1px solid ' + (m.dir === 'out' ? (rgbaDe(sel.projects?.color, .4) || 'rgba(255,255,255,.08)') : 'rgba(255,255,255,.08)'), borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
                     {m.media_url && (
                       m.media_type === 'image' || m.media_type === 'sticker'
@@ -1371,7 +1467,7 @@ export default function Whatsapp() {
                 </div>
               )}
               {puedeEscribir
-                ? <ReplyBox conv={sel} userId={profile?.id} onSent={() => cargarMsgs(selRef.current)}
+                ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
                     quicks={quicks} esAdmin={esAdminW} onQuicks={guardarQuicks}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
                 : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}

@@ -1668,6 +1668,50 @@ async function guardarContactos(S, cts) {
   } catch (e) { log('contactos:', String(e.message || e)) }
 }
 
+// ---------- ETIQUETAS DE WHATSAPP BUSINESS (best-effort) ----------
+// Solo funciona si el chip es WhatsApp Business. Con Baileys es inestable, así
+// que TODO va con try/catch: si falla, se registra y no se rompe nada más.
+const hashColor = s => { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return h % 20 }
+
+// catálogo de labels que existen en la cuenta (llega por el evento labels.edit)
+async function guardarLabel(S, label) {
+  if (!label || label.id === undefined || label.id === null) return
+  try {
+    await supabase.from('wa_labels').upsert({
+      wa_id: String(label.id), session_id: sesId(S),
+      name: label.name || null, color: typeof label.color === 'number' ? label.color : null,
+      deleted: !!label.deleted, updated_at: new Date().toISOString(),
+    }, { onConflict: 'wa_id,session_id' })
+  } catch (e) { log('label save:', String(e.message || e)) }
+}
+
+// refleja la etiqueta 🏷️ del panel como label de WhatsApp en el chat del celular
+async function aplicarLabelChat(S, conv, etiqueta) {
+  if (!S.sock || !sesId(S)) return
+  const jid = conv.wa_jid || jidDe(conv.phone)
+  // quitar la label anterior que puso el panel (para que el chat tenga solo una de estado)
+  if (conv.wa_label_id) { try { await S.sock.removeChatLabel(jid, String(conv.wa_label_id)) } catch (e) { log('rm label:', String(e.message || e)) } }
+  if (!etiqueta) { await supabase.from('whatsapp_conversations').update({ wa_label_id: null }).eq('id', conv.id); return }
+  // ¿ya existe una label con ese nombre en la cuenta? (mapeo por nombre)
+  const { data: exist } = await supabase.from('wa_labels').select('wa_id').eq('session_id', sesId(S)).eq('deleted', false).ilike('name', etiqueta).limit(1)
+  let labelId = exist && exist[0] && exist[0].wa_id
+  if (!labelId) {   // crearla
+    const { data: all } = await supabase.from('wa_labels').select('wa_id').eq('session_id', sesId(S))
+    const maxId = Math.max(5, ...(all || []).map(x => parseInt(x.wa_id, 10) || 0))
+    labelId = String(maxId + 1)
+    try {
+      await S.sock.addLabel(jid, { id: labelId, name: etiqueta, color: hashColor(etiqueta) })
+      await supabase.from('wa_labels').upsert({ wa_id: labelId, session_id: sesId(S), name: etiqueta, color: hashColor(etiqueta), deleted: false, updated_at: new Date().toISOString() }, { onConflict: 'wa_id,session_id' })
+      log('LABEL creada:', etiqueta, '=', labelId)
+    } catch (e) { log('crear label (¿el chip es WhatsApp Business?):', String(e.message || e)); return }
+  }
+  try {
+    await S.sock.addChatLabel(jid, String(labelId))
+    await supabase.from('whatsapp_conversations').update({ wa_label_id: String(labelId) }).eq('id', conv.id)
+    log('LABEL', etiqueta, 'puesta a', conv.phone)
+  } catch (e) { log('poner label:', String(e.message || e)) }
+}
+
 // levanta UNA sesión Baileys (una por número/fila de wa_sessions)
 async function iniciarSesion(row) {
   const prev = SESSIONS.get(row.id)
@@ -1695,6 +1739,8 @@ async function iniciarSesion(row) {
     sock.ev.on('contacts.upsert', cts => { guardarContactos(S, cts).catch(() => {}) })
     sock.ev.on('contacts.update', cts => { guardarContactos(S, cts).catch(() => {}) })
     sock.ev.on('messaging-history.set', h => { if (h && h.contacts) guardarContactos(S, h.contacts).catch(() => {}) })
+    // etiquetas de WhatsApp Business del chip → wa_labels (solo si es Business)
+    sock.ev.on('labels.edit', l => { guardarLabel(S, l).catch(() => {}) })
     sock.ev.on('connection.update', async u => {
       if (u.qr) {
         console.log('\n============================================')
@@ -1845,16 +1891,16 @@ async function procesarSalientesPanel() {
   if (!SESSIONS.size) return
   const { data } = await supabase.from('scheduled_messages')
     .select('id, recipient_phone, body, media_url, media_type, media_name, session_id, conversation_id, sender_id, tipo, wa_msg_id')
-    .in('tipo', ['manual_panel', 'edit_panel', 'vcard_panel']).eq('status', 'pendiente').order('scheduled_for').limit(10)
+    .in('tipo', ['manual_panel', 'edit_panel', 'vcard_panel', 'label_panel']).eq('status', 'pendiente').order('scheduled_for').limit(10)
   for (const m of (data || [])) {
     try {
       let conv = null
       if (m.conversation_id) {
-        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo').eq('id', m.conversation_id).maybeSingle()
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id').eq('id', m.conversation_id).maybeSingle()
         conv = c || null
       }
       if (!conv) {
-        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo')
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id')
           .eq('phone', m.recipient_phone).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
         conv = (c || [])[0] || null
       }
@@ -1862,6 +1908,14 @@ async function procesarSalientesPanel() {
       if (!S || !S.sock) throw new Error('sin sesion de WhatsApp conectada')
       const destino = conv?.wa_jid || m.recipient_phone
       const destJid = String(destino).includes('@') ? destino : jidDe(destino)
+
+      // --- etiqueta 🏷️ del panel → label de WhatsApp Business (best-effort) ---
+      if (m.tipo === 'label_panel') {
+        if (!conv) throw new Error('sin conversacion')
+        await aplicarLabelChat(S, conv, (m.body || '').trim() || null)
+        await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S) }).eq('id', m.id)
+        continue
+      }
 
       // --- tarjeta de contacto al chat "Tú" del celular del chip ---
       if (m.tipo === 'vcard_panel') {
