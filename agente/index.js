@@ -1576,6 +1576,56 @@ function extDe(tipo, mimetype, nombre) {
   return tipo === 'image' ? 'jpg' : tipo === 'video' ? 'mp4' : tipo === 'audio' ? 'ogg' : tipo === 'sticker' ? 'webp' : 'bin'
 }
 
+// media de un mensaje de WhatsApp (foto/video/audio/documento) → descarga a Storage
+async function extraerMedia(sock, m, msg) {
+  const mm = msg.imageMessage || msg.videoMessage || msg.documentMessage || msg.audioMessage || msg.stickerMessage
+  if (!mm) return null
+  const mtipo = msg.imageMessage ? 'image' : msg.videoMessage ? 'video' : msg.documentMessage ? 'document' : msg.audioMessage ? 'audio' : 'sticker'
+  const media = { tipo: mtipo, name: msg.documentMessage?.fileName || null, caption: mm.caption || '' }
+  try {
+    if (Number(mm.fileLength || 0) <= 30 * 1024 * 1024) {
+      const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
+      const ruta = 'wa-chat/' + telDeJid(m.key.remoteJid || '') + '/' + Date.now() + '.' + extDe(mtipo, mm.mimetype, media.name)
+      const { error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true })
+      if (!error) media.url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
+      else log('media (storage):', error.message)
+    } else log('media muy pesada, no se descarga (', mm.fileLength, 'bytes )')
+  } catch (e) { log('media:', String(e.message || e)) }
+  return media
+}
+
+// Mensaje tecleado desde el CELULAR del chip (fromMe que NO envió este proceso):
+// se registra en el chat del panel como "📲 CELULAR" y el bot se calla en ese chat
+// (mismo criterio que al responder desde el panel). Mensajes a números internos
+// (secretarias/gerencia/admin) se registran pero no callan nada.
+async function registrarDesdeCelular(S, m) {
+  const jid = m.key.remoteJid || ''
+  let phone = telDeJid(jid)
+  if (jid.endsWith('@lid')) {
+    const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone').ilike('wa_jid', '%' + phone + '%').not('phone', 'ilike', phone).limit(1)
+    if (cLid && cLid[0] && cLid[0].phone) phone = String(cLid[0].phone)
+  }
+  if (!phone) return
+  const msg = m.message || {}
+  const media = await extraerMedia(S.sock, m, msg)
+  const texto = String(msg.conversation || msg.extendedTextMessage?.text || (media && media.caption) || '').trim().slice(0, 1000)
+  if (!texto && !media) return
+  let conv = await estadoConv(phone, S)
+  if (!conv) { await setConv(phone, { wa_jid: jid }, S); conv = await estadoConv(phone, S) }
+  else await supabase.from('whatsapp_conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conv.id)
+  await supabase.from('whatsapp_messages').insert({
+    conversation_id: conv?.id || null, direction: 'out', body: texto || null, delivery_status: 'celular',
+    media_url: media?.url || null, media_type: media?.tipo || null, media_name: media?.name || null,
+  }).then(() => {}).catch(() => {})
+  const tnum = await tipoNumero(phone)
+  const esInterno = ['secretaria', 'gerencia', 'desactivado', 'silencio'].includes(tnum || '') || (ADMIN && phone.slice(-9) === ADMIN.slice(-9))
+  if (conv && conv.modo !== 'humano' && !esInterno) {
+    await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_desde: new Date().toISOString() }).eq('id', conv.id)
+    log('CHAT EN MODO HUMANO (respuesta desde el celular):', phone)
+  }
+  log('CELULAR -> registrado a', phone, 'por', S.row.label || 'PRINCIPAL')
+}
+
 // levanta UNA sesión Baileys (una por número/fila de wa_sessions)
 async function iniciarSesion(row) {
   const prev = SESSIONS.get(row.id)
@@ -1635,26 +1685,17 @@ async function iniciarSesion(row) {
       if (type !== 'notify') return
       for (const m of messages) {
         try {
-          if (m.key.fromMe) continue
           const jid = m.key.remoteJid || ''
           if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+          if (m.key.fromMe) {
+            // lo envió el propio bot (está en el store) → nada; si no, fue tecleado
+            // desde el CELULAR del chip → registrarlo en el panel y callar al bot ahí
+            if (!msgStore.has(m.key.id)) await registrarDesdeCelular(S, m).catch(e => log('celular:', String(e.message || e)))
+            continue
+          }
           const msg = m.message || {}
           // media entrante (foto/video/audio/documento): se descarga a Storage para verla en el panel
-          let media = null
-          const mm = msg.imageMessage || msg.videoMessage || msg.documentMessage || msg.audioMessage || msg.stickerMessage
-          if (mm) {
-            const mtipo = msg.imageMessage ? 'image' : msg.videoMessage ? 'video' : msg.documentMessage ? 'document' : msg.audioMessage ? 'audio' : 'sticker'
-            media = { tipo: mtipo, name: msg.documentMessage?.fileName || null, caption: mm.caption || '' }
-            try {
-              if (Number(mm.fileLength || 0) <= 30 * 1024 * 1024) {
-                const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
-                const ruta = 'wa-chat/' + telDeJid(jid) + '/' + Date.now() + '.' + extDe(mtipo, mm.mimetype, media.name)
-                const { error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true })
-                if (!error) media.url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
-                else log('media entrante (storage):', error.message)
-              } else log('media entrante muy pesada, no se descarga (', mm.fileLength, 'bytes )')
-            } catch (e) { log('media entrante:', String(e.message || e)) }
-          }
+          const media = await extraerMedia(sock, m, msg)
           const texto = msg.conversation || msg.extendedTextMessage?.text || (media && media.caption) || ''
           const k = m.key || {}
           let alt = String(k.remoteJidAlt || k.participantAlt || k.senderPn || k.participantPn || '')

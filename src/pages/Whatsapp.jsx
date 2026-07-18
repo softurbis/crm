@@ -37,11 +37,29 @@ const ACCIONES_GER = [['crear_tarea', 'Crear/programar tarea'], ['reprogramar_ta
 // mime → tipo de media que entiende el agente
 const tipoDeArchivo = f => f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document'
 const MEDIA_ICON = { image: '🖼️', video: '🎬', audio: '🎙️', document: '📄', sticker: '🩵' }
+// color del proyecto (#rrggbb) → rgba con transparencia; null si no hay color válido
+const rgbaDe = (hex, a) => {
+  const h = String(hex || '').replace('#', '')
+  if (h.length !== 6 || isNaN(parseInt(h, 16))) return null
+  const n = parseInt(h, 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
+}
+// etiquetas de estado del chat: lista por defecto + paleta para las que se creen en el panel
+const TAGS_DEF = [{ n: 'CALIFICADO', c: '#7fbf7f' }, { n: 'TIBIO', c: '#e0b34c' }, { n: 'FRIO', c: '#7ec8e3' }, { n: 'CLIENTE', c: '#b8a1d9' }]
+const TAG_PALETA = ['#e8975a', '#6fd0c9', '#e07b7b', '#9ccb86', '#c58ae0', '#7ba7f7', '#e6a4d0', '#e7c15a']
+const cap = s => s ? s[0] + s.slice(1).toLowerCase() : ''
 
-function ReplyBox({ conv, userId, onSent }) {
+function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQuicks }) {
   const [txt, setTxt] = useState('')
   const [mandando, setMandando] = useState(false)
   const [adj, setAdj] = useState(null)          // { file, tipo } pendiente de enviar
+  const [editQ, setEditQ] = useState(false)     // modo borrar respuestas rápidas
+  // {nombre} y {proyecto} se reemplazan con los datos del chat
+  const aplicarVars = q => String(q).split('{nombre}').join(vars.nombre || '').split('{proyecto}').join(vars.proyecto || '').replace(/ {2,}/g, ' ').trim()
+  const agregarQuick = () => {
+    const q = prompt('Texto de la respuesta rápida (puedes usar {nombre} y {proyecto}):')
+    if (q && q.trim() && onQuicks) onQuicks([...quicks, q.trim()])
+  }
   const elegirArchivo = e => {
     const f = e.target.files?.[0]; e.target.value = ''
     if (!f) return
@@ -70,6 +88,19 @@ function ReplyBox({ conv, userId, onSent }) {
   }
   return (
     <div>
+      {(quicks.length > 0 || esAdmin) && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0 4px', alignItems: 'center' }}>
+          {quicks.map((q, i) => (
+            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <button className="btn-ghost" title={aplicarVars(q)} onClick={() => setTxt(aplicarVars(q))}
+                style={{ fontSize: 11, textTransform: 'none', padding: '3px 11px', borderRadius: 16 }}>⚡ {q.slice(0, 36)}{q.length > 36 ? '…' : ''}</button>
+              {editQ && <button className="btn-ghost" style={{ padding: '1px 6px' }} onClick={() => onQuicks && onQuicks(quicks.filter((_, j) => j !== i))}>✕</button>}
+            </span>
+          ))}
+          {esAdmin && <button className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 16 }} title="Crear respuesta rápida" onClick={agregarQuick}>➕</button>}
+          {esAdmin && quicks.length > 0 && <button className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 16 }} title="Quitar respuestas rápidas" onClick={() => setEditQ(!editQ)}>{editQ ? '✔ LISTO' : '✎'}</button>}
+        </div>
+      )}
       {adj && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '4px 8px', border: '1px dashed rgba(255,255,255,.25)', borderRadius: 8, marginBottom: 4 }}>
           {MEDIA_ICON[adj.tipo]} <span style={{ textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{adj.file.name}</span>
@@ -100,10 +131,35 @@ export default function Whatsapp() {
   const [vista, setVista] = useState('lista')
   const [filtro, setFiltro] = useState('todos')
   const [filtroProy, setFiltroProy] = useState('')            // '' = todos los proyectos
+  const [filtroTag, setFiltroTag] = useState('')              // '' = todas las etiquetas
   const [sesiones, setSesiones] = useState([])                // wa_sessions (números vinculados)
   const [verSes, setVerSes] = useState(false)                 // gestor de números por proyecto
   const [usuarios, setUsuarios] = useState([])                // para asignar chats
   const [reenvio, setReenvio] = useState(null)                // mensaje elegido para reenviar
+  const [tags, setTags] = useState(TAGS_DEF)                  // etiquetas de estado (configurables)
+  const [quicks, setQuicks] = useState([])                    // respuestas rápidas (burbujas)
+  // etiquetas y respuestas rápidas viven en bot_brains (chat_tags / quick_replies)
+  const cargarExtras = async () => {
+    const { data } = await supabase.from('bot_brains').select('key, content').in('key', ['chat_tags', 'quick_replies'])
+    for (const r of (data || [])) {
+      if (r.key === 'chat_tags') { const o = parseArr(r.content).filter(t => t && t.n); if (o.length) setTags(o) }
+      if (r.key === 'quick_replies') setQuicks(parseArr(r.content).filter(x => typeof x === 'string' && x.trim()))
+    }
+  }
+  const guardarTags = async next => { setTags(next); await supabase.from('bot_brains').upsert({ key: 'chat_tags', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
+  const guardarQuicks = async next => { setQuicks(next); await supabase.from('bot_brains').upsert({ key: 'quick_replies', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
+  const crearTag = async () => {
+    const n = prompt('Nombre de la etiqueta nueva (ej. SEPARÓ, NO CONTESTA, VISITÓ):')
+    if (!n || !n.trim()) return null
+    const nombre = n.trim().toUpperCase()
+    if (!tags.some(t => t.n === nombre)) await guardarTags([...tags, { n: nombre, c: TAG_PALETA[tags.length % TAG_PALETA.length] }])
+    return nombre
+  }
+  const setTagChat = async (c, tag) => {
+    await supabase.from('whatsapp_conversations').update({ tag: tag || null }).eq('id', c.id)
+    cargarConvs(); setSel(x => x && x.id === c.id ? { ...x, tag: tag || null } : x)
+  }
+  const colorTag = n => tags.find(t => t.n === n)?.c || '#9daab6'
   const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true, seguimiento_activo: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
@@ -485,17 +541,17 @@ export default function Whatsapp() {
     // salientes: los de ESTA conversación + los históricos sin conversación (por teléfono)
     const orSched = `conversation_id.eq.${c.id},and(conversation_id.is.null,recipient_phone.in.(${dests.join(',')}))`
     const [ins, outs] = await Promise.all([
-      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name').eq('conversation_id', c.id).limit(500),
+      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).limit(500),
       supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
-    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name }))
+    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular' }))
     const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id }))
     setMsgs([...a, ...b].filter(x => x.body || x.media_url).sort((x, y) => new Date(x.at) - new Date(y.at)))
   }
 
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
-  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
+  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
   useEffect(() => { selRef.current = sel; cargarMsgs(sel) }, [sel])
   useEffect(() => {
     const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
@@ -507,6 +563,7 @@ export default function Whatsapp() {
 
   const lista = convs.filter(c => {
     if (filtroProy && c.project_id !== filtroProy) return false
+    if (filtroTag && c.tag !== filtroTag) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (!((c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q))) return false
@@ -1009,6 +1066,11 @@ export default function Whatsapp() {
               <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
             ))}
+            <select value={filtroTag} onChange={e => setFiltroTag(e.target.value)} title="Filtrar por etiqueta de estado"
+              style={{ fontSize: 10, padding: '2px 6px', color: filtroTag ? colorTag(filtroTag) : undefined }}>
+              <option value="">🏷️ TODAS</option>
+              {tags.map(t => <option key={t.n} value={t.n}>{t.n}</option>)}
+            </select>
             <button className="btn-ghost" title="Cambiar vista" onClick={() => setVista(vista === 'lista' ? 'cuadros' : 'lista')}
               style={{ fontSize: 10, padding: '3px 8px', marginLeft: 'auto' }}>{vista === 'lista' ? '⊞ CUADROS' : '☰ LISTA'}</button>
           </div>
@@ -1030,6 +1092,7 @@ export default function Whatsapp() {
                   <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
                   <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
+                    {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
                     {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
                     {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
                     {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
@@ -1043,7 +1106,7 @@ export default function Whatsapp() {
           </div>
         </div>
 
-        <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column', borderTop: sel?.projects?.color ? `3px solid ${sel.projects.color}` : undefined, boxShadow: rgbaDe(sel?.projects?.color, .12) ? `inset 0 0 60px ${rgbaDe(sel.projects.color, .07)}` : undefined }}>
           {!sel && <p className="muted" style={{ padding: 20 }}>Elige una conversación de la lista para ver los mensajes.</p>}
           {sel && (
             <>
@@ -1061,7 +1124,34 @@ export default function Whatsapp() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
-                          {sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
+                          {!esAdminW && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
+                          {esAdminW && (
+                            <select className="wa-sel" value={sel.project_id || ''} title="Proyecto del chat: etiqueta, color y por qué número sale la atención"
+                              style={{ fontSize: 11, color: sel.projects?.color || undefined }}
+                              onChange={async e => {
+                                const v = e.target.value || null
+                                await supabase.from('whatsapp_conversations').update({ project_id: v }).eq('id', sel.id)
+                                const p = proysAll.find(x => x.id === v)
+                                cargarConvs(); setSel(x => ({ ...x, project_id: v, projects: p ? { name: p.name, color: p.color } : null }))
+                              }}>
+                              <option value="">📁 SIN PROYECTO</option>
+                              {proysAll.map(p => <option key={p.id} value={p.id}>📁 {p.name}</option>)}
+                            </select>
+                          )}
+                          <select className="wa-sel" value={sel.tag && tags.some(t => t.n === sel.tag) ? sel.tag : (sel.tag || '')} title="Etiqueta de estado del chat"
+                            style={{ fontSize: 11, color: sel.tag ? colorTag(sel.tag) : undefined }}
+                            onChange={async e => {
+                              let v = e.target.value
+                              if (v === '__nueva') { v = await crearTag(); if (!v) return }
+                              if (v === '__quitar') { const n = prompt('Nombre EXACTO de la etiqueta a eliminar de la lista:'); if (n && n.trim()) await guardarTags(tags.filter(t => t.n !== n.trim().toUpperCase())); return }
+                              await setTagChat(sel, v)
+                            }}>
+                            <option value="">🏷️ SIN ETIQUETA</option>
+                            {tags.map(t => <option key={t.n} value={t.n}>🏷️ {t.n}</option>)}
+                            {sel.tag && !tags.some(t => t.n === sel.tag) && <option value={sel.tag}>🏷️ {sel.tag}</option>}
+                            {esAdminW && <option value="__nueva">➕ CREAR ETIQUETA…</option>}
+                            {esAdminW && tags.length > 0 && <option value="__quitar">🗑 ELIMINAR DE LA LISTA…</option>}
+                          </select>
                           {sel.lead_id && ['admin', 'superuser', 'secretary'].includes(role) && (
                             <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.4 }} onClick={async () => {
                               const nuevo = prompt('Nombre del lead:', nombreDe(sel))
@@ -1130,7 +1220,7 @@ export default function Whatsapp() {
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
                 {msgs.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
                 {msgs.map((m, i) => (
-                  <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
+                  <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? (rgbaDe(sel.projects?.color, .28) || 'rgba(59,74,50,.9)') : 'rgba(255,255,255,.07)', border: '1px solid ' + (m.dir === 'out' ? (rgbaDe(sel.projects?.color, .4) || 'rgba(255,255,255,.08)') : 'rgba(255,255,255,.08)'), borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
                     {m.media_url && (
                       m.media_type === 'image' || m.media_type === 'sticker'
                         ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} /></a>
@@ -1147,7 +1237,7 @@ export default function Whatsapp() {
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
                       )}
                       <span>
-                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
+                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
                         {m.tipo && m.dir === 'out' && m.tipo !== 'manual_panel' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
                       </span>
                     </div>
@@ -1182,7 +1272,9 @@ export default function Whatsapp() {
                 </div>
               )}
               {puedeEscribir
-                ? <ReplyBox conv={sel} userId={profile?.id} onSent={() => cargarMsgs(selRef.current)} />
+                ? <ReplyBox conv={sel} userId={profile?.id} onSent={() => cargarMsgs(selRef.current)}
+                    quicks={quicks} esAdmin={esAdminW} onQuicks={guardarQuicks}
+                    vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
                 : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
             </>
           )}
