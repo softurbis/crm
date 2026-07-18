@@ -551,19 +551,30 @@ export default function Whatsapp() {
     const orSched = `conversation_id.eq.${c.id},and(conversation_id.is.null,recipient_phone.in.(${dests.join(',')}))`
     const [ins, outs] = await Promise.all([
       supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).limit(500),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
     const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular' }))
-    const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id }))
+    const b = (outs.data || [])
+      .filter(m => m.tipo !== 'edit_panel')   // las ediciones no son burbujas (actualizan el original)
+      .map(m => m.tipo === 'vcard_panel'
+        ? ({ body: '📇 Contacto "' + (m.body || '') + '" enviado al celular del chip (chat "Tú") para guardarlo en la agenda.', at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, info: true, fallo: m.status === 'fallido', pend: m.status === 'pendiente' })
+        : ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id, wa_msg_id: m.wa_msg_id, editado: !!m.edited_at }))
     setMsgs([...a, ...b].filter(x => x.body || x.media_url).sort((x, y) => new Date(x.at) - new Date(y.at)))
+  }
+  // 📇 cómo está guardado este número en la agenda del celular del chip
+  const [contacto, setContacto] = useState(null)
+  const cargarContacto = async c => {
+    if (!c) { setContacto(null); return }
+    const { data } = await supabase.from('wa_contacts').select('*').ilike('phone', '%' + String(c.phone).slice(-9)).limit(1)
+    setContacto((data || [])[0] || null)
   }
 
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
   useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
-  useEffect(() => { selRef.current = sel; cargarMsgs(sel) }, [sel])
+  useEffect(() => { selRef.current = sel; cargarMsgs(sel); cargarContacto(sel) }, [sel])
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
+    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 8000)
     return () => clearInterval(t)
   }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
@@ -1173,6 +1184,22 @@ export default function Whatsapp() {
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
                           <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
+                          {contacto?.nombre
+                            ? <span className="wa-badge" style={{ color: '#9ccb86', borderColor: '#9ccb86' }}
+                                title={'Guardado en la agenda del celular del chip' + (contacto.push_name ? ' · la persona se pone: ' + contacto.push_name : '')}>📇 {contacto.nombre}</span>
+                            : puedeEscribir && (
+                              <button className="btn-ghost" style={{ fontSize: 10, padding: '2px 8px' }}
+                                title="Manda la tarjeta al chat «Tú» del celular del chip; ahí la abres y tocas AGREGAR. Al guardarse, el nombre aparece aquí solo."
+                                onClick={async () => {
+                                  const def = nombreDe(sel) === 'SIN NOMBRE' ? (contacto?.push_name || '') : nombreDe(sel)
+                                  const n = prompt('¿Con qué nombre guardar este número en el celular del chip?', def)
+                                  if (!n || !n.trim()) return
+                                  const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim().toUpperCase(), tipo: 'vcard_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null })
+                                  if (error) alert('No se pudo: ' + error.message)
+                                  else { alert('📇 Tarjeta enviada al celular del chip.\n\nEn ESE celular: WhatsApp → chat «Tú» (mensaje a ti mismo) → tocar la tarjeta → AGREGAR.\n\nCuando la guarden, el nombre aparecerá aquí automáticamente.'); cargarMsgs(selRef.current) }
+                                }}>📇 GUARDAR EN EL CELULAR</button>
+                            )}
+                          {!contacto?.nombre && contacto?.push_name && <span className="muted" style={{ fontSize: 10, textTransform: 'none' }} title="Nombre que la persona usa en su WhatsApp">se pone: «{contacto.push_name}»</span>}
                           {mostrarLead && ['admin', 'superuser', 'secretary'].includes(role) && (
                             <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
                               <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
@@ -1241,13 +1268,23 @@ export default function Whatsapp() {
                     )}
                     {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}
                     <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                      {puedeEscribir && (m.body || m.media_url) && (
+                      {puedeEscribir && m.dir === 'out' && m.tipo === 'manual_panel' && m.wa_msg_id && !m.media_url && !m.fallo && !m.pend && (Date.now() - new Date(m.at).getTime()) < 15 * 60000 && (
+                        <button className="btn-ghost" title="Editar este mensaje (WhatsApp lo permite hasta 15 min después de enviado)" style={{ fontSize: 10, padding: '0 5px' }}
+                          onClick={async () => {
+                            const n = prompt('Nuevo texto del mensaje:', m.body || '')
+                            if (n === null || !n.trim() || n.trim() === m.body) return
+                            const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim(), tipo: 'edit_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null, wa_msg_id: m.wa_msg_id })
+                            if (error) alert('No se pudo editar: ' + error.message)
+                            else setTimeout(() => cargarMsgs(selRef.current), 7000)
+                          }}>✎</button>
+                      )}
+                      {puedeEscribir && !m.info && (m.body || m.media_url) && (
                         <button className="btn-ghost" title="Reenviar a otro chat" style={{ fontSize: 10, padding: '0 5px' }}
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
                       )}
                       <span>
-                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
-                        {m.tipo && m.dir === 'out' && m.tipo !== 'manual_panel' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
+                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
+                        {m.tipo && m.dir === 'out' && !['manual_panel', 'vcard_panel'].includes(m.tipo) ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}{m.editado ? ' · ✎ editado' : ''}
                       </span>
                     </div>
                   </div>

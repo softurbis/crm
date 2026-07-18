@@ -1646,6 +1646,28 @@ async function registrarDesdeCelular(S, m) {
   log('CELULAR -> registrado a', phone, 'por', S.row.label || 'PRINCIPAL')
 }
 
+// Agenda del chip: WhatsApp sincroniza los contactos del celular al agente
+// (name = como está guardado en la agenda; notify = como se pone la persona).
+// Se guardan en wa_contacts para que el panel muestre "📇 En el celular: X".
+async function guardarContactos(S, cts) {
+  try {
+    const conNombre = [], soloPush = []
+    for (const c of (cts || [])) {
+      if (!c || !c.id || !String(c.id).endsWith('@s.whatsapp.net')) continue
+      const phone = telDeJid(c.id)
+      if (!phone || phone.length < 9) continue
+      const base = { phone, session_id: sesId(S), updated_at: new Date().toISOString() }
+      if (c.name) conNombre.push({ ...base, nombre: String(c.name).slice(0, 120), ...(c.notify ? { push_name: String(c.notify).slice(0, 120) } : {}) })
+      else if (c.notify) soloPush.push({ ...base, push_name: String(c.notify).slice(0, 120) })
+    }
+    // upsert por lotes: solo pisa las columnas que vienen (no borra el nombre al llegar solo el push)
+    for (let i = 0; i < conNombre.length; i += 200) await supabase.from('wa_contacts').upsert(conNombre.slice(i, i + 200))
+    const push1 = soloPush.filter(x => x.push_name)
+    for (let i = 0; i < push1.length; i += 200) await supabase.from('wa_contacts').upsert(push1.slice(i, i + 200))
+    if (conNombre.length || push1.length) log('AGENDA [' + (S.row.label || 'PRINCIPAL') + ']: ' + conNombre.length + ' con nombre, ' + push1.length + ' solo alias')
+  } catch (e) { log('contactos:', String(e.message || e)) }
+}
+
 // levanta UNA sesión Baileys (una por número/fila de wa_sessions)
 async function iniciarSesion(row) {
   const prev = SESSIONS.get(row.id)
@@ -1669,6 +1691,10 @@ async function iniciarSesion(row) {
     S.sock = sock; S.iniciando = false
 
     sock.ev.on('creds.update', saveCreds)
+    // agenda del chip → wa_contacts (sync inicial y cambios en caliente)
+    sock.ev.on('contacts.upsert', cts => { guardarContactos(S, cts).catch(() => {}) })
+    sock.ev.on('contacts.update', cts => { guardarContactos(S, cts).catch(() => {}) })
+    sock.ev.on('messaging-history.set', h => { if (h && h.contacts) guardarContactos(S, h.contacts).catch(() => {}) })
     sock.ev.on('connection.update', async u => {
       if (u.qr) {
         console.log('\n============================================')
@@ -1811,13 +1837,15 @@ if (process.env.SIMULACRO === '1') {
 
 
 // ---------- SALIENTES DESDE EL PANEL ----------
-// Manda texto o adjuntos (imagen/video/documento/audio) por la sesión del chat.
-// Al enviar una respuesta manual, el chat pasa a MODO HUMANO (el bot se calla ahí).
+// manual_panel: texto/adjuntos por la sesión del chat (y el chat pasa a MODO HUMANO).
+// edit_panel:  edita un mensaje ya enviado (WhatsApp lo permite hasta 15 min).
+// vcard_panel: manda la tarjeta del contacto al chat "Tú" del celular del chip,
+//              para guardarlo en la agenda con 2 toques.
 async function procesarSalientesPanel() {
   if (!SESSIONS.size) return
   const { data } = await supabase.from('scheduled_messages')
-    .select('id, recipient_phone, body, media_url, media_type, media_name, session_id, conversation_id, sender_id')
-    .eq('tipo', 'manual_panel').eq('status', 'pendiente').order('scheduled_for').limit(10)
+    .select('id, recipient_phone, body, media_url, media_type, media_name, session_id, conversation_id, sender_id, tipo, wa_msg_id')
+    .in('tipo', ['manual_panel', 'edit_panel', 'vcard_panel']).eq('status', 'pendiente').order('scheduled_for').limit(10)
   for (const m of (data || [])) {
     try {
       let conv = null
@@ -1834,19 +1862,46 @@ async function procesarSalientesPanel() {
       if (!S || !S.sock) throw new Error('sin sesion de WhatsApp conectada')
       const destino = conv?.wa_jid || m.recipient_phone
       const destJid = String(destino).includes('@') ? destino : jidDe(destino)
+
+      // --- tarjeta de contacto al chat "Tú" del celular del chip ---
+      if (m.tipo === 'vcard_panel') {
+        const num = String(m.recipient_phone).replace(/\D/g, '')
+        const nombre = (m.body || '').trim() || '+' + num
+        const selfJid = jidDe(telDeJid(S.sock.user?.id || ''))
+        const vcard = 'BEGIN:VCARD\nVERSION:3.0\nFN:' + nombre + '\nTEL;type=CELL;type=VOICE;waid=' + num + ':+' + num + '\nEND:VCARD'
+        await S.sock.sendMessage(selfJid, { contacts: { displayName: nombre, contacts: [{ displayName: nombre, vcard }] } })
+        await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S) }).eq('id', m.id)
+        log('PANEL -> CONTACTO "' + nombre + '" enviado al celular de', S.row.label || 'PRINCIPAL')
+        continue
+      }
+
+      // --- edición de un mensaje ya enviado (wa_msg_id = id del original) ---
+      if (m.tipo === 'edit_panel') {
+        if (!m.wa_msg_id) throw new Error('sin id del mensaje a editar')
+        await S.sock.sendMessage(destJid, { text: m.body || '', edit: { remoteJid: destJid, fromMe: true, id: m.wa_msg_id } })
+        await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S) }).eq('id', m.id)
+        // el mensaje original muestra el texto nuevo y la marca de editado
+        await supabase.from('scheduled_messages').update({ body: m.body || '', edited_at: new Date().toISOString() }).eq('wa_msg_id', m.wa_msg_id).eq('tipo', 'manual_panel')
+        log('PANEL -> EDITADO mensaje', m.wa_msg_id, 'de', m.recipient_phone)
+        continue
+      }
+
+      // --- mensaje normal (texto o adjunto) ---
+      let sent = null
       if (m.media_url) {
         const cap = (m.body || '').trim() || undefined
         const mt = m.media_type || 'image'
         if (mt === 'video' && (await tamanoDe(m.media_url)) > VIDEO_MAX_MB * 1024 * 1024)
-          guardarMsg(await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'VIDEO.mp4', mimetype: 'video/mp4', caption: cap }))
-        else if (mt === 'video') guardarMsg(await S.sock.sendMessage(destJid, { video: { url: m.media_url }, caption: cap }))
-        else if (mt === 'audio') guardarMsg(await S.sock.sendMessage(destJid, { audio: { url: m.media_url }, mimetype: 'audio/mpeg' }))
-        else if (mt === 'document') guardarMsg(await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'DOCUMENTO', mimetype: String(m.media_name || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', caption: cap }))
-        else guardarMsg(await S.sock.sendMessage(destJid, { image: { url: m.media_url }, caption: cap }))
+          sent = await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'VIDEO.mp4', mimetype: 'video/mp4', caption: cap })
+        else if (mt === 'video') sent = await S.sock.sendMessage(destJid, { video: { url: m.media_url }, caption: cap })
+        else if (mt === 'audio') sent = await S.sock.sendMessage(destJid, { audio: { url: m.media_url }, mimetype: 'audio/mpeg' })
+        else if (mt === 'document') sent = await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'DOCUMENTO', mimetype: String(m.media_name || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', caption: cap })
+        else sent = await S.sock.sendMessage(destJid, { image: { url: m.media_url }, caption: cap })
       } else {
-        guardarMsg(await S.sock.sendMessage(destJid, { text: m.body }))
+        sent = await S.sock.sendMessage(destJid, { text: m.body })
       }
-      await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), conversation_id: m.conversation_id || conv?.id || null }).eq('id', m.id)
+      guardarMsg(sent)
+      await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), conversation_id: m.conversation_id || conv?.id || null, wa_msg_id: sent?.key?.id || null }).eq('id', m.id)
       // un humano respondió: el bot se calla en este chat hasta que lo devuelvan con el botón
       if (conv && conv.modo !== 'humano') {
         await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_por: m.sender_id || null, humano_desde: new Date().toISOString() }).eq('id', conv.id)
