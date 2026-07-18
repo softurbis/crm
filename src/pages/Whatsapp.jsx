@@ -147,6 +147,21 @@ export default function Whatsapp() {
   const [reenvio, setReenvio] = useState(null)                // mensaje elegido para reenviar
   const [tags, setTags] = useState(TAGS_DEF)                  // etiquetas de estado (configurables)
   const [quicks, setQuicks] = useState([])                    // respuestas rápidas (burbujas)
+  // 📊 conteo de chats por etiqueta / proyecto / asesor (clic = filtrar)
+  const [verConteo, setVerConteo] = useState(false)
+  const verConteoRef = useRef(false)
+  const [conteoRaw, setConteoRaw] = useState(null)
+  const [filtroAsig, setFiltroAsig] = useState('')            // '' = todos los asesores
+  const cargarConteo = async () => {
+    // query aparte (la bandeja corta en 300): cuenta TODO lo visible para este usuario
+    const { data } = await supabase.from('whatsapp_conversations').select('tag, project_id, assigned_to').limit(5000)
+    setConteoRaw(data || [])
+  }
+  const agrupar = (rows, key) => {
+    const m = new Map()
+    rows.forEach(r => { const k = r[key] || ''; m.set(k, (m.get(k) || 0) + 1) })
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }
   // etiquetas y respuestas rápidas viven en bot_brains (chat_tags / quick_replies)
   const cargarExtras = async () => {
     const { data } = await supabase.from('bot_brains').select('key, content').in('key', ['chat_tags', 'quick_replies'])
@@ -574,7 +589,7 @@ export default function Whatsapp() {
   useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
   useEffect(() => { selRef.current = sel; cargarMsgs(sel); cargarContacto(sel) }, [sel])
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 8000)
+    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 8000)
     return () => clearInterval(t)
   }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
@@ -584,6 +599,7 @@ export default function Whatsapp() {
   const lista = convs.filter(c => {
     if (filtroProy && c.project_id !== filtroProy) return false
     if (filtroTag && c.tag !== filtroTag) return false
+    if (filtroAsig && c.assigned_to !== filtroAsig) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (!((c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q))) return false
@@ -596,10 +612,10 @@ export default function Whatsapp() {
     if (filtro === 'silenciados') return !!nums.find(n => c.phone && ['desactivado', 'silencio'].includes(n.tipo) && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
     return true
   })
-  // proyectos presentes en la bandeja (para el filtro por color)
+  // proyectos presentes en la bandeja (para el filtro por color, con conteo)
   const proysBandeja = (() => {
     const m = new Map()
-    convs.forEach(c => { if (c.project_id && c.projects) m.set(c.project_id, c.projects) })
+    convs.forEach(c => { if (c.project_id && c.projects) { const e = m.get(c.project_id) || { p: c.projects, n: 0 }; e.n++; m.set(c.project_id, e) } })
     return [...m.entries()]
   })()
   const nombreUsuario = id => usuarios.find(u => u.id === id)?.full_name?.split(' ')[0] || '¿?'
@@ -1074,10 +1090,10 @@ export default function Whatsapp() {
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
               <button className="btn-ghost" onClick={() => setFiltroProy('')}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: !filtroProy ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>TODOS LOS PROYECTOS</button>
-              {proysBandeja.map(([pid, p]) => (
+              {proysBandeja.map(([pid, e]) => (
                 <button key={pid} className="btn-ghost" onClick={() => setFiltroProy(filtroProy === pid ? '' : pid)}
-                  style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroProy === pid ? (p.color || '#8c9b7a') : 'rgba(255,255,255,.15)', color: p.color || undefined }}>
-                  ● {(p.name || '').split(' ').slice(-1)[0]}</button>
+                  style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroProy === pid ? (e.p.color || '#8c9b7a') : 'rgba(255,255,255,.15)', color: e.p.color || undefined }}>
+                  ● {(e.p.name || '').split(' ').slice(-1)[0]} <b>{e.n}</b></button>
               ))}
             </div>
           )}
@@ -1091,9 +1107,46 @@ export default function Whatsapp() {
               <option value="">🏷️ TODAS</option>
               {tags.map(t => <option key={t.n} value={t.n}>{t.n}</option>)}
             </select>
+            <button className="btn-ghost" title="Conteo de chats por etiqueta, proyecto y asesor (clic en un número = filtrar)"
+              onClick={() => { const v = !verConteo; setVerConteo(v); verConteoRef.current = v; if (v) cargarConteo() }}
+              style={{ fontSize: 10, padding: '3px 8px', borderColor: verConteo ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>📊 CONTEO</button>
             <button className="btn-ghost" title="Cambiar vista" onClick={() => setVista(vista === 'lista' ? 'cuadros' : 'lista')}
               style={{ fontSize: 10, padding: '3px 8px', marginLeft: 'auto' }}>{vista === 'lista' ? '⊞ CUADROS' : '☰ LISTA'}</button>
           </div>
+          {verConteo && conteoRaw && (
+            <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: 8, marginBottom: 8 }}>
+              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>🏷️ POR ETIQUETA · {conteoRaw.length} chats</p>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                {agrupar(conteoRaw, 'tag').map(([k, n]) => (
+                  <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroTag(filtroTag === k ? '' : k)}
+                    style={{ fontSize: 10, padding: '2px 8px', color: k ? colorTag(k) : undefined, borderColor: filtroTag === k && k ? colorTag(k) : 'rgba(255,255,255,.15)' }}>
+                    {k || 'SIN ETIQUETA'} <b>{n}</b></button>
+                ))}
+              </div>
+              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>📁 POR PROYECTO</p>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: esAdminW ? 8 : 0 }}>
+                {agrupar(conteoRaw, 'project_id').map(([k, n]) => {
+                  const p = proysAll.find(x => x.id === k)
+                  return (
+                    <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroProy(filtroProy === k ? '' : k)}
+                      style={{ fontSize: 10, padding: '2px 8px', color: p?.color || undefined, borderColor: filtroProy === k && k ? (p?.color || '#8c9b7a') : 'rgba(255,255,255,.15)' }}>
+                      {p ? (p.name || '').split(' ').slice(-1)[0].toUpperCase() : 'SIN PROYECTO'} <b>{n}</b></button>
+                  )
+                })}
+              </div>
+              {esAdminW && (<>
+                <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>⭐ POR ASESOR ASIGNADO</p>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {agrupar(conteoRaw, 'assigned_to').map(([k, n]) => (
+                    <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroAsig(filtroAsig === k ? '' : k)}
+                      style={{ fontSize: 10, padding: '2px 8px', color: k ? '#7ec8e3' : undefined, borderColor: filtroAsig === k && k ? '#7ec8e3' : 'rgba(255,255,255,.15)' }}>
+                      {k ? '⭐ ' + nombreUsuario(k) : 'SIN ASIGNAR'} <b>{n}</b></button>
+                  ))}
+                </div>
+              </>)}
+            </div>
+          )}
+          {filtroAsig && <p className="muted" style={{ fontSize: 10, margin: '0 0 6px' }}>Filtrando chats de ⭐ {nombreUsuario(filtroAsig)} — <button className="link-btn" onClick={() => setFiltroAsig('')}>quitar</button></p>}
           <input placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => setBusca(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
           {lista.length === 0 && <p className="muted" style={{ padding: 8 }}>Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.</p>}
           <div style={vista === 'cuadros' ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 } : {}}>
