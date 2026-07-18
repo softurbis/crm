@@ -29,6 +29,13 @@ function Protected({ children }) {
   return children
 }
 
+// el rol ASESOR entra directo a su chat (no ve el Dashboard del negocio)
+function Home() {
+  const { role } = useAuth()
+  if (role === 'asesor') return <Navigate to="/whatsapp" replace />
+  return <Dashboard />
+}
+
 export default function App() {
   return (
     <Routes>
@@ -36,7 +43,7 @@ export default function App() {
       <Route path="/reset" element={<Reset />} />
       <Route path="/propiedades" element={<Publico />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<Home />} />
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="probar-bot" element={<TestBot />} />
         <Route path="marketing" element={<Marketing />} />

@@ -1,10 +1,13 @@
 // ============================================================
-// AGENTE URBIS - WhatsApp no oficial (Baileys)
-// Modulo 1: cobranza automatica (3 dias antes + vencidas)
-// Modulo 2: recepcion y filtro de leads entrantes
+// AGENTE URBIS - WhatsApp no oficial (Baileys) - MULTI-NUMERO
+// Modulo 1: cobranza automatica (sale por el numero del proyecto)
+// Modulo 2: recepcion y filtro de leads entrantes (un numero por proyecto)
+// Cada fila de wa_sessions = un numero vinculado (sesion Baileys propia).
+// La sesion CORPORATIVA (is_corporate) lleva seguimiento/gerencia/avisos
+// y es el fallback cuando un proyecto no tiene numero propio.
 // ============================================================
 require('dotenv').config()
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys')
 const { createClient } = require('@supabase/supabase-js')
 const cron = require('node-cron')
 const pino = require('pino')
@@ -30,23 +33,28 @@ async function refrescarAdmin() {
 refrescarAdmin()
 setInterval(refrescarAdmin, 60000)
 
-// re-vinculacion pedida desde el panel: cierra sesion, borra credenciales y renace pidiendo QR
+// re-vinculacion pedida desde el panel VIEJO (bot_settings.wa_relink): aplica a la
+// sesion CORPORATIVA. El panel nuevo pide relink por sesion (wa_sessions.relink).
 async function chequearRelink() {
   try {
     if ((await ajuste('wa_relink', '0')) !== '1') return
     await setAjuste('wa_relink', '0')
+    const S = [...SESSIONS.values()].find(s => s.row.is_corporate)
+    if (S && sesId(S)) { await supabase.from('wa_sessions').update({ relink: true }).eq('id', S.row.id); return }
+    // modo compat (sin wa_sessions): comportamiento original
     await setAjuste('wa_estado', 'esperando_qr')
     log('RELINK pedido desde el panel: cerrando sesion y borrando credenciales...')
-    try { if (sock) await sock.logout() } catch {}
+    try { if (S && S.sock) await S.sock.logout() } catch {}
     try { require('fs').rmSync('./auth', { recursive: true, force: true }) } catch {}
     process.exit(0)
   } catch (e) { log('relink:', e.message) }
 }
 setInterval(chequearRelink, 20000)
 
-// latido: el panel muestra "EN LINEA" mientras este timestamp este fresco
-setAjuste('wa_latido', new Date().toISOString()).catch(() => {})
-setInterval(() => setAjuste('wa_latido', new Date().toISOString()).catch(() => {}), 30000)
+// latido POR SESION: el panel muestra "EN LINEA" mientras el timestamp este fresco
+setInterval(() => {
+  for (const S of SESSIONS.values()) if (S.sock) setSes(S.row, { latido: new Date().toISOString() }).catch(() => {})
+}, 30000)
 
 // reinicio pedido desde el panel: sale limpio y pm2 lo levanta de nuevo (la sesion de WhatsApp se conserva)
 async function chequearRestart() {
@@ -62,7 +70,10 @@ setInterval(chequearRestart, 15000)
 // store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje").
 // Se persiste en disco para que los reintentos sobrevivan a los reinicios del bot.
 const _fsm = require('fs')
-const MSG_STORE_FILE = './auth/msgstore.json'
+// el store vive FUERA de las carpetas de credenciales (./auth_s/<sesion>) para
+// sobrevivir a los relinks; se migra solo desde la ruta vieja ./auth/msgstore.json
+const MSG_STORE_FILE = './msgstore.json'
+try { if (!_fsm.existsSync(MSG_STORE_FILE) && _fsm.existsSync('./auth/msgstore.json')) _fsm.copyFileSync('./auth/msgstore.json', MSG_STORE_FILE) } catch {}
 const msgStore = new Map()
 try {
   if (_fsm.existsSync(MSG_STORE_FILE)) {
@@ -90,7 +101,52 @@ const DIAS_ANTES = Number(process.env.DIAS_ANTES || 3)
 const VENCIDAS_CADA = Number(process.env.VENCIDAS_CADA_DIAS || 4)
 const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 40)
 
-let sock = null
+// ===== SESIONES MULTI-NUMERO (wa_sessions) =====
+// SESSIONS: session_id -> { row, sock, enviados, iniciando }
+// row.id === 'legacy' = modo compatibilidad (sql/30 sin correr): una sola sesion en ./auth.
+const SESSIONS = new Map()
+const AUTH_BASE = './auth_s'
+const sesId = S => (S && S.row && S.row.id && S.row.id !== 'legacy') ? S.row.id : null
+const authDirDe = row => row.id === 'legacy' ? './auth' : AUTH_BASE + '/' + row.id
+const sesCorporativa = () => {
+  for (const s of SESSIONS.values()) if (s.row.is_corporate && s.sock) return s
+  for (const s of SESSIONS.values()) if (s.sock) return s
+  return null
+}
+const sesDeProyecto = pid => { if (!pid) return null; for (const s of SESSIONS.values()) if (s.row.project_id === pid && s.sock) return s; return null }
+// estado/qr/latido por sesion + espejo en bot_settings para la corporativa
+// (asi el panel viejo sigue mostrando el estado hasta que se despliegue el nuevo)
+async function setSes(row, campos) {
+  if (row.id !== 'legacy') { try { await supabase.from('wa_sessions').update(campos).eq('id', row.id) } catch {} }
+  if (row.is_corporate) {
+    if ('estado' in campos) await setAjuste('wa_estado', campos.estado).catch(() => {})
+    if ('qr' in campos) await setAjuste('wa_qr', campos.qr || '').catch(() => {})
+    if ('latido' in campos) await setAjuste('wa_latido', campos.latido).catch(() => {})
+  }
+}
+// que sesion usar para ENVIAR a un numero:
+// 1) la del chat existente (continuidad) 2) la del proyecto indicado 3) la corporativa
+const _convSesCache = new Map()   // phone -> { t, sesId }
+async function sesionPara(phone, meta = {}) {
+  if (meta.ses && meta.ses.sock) return meta.ses
+  const dig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
+  if (dig) {
+    const hit = _convSesCache.get(dig)
+    let sid = (hit && Date.now() - hit.t < 60000) ? hit.sesId : undefined
+    if (sid === undefined) {
+      try {
+        const { data } = await supabase.from('whatsapp_conversations').select('session_id')
+          .eq('phone', dig).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
+        sid = (data && data[0] && data[0].session_id) || null
+      } catch { sid = null }
+      _convSesCache.set(dig, { t: Date.now(), sesId: sid })
+    }
+    const s = sid && SESSIONS.get(sid)
+    if (s && s.sock) return s
+  }
+  if (meta.project_id) { const s = sesDeProyecto(meta.project_id); if (s) return s }
+  return sesCorporativa()
+}
 let enviadosHoy = 0
 let diaActual = new Date().toDateString()
 
@@ -131,7 +187,7 @@ async function brain(k) {
 const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 
-async function enviarArchivo(jid, url, clase, caption) {
+async function enviarArchivo(jid, url, clase, caption, ses) {
   const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : clase === 'documento' ? '📄 DOCUMENTO' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
   if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
     await espera(PAUSA_MS)
@@ -139,19 +195,21 @@ async function enviarArchivo(jid, url, clase, caption) {
     return
   }
   try {
+    const S = (ses && ses.sock) ? ses : await sesionPara(jid, {})
+    if (!S || !S.sock) { log('MEDIA sin sesion de WhatsApp conectada, no se envia a', jid); return }
     const dest = String(jid).includes('@') ? String(jid) : jidDe(jid)
     // pausa natural con indicador (grabando para video, escribiendo para el resto)
-    try { await sock.sendPresenceUpdate(clase === 'video' ? 'recording' : 'composing', dest) } catch (e) {}
+    try { await S.sock.sendPresenceUpdate(clase === 'video' ? 'recording' : 'composing', dest) } catch (e) {}
     await espera(PAUSA_MS)
-    try { await sock.sendPresenceUpdate('paused', dest) } catch (e) {}
+    try { await S.sock.sendPresenceUpdate('paused', dest) } catch (e) {}
     const low = String(url).toLowerCase()
     const esDoc = (clase === 'plano' || clase === 'brochure' || clase === 'documento') && low.includes('.pdf')
-    if (clase === 'video') guardarMsg(await sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
-    else if (esDoc) guardarMsg(await sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: (clase === 'brochure' ? 'BROCHURE' : clase === 'plano' ? 'PLANO-ACTUALIZADO' : (String(caption || 'DOCUMENTO').replace(/[^\w .-]/g, '').trim().slice(0, 40) || 'DOCUMENTO')) + '.pdf', caption: caption || undefined }))
-    else guardarMsg(await sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
-    enviadosHoy++
-    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: etiqueta, tipo: 'ia', scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
-    log('MEDIA [' + clase + '] enviada a', telDeJid(dest))
+    if (clase === 'video') guardarMsg(await S.sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
+    else if (esDoc) guardarMsg(await S.sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: (clase === 'brochure' ? 'BROCHURE' : clase === 'plano' ? 'PLANO-ACTUALIZADO' : (String(caption || 'DOCUMENTO').replace(/[^\w .-]/g, '').trim().slice(0, 40) || 'DOCUMENTO')) + '.pdf', caption: caption || undefined }))
+    else guardarMsg(await S.sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
+    enviadosHoy++; S.enviados = (S.enviados || 0) + 1
+    await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: etiqueta, tipo: 'ia', session_id: sesId(S), scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
+    log('MEDIA [' + clase + '] enviada a', telDeJid(dest), 'por', S.row.label || 'PRINCIPAL')
   } catch (e) { log('ERROR media', clase, ':', String(e.message || e)) }
 }
 
@@ -532,9 +590,11 @@ async function comandosGerencia(jid, phone, texto) {
 
 
 async function enviar(phone, texto, meta = {}) {
+  // sesion por la que sale: la del chat > la del proyecto (meta.project_id) > corporativa
+  const S = TEST_ACTIVE ? null : await sesionPara(phone, meta)
   // pausa natural entre mensajes del flujo (configurable), tanto en real como en la consola de prueba
   if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
-    if (!TEST_ACTIVE) { try { await sock.sendPresenceUpdate('composing', String(phone).includes('@') ? String(phone) : jidDe(phone)) } catch (e) {} }
+    if (!TEST_ACTIVE && S && S.sock) { try { await S.sock.sendPresenceUpdate('composing', String(phone).includes('@') ? String(phone) : jidDe(phone)) } catch (e) {} }
     await espera(PAUSA_MS)
   }
   // MODO PRUEBA: capturar todo bajo el teléfono de la sesión, sin tocar WhatsApp real.
@@ -554,8 +614,9 @@ async function enviar(phone, texto, meta = {}) {
     log('[SIM] ' + dig + ' | ' + (meta.tipo || 'msj') + ' | ' + String(texto).replace(/\n+/g, ' ⏎ '))
     return true
   }
-  if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0 }
-  if (enviadosHoy >= MAX_DIA && process.env.SIMULACRO !== '1') { log('TOPE DIARIO ALCANZADO, no se envia a', phone); return false }
+  if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); return false }
+  if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
+  if ((S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') { log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone); return false }
   const soloDig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
   if (!ADMIN || soloDig !== String(ADMIN)) {
     const tnumEnv = await tipoNumero(soloDig)
@@ -564,15 +625,16 @@ async function enviar(phone, texto, meta = {}) {
   }
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
   try {
-    guardarMsg(await sock.sendMessage(destJid, { text: texto }))
-    enviadosHoy++
+    guardarMsg(await S.sock.sendMessage(destJid, { text: texto }))
+    enviadosHoy++; S.enviados = (S.enviados || 0) + 1
     await supabase.from('scheduled_messages').insert({
       recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
       installment_id: meta.installment_id || null, client_id: meta.client_id || null,
-      lead_id: meta.lead_id || null, scheduled_for: new Date().toISOString(),
+      lead_id: meta.lead_id || null, sale_id: meta.sale_id || null, session_id: sesId(S),
+      scheduled_for: new Date().toISOString(),
       status: 'enviado', sent_at: new Date().toISOString(),
     })
-    log('ENVIADO [' + (meta.tipo || 'msj') + '] a', phone)
+    log('ENVIADO [' + (meta.tipo || 'msj') + '] a', phone, 'por', S.row.label || 'PRINCIPAL')
     return true
   } catch (e) {
     log('ERROR enviando a', phone, e.message)
@@ -985,7 +1047,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
     const q = pendientes[0], d = diasEntre(q.due_date, hoyISO), deuda = Number(q.amount) - Number(q.amount_paid)
     for (const r of (b.avisos || [])) {
       if (Number(r.dias) === d && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_al' + d, dias: 25 }))) {
-        await enviarCliente(c, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_al' + d, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, tokensCob(r.mensaje, { nombre, lote, proy, q, deuda, nV, dias: d }), { tipo: 'cob_al' + d, installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       }
     }
@@ -1000,7 +1062,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
   let mando = false
   for (const r of (b.avisos || [])) {
     if (Number(r.dias) === dd && (r.mensaje || '').trim() && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_' + dd, dias: 45 }))) {
-      await enviarCliente(c, tokensCob(r.mensaje, vars), { tipo: 'cob_' + key, installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await enviarCliente(c, tokensCob(r.mensaje, vars), { tipo: 'cob_' + key, installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
       await espera(delayAleatorio()); mando = true
     }
   }
@@ -1010,7 +1072,7 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
     const cada = Math.max(1, Number(rep.cada_dias) || 3)
     const over = dd - base
     if (over > 0 && over % cada === 0 && !(await yaAvisado({ installment_id: q.id, tipo: 'cob_' + key + '_rep' + dd, dias: 90 }))) {
-      await enviarCliente(c, tokensCob(rep.mensaje, vars), { tipo: 'cob_' + key + '_rep', installment_id: q.id, sale_id: v.id, client_id: c.id })
+      await enviarCliente(c, tokensCob(rep.mensaje, vars), { tipo: 'cob_' + key + '_rep', installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
       await espera(delayAleatorio())
     }
   }
@@ -1034,7 +1096,7 @@ async function cobranza() {
   const hoyISO = new Date().toISOString().slice(0, 10)
 
   const { data: ventas, error } = await supabase.from('sales')
-    .select('id, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(name)), installments(id, installment_number, amount, amount_paid, due_date, status)')
+    .select('id, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)')
     .eq('status', 'en_proceso').eq('auto_cobranza', true)
   if (error) { log('ERROR consultando ventas:', error.message); return }
 
@@ -1056,13 +1118,13 @@ async function cobranza() {
     if (nV >= 3) {
       // NIVEL C: severo cada 3 dias
       if (!(await yaAvisado({ sale_id: v.id, tipo: 'nivel_C', dias: 3 }))) {
-        await enviarCliente(c, msjC(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_C', sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjC(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_C', sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       }
     } else if (nV === 2) {
       // NIVEL B: cada 3 dias
       if (!(await yaAvisado({ sale_id: v.id, tipo: 'nivel_B', dias: 3 }))) {
-        await enviarCliente(c, msjB(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_B', sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjB(nombre, lote, proy, nV, deudaVenc), { tipo: 'nivel_B', sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       }
     } else if (nV === 1) {
@@ -1071,10 +1133,10 @@ async function cobranza() {
       const dd = diasEntre(hoyISO, q.due_date)
       const deuda = Number(q.amount) - Number(q.amount_paid)
       if (dd === 2 && !(await yaAvisado({ installment_id: q.id, tipo: 'insist_2', dias: 30 }))) {
-        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_2', installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_2', installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       } else if (dd === 4 && !(await yaAvisado({ installment_id: q.id, tipo: 'insist_4', dias: 30 }))) {
-        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_4', installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjInsist(nombre, lote, proy, q, deuda, dd), { tipo: 'insist_4', installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       } else if (dd >= 5 && !(await yaAvisado({ sale_id: v.id, tipo: 'gestion_humana', dias: 45 }))) {
         await supabase.from('scheduled_messages').insert({
@@ -1091,7 +1153,7 @@ async function cobranza() {
       const mapa = { 5: 'A5', 3: 'A3', 0: 'A0' }
       const cuando = mapa[d]
       if (cuando && !(await yaAvisado({ installment_id: q.id, tipo: cuando, dias: 20 }))) {
-        await enviarCliente(c, msjA(nombre, lote, proy, q, deuda, cuando), { tipo: cuando, installment_id: q.id, sale_id: v.id, client_id: c.id })
+        await enviarCliente(c, msjA(nombre, lote, proy, q, deuda, cuando), { tipo: cuando, installment_id: q.id, sale_id: v.id, client_id: c.id, project_id: v.lot.project?.id })
         await espera(delayAleatorio())
       }
     }
@@ -1106,14 +1168,27 @@ async function cobranza() {
 }
 
 // ---------- MODULO 2: LEADS ENTRANTES ----------
-async function estadoConv(phone) {
-  const { data } = await supabase.from('whatsapp_conversations').select('*').eq('phone', phone).maybeSingle()
-  return data
+// La conversacion ahora es por (telefono, sesion): el mismo numero puede chatear
+// con el WhatsApp de Cashibo Y el de Pucallpa sin mezclarse. Sin sesion dada se
+// usa la conversacion mas reciente del telefono (compatibilidad).
+async function estadoConv(phone, ses) {
+  let q = supabase.from('whatsapp_conversations').select('*').eq('phone', phone)
+  const sid = sesId(ses)
+  if (sid) q = q.eq('session_id', sid)
+  const { data } = await q.order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
+  return (data || [])[0] || null
 }
-async function setConv(phone, campos) {
-  const existe = await estadoConv(phone)
-  if (existe) { const { error } = await supabase.from('whatsapp_conversations').update({ ...campos, last_message_at: new Date().toISOString() }).eq('phone', phone); if (error) log('DB conv upd:', error.message) }
-  else { const { error } = await supabase.from('whatsapp_conversations').insert({ phone, ...campos, last_message_at: new Date().toISOString() }); if (error) log('DB conv ins:', error.message) }
+async function setConv(phone, campos, ses) {
+  const existe = await estadoConv(phone, ses)
+  if (existe) { const { error } = await supabase.from('whatsapp_conversations').update({ ...campos, last_message_at: new Date().toISOString() }).eq('id', existe.id); if (error) log('DB conv upd:', error.message) }
+  else {
+    const S = (ses && ses.row) ? ses : sesCorporativa()
+    const { error } = await supabase.from('whatsapp_conversations').insert({
+      phone, session_id: sesId(S), project_id: (S && S.row && S.row.project_id) || null,
+      ...campos, last_message_at: new Date().toISOString(),
+    })
+    if (error) log('DB conv ins:', error.message)
+  }
 }
 
 // ===== FLUJO DE VENTAS GUIADO (sin IA / sin tokens) =====
@@ -1139,16 +1214,16 @@ async function detectarProyecto(texto) {
 }
 
 // Deriva el lead a un asesor humano y corta la conversación automática.
-async function pasarAsesor(jid, phone, lead, motivo) {
-  await setConv(phone, { flow_state: 'humano' })
+async function pasarAsesor(ses, jid, phone, lead, motivo) {
+  await setConv(phone, { flow_state: 'humano' }, ses)
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}).catch(() => {})
   const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
-  await enviar(jid, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+  await enviar(jid, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id, ses })
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
-  for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
+  for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })   // avisos internos: por su propio chat/corporativa
 }
 
 
@@ -1157,16 +1232,16 @@ async function pasarAsesor(jid, phone, lead, motivo) {
 //            opciones[{label, claves, ir_a, pasar_asesor}] }
 // Biblioteca de material del flujo: media_lib=[{id,tipo:'imagen'|'video'|'link',url,desc}]; los pasos
 // y el bombardeo referencian por id. Envía cada item según su tipo.
-async function enviarMediaLib(jid, lib, ids) {
+async function enviarMediaLib(ses, jid, lib, ids) {
   if (!Array.isArray(ids) || !ids.length) return
   const byId = {}; for (const it of (lib || [])) byId[String(it.id)] = it
   for (const id of ids) {
     const it = byId[String(id)]
     if (!it || !it.url) continue
-    if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', it.desc || '')
-    else if (it.tipo === 'pdf') await enviarArchivo(jid, it.url, 'documento', it.desc || '')
-    else if (it.tipo === 'link') await enviar(jid, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo' })
-    else await enviarArchivo(jid, it.url, 'foto', it.desc || '')
+    if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', it.desc || '', ses)
+    else if (it.tipo === 'pdf') await enviarArchivo(jid, it.url, 'documento', it.desc || '', ses)
+    else if (it.tipo === 'link') await enviar(jid, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo', ses })
+    else await enviarArchivo(jid, it.url, 'foto', it.desc || '', ses)
   }
 }
 function parseFlow(proy) {
@@ -1182,7 +1257,7 @@ function textoFlujo(flow, key, def, proyName) {
 const pasoPorId = (flow, id) => (flow.steps || []).find(s => String(s.id) === String(id))
 const idxDePaso = (flow, id) => (flow.steps || []).findIndex(s => String(s.id) === String(id))
 // ejecuta pasos desde un índice; envía mensajes+adjuntos y se detiene en la 1ª pregunta (o al final)
-async function correrFlujo(jid, phone, lead, proy, flow, idx) {
+async function correrFlujo(ses, jid, phone, lead, proy, flow, idx) {
   const steps = flow.steps || []
   PAUSA_MS = Math.max(0, Math.round(Number(flow.pausa_seg ?? 3) * 1000))   // pausa entre mensajes de este flujo
   let guard = 0
@@ -1191,61 +1266,63 @@ async function correrFlujo(jid, phone, lead, proy, flow, idx) {
     if (s.texto) {
       const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
       const txt = String(s.texto).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
-      await enviar(jid, txt, { tipo: 'lead_flujo', lead_id: lead.id })
+      await enviar(jid, txt, { tipo: 'lead_flujo', lead_id: lead.id, ses })
     }
-    await enviarMediaLib(jid, flow.media_lib || [], s.media)
-    if (s.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
+    await enviarMediaLib(ses, jid, flow.media_lib || [], s.media)
+    if (s.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
     if (s.tipo === 'pregunta') {
       // una pregunta SIEMPRE espera la respuesta del lead (tenga opciones cerradas o sea abierta)
       if ((s.opciones || []).length) {
         const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-        await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+        await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id, ses })
       }
-      await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 })
+      await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 }, ses)
       return
     }
     idx++
   }
   await supabase.from('leads').update({ status: 'interesado', temperature: 'caliente' }).eq('id', lead.id)
-  await setConv(phone, { flow_state: 'completado', flow_step: null })
-  await finalizarLead(jid, phone, lead)
+  await setConv(phone, { flow_state: 'completado', flow_step: null }, ses)
+  await finalizarLead(ses, jid, phone, lead)
 }
 // arranca el flujo del proyecto (100% configurable desde el panel).
 // Sin flujo configurado en el panel: no se inventa nada; se registra el lead y se avisa al asesor.
-async function iniciarFlujoProyecto(jid, phone, lead) {
+async function iniciarFlujoProyecto(ses, jid, phone, lead) {
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+  await setConv(phone, { project_id: lead.project_id || null }, ses)   // el chat queda etiquetado con su proyecto
   const flow = parseFlow(proy)
-  if (proy && flow) { await correrFlujo(jid, phone, lead, proy, flow, 0); return }
-  await setConv(phone, { flow_state: 'completado', flow_step: null })
-  await finalizarLead(jid, phone, lead)
+  if (proy && flow) { await correrFlujo(ses, jid, phone, lead, proy, flow, 0); return }
+  await setConv(phone, { flow_state: 'completado', flow_step: null }, ses)
+  await finalizarLead(ses, jid, phone, lead)
 }
 // Único paso fijo aparte del reconocimiento automático: si no se identificó el proyecto, preguntar cuál.
 // Con un solo proyecto no se pregunta; con varios, se listan y se elige por número o palabra clave.
-async function pedirProyecto(jid, phone, lead, proys) {
+// (Solo pasa en la sesión CORPORATIVA sin proyecto: en los números por proyecto nunca se pregunta.)
+async function pedirProyecto(ses, jid, phone, lead, proys) {
   const lista = proys || []
   // ningún proyecto habilitado para el bot: no hay nada que ofrecer → a un asesor
-  if (lista.length === 0) { await pasarAsesor(jid, phone, lead, 'sin_proyectos_bot'); return }
+  if (lista.length === 0) { await pasarAsesor(ses, jid, phone, lead, 'sin_proyectos_bot'); return }
   if (lista.length === 1) {
     await supabase.from('leads').update({ project_id: lista[0].id }).eq('id', lead.id)
     lead.project_id = lista[0].id
-    await iniciarFlujoProyecto(jid, phone, lead)
+    await iniciarFlujoProyecto(ses, jid, phone, lead)
     return
   }
-  await setConv(phone, { flow_state: 'espera_proyecto' })
-  await enviar(jid, `¡Hola! 👋 ¿Sobre qué proyecto quieres información?${lista.map((p, i) => `\n${i + 1}. *${p.name}*`).join('')}\n\nRespóndeme con el número o el nombre.`, { tipo: 'lead_flujo', lead_id: lead.id })
+  await setConv(phone, { flow_state: 'espera_proyecto' }, ses)
+  await enviar(jid, `¡Hola! 👋 ¿Sobre qué proyecto quieres información?${lista.map((p, i) => `\n${i + 1}. *${p.name}*`).join('')}\n\nRespóndeme con el número o el nombre.`, { tipo: 'lead_flujo', lead_id: lead.id, ses })
 }
 // respuesta del lead dentro de un flujo (número o palabra clave -> rama)
-async function responderFlujo(jid, phone, lead, conv, corto) {
+async function responderFlujo(ses, jid, phone, lead, conv, corto) {
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
   const flow = parseFlow(proy)
   const step = flow ? pasoPorId(flow, conv.flow_step) : null
-  if (!proy || !flow || !step) { await setConv(phone, { flow_state: 'completado', flow_step: null }); await finalizarLead(jid, phone, lead); return }
+  if (!proy || !flow || !step) { await setConv(phone, { flow_state: 'completado', flow_step: null }, ses); await finalizarLead(ses, jid, phone, lead); return }
   const ops = step.opciones || []
   // pregunta ABIERTA (sin opciones): acepta cualquier respuesta, la guarda y avanza al siguiente paso
   if (!ops.length) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + corto).slice(0, 500) })
-    if (step.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
-    await correrFlujo(jid, phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
+    if (step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
+    await correrFlujo(ses, jid, phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
     return
   }
   let elegida = null
@@ -1255,16 +1332,16 @@ async function responderFlujo(jid, phone, lead, conv, corto) {
   if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
   if (!elegida) {
     const opsTxt = ops.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-    await enviar(jid, 'No te entendí bien 😅 Elige una opción:\n' + opsTxt + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviar(jid, 'No te entendí bien 😅 Elige una opción:\n' + opsTxt + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id, ses })
     return
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
-  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(jid, phone, lead, 'flujo'); return }
+  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
   let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
   if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1
-  await correrFlujo(jid, phone, lead, proy, flow, nextIdx)
+  await correrFlujo(ses, jid, phone, lead, proy, flow, nextIdx)
 }
-async function finalizarLead(jid, phone, lead) {
+async function finalizarLead(ses, jid, phone, lead) {
   // Sin mensaje de cierre fijo al cliente: si quieres una despedida, ponla como último paso del flujo (panel).
   // Aquí solo se registra y se avisa al asesor.
   const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', lead.id).order('created_at')
@@ -1283,7 +1360,7 @@ async function finalizarLead(jid, phone, lead) {
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
-async function manejarEntrante(jid, jidPN, texto, pushName) {
+async function manejarEntrante(ses, jid, jidPN, texto, pushName, media) {
   let phone = telDeJid(jidPN || jid)
   // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
   if (!jidPN && String(jid).endsWith('@lid')) {
@@ -1291,16 +1368,20 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone').ilike('wa_jid', '%' + lidDig + '%').not('phone', 'ilike', lidDig).limit(1)
     if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID mapeado a', phone) }
   }
-  if (!texto) return
-  const corto = texto.trim().slice(0, 400)
-  log('ENTRANTE de', phone, ':', corto.slice(0, 60))
+  if (!texto && !media) return
+  const corto = String(texto || '').trim().slice(0, 400)
+  log('ENTRANTE de', phone, 'por', ses?.row?.label || 'PRINCIPAL', ':', corto.slice(0, 60) || ('[' + (media?.tipo || 'media') + ']'))
   // registrar SIEMPRE la conversacion y el mensaje entrante (incluido el ADMIN, para verlo en el panel)
-  let conv = await estadoConv(phone)
-  if (!conv) { await setConv(phone, { wa_jid: jid }); conv = await estadoConv(phone) }
+  let conv = await estadoConv(phone, ses)
+  if (!conv) { await setConv(phone, { wa_jid: jid }, ses); conv = await estadoConv(phone, ses) }
   else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
   await supabase.from('whatsapp_messages').insert({
-    conversation_id: conv?.id || null, direction: 'in', body: corto, delivery_status: 'recibido',
+    conversation_id: conv?.id || null, direction: 'in', body: corto || null, delivery_status: 'recibido',
+    media_url: media?.url || null, media_type: media?.tipo || null, media_name: media?.name || null,
   }).then(() => {}).catch(() => {})
+  _convSesCache.delete(phone)   // refrescar el cache de ruteo (la conv acaba de moverse/crearse)
+  // solo media sin texto: queda registrada para verla en el panel; no hay nada que responder
+  if (!corto) return
 
   if (phone === ADMIN) {
     if (await comandosPrivilegiados(jid, phone, texto)) return
@@ -1346,6 +1427,14 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     await manejarSecretaria(jid, phone, texto).catch(e => log('SEC resp:', e.message)); return
   }
 
+  // CHAT EN MODO HUMANO: alguien del panel atiende este chat — el bot se calla
+  // por completo aquí (leads y clientes). Vuelve con el botón "Devolver al bot".
+  if (conv && conv.modo === 'humano') {
+    if (conv.lead_id) await supabase.from('lead_activities').insert({ lead_id: conv.lead_id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}).catch(() => {})
+    log('MODO HUMANO: sin respuesta automatica a', phone)
+    return
+  }
+
   // ¿es cliente?
   const p9 = phone.slice(-9)
   const { data: clientes } = await supabase.from('clients').select('id, full_name').ilike('phone', `%${p9}%`).limit(1)
@@ -1359,14 +1448,14 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     if (Array.isArray(reglas) && reglas.length) {
       const r = reglas.find(x => matchClaves(x.claves, corto))
       if (r) {
-        await enviar(jid, String(r.respuesta || '').trim() || (r.accion === 'asesor' ? 'Con gusto, un asesor se comunicará contigo en breve. 🙌' : '¡Gracias! 🙌 Recibido.'), { tipo: 'auto_cliente', client_id: cliente.id })
+        await enviar(jid, String(r.respuesta || '').trim() || (r.accion === 'asesor' ? 'Con gusto, un asesor se comunicará contigo en breve. 🙌' : '¡Gracias! 🙌 Recibido.'), { tipo: 'auto_cliente', client_id: cliente.id, ses })
         if (ADMIN) await enviar(ADMIN, (r.accion === 'asesor' ? '📞 CLIENTE PIDE AYUDA/ASESOR' : '🤖 CLIENTE') + ` *${cliente.full_name}* (${phone}):\n"${corto}"`, { tipo: 'aviso_admin' })
         return
       }
     }
     // por defecto: reconocer "ya pagué"
     if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto)) {
-      await enviar(jid, `¡Gracias ${primer}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id })
+      await enviar(jid, `¡Gracias ${primer}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id, ses })
       if (ADMIN) await enviar(ADMIN, `🤖 CLIENTE *${cliente.full_name}* (${phone}) escribió:\n"${corto}"\n\n→ Posible pago por verificar en CUOTAS.`, { tipo: 'aviso_admin' })
     }
     return // clientes: no aplicar flujo de leads
@@ -1395,51 +1484,66 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
   // ESCALADA INMEDIATA: si en CUALQUIER momento pide asesor/humano, corta y lo deriva ya.
   if (lead && estado && estado !== 'humano' && estado !== 'completado' &&
       /\basesor|humano|persona real|hablar con (alguien|un)|que me llamen|ll[aá]men|vendedor|encargado|un agente/i.test(corto)) {
-    await pasarAsesor(jid, phone, lead, 'pidio_asesor')
+    await pasarAsesor(ses, jid, phone, lead, 'pidio_asesor')
     return
   }
 
-  // 1) PRIMER CONTACTO: lo ÚNICO fijo es reconocer el proyecto; luego corre el flujo del panel (sin pedir nombre).
+  // Proyecto de ESTA sesión: en los números por proyecto el bot nunca pregunta
+  // "¿qué proyecto?" — el número al que escribieron YA define el proyecto.
+  const proyDeSesion = ses?.row?.project_id || null
+
+  // 1) PRIMER CONTACTO: el número define el proyecto (o se reconoce del texto); luego corre el flujo del panel.
   if (!lead) {
-    const { pr, proys } = await detectarProyecto(corto)
+    let pr = null, proys = []
+    if (proyDeSesion) pr = { id: proyDeSesion, name: ses?.row?.label || '' }
+    else { const d = await detectarProyecto(corto); pr = d.pr; proys = d.proys }
     const { data: nuevoLead } = await supabase.from('leads').insert({
       full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
       source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
       optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
-    if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
-    if (pr) { await iniciarFlujoProyecto(jid, phone, lead); return }   // proyecto identificado → directo al flujo del panel
-    await pedirProyecto(jid, phone, lead, proys)                       // no identificado → pedir cuál (parte del reconocimiento)
+    if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr && pr.name ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
+    if (pr) { await iniciarFlujoProyecto(ses, jid, phone, lead); return }   // proyecto identificado → directo al flujo del panel
+    await pedirProyecto(ses, jid, phone, lead, proys)                       // no identificado → pedir cuál (solo corporativa)
     return
   }
 
-  // 2) PROYECTO (si no se detectó al inicio o quedó ambiguo)
+  // 2) PROYECTO (si no se detectó al inicio o quedó ambiguo — solo pasa en la corporativa)
   if (estado === 'espera_proyecto') {
     const { proys } = await detectarProyecto('')
     const n = parseInt(corto.replace(/\D/g, ''), 10)
     let pr = (!isNaN(n) && n >= 1 && n <= proys.length) ? proys[n - 1] : null
     if (!pr) pr = (await detectarProyecto(corto)).pr
-    if (!pr) { await enviar(jid, 'No identifiqué el proyecto 🤔 Escríbeme el número de la lista, por favor.', { tipo: 'lead_flujo', lead_id: lead.id }); return }
+    if (!pr) { await enviar(jid, 'No identifiqué el proyecto 🤔 Escríbeme el número de la lista, por favor.', { tipo: 'lead_flujo', lead_id: lead.id, ses }); return }
     await supabase.from('leads').update({ project_id: pr.id, status: 'interesado', temperature: 'tibio' }).eq('id', lead.id)
     lead.project_id = pr.id
     // Proyecto elegido → arranca directo el flujo del panel (sin pregunta INFO/ASESOR)
-    await iniciarFlujoProyecto(jid, phone, lead)
+    await iniciarFlujoProyecto(ses, jid, phone, lead)
     return
   }
 
   // 3) DENTRO DEL FLUJO CONFIGURABLE DEL PROYECTO (pasos con ramas y palabras clave)
   if (estado === 'flow') {
-    await responderFlujo(jid, phone, lead, conv, corto)
+    await responderFlujo(ses, jid, phone, lead, conv, corto)
     return
   }
 
-  // 4) lead huérfano sin estado: reiniciar (re-reconoce proyecto y arranca el flujo del panel)
+  // 4) lead sin estado EN ESTA CONVERSACIÓN: si escribió al número de un proyecto,
+  // ese proyecto manda (aunque antes haya preguntado por otro); si no, se re-reconoce.
   if (!estado && lead?.id) {
-    if (lead.project_id) { await iniciarFlujoProyecto(jid, phone, lead); return }
+    if (proyDeSesion) {
+      if (lead.project_id !== proyDeSesion) {
+        await supabase.from('leads').update({ project_id: proyDeSesion }).eq('id', lead.id)
+        lead.project_id = proyDeSesion
+      }
+      await iniciarFlujoProyecto(ses, jid, phone, lead)
+      return
+    }
+    if (lead.project_id) { await iniciarFlujoProyecto(ses, jid, phone, lead); return }
     const { pr, proys } = await detectarProyecto(corto)
-    if (pr) { await supabase.from('leads').update({ project_id: pr.id }).eq('id', lead.id); lead.project_id = pr.id; await iniciarFlujoProyecto(jid, phone, lead); return }
-    await pedirProyecto(jid, phone, lead, proys)
+    if (pr) { await supabase.from('leads').update({ project_id: pr.id }).eq('id', lead.id); lead.project_id = pr.id; await iniciarFlujoProyecto(ses, jid, phone, lead); return }
+    await pedirProyecto(ses, jid, phone, lead, proys)
     return
   }
 
@@ -1453,79 +1557,182 @@ async function manejarEntrante(jid, jidPN, texto, pushName) {
     const trivial = corto.length < 3 || /^(gracias|grasias|ok|okey|oki|ya|listo|dale|de acuerdo|👍|🙏)[.!\s]*$/i.test(corto)
     if (trivial) return
     if (/asesor|humano|persona real|hablar con alguien|que me llamen|llamen/i.test(corto)) {
-      await setConv(phone, { flow_state: 'humano' })
-      await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis. Te escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id })
+      await setConv(phone, { flow_state: 'humano' }, ses)
+      await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis. Te escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id, ses })
       if (ADMIN) await enviar(ADMIN, '⚠️ PIDIÓ ASESOR\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nÚltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })
       return
     }
-    await enviar(jid, 'Gracias por tu mensaje 🙌 Un asesor de Urbis revisará tu consulta y te responderá pronto. Si es urgente escribe *ASESOR*.', { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviar(jid, 'Gracias por tu mensaje 🙌 Un asesor de Urbis revisará tu consulta y te responderá pronto. Si es urgente escribe *ASESOR*.', { tipo: 'lead_flujo', lead_id: lead.id, ses })
   }
 }
 
 // ---------- CONEXION ----------
-async function iniciar() {
-  const { state, saveCreds } = await useMultiFileAuthState('./auth')
-  const { version } = await fetchLatestBaileysVersion()
-  sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS AGENTE', 'Chrome', '120.0'], getMessage: async key => msgStore.get(key && key.id) })
+// extensión de archivo para la media entrante (según tipo y mimetype)
+function extDe(tipo, mimetype, nombre) {
+  const deNombre = String(nombre || '').split('.').pop()
+  if (tipo === 'document' && deNombre && deNombre.length <= 5) return deNombre.toLowerCase()
+  const sub = String(mimetype || '').split('/')[1] || ''
+  if (sub) return sub.split(';')[0].replace('jpeg', 'jpg').replace('quicktime', 'mov').slice(0, 5) || 'bin'
+  return tipo === 'image' ? 'jpg' : tipo === 'video' ? 'mp4' : tipo === 'audio' ? 'ogg' : tipo === 'sticker' ? 'webp' : 'bin'
+}
 
-  sock.ev.on('creds.update', saveCreds)
-  sock.ev.on('connection.update', async u => {
-    if (u.qr) {
-      console.log('\n============================================')
-      console.log('  ESCANEA ESTE QR CON EL WHATSAPP DEL AGENTE')
-      console.log('  (WhatsApp > Dispositivos vinculados > Vincular)')
-      console.log('============================================\n')
-      qrcode.generate(u.qr, { small: true })
-      setAjuste('wa_qr', u.qr).catch(() => {})
-      setAjuste('wa_estado', 'esperando_qr').catch(() => {})
+// levanta UNA sesión Baileys (una por número/fila de wa_sessions)
+async function iniciarSesion(row) {
+  const prev = SESSIONS.get(row.id)
+  if (prev && (prev.sock || prev.iniciando)) return
+  const S = prev || { row, sock: null, enviados: 0 }
+  S.row = row; S.iniciando = true
+  SESSIONS.set(row.id, S)
+  const authDir = authDirDe(row)
+  try {
+    _fsm.mkdirSync(AUTH_BASE, { recursive: true })
+    // primera vez de la corporativa: heredar las credenciales viejas (./auth) sin re-escanear
+    if (row.id !== 'legacy' && row.is_corporate && !_fsm.existsSync(authDir) && _fsm.existsSync('./auth')) {
+      _fsm.renameSync('./auth', authDir)
+      log('Credenciales ./auth migradas a', authDir, '(sesion corporativa)')
     }
-    if (u.connection === 'open') {
-      log('✅ CONECTADO A WHATSAPP')
-      setAjuste('wa_qr', '').catch(() => {})
-      setAjuste('wa_estado', 'conectado').catch(() => {})
-      // aviso al admin como MÁXIMO 1 vez por hora: evita el spam de "conectado y en
-      // servicio" por reconexiones/reinicios seguidos. El estado en vivo se ve en el panel.
-      if (ADMIN) {
-        try {
-          const last = await ajuste('wa_aviso_conectado', '')
-          if (!last || (Date.now() - new Date(last).getTime()) > 3600000) {
-            await setAjuste('wa_aviso_conectado', new Date().toISOString())
-            enviar(ADMIN, '🤖 AGENTE URBIS conectado y en servicio.', { tipo: 'reporte' })
-          }
-        } catch {}
+  } catch (e) { log('migracion auth:', String(e.message || e)) }
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(authDir)
+    const { version } = await fetchLatestBaileysVersion()
+    const sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['URBIS ' + (row.label || 'AGENTE'), 'Chrome', '120.0'], getMessage: async key => msgStore.get(key && key.id) })
+    S.sock = sock; S.iniciando = false
+
+    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('connection.update', async u => {
+      if (u.qr) {
+        console.log('\n============================================')
+        console.log('  [' + (row.label || 'PRINCIPAL') + '] ESCANEA ESTE QR (el QR tambien sale en el panel)')
+        console.log('============================================\n')
+        qrcode.generate(u.qr, { small: true })
+        setSes(row, { estado: 'esperando_qr', qr: u.qr }).catch(() => {})
       }
-    }
-    if (u.connection === 'close') {
-      const code = u.lastDisconnect?.error?.output?.statusCode
-      log('conexion cerrada, codigo', code)
-      if (code !== DisconnectReason.loggedOut) { log('reconectando...'); setTimeout(iniciar, 5000) }
-      else log('SESION CERRADA DESDE EL TELEFONO. Borra la carpeta auth/ y vuelve a escanear.')
-    }
-  })
+      if (u.connection === 'open') {
+        const num = String(sock.user?.id || '').split(':')[0].replace(/\D/g, '')
+        log('✅ [' + (row.label || 'PRINCIPAL') + '] CONECTADO A WHATSAPP' + (num ? ' (+' + num + ')' : ''))
+        setSes(row, { estado: 'conectado', qr: '', latido: new Date().toISOString(), ...(num ? { phone: num } : {}) }).catch(() => {})
+        // aviso al admin como MÁXIMO 1 vez por hora y solo por la corporativa (evita spam)
+        if (ADMIN && row.is_corporate) {
+          try {
+            const last = await ajuste('wa_aviso_conectado', '')
+            if (!last || (Date.now() - new Date(last).getTime()) > 3600000) {
+              await setAjuste('wa_aviso_conectado', new Date().toISOString())
+              enviar(ADMIN, '🤖 AGENTE URBIS conectado y en servicio.', { tipo: 'reporte' })
+            }
+          } catch {}
+        }
+      }
+      if (u.connection === 'close') {
+        const code = u.lastDisconnect?.error?.output?.statusCode
+        log('[' + (row.label || 'PRINCIPAL') + '] conexion cerrada, codigo', code)
+        S.sock = null
+        if (code !== DisconnectReason.loggedOut) { log('reconectando', row.label || 'PRINCIPAL', '...'); setTimeout(() => iniciarSesion(S.row).catch(() => {}), 5000) }
+        else { setSes(row, { estado: 'cerrado', qr: '' }).catch(() => {}); log('SESION CERRADA DESDE EL TELEFONO. Usa VINCULAR en el panel para re-escanear.') }
+      }
+    })
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return
-    for (const m of messages) {
-      try {
-        if (m.key.fromMe) continue
-        const jid = m.key.remoteJid || ''
-        if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue
-        const texto = m.message?.conversation || m.message?.extendedTextMessage?.text || ''
-        const k = m.key || {}
-        let alt = String(k.remoteJidAlt || k.participantAlt || k.senderPn || k.participantPn || '')
-        if (alt && !alt.includes('@')) alt = alt + '@s.whatsapp.net'
-        const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
-        if (!jidPN) log('AVISO LID sin numero real. key=', JSON.stringify(k))
-        try { await manejarEntrante(jid, jidPN, texto, m.pushName) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
-      } catch (e) { log('error procesando entrante:', e.message) }
-    }
-  })
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return
+      for (const m of messages) {
+        try {
+          if (m.key.fromMe) continue
+          const jid = m.key.remoteJid || ''
+          if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+          const msg = m.message || {}
+          // media entrante (foto/video/audio/documento): se descarga a Storage para verla en el panel
+          let media = null
+          const mm = msg.imageMessage || msg.videoMessage || msg.documentMessage || msg.audioMessage || msg.stickerMessage
+          if (mm) {
+            const mtipo = msg.imageMessage ? 'image' : msg.videoMessage ? 'video' : msg.documentMessage ? 'document' : msg.audioMessage ? 'audio' : 'sticker'
+            media = { tipo: mtipo, name: msg.documentMessage?.fileName || null, caption: mm.caption || '' }
+            try {
+              if (Number(mm.fileLength || 0) <= 30 * 1024 * 1024) {
+                const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
+                const ruta = 'wa-chat/' + telDeJid(jid) + '/' + Date.now() + '.' + extDe(mtipo, mm.mimetype, media.name)
+                const { error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true })
+                if (!error) media.url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
+                else log('media entrante (storage):', error.message)
+              } else log('media entrante muy pesada, no se descarga (', mm.fileLength, 'bytes )')
+            } catch (e) { log('media entrante:', String(e.message || e)) }
+          }
+          const texto = msg.conversation || msg.extendedTextMessage?.text || (media && media.caption) || ''
+          const k = m.key || {}
+          let alt = String(k.remoteJidAlt || k.participantAlt || k.senderPn || k.participantPn || '')
+          if (alt && !alt.includes('@')) alt = alt + '@s.whatsapp.net'
+          const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
+          if (!jidPN) log('AVISO LID sin numero real. key=', JSON.stringify(k))
+          try { await manejarEntrante(S, jid, jidPN, texto, m.pushName, media) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
+        } catch (e) { log('error procesando entrante:', e.message) }
+      }
+    })
+  } catch (e) {
+    S.iniciando = false
+    log('ERROR iniciando sesion', row.label || row.id, ':', String(e.message || e))
+    setTimeout(() => iniciarSesion(S.row).catch(() => {}), 15000)
+  }
+}
 
-  // cron diario de cobranza
+// vigila wa_sessions: levanta sesiones nuevas, apaga desactivadas y atiende relink/restart por sesión
+async function supervisarSesiones() {
+  let rows = []
+  try {
+    const { data, error } = await supabase.from('wa_sessions').select('*').eq('activo', true)
+    if (error) return          // tabla aún no existe (sql/30 sin correr): seguir en modo compat
+    rows = data || []
+  } catch { return }
+  if (!rows.length) return     // sin filas: el modo compat (legacy) sigue corriendo
+  const vivos = new Set(rows.map(r => r.id))
+  for (const [id, S] of SESSIONS) {
+    if (!vivos.has(id)) {      // desactivada/borrada (o la legacy al aparecer filas reales)
+      try { if (S.sock) S.sock.end?.(new Error('sesion desactivada')) } catch {}
+      S.sock = null
+      SESSIONS.delete(id)
+      log('SESION APAGADA:', S.row.label || id)
+    }
+  }
+  for (const r of rows) {
+    const S = SESSIONS.get(r.id)
+    if (S) S.row = r           // refrescar label/project_id/is_corporate en caliente
+    if (r.relink) {            // re-vincular ESTE numero: borrar credenciales y pedir QR
+      await supabase.from('wa_sessions').update({ relink: false, estado: 'esperando_qr', qr: '' }).eq('id', r.id)
+      try { if (S && S.sock) await S.sock.logout().catch(() => {}) } catch {}
+      try { _fsm.rmSync(authDirDe(r), { recursive: true, force: true }) } catch {}
+      if (S) S.sock = null
+      SESSIONS.delete(r.id)
+      iniciarSesion({ ...r, relink: false }).catch(() => {})
+      continue
+    }
+    if (r.restart) {           // reiniciar SOLO esta sesion (credenciales intactas)
+      await supabase.from('wa_sessions').update({ restart: false }).eq('id', r.id)
+      try { if (S && S.sock) S.sock.end?.(new Error('restart')) } catch {}
+      if (S) S.sock = null
+      SESSIONS.delete(r.id)
+      iniciarSesion({ ...r, restart: false }).catch(() => {})
+      continue
+    }
+    if (!S) iniciarSesion(r).catch(() => {})
+  }
+}
+
+async function arrancar() {
+  let rows = []
+  try {
+    const { data, error } = await supabase.from('wa_sessions').select('*').eq('activo', true)
+    if (!error) rows = data || []
+  } catch {}
+  if (!rows.length) {
+    // sql/30 sin correr o sin filas: modo compatibilidad — una sola sesion en ./auth como siempre
+    log('AVISO: sin wa_sessions (¿falta correr sql/30?). Modo single-sesion de compatibilidad.')
+    rows = [{ id: 'legacy', is_corporate: true, label: 'PRINCIPAL', project_id: null, activo: true }]
+  }
+  for (const r of rows) iniciarSesion(r).catch(e => log('init', r.label || r.id, ':', String(e.message || e)))
+  setInterval(() => { supervisarSesiones().catch(() => {}) }, 20000)
+
+  // crons GLOBALES (una sola vez, no por sesión)
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
   cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
-  log(`Agente iniciado. Cobranza diaria programada a las ${hh}:${mm} (hora Lima).`)
+  log(`Agente iniciado (${rows.length} sesion(es)). Cobranza diaria a las ${hh}:${mm} (hora Lima).`)
 
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
 }
@@ -1538,21 +1745,51 @@ if (process.env.SIMULACRO === '1') {
     process.exit(0)
   })()
 } else {
-  iniciar()
+  arrancar()
 }
 
 
 // ---------- SALIENTES DESDE EL PANEL ----------
+// Manda texto o adjuntos (imagen/video/documento/audio) por la sesión del chat.
+// Al enviar una respuesta manual, el chat pasa a MODO HUMANO (el bot se calla ahí).
 async function procesarSalientesPanel() {
-  if (!sock) return
-  const { data } = await supabase.from('scheduled_messages').select('id, recipient_phone, body').eq('tipo', 'manual_panel').eq('status', 'pendiente').order('scheduled_for').limit(10)
+  if (!SESSIONS.size) return
+  const { data } = await supabase.from('scheduled_messages')
+    .select('id, recipient_phone, body, media_url, media_type, media_name, session_id, conversation_id, sender_id')
+    .eq('tipo', 'manual_panel').eq('status', 'pendiente').order('scheduled_for').limit(10)
   for (const m of (data || [])) {
     try {
-      const { data: c } = await supabase.from('whatsapp_conversations').select('wa_jid').eq('phone', m.recipient_phone).maybeSingle()
-      const destino = c?.wa_jid || m.recipient_phone
-      guardarMsg(await sock.sendMessage(String(destino).includes('@') ? destino : jidDe(destino), { text: m.body }))
-      await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString() }).eq('id', m.id)
-      log('PANEL -> ENVIADO a', m.recipient_phone)
+      let conv = null
+      if (m.conversation_id) {
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo').eq('id', m.conversation_id).maybeSingle()
+        conv = c || null
+      }
+      if (!conv) {
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo')
+          .eq('phone', m.recipient_phone).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
+        conv = (c || [])[0] || null
+      }
+      const S = (m.session_id && SESSIONS.get(m.session_id)) || (conv?.session_id && SESSIONS.get(conv.session_id)) || sesCorporativa()
+      if (!S || !S.sock) throw new Error('sin sesion de WhatsApp conectada')
+      const destino = conv?.wa_jid || m.recipient_phone
+      const destJid = String(destino).includes('@') ? destino : jidDe(destino)
+      if (m.media_url) {
+        const cap = (m.body || '').trim() || undefined
+        const mt = m.media_type || 'image'
+        if (mt === 'video') guardarMsg(await S.sock.sendMessage(destJid, { video: { url: m.media_url }, caption: cap }))
+        else if (mt === 'audio') guardarMsg(await S.sock.sendMessage(destJid, { audio: { url: m.media_url }, mimetype: 'audio/mpeg' }))
+        else if (mt === 'document') guardarMsg(await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'DOCUMENTO', mimetype: String(m.media_name || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', caption: cap }))
+        else guardarMsg(await S.sock.sendMessage(destJid, { image: { url: m.media_url }, caption: cap }))
+      } else {
+        guardarMsg(await S.sock.sendMessage(destJid, { text: m.body }))
+      }
+      await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), conversation_id: m.conversation_id || conv?.id || null }).eq('id', m.id)
+      // un humano respondió: el bot se calla en este chat hasta que lo devuelvan con el botón
+      if (conv && conv.modo !== 'humano') {
+        await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_por: m.sender_id || null, humano_desde: new Date().toISOString() }).eq('id', conv.id)
+        log('CHAT EN MODO HUMANO:', conv.phone)
+      }
+      log('PANEL -> ENVIADO a', m.recipient_phone, 'por', S.row.label || 'PRINCIPAL')
     } catch (e) {
       await supabase.from('scheduled_messages').update({ status: 'fallido', last_error: String(e.message || e) }).eq('id', m.id)
       log('PANEL -> ERROR a', m.recipient_phone, String(e.message || e))
@@ -1569,10 +1806,12 @@ async function avanzarFlujo() {
   try {
     if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
     const { data } = await supabase.from('whatsapp_conversations')
-      .select('id, phone, wa_jid, lead_id, flow_step, last_message_at, is_test')
+      .select('id, phone, wa_jid, lead_id, flow_step, last_message_at, is_test, session_id, modo')
       .eq('flow_state', 'flow').limit(30)
     for (const c of (data || [])) {
       try {
+        if (c.modo === 'humano') continue                 // lo atiende una persona: el bot no avanza
+        const ses = (c.session_id && SESSIONS.get(c.session_id)) || sesCorporativa()
         const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
         if (!lead) continue
         const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
@@ -1589,9 +1828,9 @@ async function avanzarFlujo() {
         const jid = c.wa_jid || jidDe(c.phone)
         const acc = step.sin_respuesta || 'siguiente'
         const correr = async () => {
-          if (acc === 'asesor') { await pasarAsesor(jid, c.phone, lead, 'sin_respuesta'); return }
-          if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id })
-          await correrFlujo(jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
+          if (acc === 'asesor') { await pasarAsesor(ses, jid, c.phone, lead, 'sin_respuesta'); return }
+          if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id, ses })
+          await correrFlujo(ses, jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
         }
         if (c.is_test) { TEST_ACTIVE = c.phone; try { await correr() } finally { TEST_ACTIVE = null } }
         else await correr()
@@ -1693,7 +1932,9 @@ async function procesarPruebas() {
         const tipo = prof === 'cliente' ? 'cliente' : prof === 'secretaria' ? 'secretaria' : prof === 'gerencia' ? 'gerencia' : null
         TEST_PROFILES.set(d9, tipo)
         const jid = jidDe(ph)
-        await manejarEntrante(jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
+        // pseudo-sesión de prueba (TEST_ACTIVE evita tocar WhatsApp real de todos modos)
+        const sesTest = sesCorporativa() || { row: { id: 'legacy', is_corporate: true, label: 'PRUEBA', project_id: null }, sock: null }
+        await manejarEntrante(sesTest, jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
         // marcar como PRUEBA solo las sesiones sintéticas (lead/gerencia). Cliente/secretaria
         // usan el teléfono REAL de la entidad emulada, así que NO se marcan (son datos reales).
         if (prof === 'lead' || prof === 'gerencia') {

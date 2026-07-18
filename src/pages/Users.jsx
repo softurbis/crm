@@ -15,6 +15,7 @@ const ROLES = [
   ['admin', 'ADMINISTRADOR (edita todo, sin usuarios)'],
   ['secretary', 'SECRETARIA (opera)'],
   ['manager', 'GERENCIA (solo ver)'],
+  ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
 ]
 
 export default function Users() {

@@ -41,7 +41,7 @@ const haceCuanto = desde => {
 
 const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
-  { to: '/whatsapp', label: 'WhatsApp Bot', icon: '🤖', staff: true, color: '#58c482' },
+  { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0' },
   { to: '/marketing', label: 'Marketing', icon: '🎨', staff: true, color: '#e6a4d0' },
   { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0' },
@@ -127,11 +127,12 @@ export default function Layout() {
         </div>
         <nav onClick={() => setOpen(false)}>
           <p className="menu-section">General</p>
-          {GLOBAL.filter(m => (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && enPanel(m)).map(Item)}
+          {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
+          {GLOBAL.filter(m => role === 'asesor' ? m.to === '/whatsapp' : ((!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && enPanel(m))).map(Item)}
           {/* Cada proyecto asignado, con su color y su propio desplegable de modulos.
               Al abrir uno se selecciona ese proyecto, asi los modulos operan sobre el. */}
-          <p className="menu-section">Proyectos{projects.length > 1 && <span className="muted"> ({projects.length})</span>}</p>
-          {projects.map((p, i) => {
+          {role !== 'asesor' && <p className="menu-section">Proyectos{projects.length > 1 && <span className="muted"> ({projects.length})</span>}</p>}
+          {role !== 'asesor' && projects.map((p, i) => {
             const pc = colorProyecto(p, i)
             const abierto = expandido === p.id
             const activo = pid === p.id

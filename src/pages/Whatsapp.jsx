@@ -34,33 +34,76 @@ const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponi
 // acciones de seguimiento configurables en gerencia (programar / reprogramar)
 const ACCIONES_GER = [['crear_tarea', 'Crear/programar tarea'], ['reprogramar_tarea', 'Reprogramar tarea']]
 
-function ReplyBox({ phone, onSent }) {
+// mime → tipo de media que entiende el agente
+const tipoDeArchivo = f => f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document'
+const MEDIA_ICON = { image: '🖼️', video: '🎬', audio: '🎙️', document: '📄', sticker: '🩵' }
+
+function ReplyBox({ conv, userId, onSent }) {
   const [txt, setTxt] = useState('')
   const [mandando, setMandando] = useState(false)
+  const [adj, setAdj] = useState(null)          // { file, tipo } pendiente de enviar
+  const elegirArchivo = e => {
+    const f = e.target.files?.[0]; e.target.value = ''
+    if (!f) return
+    if (f.size > 30 * 1024 * 1024) { alert('Máximo 30 MB por archivo.'); return }
+    setAdj({ file: f, tipo: tipoDeArchivo(f) })
+  }
   const enviarMsg = async () => {
     const body = txt.trim()
-    if (!body) return
+    if (!body && !adj) return
     setMandando(true)
-    await supabase.from('scheduled_messages').insert({ recipient_phone: phone, body, tipo: 'manual_panel', status: 'pendiente', scheduled_for: new Date().toISOString() })
-    setTxt(''); setMandando(false); onSent && onSent()
+    let media = {}
+    if (adj) {
+      const ext = (adj.file.name.split('.').pop() || 'bin').toLowerCase()
+      const ruta = 'wa-chat/panel/' + conv.id + '/' + Date.now() + '.' + ext
+      const { error } = await supabase.storage.from('urbis-files').upload(ruta, adj.file, { contentType: adj.file.type || undefined, upsert: true })
+      if (error) { alert('No se pudo subir el archivo: ' + error.message); setMandando(false); return }
+      media = { media_url: supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl, media_type: adj.tipo, media_name: adj.file.name }
+    }
+    const { error } = await supabase.from('scheduled_messages').insert({
+      recipient_phone: conv.phone, body: body || null, tipo: 'manual_panel', status: 'pendiente',
+      scheduled_for: new Date().toISOString(), conversation_id: conv.id,
+      session_id: conv.session_id || null, sender_id: userId || null, ...media,
+    })
+    if (error) alert('No se pudo enviar: ' + error.message)
+    setTxt(''); setAdj(null); setMandando(false); onSent && onSent()
   }
   return (
-    <div className="wa-reply">
-      <input value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribe y el bot lo envía desde el número de Urbis…"
-        onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
-      <button className="wa-btn wa-solid" disabled={mandando} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
+    <div>
+      {adj && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '4px 8px', border: '1px dashed rgba(255,255,255,.25)', borderRadius: 8, marginBottom: 4 }}>
+          {MEDIA_ICON[adj.tipo]} <span style={{ textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{adj.file.name}</span>
+          <span className="muted">{(adj.file.size / 1024 / 1024).toFixed(1)} MB</span>
+          <button className="btn-ghost" onClick={() => setAdj(null)}>✕</button>
+        </div>
+      )}
+      <div className="wa-reply">
+        <label className="wa-btn" title="Adjuntar imagen, video, audio o documento" style={{ cursor: 'pointer' }}>
+          📎<input type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={elegirArchivo} style={{ display: 'none' }} />
+        </label>
+        <input value={txt} onChange={e => setTxt(e.target.value)} placeholder={adj ? 'Texto que acompaña al archivo (opcional)…' : 'Escribe y sale por el número de este chat… (el bot se calla al responder tú)'}
+          onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
+        <button className="wa-btn wa-solid" disabled={mandando} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
+      </div>
     </div>
   )
 }
 
 export default function Whatsapp() {
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
+  const esAdminW = ['admin', 'superuser'].includes(role)      // gestiona bot, números y cerebros
+  const puedeEscribir = ['admin', 'superuser', 'secretary', 'asesor'].includes(role)
   const [convs, setConvs] = useState([])
   const [sel, setSel] = useState(null)
   const [msgs, setMsgs] = useState([])
   const [busca, setBusca] = useState('')
   const [vista, setVista] = useState('lista')
   const [filtro, setFiltro] = useState('todos')
+  const [filtroProy, setFiltroProy] = useState('')            // '' = todos los proyectos
+  const [sesiones, setSesiones] = useState([])                // wa_sessions (números vinculados)
+  const [verSes, setVerSes] = useState(false)                 // gestor de números por proyecto
+  const [usuarios, setUsuarios] = useState([])                // para asignar chats
+  const [reenvio, setReenvio] = useState(null)                // mensaje elegido para reenviar
   const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true, seguimiento_activo: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
@@ -378,45 +421,111 @@ export default function Whatsapp() {
 
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
-      .select('*, leads(full_name, status), clients(full_name)')
+      .select('*, leads(full_name, status), clients(full_name), projects(name, color)')
       .order('last_message_at', { ascending: false, nullsFirst: false }).limit(300)
     setConvs(data || [])
+  }
+  // sesiones (números vinculados). Si la tabla aún no existe (sql/30 sin correr), queda vacío
+  // y el estado del bot se muestra con bot_settings como antes.
+  const cargarSesiones = async () => {
+    const { data, error } = await supabase.from('wa_sessions').select('*').order('is_corporate', { ascending: false }).order('created_at')
+    if (error) return
+    setSesiones(data || [])
+    const qrs = {}
+    for (const s of (data || [])) {
+      if (s.estado === 'esperando_qr' && s.qr) { try { qrs[s.id] = await QRCode.toDataURL(s.qr, { width: 240, margin: 1 }) } catch {} }
+    }
+    setQrsSes(qrs)
+  }
+  const [qrsSes, setQrsSes] = useState({})
+  const [proysAll, setProysAll] = useState([])
+  const cargarProysAll = async () => {
+    const { data } = await supabase.from('projects').select('id, name, color').order('name')
+    setProysAll(data || [])
+  }
+  const sesionViva = s => s.latido && (Date.now() - new Date(s.latido).getTime()) < 120000
+  const crearSesion = async () => {
+    const label = prompt('Nombre del número (ej. CASHIBO, PUCALLPA):')
+    if (!label || !label.trim()) return
+    const { error } = await supabase.from('wa_sessions').insert({ label: label.trim().toUpperCase() })
+    if (error) { alert('ERROR: ' + error.message); return }
+    alert('Número creado. En ~30 segundos aparecerá su QR aquí para escanear con el celular nuevo.\n\nDespués asígnale su proyecto en la lista.')
+    cargarSesiones()
+  }
+  const setSesCampo = async (id, campos) => {
+    const { error } = await supabase.from('wa_sessions').update(campos).eq('id', id)
+    if (error) alert('ERROR: ' + error.message)
+    cargarSesiones()
+  }
+  const marcarCorporativa = async id => {
+    if (!confirm('¿Hacer de este número el CORPORATIVO?\n\nPor el corporativo salen: seguimiento de secretarias, comandos de gerencia y avisos internos.')) return
+    await supabase.from('wa_sessions').update({ is_corporate: false }).neq('id', id)
+    await setSesCampo(id, { is_corporate: true })
+  }
+  const relinkSesion = async s => {
+    if (!confirm(`¿VINCULAR OTRO CELULAR al número "${s.label}"?\n\nSe cierra su WhatsApp actual y en ~30 segundos aparece un QR nuevo para escanear.`)) return
+    await setSesCampo(s.id, { relink: true })
+  }
+  const restartSesion = async s => { await setSesCampo(s.id, { restart: true }); alert('Reinicio de "' + s.label + '" solicitado (tarda ~30-60 seg; no pide QR).') }
+  const borrarSesion = async s => {
+    if (s.is_corporate) { alert('El número corporativo no se elimina (primero marca otro como corporativo).'); return }
+    if (!confirm(`¿ELIMINAR el número "${s.label}"?\n\nSus chats quedan en el historial pero ese WhatsApp deja de atenderse desde el panel.`)) return
+    await supabase.from('wa_sessions').delete().eq('id', s.id)
+    cargarSesiones()
+  }
+  const cargarUsuarios = async () => {
+    if (!esAdminW) return
+    const { data } = await supabase.from('profiles').select('id, full_name, role, active').order('full_name')
+    setUsuarios((data || []).filter(u => u.active !== false))
   }
   const cargarMsgs = async c => {
     if (!c) return
     const lid = String(c.wa_jid || '').split('@')[0].replace(/\D/g, '')
     const dests = lid && lid !== c.phone ? [c.phone, lid] : [c.phone]
+    // salientes: los de ESTA conversación + los históricos sin conversación (por teléfono)
+    const orSched = `conversation_id.eq.${c.id},and(conversation_id.is.null,recipient_phone.in.(${dests.join(',')}))`
     const [ins, outs] = await Promise.all([
-      supabase.from('whatsapp_messages').select('body, created_at, direction').eq('conversation_id', c.id).limit(500),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo').in('recipient_phone', dests).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
+      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name').eq('conversation_id', c.id).limit(500),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
-    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in' }))
-    const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente' }))
-    setMsgs([...a, ...b].filter(x => x.body).sort((x, y) => new Date(x.at) - new Date(y.at)))
+    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name }))
+    const b = (outs.data || []).map(m => ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id }))
+    setMsgs([...a, ...b].filter(x => x.body || x.media_url).sort((x, y) => new Date(x.at) - new Date(y.at)))
   }
 
-  useEffect(() => { cargarConvs(); cargarFlags(); cargarNums() }, [])
+  // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
+  // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
+  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
   useEffect(() => { selRef.current = sel; cargarMsgs(sel) }, [sel])
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); cargarFlags(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
+    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (selRef.current) cargarMsgs(selRef.current) }, 8000)
     return () => clearInterval(t)
-  }, [])
+  }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
 
-  if (!['admin', 'superuser'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Solo administración puede ver las conversaciones del bot.</div>
+  if (!['admin', 'superuser', 'secretary', 'manager', 'asesor'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso al chat de WhatsApp.</div>
 
   const lista = convs.filter(c => {
+    if (filtroProy && c.project_id !== filtroProy) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (!((c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q))) return false
     }
     if (filtro === 'calificados') return c.flow_state === 'completado'
-    if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto'].includes(c.flow_state)
+    if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto', 'flow'].includes(c.flow_state)
     if (filtro === 'clientes') return !!c.clients
-    if (filtro === 'humanos') return c.flow_state === 'humano'
+    if (filtro === 'humanos') return c.flow_state === 'humano' || c.modo === 'humano'
+    if (filtro === 'mios') return c.assigned_to === profile?.id
     if (filtro === 'silenciados') return !!nums.find(n => c.phone && ['desactivado', 'silencio'].includes(n.tipo) && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
     return true
   })
+  // proyectos presentes en la bandeja (para el filtro por color)
+  const proysBandeja = (() => {
+    const m = new Map()
+    convs.forEach(c => { if (c.project_id && c.projects) m.set(c.project_id, c.projects) })
+    return [...m.entries()]
+  })()
+  const nombreUsuario = id => usuarios.find(u => u.id === id)?.full_name?.split(' ')[0] || '¿?'
   const nombreDe = c => c.clients?.full_name || c.leads?.full_name || 'SIN NOMBRE'
   const tipoDe = phone => nums.find(n => phone && (phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(phone).slice(-9))))
   const Toggle = ({ on, onClick, icon, label }) => (
@@ -429,8 +538,9 @@ export default function Whatsapp() {
   return (
     <div>
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1>WhatsApp del bot</h1>
+        <h1>WhatsApp</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {esAdminW && (<>
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
           <span style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 10px 4px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.1)', opacity: flags.bot_activo ? 1 : 0.45 }}>
             <span className="muted" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px' }}>AGENTES</span>
@@ -438,24 +548,46 @@ export default function Whatsapp() {
             <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
             <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
           </span>
-          {(() => {
+          </>)}
+          {sesiones.length > 0 ? sesiones.map(s => {
+            const [txt, col] = s.estado === 'esperando_qr' ? ['📱 QR…', '#e0b34c']
+              : sesionViva(s) ? ['🟢', '#6fdd9b']
+              : s.latido ? ['🔴', '#e07b7b'] : ['📱', '#e0b34c']
+            return <span key={s.id} onClick={() => esAdminW && setVerSes(true)}
+              title={(s.is_corporate ? 'CORPORATIVO · ' : '') + (s.phone ? '+' + s.phone + ' · ' : '') + (s.latido ? 'último latido ' + new Date(s.latido).toLocaleTimeString('es-PE') : 'sin latido aún')}
+              style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col, cursor: esAdminW ? 'pointer' : 'default' }}>
+              {txt} {s.label || 'PRINCIPAL'}{s.is_corporate ? ' ★' : ''}</span>
+          }) : (() => {
             const fresco = waLatido && (Date.now() - new Date(waLatido).getTime()) < 120000
             const [txt, col] = waEstado === 'esperando_qr' ? ['📱 ESPERANDO QR...', '#e0b34c']
               : fresco ? ['🟢 BOT EN LÍNEA', '#6fdd9b']
               : waLatido ? ['🔴 BOT SIN RESPONDER', '#e07b7b']
               : waEstado === 'conectado' ? ['📱 CONECTADO', '#6fdd9b'] : ['📱 —', '#e0b34c']
-            return <span title={waLatido ? 'Último latido del agente: ' + new Date(waLatido).toLocaleTimeString('es-PE') + ' (se actualiza cada 30 seg.)' : 'Sin latido registrado aún'}
-              style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col }}>{txt}</span>
+            return <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col }}>{txt}</span>
           })()}
-          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR BOT</button>}
-          {role === 'superuser' && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
+          {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp por proyecto: vincular, reiniciar, asignar proyecto">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
+          {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR</button>}
+          {role === 'superuser' && sesiones.length === 0 && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
-          <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 NÚMEROS ({nums.length})</button>
-          {['admin', 'superuser'].includes(role) && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('cobranza', b, p) } }}>🧠 CEREBROS</button>}
+          {esAdminW && <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 DIRECTORIO ({nums.length})</button>}
+          {esAdminW && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('cobranza', b, p) } }}>🧠 CEREBROS</button>}
         </div>
       </div>
 
-      {qrImg && (
+      {/* QR pendientes: uno por cada número esperando vinculación */}
+      {sesiones.filter(s => s.estado === 'esperando_qr' && qrsSes[s.id]).map(s => (
+        <div key={s.id} className="glass" style={{ padding: 18, marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(224,179,76,.5)' }}>
+          <img src={qrsSes[s.id]} alt={'QR ' + s.label} style={{ width: 220, height: 220, borderRadius: 10, background: '#fff', padding: 8 }} />
+          <div style={{ maxWidth: 420 }}>
+            <b>📱 ESCANEA ESTE QR CON EL CELULAR DE «{s.label || 'PRINCIPAL'}»</b>
+            <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+              En ese celular: WhatsApp → Dispositivos vinculados → Vincular dispositivo → apunta a este código.
+              El QR se renueva solo cada ~30 segundos. Cuando conecte, este recuadro desaparece y arriba se pone 🟢.
+            </p>
+          </div>
+        </div>
+      ))}
+      {sesiones.length === 0 && qrImg && (
         <div className="glass" style={{ padding: 18, marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(224,179,76,.5)' }}>
           <img src={qrImg} alt="QR de WhatsApp" style={{ width: 220, height: 220, borderRadius: 10, background: '#fff', padding: 8 }} />
           <div style={{ maxWidth: 420 }}>
@@ -468,8 +600,44 @@ export default function Whatsapp() {
         </div>
       )}
 
-      {!flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie ni envía cobranzas. Vuelve a activarlo cuando quieras.</div>}
-      {flags.bot_activo && !flags.cobranza_activa && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c' }}>La cobranza automática está APAGADA. El filtro de leads sigue funcionando.</div>}
+      {/* Gestor de números por proyecto (wa_sessions) */}
+      {verSes && esAdminW && (
+        <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <b>📱 NÚMEROS DE WHATSAPP (uno por proyecto)</b>
+            <button className="btn" onClick={crearSesion}>➕ AGREGAR NÚMERO</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
+            Cada proyecto atiende desde su propio número (chip propio). El <b>★ CORPORATIVO</b> además lleva el seguimiento
+            de secretarias, gerencia y avisos internos. Al agregar un número, su QR aparece arriba en ~30 segundos.
+          </p>
+          {sesiones.length === 0 && <p className="muted">Aún no hay números registrados (¿ya se corrió sql/30 y se redesplegó el agente?).</p>}
+          {sesiones.map(s => (
+            <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.06)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14 }}>{s.estado === 'esperando_qr' ? '📱' : sesionViva(s) ? '🟢' : '🔴'}</span>
+              <input value={s.label || ''} onChange={e => setSesiones(a => a.map(x => x.id === s.id ? { ...x, label: e.target.value } : x))}
+                onBlur={e => setSesCampo(s.id, { label: e.target.value.trim().toUpperCase() })} style={{ width: 130, fontWeight: 700 }} />
+              <span className="muted" style={{ fontSize: 12, width: 110 }}>{s.phone ? '+' + s.phone : '(sin vincular)'}</span>
+              <select value={s.project_id || ''} onChange={e => setSesCampo(s.id, { project_id: e.target.value || null })} style={{ fontSize: 11, maxWidth: 190 }}
+                title="Proyecto que atiende este número: sus leads y su cobranza salen por aquí">
+                <option value="">— sin proyecto —</option>
+                {proysAll.map(p => <option key={p.id} value={p.id} disabled={sesiones.some(x => x.id !== s.id && x.project_id === p.id)}>{p.name}</option>)}
+              </select>
+              {s.is_corporate
+                ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: '1px solid #e7c15a', color: '#e7c15a' }}>★ CORPORATIVO</span>
+                : <button className="btn-ghost" style={{ fontSize: 10 }} onClick={() => marcarCorporativa(s.id)} title="Hacer de este el número de seguimiento/gerencia/avisos">☆ hacer corporativo</button>}
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button className="btn-ghost" onClick={() => relinkSesion(s)} title="Escanear QR con otro celular">🔄 VINCULAR</button>
+                <button className="btn-ghost" onClick={() => restartSesion(s)} title="Reiniciar solo este número (no pide QR)">🔁</button>
+                {!s.is_corporate && <button className="btn-ghost" onClick={() => borrarSesion(s)} title="Eliminar este número">✕</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {esAdminW && !flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie ni envía cobranzas. Vuelve a activarlo cuando quieras.</div>}
+      {esAdminW && flags.bot_activo && !flags.cobranza_activa && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c' }}>La cobranza automática está APAGADA. El filtro de leads sigue funcionando.</div>}
 
       {verBrains && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
@@ -825,8 +993,19 @@ export default function Whatsapp() {
 
       <div style={{ display: 'grid', gridTemplateColumns: vista === 'cuadros' ? 'minmax(340px, 500px) 1fr' : 'minmax(240px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
         <div className="glass" style={{ padding: 10, maxHeight: '70vh', overflowY: 'auto' }}>
+          {proysBandeja.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+              <button className="btn-ghost" onClick={() => setFiltroProy('')}
+                style={{ fontSize: 10, padding: '3px 8px', borderColor: !filtroProy ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>TODOS LOS PROYECTOS</button>
+              {proysBandeja.map(([pid, p]) => (
+                <button key={pid} className="btn-ghost" onClick={() => setFiltroProy(filtroProy === pid ? '' : pid)}
+                  style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroProy === pid ? (p.color || '#8c9b7a') : 'rgba(255,255,255,.15)', color: p.color || undefined }}>
+                  ● {(p.name || '').split(' ').slice(-1)[0]}</button>
+              ))}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-            {[['todos', 'TODOS'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['clientes', 'CLIENTES'], ['humanos', 'CON ASESOR'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
+            {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['clientes', 'CLIENTES'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
               <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
             ))}
@@ -839,18 +1018,22 @@ export default function Whatsapp() {
           {lista.map(c => {
             const f = FLOW[c.flow_state]
             const tn = tipoDe(c.phone)
+            const colProy = c.projects?.color || null
             return (
               <div key={c.id} onClick={() => setSel(c)}
-                style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
+                style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, borderLeft: colProy ? `3px solid ${colProy}` : undefined, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
                   <b style={{ fontSize: 13 }}>{nombreDe(c)}</b>
                   <span className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fh(c.last_message_at)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                   <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
-                  <span style={{ display: 'flex', gap: 4 }}>
+                  <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
+                    {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
+                    {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
                     {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
-                    {f && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
+                    {f && c.modo !== 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
                     {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
                   </span>
                 </div>
@@ -878,7 +1061,8 @@ export default function Whatsapp() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
-                          {sel.lead_id && (
+                          {sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
+                          {sel.lead_id && ['admin', 'superuser', 'secretary'].includes(role) && (
                             <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.4 }} onClick={async () => {
                               const nuevo = prompt('Nombre del lead:', nombreDe(sel))
                               if (!nuevo || !nuevo.trim()) return
@@ -890,7 +1074,7 @@ export default function Whatsapp() {
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
                           <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
-                          {mostrarLead && (
+                          {mostrarLead && ['admin', 'superuser', 'secretary'].includes(role) && (
                             <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
                               <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
                                 const st = e.target.value
@@ -905,15 +1089,39 @@ export default function Whatsapp() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <select className="wa-sel" value={tnSel?.tipo || 'bot'}
-                        onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
-                        <option value="bot">🟢 NUEVO LEAD (BOT)</option>
-                        <option value="cliente">💵 CLIENTE (COBRANZA)</option>
-                        <option value="desactivado">🚫 ADMINISTRATIVO (SIN RESPUESTA)</option>
-                        <option value="secretaria">🗓️ SECRETARIA (SEGUIMIENTO)</option>
-                        <option value="gerencia">👑 GERENCIA (SEGUIMIENTO)</option>
-                        <option value="silencio">🔇 SILENCIO TOTAL</option>
-                      </select>
+                      {sel.modo === 'humano' ? (
+                        <button className="wa-btn" style={{ borderColor: '#e8975a', color: '#e8975a' }}
+                          title={'Lo atiende una persona' + (sel.humano_desde ? ' desde ' + fh(sel.humano_desde) : '') + '. Clic para que el bot retome este chat.'}
+                          onClick={async () => {
+                            if (!confirm('¿DEVOLVER ESTE CHAT AL BOT?\n\nEl bot volverá a responder automáticamente aquí.')) return
+                            await supabase.from('whatsapp_conversations').update({ modo: 'bot', humano_por: null, humano_desde: null }).eq('id', sel.id)
+                            cargarConvs(); setSel(x => ({ ...x, modo: 'bot' }))
+                          }}>👤 EN HUMANO · 🤖 devolver al bot</button>
+                      ) : (
+                        <span className="wa-badge" title="El bot atiende este chat. Se calla solo cuando alguien responde desde el panel." style={{ color: '#9ccb86', borderColor: '#9ccb86' }}>🤖 BOT ATIENDE</span>
+                      )}
+                      {esAdminW && (
+                        <select className="wa-sel" value={sel.assigned_to || ''} title="Asignar este chat a un usuario (le aparece en su bandeja)"
+                          onChange={async e => {
+                            const v = e.target.value || null
+                            await supabase.from('whatsapp_conversations').update({ assigned_to: v }).eq('id', sel.id)
+                            cargarConvs(); setSel(x => ({ ...x, assigned_to: v }))
+                          }}>
+                          <option value="">⭐ SIN ASIGNAR</option>
+                          {usuarios.map(u => <option key={u.id} value={u.id}>⭐ {u.full_name}{u.role === 'asesor' ? ' (ASESOR)' : ''}</option>)}
+                        </select>
+                      )}
+                      {esAdminW && (
+                        <select className="wa-sel" value={tnSel?.tipo || 'bot'}
+                          onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
+                          <option value="bot">🟢 NUEVO LEAD (BOT)</option>
+                          <option value="cliente">💵 CLIENTE (COBRANZA)</option>
+                          <option value="desactivado">🚫 ADMINISTRATIVO (SIN RESPUESTA)</option>
+                          <option value="secretaria">🗓️ SECRETARIA (SEGUIMIENTO)</option>
+                          <option value="gerencia">👑 GERENCIA (SEGUIMIENTO)</option>
+                          <option value="silencio">🔇 SILENCIO TOTAL</option>
+                        </select>
+                      )}
                       <a className="wa-btn" href={`https://wa.me/${sel.phone}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
                     </div>
                   </div>
@@ -922,16 +1130,60 @@ export default function Whatsapp() {
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
                 {msgs.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
                 {msgs.map((m, i) => (
-                  <div key={i} style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px' }}>
-                    <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>
-                    <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right' }}>
-                      {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : '🤖 BOT · ') : ''}{m.tipo && m.dir === 'out' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
+                  <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
+                    {m.media_url && (
+                      m.media_type === 'image' || m.media_type === 'sticker'
+                        ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} /></a>
+                        : m.media_type === 'video'
+                          ? <video src={m.media_url} controls style={{ maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} />
+                          : m.media_type === 'audio'
+                            ? <audio src={m.media_url} controls style={{ maxWidth: 260, display: 'block', marginBottom: m.body ? 6 : 0 }} />
+                            : <a href={m.media_url} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#7ec8e3', marginBottom: m.body ? 6 : 0, textTransform: 'none' }}>📄 {m.media_name || 'DOCUMENTO'}</a>
+                    )}
+                    {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}
+                    <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                      {puedeEscribir && (m.body || m.media_url) && (
+                        <button className="btn-ghost" title="Reenviar a otro chat" style={{ fontSize: 10, padding: '0 5px' }}
+                          onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
+                      )}
+                      <span>
+                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
+                        {m.tipo && m.dir === 'out' && m.tipo !== 'manual_panel' ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}
+                      </span>
                     </div>
                   </div>
                 ))}
                 <div ref={endRef} />
               </div>
-              <ReplyBox phone={sel.phone} onSent={() => cargarMsgs(selRef.current)} />
+              {reenvio && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 8px', border: '1px solid rgba(126,200,227,.5)', borderRadius: 8, margin: '6px 0', fontSize: 12 }}>
+                  <b style={{ color: '#7ec8e3' }}>↪ REENVIAR</b>
+                  <span style={{ textTransform: 'none', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {reenvio.media_url ? (MEDIA_ICON[reenvio.media_type] || '📎') + ' ' : ''}{reenvio.body || reenvio.media_name || 'archivo'}
+                  </span>
+                  <span>a:</span>
+                  <select value={reenvio.destino} onChange={e => setReenvio(r => ({ ...r, destino: e.target.value }))} style={{ fontSize: 11, maxWidth: 220 }}>
+                    <option value="">— elige un chat —</option>
+                    {convs.filter(c => c.id !== sel.id).slice(0, 150).map(c => <option key={c.id} value={c.id}>{nombreDe(c)} · +{c.phone}{c.projects ? ' · ' + (c.projects.name || '').split(' ').slice(-1)[0] : ''}</option>)}
+                  </select>
+                  <button className="wa-btn wa-solid" disabled={!reenvio.destino} onClick={async () => {
+                    const dest = convs.find(c => c.id === reenvio.destino)
+                    if (!dest) return
+                    const { error } = await supabase.from('scheduled_messages').insert({
+                      recipient_phone: dest.phone, body: reenvio.body || null, tipo: 'manual_panel', status: 'pendiente',
+                      scheduled_for: new Date().toISOString(), conversation_id: dest.id, session_id: dest.session_id || null,
+                      sender_id: profile?.id || null, media_url: reenvio.media_url, media_type: reenvio.media_type, media_name: reenvio.media_name,
+                    })
+                    if (error) alert('No se pudo reenviar: ' + error.message)
+                    else alert('✅ Reenviado a ' + nombreDe(dest) + ' (sale en segundos).')
+                    setReenvio(null)
+                  }}>ENVIAR</button>
+                  <button className="btn-ghost" onClick={() => setReenvio(null)}>✕</button>
+                </div>
+              )}
+              {puedeEscribir
+                ? <ReplyBox conv={sel} userId={profile?.id} onSent={() => cargarMsgs(selRef.current)} />
+                : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
             </>
           )}
         </div>
