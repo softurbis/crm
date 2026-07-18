@@ -63,8 +63,13 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
   const elegirArchivo = e => {
     const f = e.target.files?.[0]; e.target.value = ''
     if (!f) return
-    if (f.size > 30 * 1024 * 1024) { alert('Máximo 30 MB por archivo.'); return }
-    setAdj({ file: f, tipo: tipoDeArchivo(f) })
+    const tipo = tipoDeArchivo(f)
+    const lim = (tipo === 'video' || tipo === 'document') ? 95 : 30    // el tope real lo pone Supabase Storage
+    if (f.size > lim * 1024 * 1024) {
+      alert('Máximo ' + lim + ' MB para este tipo de archivo.\n\nTip: comprime el video (WhatsApp igual lo comprime) o compártelo como link de Drive/YouTube en el mensaje.')
+      return
+    }
+    setAdj({ file: f, tipo })
   }
   const enviarMsg = async () => {
     const body = txt.trim()
@@ -75,7 +80,11 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
       const ext = (adj.file.name.split('.').pop() || 'bin').toLowerCase()
       const ruta = 'wa-chat/panel/' + conv.id + '/' + Date.now() + '.' + ext
       const { error } = await supabase.storage.from('urbis-files').upload(ruta, adj.file, { contentType: adj.file.type || undefined, upsert: true })
-      if (error) { alert('No se pudo subir el archivo: ' + error.message); setMandando(false); return }
+      if (error) {
+        const esLimite = /exceed|too large|payload|maximum/i.test(String(error.message))
+        alert('No se pudo subir el archivo: ' + error.message + (esLimite ? '\n\n⚠️ Es el límite de Supabase Storage. Súbelo en: Supabase → Project Settings → Storage → "Upload file size limit" (el plan Free permite hasta 50 MB).' : ''))
+        setMandando(false); return
+      }
       media = { media_url: supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl, media_type: adj.tipo, media_name: adj.file.name }
     }
     const { error } = await supabase.from('scheduled_messages').insert({

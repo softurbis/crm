@@ -187,6 +187,20 @@ async function brain(k) {
 const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
 
+// tamaño (bytes) de una URL vía HEAD, con cache — para decidir si un video sale
+// como VIDEO o como DOCUMENTO (WhatsApp rechaza videos muy pesados como video,
+// pero los acepta sin problema como documento descargable).
+const _tamCache = new Map()
+async function tamanoDe(url) {
+  if (_tamCache.has(url)) return _tamCache.get(url)
+  let n = 0
+  try { const r = await fetch(url, { method: 'HEAD' }); n = Number(r.headers.get('content-length') || 0) } catch {}
+  if (_tamCache.size > 300) _tamCache.clear()
+  _tamCache.set(url, n)
+  return n
+}
+const VIDEO_MAX_MB = Number(process.env.VIDEO_MAX_MB || 62)
+
 async function enviarArchivo(jid, url, clase, caption, ses) {
   const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : clase === 'documento' ? '📄 DOCUMENTO' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
   if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
@@ -204,7 +218,8 @@ async function enviarArchivo(jid, url, clase, caption, ses) {
     try { await S.sock.sendPresenceUpdate('paused', dest) } catch (e) {}
     const low = String(url).toLowerCase()
     const esDoc = (clase === 'plano' || clase === 'brochure' || clase === 'documento') && low.includes('.pdf')
-    if (clase === 'video') guardarMsg(await S.sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
+    if (clase === 'video' && (await tamanoDe(url)) > VIDEO_MAX_MB * 1024 * 1024) guardarMsg(await S.sock.sendMessage(dest, { document: { url }, fileName: 'VIDEO.mp4', mimetype: 'video/mp4', caption: caption || undefined }))
+    else if (clase === 'video') guardarMsg(await S.sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
     else if (esDoc) guardarMsg(await S.sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: (clase === 'brochure' ? 'BROCHURE' : clase === 'plano' ? 'PLANO-ACTUALIZADO' : (String(caption || 'DOCUMENTO').replace(/[^\w .-]/g, '').trim().slice(0, 40) || 'DOCUMENTO')) + '.pdf', caption: caption || undefined }))
     else guardarMsg(await S.sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
     enviadosHoy++; S.enviados = (S.enviados || 0) + 1
@@ -1583,7 +1598,7 @@ async function extraerMedia(sock, m, msg) {
   const mtipo = msg.imageMessage ? 'image' : msg.videoMessage ? 'video' : msg.documentMessage ? 'document' : msg.audioMessage ? 'audio' : 'sticker'
   const media = { tipo: mtipo, name: msg.documentMessage?.fileName || null, caption: mm.caption || '' }
   try {
-    if (Number(mm.fileLength || 0) <= 30 * 1024 * 1024) {
+    if (Number(mm.fileLength || 0) <= 50 * 1024 * 1024) {   // tope de subida de Supabase Storage
       const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
       const ruta = 'wa-chat/' + telDeJid(m.key.remoteJid || '') + '/' + Date.now() + '.' + extDe(mtipo, mm.mimetype, media.name)
       const { error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true })
@@ -1591,6 +1606,11 @@ async function extraerMedia(sock, m, msg) {
       else log('media (storage):', error.message)
     } else log('media muy pesada, no se descarga (', mm.fileLength, 'bytes )')
   } catch (e) { log('media:', String(e.message || e)) }
+  // sin URL (muy pesada o falló la descarga): dejar rastro en el chat para que se sepa que llegó algo
+  if (!media.url && !media.caption) {
+    const mb = Math.round(Number(mm.fileLength || 0) / 1024 / 1024)
+    media.caption = '[' + (mtipo === 'video' ? '🎬 Video' : mtipo === 'image' ? '🖼️ Imagen' : mtipo === 'audio' ? '🎙️ Audio' : '📄 Archivo') + (mb ? ' de ' + mb + ' MB' : '') + ' recibido — muy pesado para verlo en el panel; revisar en el celular del chip]'
+  }
   return media
 }
 
@@ -1817,7 +1837,9 @@ async function procesarSalientesPanel() {
       if (m.media_url) {
         const cap = (m.body || '').trim() || undefined
         const mt = m.media_type || 'image'
-        if (mt === 'video') guardarMsg(await S.sock.sendMessage(destJid, { video: { url: m.media_url }, caption: cap }))
+        if (mt === 'video' && (await tamanoDe(m.media_url)) > VIDEO_MAX_MB * 1024 * 1024)
+          guardarMsg(await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'VIDEO.mp4', mimetype: 'video/mp4', caption: cap }))
+        else if (mt === 'video') guardarMsg(await S.sock.sendMessage(destJid, { video: { url: m.media_url }, caption: cap }))
         else if (mt === 'audio') guardarMsg(await S.sock.sendMessage(destJid, { audio: { url: m.media_url }, mimetype: 'audio/mpeg' }))
         else if (mt === 'document') guardarMsg(await S.sock.sendMessage(destJid, { document: { url: m.media_url }, fileName: m.media_name || 'DOCUMENTO', mimetype: String(m.media_name || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', caption: cap }))
         else guardarMsg(await S.sock.sendMessage(destJid, { image: { url: m.media_url }, caption: cap }))
