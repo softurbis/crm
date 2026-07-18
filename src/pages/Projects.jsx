@@ -85,6 +85,15 @@ export default function Projects() {
   }
   useEffect(() => { load() }, [])
 
+  // habilitar/deshabilitar el proyecto para el bot de leads
+  async function toggleBot(p) {
+    const nuevo = p.bot_enabled === false   // si estaba NO -> SÍ, y viceversa
+    setProjects(ps => ps.map(x => x.id === p.id ? { ...x, bot_enabled: nuevo } : x))  // optimista
+    const { error } = await supabase.from('projects').update({ bot_enabled: nuevo }).eq('id', p.id)
+    if (error) { setProjects(ps => ps.map(x => x.id === p.id ? { ...x, bot_enabled: !nuevo } : x)); setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'EL BOT ' + (nuevo ? 'ATIENDE' : 'YA NO ATIENDE') + ' ' + p.name + ' — EFECTIVO EN MAX. 1 MIN' })
+  }
+
   function abrirForm(p) {
     setEdit(p ? p.id : 'nuevo')
     const base = {}
@@ -282,6 +291,9 @@ export default function Projects() {
           <div className="glass form-card" key={p.id}>
             <div className="modal-head">
               <h2>{p.name}</h2>
+              {canEdit && <button className={`chip ${p.bot_enabled === false ? '' : 'on'}`} style={{ fontSize: 12 }}
+                title={p.bot_enabled === false ? 'El bot NO atiende este proyecto: no lo detecta ni lo ofrece a los leads. Clic para activarlo.' : 'El bot atiende este proyecto. Clic para desactivarlo.'}
+                onClick={() => toggleBot(p)}>{p.bot_enabled === false ? '🤖 Bot: NO' : '🤖 Bot: SÍ'}</button>}
               {canEdit && <button className="btn-ghost" onClick={() => edit === p.id ? setEdit(null) : abrirForm(p)}>{edit === p.id ? 'Cerrar' : 'Editar'}</button>}
             </div>
 

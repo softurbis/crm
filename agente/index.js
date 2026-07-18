@@ -1118,7 +1118,9 @@ async function setConv(phone, campos) {
 
 // ===== FLUJO DE VENTAS GUIADO (sin IA / sin tokens) =====
 async function detectarProyecto(texto) {
-  const { data: proys } = await supabase.from('projects').select('id, name').order('created_at')
+  // solo proyectos HABILITADOS para el bot (projects.bot_enabled). Los deshabilitados
+  // no se detectan ni se listan; si queda uno solo, pedirProyecto lo usa directo.
+  const { data: proys } = await supabase.from('projects').select('id, name').eq('bot_enabled', true).order('created_at')
   const txt = String(texto || '').toLowerCase()
   // palabras genéricas que NO identifican un proyecto (ciudad/relleno). "Pucallpa" NO va aquí:
   // es lo que distingue "Las Praderas de Pucallpa" de "Las Praderas de Cashibo".
@@ -1221,6 +1223,8 @@ async function iniciarFlujoProyecto(jid, phone, lead) {
 // Con un solo proyecto no se pregunta; con varios, se listan y se elige por número o palabra clave.
 async function pedirProyecto(jid, phone, lead, proys) {
   const lista = proys || []
+  // ningún proyecto habilitado para el bot: no hay nada que ofrecer → a un asesor
+  if (lista.length === 0) { await pasarAsesor(jid, phone, lead, 'sin_proyectos_bot'); return }
   if (lista.length === 1) {
     await supabase.from('leads').update({ project_id: lista[0].id }).eq('id', lead.id)
     lead.project_id = lista[0].id
