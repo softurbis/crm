@@ -633,24 +633,41 @@ export default function Whatsapp() {
   useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); cargarContacto(sel); marcarLeido(sel) }, [sel])
   // pedir permiso de notificación una vez
   useEffect(() => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission() } catch {} }, [])
+  // AHORRO DE EGRESS: pausar el panel cuando nadie lo usa (pestaña oculta o 5 min
+  // sin tocar nada). Mientras pausado no se hacen recargas; el websocket realtime
+  // sigue conectado (es barato) y avisa igual, pero sin bajar las 300 convs.
+  const [pausado, setPausado] = useState(false)
+  const pausadoRef = useRef(false)
+  const ultAccion = useRef(Date.now())
+  const setPausa = v => { pausadoRef.current = v; setPausado(v) }
+  useEffect(() => {
+    const reanudar = () => { ultAccion.current = Date.now(); if (pausadoRef.current) { setPausa(false); cargarConvs(); cargarSesiones(); if (selRef.current) cargarMsgs(selRef.current) } }
+    const tocar = () => { ultAccion.current = Date.now(); if (pausadoRef.current) reanudar() }
+    const evs = ['mousemove', 'keydown', 'click', 'touchstart', 'wheel']
+    evs.forEach(e => window.addEventListener(e, tocar, { passive: true }))
+    const onVis = () => { if (document.hidden) setPausa(true); else reanudar() }
+    document.addEventListener('visibilitychange', onVis)
+    const t = setInterval(() => { if (!pausadoRef.current && !document.hidden && Date.now() - ultAccion.current > 5 * 60000) setPausa(true) }, 30000)
+    return () => { evs.forEach(e => window.removeEventListener(e, tocar)); document.removeEventListener('visibilitychange', onVis); clearInterval(t) }
+  }, [])
   // TIEMPO REAL: mensajes al instante (RLS respeta lo que cada quien puede ver).
-  // El poll queda solo de respaldo, y más lento.
+  // El poll queda solo de respaldo, y más lento (realtime cubre lo urgente).
   useEffect(() => {
     const ch = supabase.channel('wa-panel-' + (profile?.id || 'x'))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'whatsapp_messages' }, ({ new: msg }) => {
-        cargarConvs()
-        if (selRef.current && msg.conversation_id === selRef.current.id) cargarMsgs(selRef.current)
-        if ((msg.direction || 'in') === 'in') { const conv = convsRef.current.find(c => c.id === msg.conversation_id); notificarEntrante(msg, conv) }
+        if (!pausadoRef.current) { cargarConvs(); if (selRef.current && msg.conversation_id === selRef.current.id) cargarMsgs(selRef.current) }
+        if ((msg.direction || 'in') === 'in') { const conv = convsRef.current.find(c => c.id === msg.conversation_id); notificarEntrante(msg, conv) }   // avisa aun en pausa
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, () => { cargarConvs(); if (verConteoRef.current) cargarConteo() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, () => { if (!pausadoRef.current) { cargarConvs(); if (verConteoRef.current) cargarConteo() } })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scheduled_messages' }, ({ new: m }) => {
-        if (selRef.current && (m.conversation_id === selRef.current.id || m.recipient_phone === selRef.current.phone)) cargarMsgs(selRef.current)
+        if (!pausadoRef.current && selRef.current && (m.conversation_id === selRef.current.id || m.recipient_phone === selRef.current.phone)) cargarMsgs(selRef.current)
       })
       .subscribe()
     return () => { try { supabase.removeChannel(ch) } catch {} }
   }, [role, profile?.id])
   useEffect(() => {
-    const t = setInterval(() => { cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 25000)
+    // con realtime activo el poll es solo respaldo: cada 60s y solo si el panel está activo
+    const t = setInterval(() => { if (pausadoRef.current) return; cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 60000)
     return () => clearInterval(t)
   }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, optimistas.length])
@@ -750,7 +767,9 @@ export default function Whatsapp() {
   return (
     <div>
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1>WhatsApp</h1>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>WhatsApp
+          {pausado && <span title="El panel se pausó para ahorrar datos. Mueve el mouse para reactivarlo (los avisos siguen llegando)." style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, border: '1px solid #8b95a1', color: '#8b95a1', cursor: 'pointer' }} onClick={() => { ultAccion.current = Date.now(); setPausa(false); cargarConvs() }}>⏸ EN PAUSA</span>}
+        </h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {esAdminW && (<>
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
@@ -1416,11 +1435,11 @@ export default function Whatsapp() {
                   <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? (rgbaDe(sel.projects?.color, .28) || 'rgba(59,74,50,.9)') : 'rgba(255,255,255,.07)', border: '1px solid ' + (m.dir === 'out' ? (rgbaDe(sel.projects?.color, .4) || 'rgba(255,255,255,.08)') : 'rgba(255,255,255,.08)'), borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
                     {m.media_url && (
                       m.media_type === 'image' || m.media_type === 'sticker'
-                        ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} /></a>
+                        ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="" loading="lazy" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} /></a>
                         : m.media_type === 'video'
-                          ? <video src={m.media_url} controls style={{ maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} />
+                          ? <video src={m.media_url} controls preload="none" style={{ maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} />
                           : m.media_type === 'audio'
-                            ? <audio src={m.media_url} controls style={{ maxWidth: 260, display: 'block', marginBottom: m.body ? 6 : 0 }} />
+                            ? <audio src={m.media_url} controls preload="none" style={{ maxWidth: 260, display: 'block', marginBottom: m.body ? 6 : 0 }} />
                             : <a href={m.media_url} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#7ec8e3', marginBottom: m.body ? 6 : 0, textTransform: 'none' }}>📄 {m.media_name || 'DOCUMENTO'}</a>
                     )}
                     {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}

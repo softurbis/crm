@@ -97,6 +97,7 @@ function guardarMsg(sent) {
 // al apagar/reiniciar, vaciar lo pendiente a disco
 process.on('SIGINT', () => { persistMsgStore(); process.exit(0) })
 process.on('SIGTERM', () => { persistMsgStore(); process.exit(0) })
+const HIST_DIAS = Number(process.env.HIST_DIAS || 90)   // backup: cuántos días de historial importar
 const DIAS_ANTES = Number(process.env.DIAS_ANTES || 3)
 const VENCIDAS_CADA = Number(process.env.VENCIDAS_CADA_DIAS || 4)
 const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 40)
@@ -1761,7 +1762,9 @@ async function importarHistorial(S, h) {
       const { data } = await supabase.from('whatsapp_conversations').insert(nuevas).select('id, phone')
       for (const c of (data || [])) idPorTel.set(c.phone, c.id)
     }
-    // 4) filas de mensajes (dedup por meta_message_id vía índice único)
+    // 4) filas de mensajes (dedup por meta_message_id; solo lo RECIENTE para no
+    //    inflar la base ni el egress — configurable con HIST_DIAS, 90 por defecto)
+    const corte = Date.now() - HIST_DIAS * 86400000
     const rows = []
     for (const [phone, info] of porTel) {
       const cid = idPorTel.get(phone)
@@ -1770,6 +1773,7 @@ async function importarHistorial(S, h) {
         if (!m.key?.id) continue
         const cont = extraerHistMsg(m)
         if (!cont.body) continue
+        if (new Date(cont.at).getTime() < corte) continue   // más viejo que el corte: se omite
         rows.push({ conversation_id: cid, direction: m.key.fromMe ? 'out' : 'in', body: cont.body.slice(0, 1000), meta_message_id: String(m.key.id), delivery_status: 'historial', created_at: cont.at })
       }
     }
