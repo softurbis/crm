@@ -538,9 +538,11 @@ export default function Whatsapp() {
   }
 
   const convsRef = useRef([])
+  // solo las columnas que el panel usa (no `*`): baja el EGRESS de cada refresco
+  const CONV_COLS = 'id, phone, wa_jid, last_message_at, flow_state, modo, tag, project_id, assigned_to, session_id, humano_desde, wa_label_id, lead_id, client_id, is_test, leads(full_name, status), clients(full_name), projects(name, color)'
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
-      .select('*, leads(full_name, status), clients(full_name), projects(name, color)')
+      .select(CONV_COLS)
       .order('last_message_at', { ascending: false, nullsFirst: false }).limit(300)
     setConvs(data || []); convsRef.current = data || []
   }
@@ -603,9 +605,11 @@ export default function Whatsapp() {
     const dests = lid && lid !== c.phone ? [c.phone, lid] : [c.phone]
     // salientes: los de ESTA conversación + los históricos sin conversación (por teléfono)
     const orSched = `conversation_id.eq.${c.id},and(conversation_id.is.null,recipient_phone.in.(${dests.join(',')}))`
+    // solo los ~150 más recientes de cada lado (con el backup un chat puede tener miles):
+    // el orden DESC + limit baja el EGRESS muchísimo; el sort final los deja cronológicos.
     const [ins, outs] = await Promise.all([
-      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).limit(500),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
+      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(150),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).order('scheduled_for', { ascending: false }).limit(150),
     ])
     const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial' }))
     const b = (outs.data || [])
