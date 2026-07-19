@@ -607,7 +607,7 @@ export default function Whatsapp() {
       supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).limit(500),
       supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).limit(500),
     ])
-    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular' }))
+    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial' }))
     const b = (outs.data || [])
       .filter(m => m.tipo !== 'edit_panel')   // las ediciones no son burbujas (actualizan el original)
       .map(m => m.tipo === 'vcard_panel'
@@ -818,6 +818,9 @@ export default function Whatsapp() {
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
             Cada proyecto atiende desde su propio número (chip propio). El <b>★ CORPORATIVO</b> además lleva el seguimiento
             de secretarias, gerencia y avisos internos. Al agregar un número, su QR aparece arriba en ~30 segundos.
+            <br />🗄️ <b>Backup:</b> al vincular un número, WhatsApp sincroniza su <b>historial reciente de chats</b> y las
+            <b> etiquetas que ya tenían en el celular</b> (si es WhatsApp Business) — aparecen solos en la bandeja. El número
+            actual ya vinculado: usa <b>🔄 VINCULAR</b> para bajar su historial viejo (re-escanea el QR).
           </p>
           {sesiones.length === 0 && <p className="muted">Aún no hay números registrados (¿ya se corrió sql/30 y se redesplegó el agente?).</p>}
           {sesiones.map(s => (
@@ -826,6 +829,7 @@ export default function Whatsapp() {
               <input value={s.label || ''} onChange={e => setSesiones(a => a.map(x => x.id === s.id ? { ...x, label: e.target.value } : x))}
                 onBlur={e => setSesCampo(s.id, { label: e.target.value.trim().toUpperCase() })} style={{ width: 130, fontWeight: 700 }} />
               <span className="muted" style={{ fontSize: 12, width: 110 }}>{s.phone ? '+' + s.phone : '(sin vincular)'}</span>
+              {s.hist_ultimo && <span className="muted" style={{ fontSize: 10 }} title={'Historial de chats importado del celular: ' + new Date(s.hist_ultimo).toLocaleString('es-PE')}>🗄️ backup ✓</span>}
               <select value={s.project_id || ''} onChange={e => setSesCampo(s.id, { project_id: e.target.value || null })} style={{ fontSize: 11, maxWidth: 190 }}
                 title="Proyecto que atiende este número: sus leads y su cobranza salen por aquí">
                 <option value="">— sin proyecto —</option>
@@ -1432,8 +1436,8 @@ export default function Whatsapp() {
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
                       )}
                       <span>
-                        {m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
-                        {m.tipo && m.dir === 'out' && !['manual_panel', 'vcard_panel'].includes(m.tipo) ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}{m.editado ? ' · ✎ editado' : ''}
+                        {m.hist ? '🗄️ ' : m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
+                        {m.tipo && m.dir === 'out' && !m.hist && !['manual_panel', 'vcard_panel'].includes(m.tipo) ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}{m.editado ? ' · ✎ editado' : ''}
                       </span>
                     </div>
                   </div>

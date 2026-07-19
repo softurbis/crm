@@ -1375,7 +1375,7 @@ async function finalizarLead(ses, jid, phone, lead) {
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
-async function manejarEntrante(ses, jid, jidPN, texto, pushName, media) {
+async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   let phone = telDeJid(jidPN || jid)
   // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
   if (!jidPN && String(jid).endsWith('@lid')) {
@@ -1393,6 +1393,7 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media) {
   await supabase.from('whatsapp_messages').insert({
     conversation_id: conv?.id || null, direction: 'in', body: corto || null, delivery_status: 'recibido',
     media_url: media?.url || null, media_type: media?.tipo || null, media_name: media?.name || null,
+    meta_message_id: waId ? String(waId) : null,   // id de WhatsApp: evita duplicar con el backup de historial
   }).then(() => {}).catch(() => {})
   _convSesCache.delete(phone)   // refrescar el cache de ruteo (la conv acaba de moverse/crearse)
   // solo media sin texto: queda registrada para verla en el panel; no hay nada que responder
@@ -1636,6 +1637,7 @@ async function registrarDesdeCelular(S, m) {
   await supabase.from('whatsapp_messages').insert({
     conversation_id: conv?.id || null, direction: 'out', body: texto || null, delivery_status: 'celular',
     media_url: media?.url || null, media_type: media?.tipo || null, media_name: media?.name || null,
+    meta_message_id: m.key?.id ? String(m.key.id) : null,
   }).then(() => {}).catch(() => {})
   const tnum = await tipoNumero(phone)
   const esInterno = ['secretaria', 'gerencia', 'desactivado', 'silencio'].includes(tnum || '') || (ADMIN && phone.slice(-9) === ADMIN.slice(-9))
@@ -1682,7 +1684,104 @@ async function guardarLabel(S, label) {
       name: label.name || null, color: typeof label.color === 'number' ? label.color : null,
       deleted: !!label.deleted, updated_at: new Date().toISOString(),
     }, { onConflict: 'wa_id,session_id' })
+    // back-fill: chats que YA venían con esta label del celular pero sin nombre resuelto
+    if (label.name && !label.deleted && sesId(S)) {
+      await supabase.from('whatsapp_conversations').update({ tag: String(label.name).toUpperCase() })
+        .eq('session_id', sesId(S)).eq('wa_label_id', String(label.id)).is('tag', null)
+    }
   } catch (e) { log('label save:', String(e.message || e)) }
+}
+
+// una asociación chat↔label que YA existía en el celular → reflejarla en el panel (tag)
+async function aplicarAsociacionLabel(S, assoc, tipo) {
+  if (!assoc || assoc.type !== 'label_jid' || !assoc.chatId || !sesId(S)) return
+  const jid = String(assoc.chatId)
+  if (!jid.endsWith('@s.whatsapp.net')) return   // solo chats 1-a-1
+  const phone = telDeJid(jid)
+  if (!phone || phone.length < 9) return
+  let conv = await estadoConv(phone, S)
+  if (!conv) { await setConv(phone, { wa_jid: jid }, S); conv = await estadoConv(phone, S) }
+  if (!conv) return
+  if (tipo === 'remove') {
+    if (String(conv.wa_label_id) === String(assoc.labelId)) await supabase.from('whatsapp_conversations').update({ tag: null, wa_label_id: null }).eq('id', conv.id)
+    return
+  }
+  const { data: lab } = await supabase.from('wa_labels').select('name').eq('session_id', sesId(S)).eq('wa_id', String(assoc.labelId)).maybeSingle()
+  const nombre = (lab && lab.name) ? String(lab.name).toUpperCase() : null
+  await supabase.from('whatsapp_conversations').update({ wa_label_id: String(assoc.labelId), ...(nombre ? { tag: nombre } : {}) }).eq('id', conv.id)
+  if (nombre) log('ETIQUETA previa del celular:', nombre, '→', phone)
+}
+
+// texto representativo de un mensaje histórico (sin descargar media) + su fecha
+function extraerHistMsg(m) {
+  const msg = m.message || {}
+  let body = msg.conversation || msg.extendedTextMessage?.text || ''
+  if (!body) {
+    if (msg.imageMessage) body = msg.imageMessage.caption ? '🖼️ ' + msg.imageMessage.caption : '[🖼️ Imagen]'
+    else if (msg.videoMessage) body = msg.videoMessage.caption ? '🎬 ' + msg.videoMessage.caption : '[🎬 Video]'
+    else if (msg.documentMessage) body = '[📄 ' + (msg.documentMessage.fileName || 'Documento') + ']'
+    else if (msg.audioMessage) body = '[🎙️ Audio]'
+    else if (msg.stickerMessage) body = '[🩵 Sticker]'
+    else if (msg.locationMessage) body = '[📍 Ubicación]'
+    else if (msg.contactMessage || msg.contactsArrayMessage) body = '[📇 Contacto]'
+  }
+  let ts = m.messageTimestamp
+  if (ts && typeof ts === 'object') ts = ts.low != null ? ts.low : (ts.toNumber ? ts.toNumber() : 0)   // Long
+  const at = ts ? new Date(Number(ts) * 1000).toISOString() : new Date().toISOString()
+  return { body, at }
+}
+
+// BACKUP: vuelca el historial que WhatsApp sincroniza al vincular (chats 1-a-1)
+async function importarHistorial(S, h) {
+  const msgs = h.messages || []
+  if (!msgs.length || !sesId(S)) return
+  try {
+    // 1) agrupar mensajes por teléfono (solo chats 1-a-1; nada de grupos/estados)
+    const porTel = new Map()
+    for (const m of msgs) {
+      const jid = m.key?.remoteJid || ''
+      if (!jid.endsWith('@s.whatsapp.net')) continue
+      const phone = telDeJid(jid)
+      if (!phone || phone.length < 9) continue
+      if (!porTel.has(phone)) porTel.set(phone, { jid, msgs: [] })
+      porTel.get(phone).msgs.push(m)
+    }
+    if (!porTel.size) return
+    const phones = [...porTel.keys()]
+    // 2) conversaciones existentes de esta sesión
+    const idPorTel = new Map()
+    for (let i = 0; i < phones.length; i += 100) {
+      const { data } = await supabase.from('whatsapp_conversations').select('id, phone').eq('session_id', sesId(S)).in('phone', phones.slice(i, i + 100))
+      for (const c of (data || [])) idPorTel.set(c.phone, c.id)
+    }
+    // 3) crear las que faltan
+    const faltan = phones.filter(p => !idPorTel.has(p))
+    for (let i = 0; i < faltan.length; i += 100) {
+      const nuevas = faltan.slice(i, i + 100).map(p => ({ phone: p, wa_jid: porTel.get(p).jid, session_id: sesId(S), project_id: S.row.project_id || null, last_message_at: new Date().toISOString() }))
+      const { data } = await supabase.from('whatsapp_conversations').insert(nuevas).select('id, phone')
+      for (const c of (data || [])) idPorTel.set(c.phone, c.id)
+    }
+    // 4) filas de mensajes (dedup por meta_message_id vía índice único)
+    const rows = []
+    for (const [phone, info] of porTel) {
+      const cid = idPorTel.get(phone)
+      if (!cid) continue
+      for (const m of info.msgs) {
+        if (!m.key?.id) continue
+        const cont = extraerHistMsg(m)
+        if (!cont.body) continue
+        rows.push({ conversation_id: cid, direction: m.key.fromMe ? 'out' : 'in', body: cont.body.slice(0, 1000), meta_message_id: String(m.key.id), delivery_status: 'historial', created_at: cont.at })
+      }
+    }
+    let n = 0
+    for (let i = 0; i < rows.length; i += 300) {
+      const lote = rows.slice(i, i + 300)
+      const { error } = await supabase.from('whatsapp_messages').upsert(lote, { onConflict: 'conversation_id,meta_message_id', ignoreDuplicates: true })
+      if (!error) n += lote.length; else log('hist upsert:', error.message)
+    }
+    log('HISTORIAL [' + (S.row.label || 'PRINCIPAL') + ']: ' + porTel.size + ' chats, ' + rows.length + ' msjs' + (h.progress != null ? ' (' + h.progress + '%)' : '') + (h.isLatest ? ' [FIN]' : ''))
+    supabase.from('wa_sessions').update({ hist_ultimo: new Date().toISOString() }).eq('id', S.row.id).then(() => {}, () => {})
+  } catch (e) { log('historial:', String(e.message || e)) }
 }
 
 // refleja la etiqueta 🏷️ del panel como label de WhatsApp en el chat del celular
@@ -1738,9 +1837,14 @@ async function iniciarSesion(row) {
     // agenda del chip → wa_contacts (sync inicial y cambios en caliente)
     sock.ev.on('contacts.upsert', cts => { guardarContactos(S, cts).catch(() => {}) })
     sock.ev.on('contacts.update', cts => { guardarContactos(S, cts).catch(() => {}) })
-    sock.ev.on('messaging-history.set', h => { if (h && h.contacts) guardarContactos(S, h.contacts).catch(() => {}) })
-    // etiquetas de WhatsApp Business del chip → wa_labels (solo si es Business)
+    // sync inicial al vincular: agenda + BACKUP del historial de chats
+    sock.ev.on('messaging-history.set', h => {
+      if (h?.contacts?.length) guardarContactos(S, h.contacts).catch(() => {})
+      if (h?.messages?.length) importarHistorial(S, h).catch(() => {})
+    })
+    // etiquetas de WhatsApp Business del chip → wa_labels + asociaciones previas
     sock.ev.on('labels.edit', l => { guardarLabel(S, l).catch(() => {}) })
+    sock.ev.on('labels.association', ev => { aplicarAsociacionLabel(S, ev?.association, ev?.type).catch(() => {}) })
     sock.ev.on('connection.update', async u => {
       if (u.qr) {
         console.log('\n============================================')
@@ -1794,7 +1898,7 @@ async function iniciarSesion(row) {
           if (alt && !alt.includes('@')) alt = alt + '@s.whatsapp.net'
           const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
           if (!jidPN) log('AVISO LID sin numero real. key=', JSON.stringify(k))
-          try { await manejarEntrante(S, jid, jidPN, texto, m.pushName, media) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
+          try { await manejarEntrante(S, jid, jidPN, texto, m.pushName, media, m.key?.id) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
         } catch (e) { log('error procesando entrante:', e.message) }
       }
     })
