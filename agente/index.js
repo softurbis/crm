@@ -1428,6 +1428,9 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   }
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
+  // interruptor del bot POR NÚMERO: si el bot de esta sesión está apagado, el
+  // mensaje ya quedó registrado (arriba) pero no se responde nada automático.
+  if (ses?.row && ses.row.bot_activo === false) { log('BOT DEL NUMERO APAGADO (' + (ses.row.label || 'PRINCIPAL') + '): sin respuesta a', phone); return }
   const tnum = await tipoNumero(phone)
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
@@ -2092,6 +2095,7 @@ async function avanzarFlujo() {
       try {
         if (c.modo === 'humano') continue                 // lo atiende una persona: el bot no avanza
         const ses = (c.session_id && SESSIONS.get(c.session_id)) || sesCorporativa()
+        if (ses?.row && ses.row.bot_activo === false) continue   // bot de ese número apagado
         const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
         if (!lead) continue
         const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
