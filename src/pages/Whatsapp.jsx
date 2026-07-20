@@ -47,6 +47,8 @@ const rgbaDe = (hex, a) => {
 // etiquetas de estado del chat: lista por defecto + paleta para las que se creen en el panel
 const TAGS_DEF = [{ n: 'CALIFICADO', c: '#7fbf7f' }, { n: 'TIBIO', c: '#e0b34c' }, { n: 'FRIO', c: '#7ec8e3' }, { n: 'CLIENTE', c: '#b8a1d9' }]
 const TAG_PALETA = ['#e8975a', '#6fd0c9', '#e07b7b', '#9ccb86', '#c58ae0', '#7ba7f7', '#e6a4d0', '#e7c15a']
+// color por número: se usa el color de su proyecto; si no tiene, uno de esta paleta por orden
+const SES_PALETA = ['#6fdd9b', '#7ba7f7', '#e6a4d0', '#e8975a', '#6fd0c9', '#c58ae0', '#e7c15a', '#e07b7b']
 const cap = s => s ? s[0] + s.slice(1).toLowerCase() : ''
 
 function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQuicks }) {
@@ -223,6 +225,14 @@ export default function Whatsapp() {
     cargarConvs(); setSel(x => x && x.id === c.id ? { ...x, tag: tag || null } : x)
   }
   const colorTag = n => tags.find(t => t.n === n)?.c || '#9daab6'
+  // color de un número: el de su proyecto, o uno de la paleta según su orden
+  const colorSesion = id => {
+    if (!id) return null
+    const s = sesiones.find(x => x.id === id)
+    if (s?.project_id) { const p = proysAll.find(pp => pp.id === s.project_id); if (p?.color) return p.color }
+    const i = sesiones.findIndex(x => x.id === id)
+    return SES_PALETA[(i < 0 ? 0 : i) % SES_PALETA.length]
+  }
   const [flags, setFlags] = useState({ bot_activo: true, cobranza_activa: true, ia_activa: true, seguimiento_activo: true })
   const [verNums, setVerNums] = useState(false)
   const [nums, setNums] = useState([])
@@ -772,7 +782,7 @@ export default function Whatsapp() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
           <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
           <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #8b95a1', color: '#8b95a1' }}>📱 {sn.label}</span> : null })()}
+            {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); const col = colorSesion(c.session_id) || '#8b95a1'; return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid ' + col, color: col }}>📱 {sn.label}</span> : null })()}
             {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
             {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
             {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
@@ -1271,7 +1281,7 @@ export default function Whatsapp() {
                 const n = convs.filter(c => c.session_id === s.id).length
                 return (
                   <button key={s.id} className="btn-ghost" onClick={() => setFiltroSes(filtroSes === s.id ? '' : s.id)}
-                    style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroSes === s.id ? '#6fdd9b' : 'rgba(255,255,255,.15)', color: sesionViva(s) ? undefined : '#e07b7b' }}
+                    style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroSes === s.id ? colorSesion(s.id) : 'rgba(255,255,255,.15)', color: sesionViva(s) ? colorSesion(s.id) : '#e07b7b' }}
                     title={sesionViva(s) ? 'Número conectado' : 'Número SIN conexión — revisa el droplet / re-vincula'}>
                     {sesionViva(s) ? '🟢' : '🔴'} {s.label} <b>{n}</b></button>
                 )
@@ -1352,7 +1362,7 @@ export default function Whatsapp() {
           )}
         </div>
 
-        <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column', borderTop: sel?.projects?.color ? `3px solid ${sel.projects.color}` : undefined, boxShadow: rgbaDe(sel?.projects?.color, .12) ? `inset 0 0 60px ${rgbaDe(sel.projects.color, .07)}` : undefined }}>
+        <div className="glass" style={{ padding: 14, maxHeight: '70vh', display: 'flex', flexDirection: 'column', borderTop: colorSesion(sel?.session_id) ? `3px solid ${colorSesion(sel.session_id)}` : undefined, boxShadow: rgbaDe(colorSesion(sel?.session_id), .12) ? `inset 0 0 80px ${rgbaDe(colorSesion(sel.session_id), .08)}` : undefined }}>
           {!sel && <p className="muted" style={{ padding: 20 }}>Elige una conversación de la lista para ver los mensajes.</p>}
           {sel && (
             <>
@@ -1482,7 +1492,7 @@ export default function Whatsapp() {
               <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 6 }}>
                 {msgs.length === 0 && optimistas.length === 0 && <p className="muted">Sin mensajes guardados todavía.</p>}
                 {[...msgs, ...optimistas].map((m, i) => (
-                  <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? (rgbaDe(sel.projects?.color, .28) || 'rgba(59,74,50,.9)') : 'rgba(255,255,255,.07)', border: '1px solid ' + (m.dir === 'out' ? (rgbaDe(sel.projects?.color, .4) || 'rgba(255,255,255,.08)') : 'rgba(255,255,255,.08)'), borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
+                  <div key={i} className="wa-burbuja" style={{ alignSelf: m.dir === 'out' ? 'flex-end' : 'flex-start',  maxWidth: '78%', background: m.dir === 'out' ? (rgbaDe(colorSesion(sel.session_id), .3) || 'rgba(59,74,50,.9)') : (rgbaDe(colorSesion(sel.session_id), .08) || 'rgba(255,255,255,.07)'), border: '1px solid ' + (m.dir === 'out' ? (rgbaDe(colorSesion(sel.session_id), .45) || 'rgba(255,255,255,.08)') : 'rgba(255,255,255,.08)'), borderRadius: m.dir === 'out' ? '12px 12px 2px 12px' : '12px 12px 12px 2px', padding: '8px 12px', position: 'relative' }}>
                     {m.media_url && (
                       m.media_type === 'image' || m.media_type === 'sticker'
                         ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="" loading="lazy" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} /></a>
