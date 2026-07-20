@@ -1122,6 +1122,9 @@ async function cobranza() {
   for (const v of ventas || []) {
     const c = v.client
     if (!telefonosBot(c).length) continue   // ningun celular marcado/validado = el bot no le escribe
+    // COBRANZA por número: si la sesión del proyecto de este lote tiene la cobranza apagada, se salta
+    const sCob = sesDeProyecto(v.lot?.project?.id) || sesCorporativa()
+    if (sCob?.row && sCob.row.cobranza_activo === false) continue
     if (usarCfg) { await cobranzaVentaCfg(v, cfg, hoyISO); continue }   // reglas por días configurables
     const nombre = (c.full_name || '').split(' ')[0]
     const lote = `Mz ${v.lot.mz} Lt ${v.lot.lt}`
@@ -1428,9 +1431,6 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   }
 
   if (!(await flag('bot_activo'))) { log('BOT APAGADO: ignorando a', phone); return }
-  // interruptor del bot POR NÚMERO: si el bot de esta sesión está apagado, el
-  // mensaje ya quedó registrado (arriba) pero no se responde nada automático.
-  if (ses?.row && ses.row.bot_activo === false) { log('BOT DEL NUMERO APAGADO (' + (ses.row.label || 'PRINCIPAL') + '): sin respuesta a', phone); return }
   const tnum = await tipoNumero(phone)
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
@@ -1461,6 +1461,9 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   const cliente = (clientes || [])[0]
   if (tnum === 'cliente' && !cliente) return
   if (cliente) {
+    // COBRANZA por número: si la cobranza de esta sesión está apagada, no se
+    // auto-responde al cliente (el mensaje queda registrado para atención humana).
+    if (ses?.row && ses.row.cobranza_activo === false) { log('COBRANZA DEL NUMERO APAGADA (' + (ses.row.label || 'PRINCIPAL') + '): sin auto-respuesta a cliente', phone); return }
     const primer = (cliente.full_name || '').split(' ')[0]
     // Flujo de respuesta configurable (bot_brains 'cobranza_flow' = JSON):
     // [{ claves:"ya pague, voucher", accion:"responder"|"asesor", respuesta:"..." }]
@@ -1488,7 +1491,9 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
 
   // VENTAS apagado: el bot NO conversa con leads. Solo registra el nuevo en el Kanban
   // (sin responder) para no perderlo; los clientes y el equipo (arriba) sí se atienden.
-  if (!(await flag('ia_activa'))) {
+  // LEADS por número: si el global LEADS está apagado O el de esta sesión, el
+  // lead se registra en silencio (sin responderle) para no perderlo del Kanban.
+  if (!(await flag('ia_activa')) || (ses?.row && ses.row.leads_activo === false)) {
     // Registro SILENCIOSO en el Kanban (sin avisar al admin, para no llenar de reportes).
     // Solo si parece un teléfono real (evita crear "leads" por LIDs de personas registradas).
     if (!lead && /^\d{9,13}$/.test(phone) && phone.length <= 13) {
@@ -2095,7 +2100,7 @@ async function avanzarFlujo() {
       try {
         if (c.modo === 'humano') continue                 // lo atiende una persona: el bot no avanza
         const ses = (c.session_id && SESSIONS.get(c.session_id)) || sesCorporativa()
-        if (ses?.row && ses.row.bot_activo === false) continue   // bot de ese número apagado
+        if (ses?.row && ses.row.leads_activo === false) continue   // leads de ese número apagado
         const { data: lead } = await supabase.from('leads').select('id, project_id, full_name').eq('id', c.lead_id).maybeSingle()
         if (!lead) continue
         const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()

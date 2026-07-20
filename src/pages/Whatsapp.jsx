@@ -898,10 +898,14 @@ export default function Whatsapp() {
                 <option value="">— sin proyecto —</option>
                 {proysAll.map(p => <option key={p.id} value={p.id} disabled={sesiones.some(x => x.id !== s.id && x.project_id === p.id)}>{p.name}</option>)}
               </select>
-              <button className="btn-ghost" onClick={() => setSesCampo(s.id, { bot_activo: !(s.bot_activo !== false) })}
-                title={s.bot_activo !== false ? 'Bot de este número ENCENDIDO: atiende sus leads con el flujo de su proyecto. Clic para apagar (solo humano).' : 'Bot de este número APAGADO: no responde automático (solo humano). Clic para encender.'}
-                style={{ fontSize: 10, borderColor: s.bot_activo !== false ? '#9ccb86' : '#8b95a1', color: s.bot_activo !== false ? '#9ccb86' : '#8b95a1' }}>
-                🤖 {s.bot_activo !== false ? 'ON' : 'OFF'}</button>
+              <button className="btn-ghost" onClick={() => setSesCampo(s.id, { leads_activo: !(s.leads_activo !== false) })}
+                title={s.leads_activo !== false ? 'LEADS de este número ENCENDIDO: atiende a los interesados con el flujo de su proyecto. Clic para apagar (solo humano).' : 'LEADS de este número APAGADO: no responde a interesados nuevos. Clic para encender.'}
+                style={{ fontSize: 10, borderColor: s.leads_activo !== false ? '#9ccb86' : '#8b95a1', color: s.leads_activo !== false ? '#9ccb86' : '#8b95a1' }}>
+                🤖 LEADS {s.leads_activo !== false ? 'ON' : 'OFF'}</button>
+              <button className="btn-ghost" onClick={() => setSesCampo(s.id, { cobranza_activo: !(s.cobranza_activo !== false) })}
+                title={s.cobranza_activo !== false ? 'COBRANZA de este número ENCENDIDA: envía recordatorios de pago a los clientes de su proyecto. Clic para apagar.' : 'COBRANZA de este número APAGADA: no envía recordatorios por este número. Clic para encender.'}
+                style={{ fontSize: 10, borderColor: s.cobranza_activo !== false ? '#e0b34c' : '#8b95a1', color: s.cobranza_activo !== false ? '#e0b34c' : '#8b95a1' }}>
+                💵 COBRANZA {s.cobranza_activo !== false ? 'ON' : 'OFF'}</button>
               {s.project_id && <button className="btn-ghost" style={{ fontSize: 10 }} title="Editar el flujo del bot de este proyecto" onClick={() => abrirFlujoDe(s.project_id)}>✏️ FLUJO</button>}
               {s.is_corporate
                 ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: '1px solid #e7c15a', color: '#e7c15a' }}>★ CORPORATIVO</span>
