@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false   # Pages: encolar los deploys en orden, no cancelarlos (evita perder publicaciones cuando hay varios push seguidos)
 
 jobs:
   build:
