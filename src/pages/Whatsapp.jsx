@@ -142,6 +142,7 @@ export default function Whatsapp() {
   const [filtro, setFiltro] = useState('todos')
   const [filtroProy, setFiltroProy] = useState('')            // '' = todos los proyectos
   const [filtroTag, setFiltroTag] = useState('')              // '' = todas las etiquetas
+  const [filtroSes, setFiltroSes] = useState('')              // '' = todos los números
   const [sesiones, setSesiones] = useState([])                // wa_sessions (números vinculados)
   const [verSes, setVerSes] = useState(false)                 // gestor de números por proyecto
   const [usuarios, setUsuarios] = useState([])                // para asignar chats
@@ -711,6 +712,7 @@ export default function Whatsapp() {
     if (filtroProy && c.project_id !== filtroProy) return false
     if (filtroTag && c.tag !== filtroTag) return false
     if (filtroAsig && c.assigned_to !== filtroAsig) return false
+    if (filtroSes && c.session_id !== filtroSes) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (!((c.phone || '').includes(q) || (c.leads?.full_name || '').toLowerCase().includes(q) || (c.clients?.full_name || '').toLowerCase().includes(q))) return false
@@ -770,6 +772,7 @@ export default function Whatsapp() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
           <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
           <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #8b95a1', color: '#8b95a1' }}>📱 {sn.label}</span> : null })()}
             {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
             {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
             {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
@@ -1260,6 +1263,21 @@ export default function Whatsapp() {
 
       <div style={{ display: 'grid', gridTemplateColumns: vista === 'cuadros' ? 'minmax(340px, 500px) 1fr' : 'minmax(240px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
         <div className="glass" style={{ padding: 10, maxHeight: '70vh', overflowY: 'auto' }}>
+          {sesiones.length > 1 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+              <button className="btn-ghost" onClick={() => setFiltroSes('')}
+                style={{ fontSize: 10, padding: '3px 8px', borderColor: !filtroSes ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>📱 TODOS LOS NÚMEROS</button>
+              {sesiones.map(s => {
+                const n = convs.filter(c => c.session_id === s.id).length
+                return (
+                  <button key={s.id} className="btn-ghost" onClick={() => setFiltroSes(filtroSes === s.id ? '' : s.id)}
+                    style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroSes === s.id ? '#6fdd9b' : 'rgba(255,255,255,.15)', color: sesionViva(s) ? undefined : '#e07b7b' }}
+                    title={sesionViva(s) ? 'Número conectado' : 'Número SIN conexión — revisa el droplet / re-vincula'}>
+                    {sesionViva(s) ? '🟢' : '🔴'} {s.label} <b>{n}</b></button>
+                )
+              })}
+            </div>
+          )}
           {proysBandeja.length > 0 && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
               <button className="btn-ghost" onClick={() => setFiltroProy('')}
