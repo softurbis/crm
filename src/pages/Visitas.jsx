@@ -140,6 +140,17 @@ export default function Visitas() {
     setCerrar(null); cargar()
   }
 
+  // reabrir una visita cerrada: vuelve a PROGRAMADA y borra su resultado
+  const reabrirVisita = async v => {
+    if (!confirm('¿Reabrir la visita de ' + v.client_name + '?\n\nVuelve a PROGRAMADA y se borra su resultado (cerrada por error / para volver a manejarla).')) return
+    const { error } = await supabase.from('visits').update({
+      status: 'programada', resultado: null, resultado_note: null,
+      recontacto_date: null, closed_at: null, admin_avisado_at: null,
+    }).eq('id', v.id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    cargar()
+  }
+
   // reenviar el recordatorio (resetea las marcas para que el bot lo vuelva a mandar)
   const reenviarRecordatorio = async v => {
     if (!confirm('¿Reenviar el recordatorio de esta visita?\n\nEl bot lo volverá a mandar al cliente y al asesor en el próximo ciclo (máx. 1 min).')) return
@@ -203,6 +214,7 @@ export default function Visitas() {
             {puedeCrear && !esRec && yaRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Reenviar recordatorio" onClick={() => reenviarRecordatorio(v)}>🔁</button>}
             <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'cancelada')}>🚫</button>
           </>}
+          {v.status !== 'programada' && puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)', color: '#7ba7f7' }} title="Reabrir: vuelve a programada y borra el resultado" onClick={() => reabrirVisita(v)}>🔓 REABRIR</button>}
           {esJefe && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => borrar(v)}>✕</button>}
         </div>
       </div>
