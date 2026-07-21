@@ -10,6 +10,16 @@ const EST = {
   cancelada: { t: 'CANCELADA', c: '#9daab6', i: '🚫' },
   no_asistio: { t: 'NO ASISTIÓ', c: '#ff8e7a', i: '😶' },
 }
+// resultados al CERRAR una visita (el bot avisa al admin de cada cierre)
+const RESULTADOS = [
+  { v: 'pago_inicial', t: '💰 Pagó inicial', c: '#6fdd9b' },
+  { v: 'separacion', t: '🔖 Dio separación', c: '#b8a1d9' },
+  { v: 'interesado', t: '🤔 Interesado / lo pensará', c: '#e0b34c' },
+  { v: 'recontacto', t: '📅 Recontactar en fecha', c: '#7ba7f7', pideFecha: true },
+  { v: 'no_interesado', t: '❌ No interesado', c: '#e07b7b' },
+  { v: 'no_vino', t: '😶 No vino / sin respuesta', c: '#9daab6' },
+]
+const RES_LBL = Object.fromEntries(RESULTADOS.map(r => [r.v, r.t]))
 const addDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const lunesDe = iso => { const d = new Date(iso + 'T12:00:00'); const off = (d.getDay() + 6) % 7; return addDias(iso, -off) }
 
@@ -22,8 +32,39 @@ export default function Visitas() {
   const [mes, setMes] = useState(hoyISO().slice(0, 7))
   const [vista, setVista] = useState('mes')   // 'mes' | 'semana'
   const [form, setForm] = useState(null)
+  const [cerrar, setCerrar] = useState(null)  // visita que se está cerrando (modal de resultado)
+  const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true })
+  const [verCfg, setVerCfg] = useState(false)
+  const [cfgMsg, setCfgMsg] = useState('')
   const hoy = hoyISO()
   const esJefe = ['admin', 'superuser'].includes(role)
+
+  const cargarCfg = async () => {
+    const { data } = await supabase.from('bot_settings').select('key, value').like('key', 'vis_%')
+    const kv = Object.fromEntries((data || []).map(r => [r.key, r.value]))
+    setCfg({
+      activo: kv.vis_activo !== '0',
+      diasAntes: parseInt(kv.vis_dias_antes ?? '1') || 0,
+      diasHora: (kv.vis_dias_hora || '09:00').slice(0, 5),
+      horasAntes: parseInt(kv.vis_horas_antes ?? '3') || 0,
+      recCliente: kv.vis_recordar_cliente !== '0',
+      recAsesor: kv.vis_recordar_asesor !== '0',
+    })
+  }
+  const guardarCfg = async () => {
+    setCfgMsg('GUARDANDO…')
+    const now = new Date().toISOString()
+    const rows = [
+      { key: 'vis_activo', value: cfg.activo ? '1' : '0', updated_at: now },
+      { key: 'vis_dias_antes', value: String(Math.max(0, cfg.diasAntes | 0)), updated_at: now },
+      { key: 'vis_dias_hora', value: String(cfg.diasHora).slice(0, 5), updated_at: now },
+      { key: 'vis_horas_antes', value: String(Math.max(0, cfg.horasAntes | 0)), updated_at: now },
+      { key: 'vis_recordar_cliente', value: cfg.recCliente ? '1' : '0', updated_at: now },
+      { key: 'vis_recordar_asesor', value: cfg.recAsesor ? '1' : '0', updated_at: now },
+    ]
+    const { error } = await supabase.from('bot_settings').upsert(rows)
+    setCfgMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo aplica en máx. 1 minuto')
+  }
 
   const cargar = async () => {
     const md = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate()
@@ -37,6 +78,7 @@ export default function Visitas() {
     setVisitas(v.data || []); setProys(p.data || []); setEquipo(s.data || [])
   }
   useEffect(() => { cargar() }, [semana, mes])
+  useEffect(() => { cargarCfg() }, [])
   useEffect(() => { const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [semana, mes])
 
   if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
@@ -63,6 +105,43 @@ export default function Visitas() {
   }
   const setEstado = async (v, status) => { await supabase.from('visits').update({ status }).eq('id', v.id); cargar() }
   const borrar = async v => { if (confirm('¿Eliminar la visita de ' + v.client_name + '?')) { await supabase.from('visits').delete().eq('id', v.id); cargar() } }
+
+  // CERRAR una visita con su resultado (el bot avisa al admin). recontacto = agenda otra entrada.
+  const cerrarVisita = async (v, res) => {
+    const meta = RESULTADOS.find(r => r.v === res)
+    const nota = prompt('📝 Nota / detalle del resultado (opcional):\n\n' + meta.t, v.resultado_note || '')
+    if (nota === null) return
+    let recontactoDate = null
+    if (meta.pideFecha) {
+      const def = addDias(hoy, 3)
+      const f = prompt('📅 ¿Para qué fecha recontactar al cliente? (AAAA-MM-DD)\n\nEse día el bot le recuerda al asesor que debe llamar.', def)
+      if (f === null) return
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) { alert('Fecha inválida. Usa el formato AAAA-MM-DD (ej. ' + def + ').'); return }
+      recontactoDate = f.trim()
+      // agendar el recontacto en el calendario (tipo 'recontacto')
+      const { error: eR } = await supabase.from('visits').insert({
+        project_id: v.project_id || null, client_name: v.client_name, client_phone: v.client_phone,
+        encargado_name: v.encargado_name, encargado_phone: v.encargado_phone,
+        date: recontactoDate, time: '10:00', meeting_point: 'RECONTACTO (LLAMADA)',
+        tipo: 'recontacto', notes: (nota.trim() || 'Recontactar al cliente'), status: 'programada', created_by: profile?.id,
+      })
+      if (eR) { alert('No se pudo agendar el recontacto: ' + eR.message); return }
+    }
+    const { error } = await supabase.from('visits').update({
+      status: res === 'no_vino' ? 'no_asistio' : 'realizada',
+      resultado: res, resultado_note: nota.trim() || null,
+      recontacto_date: recontactoDate, closed_at: new Date().toISOString(), admin_avisado_at: null,
+    }).eq('id', v.id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    setCerrar(null); cargar()
+  }
+
+  // reenviar el recordatorio (resetea las marcas para que el bot lo vuelva a mandar)
+  const reenviarRecordatorio = async v => {
+    if (!confirm('¿Reenviar el recordatorio de esta visita?\n\nEl bot lo volverá a mandar al cliente y al asesor en el próximo ciclo (máx. 1 min).')) return
+    await supabase.from('visits').update({ reminded_at: null, reminded_dia_at: null, reminded_hora_at: null }).eq('id', v.id)
+    cargar()
+  }
   const elegirEncargado = id => {
     const s = equipo.find(x => x.id === id)
     if (s) setForm(f => ({ ...f, encargado_name: s.full_name, encargado_phone: s.phone }))
@@ -92,21 +171,28 @@ export default function Visitas() {
 
   const Card = v => {
     const e = EST[v.status] || EST.programada
+    const esRec = v.tipo === 'recontacto'
+    const yaRec = v.reminded_at || v.reminded_dia_at || v.reminded_hora_at
     return (
-      <div key={v.id} className="glass" style={{ padding: '8px 10px', borderLeft: `3px solid ${e.c}`, marginBottom: 6 }}>
+      <div key={v.id} className="glass" style={{ padding: '8px 10px', borderLeft: `3px solid ${esRec ? '#7ba7f7' : e.c}`, marginBottom: 6 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <b style={{ fontSize: 12, flex: 1 }}>🕐 {String(v.time).slice(0, 5)} · {v.client_name}</b>
+          <b style={{ fontSize: 12, flex: 1 }}>{esRec ? '📞 RECONTACTO' : '🕐 ' + String(v.time).slice(0, 5)} · {v.client_name}</b>
           <span title={e.t}>{e.i}</span>
         </div>
-        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'} · 📍 {v.meeting_point}</p>
-        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>👤 {v.encargado_name || 'ENCARGADO'} · +{v.encargado_phone} · CLIENTE +{v.client_phone}{v.reminded_at ? ' · 🔔 RECORDADO' : ''}</p>
+        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'}{!esRec && ' · 📍 ' + v.meeting_point}</p>
+        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>👤 {v.encargado_name || 'ENCARGADO'} · +{v.encargado_phone} · CLIENTE +{v.client_phone}{yaRec ? ' · 🔔 RECORDADO' : ''}</p>
         {v.notes && <p className="muted" style={{ fontSize: 10, margin: '2px 0', textTransform: 'none' }}>📝 {v.notes}</p>}
+        {v.resultado && <p style={{ fontSize: 10, margin: '2px 0', color: (RESULTADOS.find(r => r.v === v.resultado)?.c) || '#9daab6', fontWeight: 700 }}>
+          {RES_LBL[v.resultado] || v.resultado}{v.resultado_note ? <span className="muted" style={{ fontWeight: 400, textTransform: 'none' }}> · {v.resultado_note}</span> : ''}
+          {v.recontacto_date && <span className="muted" style={{ fontWeight: 400 }}> · 📅 {v.recontacto_date}</span>}
+        </p>}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
           {v.status === 'programada' && <>
-            <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'realizada')}>✅ REALIZADA</button>
-            <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'no_asistio')}>😶 NO VINO</button>
+            {puedeCrear && !esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)' }} onClick={() => setCerrar(v)}>🏁 CERRAR</button>}
+            {puedeCrear && esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'realizada')}>✅ HECHO</button>}
+            {puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Editar / reprogramar" onClick={() => setForm({ ...v, time: String(v.time).slice(0, 5) })}>✎</button>}
+            {puedeCrear && !esRec && yaRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Reenviar recordatorio" onClick={() => reenviarRecordatorio(v)}>🔁</button>}
             <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'cancelada')}>🚫</button>
-            {puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setForm({ ...v, time: String(v.time).slice(0, 5) })}>✎</button>}
           </>}
           {esJefe && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => borrar(v)}>✕</button>}
         </div>
@@ -131,10 +217,58 @@ export default function Visitas() {
             <button className="btn-ghost" onClick={() => setSemana(addDias(semana, 7))}>SEM ›</button>
           </>)}
           <button className="btn-ghost" onClick={irHoy}>HOY</button>
+          {esJefe && <button className="btn-ghost" onClick={() => setVerCfg(!verCfg)} title="Configurar recordatorios de visita">🔔 RECORDATORIOS</button>}
           {puedeCrear && <button className="btn" onClick={() => setForm({ date: hoy, time: '10:00' })}>+ PROGRAMAR VISITA</button>}
         </div>
       </div>
-      <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>El bot recuerda cada visita 1 día antes: al encargado con todos los datos y al cliente con hora y punto de encuentro.</p>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        El bot recuerda cada visita al cliente y al asesor según la configuración de 🔔 RECORDATORIOS
+        {cfg.activo ? <> (hoy: {cfg.diasAntes > 0 ? cfg.diasAntes + ' día(s) antes' : '—'}{cfg.horasAntes > 0 ? ' + ' + cfg.horasAntes + ' h antes' : ''}).</> : <> — <b className="bad">recordatorios APAGADOS</b>.</>}
+      </p>
+
+      {verCfg && esJefe && (
+        <div className="glass" style={{ padding: 14, marginBottom: 12, border: '1px solid rgba(126,167,247,.4)' }}>
+          <b style={{ color: '#7ba7f7' }}>🔔 RECORDATORIOS DE VISITA</b>
+          <p className="muted" style={{ fontSize: 11, margin: '4px 0 10px' }}>El bot recuerda cada visita al cliente y/o al asesor. Configura cuánto antes. (Los recontactos se avisan al asesor el día que toca.)</p>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={cfg.activo} onChange={e => setCfg(c => ({ ...c, activo: e.target.checked }))} /> <b>Recordatorios activos</b>
+            </label>
+            <span style={{ opacity: cfg.activo ? 1 : .4, display: 'flex', gap: 6, alignItems: 'center' }}>
+              📅 <input type="number" min="0" max="30" value={cfg.diasAntes} onChange={e => setCfg(c => ({ ...c, diasAntes: e.target.value | 0 }))} style={{ width: 50 }} /> día(s) antes, a las
+              <input type="time" value={cfg.diasHora} onChange={e => setCfg(c => ({ ...c, diasHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
+            </span>
+            <span style={{ opacity: cfg.activo ? 1 : .4, display: 'flex', gap: 6, alignItems: 'center' }}>
+              ⏰ <input type="number" min="0" max="48" value={cfg.horasAntes} onChange={e => setCfg(c => ({ ...c, horasAntes: e.target.value | 0 }))} style={{ width: 50 }} /> hora(s) antes de la visita
+            </span>
+            <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.recCliente} onChange={e => setCfg(c => ({ ...c, recCliente: e.target.checked }))} /> al cliente</label>
+              <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.recAsesor} onChange={e => setCfg(c => ({ ...c, recAsesor: e.target.checked }))} /> al asesor</label>
+            </span>
+          </div>
+          <p className="muted" style={{ fontSize: 10, margin: '8px 0 0' }}>0 = ese recordatorio no se manda. Ej: 1 día antes + 3 horas antes = dos avisos por visita.</p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+            <button className="btn" onClick={guardarCfg}>💾 GUARDAR</button>
+            {cfgMsg && <span style={{ fontSize: 12 }}>{cfgMsg}</span>}
+          </div>
+        </div>
+      )}
+
+      {cerrar && (
+        <div className="modal-bg" onClick={() => setCerrar(null)}>
+          <div className="glass" style={{ padding: 18, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <b>🏁 CERRAR VISITA — {cerrar.client_name}</b>
+            <p className="muted" style={{ fontSize: 12, margin: '4px 0 12px' }}>¿Cómo resultó la visita? Se registra y el bot avisa al admin. En "recontactar" se agenda la llamada en el calendario.</p>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {RESULTADOS.map(r => (
+                <button key={r.v} className="btn-ghost" style={{ textAlign: 'left', borderColor: r.c + '77', color: r.c, padding: '8px 12px', fontSize: 13 }}
+                  onClick={() => cerrarVisita(cerrar, r.v)}>{r.t}</button>
+              ))}
+            </div>
+            <div style={{ marginTop: 12 }}><button className="btn-ghost" onClick={() => setCerrar(null)}>CANCELAR</button></div>
+          </div>
+        </div>
+      )}
 
       <div className="glass" style={{ padding: '9px 14px', marginBottom: 12, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
         <span>📅 <b style={{ color: '#7ba7f7' }}>{prog(visSem).length}</b> esta semana</span>

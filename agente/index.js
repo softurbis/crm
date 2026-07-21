@@ -767,6 +767,89 @@ function secTpl(md, tag, vars, def) {
   return s
 }
 
+// manda el recordatorio de una visita al asesor y/o al cliente
+async function mandarRecordatorioVisita(v, fecha, recCliente, recAsesor, cuando) {
+  const hora = String(v.time).slice(0, 5)
+  const proy = v.project ? v.project.name : 'el proyecto'
+  const nomCli = (v.client_name || '').split(' ')[0]
+  const meta = { tipo: 'secretaria', project_id: v.project_id || null }
+  if (recAsesor && v.encargado_phone) await enviar(v.encargado_phone, '📅 *VISITA ' + cuando.toUpperCase() + '* — ' + fmtFechaEs(fecha) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente. 🙌', meta)
+  if (recCliente && v.client_phone) await enviar(v.client_phone, 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *' + cuando + '* (' + fmtFechaEs(fecha) + ') a las *' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌', meta)
+}
+
+// Motor PROPIO de recordatorios de visita (independiente de las secretarias).
+// Config en bot_settings: vis_activo, vis_dias_antes, vis_dias_hora,
+// vis_horas_antes, vis_recordar_cliente, vis_recordar_asesor.
+let _visBusy = false
+async function visitasTick() {
+  if (_visBusy) return
+  _visBusy = true
+  try {
+    if (!(await flag('bot_activo'))) return
+    if ((await ajuste('vis_activo', '1')) === '0') return
+    const hoy = secHoy(), hhmm = secHora()
+    const nowLima = new Date(new Date().toLocaleString('en-US', SEC_TZ))
+    const diasAntes = Math.max(0, parseInt(await ajuste('vis_dias_antes', '1')) || 0)
+    const diasHora = String(await ajuste('vis_dias_hora', '09:00')).slice(0, 5)
+    const horasAntes = Math.max(0, parseInt(await ajuste('vis_horas_antes', '3')) || 0)
+    const recCliente = (await ajuste('vis_recordar_cliente', '1')) !== '0'
+    const recAsesor = (await ajuste('vis_recordar_asesor', '1')) !== '0'
+
+    // 1) recordatorio X DÍAS ANTES (a la hora configurada)
+    if (diasAntes > 0 && hhmm >= diasHora) {
+      const fobj = new Date(nowLima); fobj.setDate(fobj.getDate() + diasAntes)
+      const fdia = fobj.toLocaleDateString('en-CA')
+      const { data: vs } = await supabase.from('visits').select('*, project:projects(name)')
+        .eq('date', fdia).eq('status', 'programada').eq('tipo', 'visita').is('reminded_dia_at', null)
+      for (const v of (vs || [])) {
+        await supabase.from('visits').update({ reminded_dia_at: new Date().toISOString() }).eq('id', v.id)
+        await mandarRecordatorioVisita(v, fdia, recCliente, recAsesor, diasAntes === 1 ? 'mañana' : 'en ' + diasAntes + ' días')
+        log('RECORDATORIO visita (' + diasAntes + 'd antes):', v.client_name, fdia)
+      }
+    }
+
+    // 2) recordatorio X HORAS ANTES (mismo día, al entrar en la ventana)
+    if (horasAntes > 0) {
+      const { data: vs } = await supabase.from('visits').select('*, project:projects(name)')
+        .eq('date', hoy).eq('status', 'programada').eq('tipo', 'visita').is('reminded_hora_at', null)
+      for (const v of (vs || [])) {
+        const [vh, vm] = String(v.time).slice(0, 5).split(':').map(Number)
+        const visitDt = new Date(nowLima); visitDt.setHours(vh, vm, 0, 0)
+        const diffMin = (visitDt - nowLima) / 60000
+        if (diffMin > 0 && diffMin <= horasAntes * 60) {
+          await supabase.from('visits').update({ reminded_hora_at: new Date().toISOString() }).eq('id', v.id)
+          await mandarRecordatorioVisita(v, hoy, recCliente, recAsesor, 'hoy a las ' + String(v.time).slice(0, 5))
+          log('RECORDATORIO visita (' + horasAntes + 'h antes):', v.client_name, hoy)
+        }
+      }
+    }
+
+    // 3) RECONTACTOS del día: el bot le recuerda al asesor que debe llamar
+    if (hhmm >= diasHora) {
+      const { data: recs } = await supabase.from('visits').select('*, project:projects(name)')
+        .eq('date', hoy).eq('tipo', 'recontacto').eq('status', 'programada').is('reminded_dia_at', null)
+      for (const r of (recs || [])) {
+        await supabase.from('visits').update({ reminded_dia_at: new Date().toISOString() }).eq('id', r.id)
+        if (r.encargado_phone) await enviar(r.encargado_phone, '📞 *RECONTACTAR HOY* — ' + fmtFechaEs(hoy) + '\n\nCliente: *' + r.client_name + '* (+' + r.client_phone + ')\nProyecto: *' + (r.project?.name || '-') + '*' + (r.notes ? '\n📝 ' + r.notes : '') + '\n\nQuedaste en contactarlo hoy. 🙌', { tipo: 'secretaria', project_id: r.project_id || null })
+        log('RECONTACTO recordado al asesor:', r.client_name, hoy)
+      }
+    }
+
+    // 4) avisar al ADMIN de las visitas recién CERRADAS con resultado (desde el panel)
+    if (ADMIN) {
+      const RES_LBL = { pago_inicial: '💰 Pagó inicial', separacion: '🔖 Dio separación', interesado: '🤔 Interesado / lo pensará', no_interesado: '❌ No interesado', no_vino: '😶 No vino / sin respuesta', recontacto: '📅 Recontacto agendado' }
+      const { data: cerradas } = await supabase.from('visits').select('*, project:projects(name)')
+        .not('resultado', 'is', null).not('closed_at', 'is', null).is('admin_avisado_at', null).limit(20)
+      for (const v of (cerradas || [])) {
+        await supabase.from('visits').update({ admin_avisado_at: new Date().toISOString() }).eq('id', v.id)
+        await enviar(ADMIN, '📋 *VISITA CERRADA*\nCliente: *' + v.client_name + '*\nProyecto: ' + (v.project?.name || '-') + '\nAsesor: ' + (v.encargado_name || '-') + '\nResultado: *' + (RES_LBL[v.resultado] || v.resultado) + '*' + (v.resultado_note ? '\n📝 ' + v.resultado_note : '') + (v.recontacto_date ? '\n📅 Recontactar: ' + fmtFechaEs(v.recontacto_date) : ''), { tipo: 'reporte' })
+        log('ADMIN avisado de visita cerrada:', v.client_name, v.resultado)
+      }
+    }
+  } catch (e) { log('visitasTick:', String(e.message || e)) }
+  finally { _visBusy = false }
+}
+
 async function secretariaTick() {
   try {
     if (!(await flag('bot_activo'))) return
@@ -875,18 +958,7 @@ async function secretariaTick() {
       }
     }
 
-    // 3c) recordatorio de visitas de MAÑANA (al encargado y al cliente)
-    const man = new Date(new Date().toLocaleString('en-US', SEC_TZ)); man.setDate(man.getDate() + 1)
-    const fmanana = man.toLocaleDateString('en-CA')
-    const { data: visitas } = await supabase.from('visits').select('*, project:projects(name)').eq('date', fmanana).eq('status', 'programada').is('reminded_at', null)
-    for (const v of (visitas || [])) {
-      await supabase.from('visits').update({ reminded_at: new Date().toISOString() }).eq('id', v.id)
-      const hora = String(v.time).slice(0, 5)
-      const proy = v.project ? v.project.name : 'el proyecto'
-      const nomCli = (v.client_name || '').split(' ')[0]
-      if (v.encargado_phone) await enviar(v.encargado_phone, '📅 *VISITA MAÑANA* — ' + fmtFechaEs(fmanana) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente hoy. 🙌', { tipo: 'secretaria' })
-      if (v.client_phone) await enviar(v.client_phone, 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *mañana ' + fmtFechaEs(fmanana) + ' a las ' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌', { tipo: 'secretaria' })
-    }
+    // (los recordatorios de visita se movieron a visitasTick — motor propio, ya no dependen de secretarias)
 
     // 3d) separaciones: por vencer (<=2 dias) y vencidas (lote bloqueado) — un barrido al dia
     const hsep = await ajuste('hora_aviso_sep', '09:00')
@@ -1990,6 +2062,7 @@ async function arrancar() {
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
   cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
+  cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   log(`Agente iniciado (${rows.length} sesion(es)). Cobranza diaria a las ${hh}:${mm} (hora Lima).`)
 
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
