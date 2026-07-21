@@ -435,7 +435,7 @@ export default function Whatsapp() {
         ...(s.tipo === 'pregunta' && String(s.reask_min).trim() !== '' ? { reask_min: Math.max(0, parseInt(s.reask_min) || 0) } : {}),
         ...(s.tipo === 'pregunta' && (s.reask_unit === 'seg' || s.reask_unit === 'min') ? { reask_unit: s.reask_unit } : {}),
         ...(s.tipo === 'pregunta' && (s.reask_text || '').trim() ? { reask_text: (s.reask_text || '').trim() } : {}),
-        ...(s.tipo === 'pregunta' ? { sin_respuesta: ['mensaje', 'asesor'].includes(s.sin_respuesta) ? s.sin_respuesta : 'siguiente' } : {}),
+        ...(s.tipo === 'pregunta' ? { sin_respuesta: ['mensaje', 'asesor', 'siguiente', 'detener'].includes(s.sin_respuesta) ? s.sin_respuesta : 'detener' } : {}),
         ...(s.tipo === 'pregunta' && s.sin_respuesta === 'mensaje' && (s.sin_respuesta_texto || '').trim() ? { sin_respuesta_texto: (s.sin_respuesta_texto || '').trim() } : {}),
         opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
       })).filter(s => s.texto || (s.media && s.media.length) || (s.opciones && s.opciones.length)),
@@ -1203,13 +1203,14 @@ export default function Whatsapp() {
                           <option value="min">minutos</option>
                         </select>
                         →
-                        <select value={s.sin_respuesta || 'siguiente'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })} style={{ fontSize: 11 }}>
-                          <option value="siguiente">pasar al siguiente paso</option>
+                        <select value={s.sin_respuesta || 'detener'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })} style={{ fontSize: 11 }}>
+                          <option value="detener">🛑 DETENER — interviene el humano (avisa al asesor)</option>
+                          <option value="asesor">pasar al asesor (con mensaje al cliente)</option>
                           <option value="mensaje">enviar un mensaje y seguir</option>
-                          <option value="asesor">pasar al asesor</option>
+                          <option value="siguiente">pasar al siguiente paso</option>
                         </select>
                         {s.sin_respuesta === 'mensaje' && <input value={s.sin_respuesta_texto} placeholder="mensaje antes de seguir" onChange={e => flowSet(i, { sin_respuesta_texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
-                        <span className="muted" style={{ fontSize: 9 }}>vacío/0 = espera indefinida</span>
+                        <span className="muted" style={{ fontSize: 9 }}>vacío/0 = espera indefinida (nunca avanza)</span>
                       </div>
                     </div>
                   )}

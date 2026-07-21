@@ -1325,6 +1325,18 @@ async function pasarAsesor(ses, jid, phone, lead, motivo) {
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })   // avisos internos: por su propio chat/corporativa
 }
 
+// DETIENE el flujo cuando el cliente no responde: NO avanza, NO le escribe nada
+// al cliente, deja el chat para atención humana y avisa al asesor/admin.
+async function detenerFlujoHumano(ses, jid, phone, lead) {
+  await setConv(phone, { flow_state: 'humano' }, ses)   // el bot ya no responde en este chat
+  await supabase.from('leads').update({ status: 'contactado', temperature: 'tibio' }).eq('id', lead.id).then(() => {}, () => {})
+  const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
+  const msj = '⏳ *LEAD SIN RESPUESTA — requiere contacto HUMANO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\n\nEl cliente dejó de responder al bot. El flujo se detuvo aquí; contáctalo tú. 🙌'
+  const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
+  const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
+  for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
+}
+
 
 // ============ FLUJO CONFIGURABLE POR PROYECTO (projects.bot_flow) ============
 // steps[]: { id, tipo:'mensaje'|'pregunta', texto, media[], pasar_asesor,
@@ -2205,8 +2217,10 @@ async function avanzarFlujo() {
         const reMs = num * (unit === 'seg' ? 1000 : 60000)
         if (Date.now() - new Date(c.last_message_at).getTime() < reMs) continue   // aún no vence el tiempo
         const jid = c.wa_jid || jidDe(c.phone)
-        const acc = step.sin_respuesta || 'siguiente'
+        // acción cuando no responde: la del paso, o la global del flujo, o 'detener' (no seguir) por defecto
+        const acc = step.sin_respuesta || flow.sin_respuesta_global || 'detener'
         const correr = async () => {
+          if (acc === 'detener') { await detenerFlujoHumano(ses, jid, c.phone, lead); return }   // NO sigue: interviene el humano
           if (acc === 'asesor') { await pasarAsesor(ses, jid, c.phone, lead, 'sin_respuesta'); return }
           if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id, ses })
           await correrFlujo(ses, jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
