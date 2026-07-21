@@ -96,7 +96,7 @@ export default function Contracts() {
     if (!pidOp) return
     const [v, p] = await Promise.all([
       supabase.from('sales')
-        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
+        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
         .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
         .order('sale_date', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
@@ -161,6 +161,42 @@ export default function Contracts() {
     const { error } = await supabase.from('sales').update({ contract_note: nota.trim() || null }).eq('id', v.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
     setMsg({ ok: true, t: 'NOTA DEL CONTRATO GUARDADA' }); load()
+  }
+
+  // ---- documentos de respaldo (máx 2 por contrato): traspaso, iniciales, adenda… ----
+  const docsDe = v => Array.isArray(v.extra_docs) ? v.extra_docs : []
+  async function subirDocExtra(v, file) {
+    const docs = docsDe(v)
+    if (docs.length >= 2) { setMsg({ ok: false, t: 'MÁXIMO 2 documentos de respaldo por contrato.' }); return }
+    const nota = prompt('¿Qué documento es? (etiqueta corta)\n\nEj: TRASPASO · DOCUMENTO DE INICIALES · ADENDA · CARTA DE COMPROMISO', '')
+    if (nota === null) return
+    const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
+    const path = `contratos/respaldo/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+    const next = [...docs, { url, note: (nota.trim() || 'Documento de respaldo') }]
+    const { error: e2 } = await supabase.from('sales').update({ extra_docs: next }).eq('id', v.id)
+    if (e2) { setMsg({ ok: false, t: 'ERROR: ' + e2.message }); return }
+    setMsg({ ok: true, t: 'DOCUMENTO DE RESPALDO SUBIDO' }); load()
+  }
+  async function quitarDocExtra(v, idx) {
+    const docs = docsDe(v)
+    if (!confirm('¿Quitar "' + (docs[idx]?.note || 'este documento') + '"?\n\n(El archivo queda en el almacenamiento.)')) return
+    const next = docs.filter((_, i) => i !== idx)
+    const { error } = await supabase.from('sales').update({ extra_docs: next }).eq('id', v.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'DOCUMENTO QUITADO' }); load()
+  }
+  async function notaDocExtra(v, idx) {
+    const docs = [...docsDe(v)]
+    if (!docs[idx]) return
+    const nota = prompt('¿Qué documento es? (etiqueta corta)', docs[idx].note || '')
+    if (nota === null) return
+    docs[idx] = { ...docs[idx], note: (nota.trim() || 'Documento de respaldo') }
+    const { error } = await supabase.from('sales').update({ extra_docs: docs }).eq('id', v.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'ETIQUETA GUARDADA' }); load()
   }
 
   async function guardarPlantilla() {
@@ -236,6 +272,23 @@ export default function Contracts() {
                     : <label className="upload-btn bad">&#9888; subir firmado
                         <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(v, e.target.files[0])} />
                       </label>}
+                  {/* documentos de respaldo del contrato (traspaso, iniciales, adenda…): máx 2 */}
+                  <div style={{ marginTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 5 }}>
+                    {docsDe(v).map((d, i) => (
+                      <div key={i} className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', textTransform: 'none', marginBottom: 2 }}>
+                        <span>📎</span>
+                        <a href={d.url} target="_blank" rel="noreferrer" className="ok">{d.note || 'Respaldo'}</a>
+                        <button className="link-btn" title="Editar etiqueta" onClick={() => notaDocExtra(v, i)}>&#9998;</button>
+                        {role === 'superuser' && <button className="link-btn" title="Quitar" onClick={() => quitarDocExtra(v, i)}>&#128465;</button>}
+                      </div>
+                    ))}
+                    {docsDe(v).length < 2 && (
+                      <label className="link-btn" style={{ cursor: 'pointer' }} title="Traspaso, documento de iniciales, adenda, etc.">
+                        &#10133; documento de respaldo
+                        <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirDocExtra(v, e.target.files[0])} />
+                      </label>
+                    )}
+                  </div>
                 </td>
                 <td><button className="btn-ghost" onClick={() => setGen(v)}>Generar contrato</button></td>
               </tr>
