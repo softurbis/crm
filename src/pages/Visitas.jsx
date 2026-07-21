@@ -33,7 +33,7 @@ export default function Visitas() {
   const [vista, setVista] = useState('mes')   // 'mes' | 'semana'
   const [form, setForm] = useState(null)
   const [cerrar, setCerrar] = useState(null)  // visita que se está cerrando (modal de resultado)
-  const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true })
+  const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true, msgCliente: '', msgAsesor: '' })
   const [verCfg, setVerCfg] = useState(false)
   const [cfgMsg, setCfgMsg] = useState('')
   const hoy = hoyISO()
@@ -49,6 +49,8 @@ export default function Visitas() {
       horasAntes: parseInt(kv.vis_horas_antes ?? '3') || 0,
       recCliente: kv.vis_recordar_cliente !== '0',
       recAsesor: kv.vis_recordar_asesor !== '0',
+      msgCliente: kv.vis_msg_cliente || '',
+      msgAsesor: kv.vis_msg_asesor || '',
     })
   }
   const guardarCfg = async () => {
@@ -61,6 +63,8 @@ export default function Visitas() {
       { key: 'vis_horas_antes', value: String(Math.max(0, cfg.horasAntes | 0)), updated_at: now },
       { key: 'vis_recordar_cliente', value: cfg.recCliente ? '1' : '0', updated_at: now },
       { key: 'vis_recordar_asesor', value: cfg.recAsesor ? '1' : '0', updated_at: now },
+      { key: 'vis_msg_cliente', value: (cfg.msgCliente || '').trim(), updated_at: now },
+      { key: 'vis_msg_asesor', value: (cfg.msgAsesor || '').trim(), updated_at: now },
     ]
     const { error } = await supabase.from('bot_settings').upsert(rows)
     setCfgMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo aplica en máx. 1 minuto')
@@ -168,6 +172,11 @@ export default function Visitas() {
   const proxima = prog(visitas).filter(v => v.date >= hoy).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0]
   const porProy = {}; prog(visMes).forEach(v => { const k = v.project?.name || 'Sin proyecto'; porProy[k] = (porProy[k] || 0) + 1 })
   const porEnc = {}; prog(visMes).forEach(v => { const k = v.encargado_name || '—'; porEnc[k] = (porEnc[k] || 0) + 1 })
+  // visitas cuya hora YA pasó y siguen programadas → pendientes de cerrar con su resultado
+  const ahoraHHMM = new Date().toLocaleTimeString('en-GB', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit' })
+  const pendCerrar = visitas
+    .filter(v => v.status === 'programada' && (v.date < hoy || (v.date === hoy && String(v.time).slice(0, 5) <= ahoraHHMM)))
+    .sort((a, b) => (a.date + String(a.time)).localeCompare(b.date + String(b.time)))
 
   const Card = v => {
     const e = EST[v.status] || EST.programada
@@ -246,7 +255,25 @@ export default function Visitas() {
               <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.recAsesor} onChange={e => setCfg(c => ({ ...c, recAsesor: e.target.checked }))} /> al asesor</label>
             </span>
           </div>
-          <p className="muted" style={{ fontSize: 10, margin: '8px 0 0' }}>0 = ese recordatorio no se manda. Ej: 1 día antes + 3 horas antes = dos avisos por visita.</p>
+          <p className="muted" style={{ fontSize: 10, margin: '8px 0 4px' }}>0 = ese recordatorio no se manda. Ej: 1 día antes + 3 horas antes = dos avisos por visita.</p>
+
+          <div style={{ borderTop: '1px dashed rgba(255,255,255,.14)', marginTop: 10, paddingTop: 10 }}>
+            <b style={{ fontSize: 12 }}>✍️ MENSAJES (opcional — vacío = texto por defecto)</b>
+            <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Variables: <span style={{ fontFamily: 'monospace' }}>{'{cliente} {proyecto} {hora} {fecha} {punto} {notas} {cuando} {asesor}'}</span> — se reemplazan solas.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
+              <label style={{ fontSize: 12 }}>Mensaje al CLIENTE
+                <textarea value={cfg.msgCliente} onChange={e => setCfg(c => ({ ...c, msgCliente: e.target.value }))}
+                  placeholder="Ej: Hola {cliente} 👋 le recordamos su visita a {proyecto} el {fecha} a las {hora}. 📍 {punto}. ¡Lo esperamos!"
+                  style={{ width: '100%', minHeight: 80, textTransform: 'none', fontSize: 12.5, marginTop: 3 }} />
+              </label>
+              <label style={{ fontSize: 12 }}>Mensaje al ASESOR
+                <textarea value={cfg.msgAsesor} onChange={e => setCfg(c => ({ ...c, msgAsesor: e.target.value }))}
+                  placeholder="Ej: 📅 VISITA {cuando} — {fecha} {hora}. Cliente: {cliente_full}. Proyecto: {proyecto}. Punto: {punto}. Confirma con el cliente."
+                  style={{ width: '100%', minHeight: 80, textTransform: 'none', fontSize: 12.5, marginTop: 3 }} />
+              </label>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
             <button className="btn" onClick={guardarCfg}>💾 GUARDAR</button>
             {cfgMsg && <span style={{ fontSize: 12 }}>{cfgMsg}</span>}
@@ -277,6 +304,25 @@ export default function Visitas() {
         {Object.keys(porProy).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>🏗️ {Object.entries(porProy).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ').slice(-1)[0]}:{n}</span>)}</span>}
         {Object.keys(porEnc).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>👤 {Object.entries(porEnc).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ')[0]}:{n}</span>)}</span>}
       </div>
+
+      {/* VISITAS YA PASADAS SIN CERRAR — aquí están los botones de resultado */}
+      {pendCerrar.length > 0 && (
+        <div className="glass" style={{ padding: 12, marginBottom: 12, border: '1px solid rgba(224,179,76,.5)' }}>
+          <b style={{ color: '#e0b34c' }}>🏁 PENDIENTES DE CERRAR ({pendCerrar.length})</b>
+          <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Estas visitas ya pasaron y siguen abiertas. Ciérralas con su resultado (💰 pagó inicial, 🔖 separación, 🤔 interesado, 📅 recontactar…) para que quede registrado y el admin se entere.</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
+            {pendCerrar.map(v => (
+              <div key={v.id} className="glass" style={{ padding: '8px 10px', borderLeft: '3px solid #e0b34c' }}>
+                <b style={{ fontSize: 12 }}>{fmtCorta(v.date)} {String(v.time).slice(0, 5)} · {v.client_name}</b>
+                <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'} · 👤 {(v.encargado_name || '').split(' ')[0] || 'ENCARGADO'}</p>
+                {puedeCrear && (v.tipo === 'recontacto'
+                  ? <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => setEstado(v, 'realizada')}>✅ MARCAR HECHO</button>
+                  : <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => setCerrar(v)}>🏁 CERRAR CON RESULTADO</button>)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {form && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>

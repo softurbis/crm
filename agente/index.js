@@ -767,14 +767,20 @@ function secTpl(md, tag, vars, def) {
   return s
 }
 
-// manda el recordatorio de una visita al asesor y/o al cliente
-async function mandarRecordatorioVisita(v, fecha, recCliente, recAsesor, cuando) {
+// manda el recordatorio de una visita al asesor y/o al cliente.
+// tplCliente/tplAsesor: plantillas del panel (bot_settings). Vacío = texto por defecto.
+// Variables: {cliente} {cliente_full} {proyecto} {hora} {fecha} {punto} {notas} {cuando} {asesor}
+async function mandarRecordatorioVisita(v, fecha, recCliente, recAsesor, cuando, tplCliente, tplAsesor) {
   const hora = String(v.time).slice(0, 5)
   const proy = v.project ? v.project.name : 'el proyecto'
   const nomCli = (v.client_name || '').split(' ')[0]
+  const vars = { cliente: nomCli, cliente_full: v.client_name || '', proyecto: proy, hora, fecha: fmtFechaEs(fecha), punto: v.meeting_point || '', notas: v.notes || '', cuando, asesor: (v.encargado_name || '').split(' ')[0] }
+  const fill = t => String(t).replace(/\{(\w+)\}/g, (m, k) => vars[k] !== undefined ? vars[k] : m)
+  const defAsesor = '📅 *VISITA ' + cuando.toUpperCase() + '* — ' + fmtFechaEs(fecha) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente. 🙌'
+  const defCliente = 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *' + cuando + '* (' + fmtFechaEs(fecha) + ') a las *' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌'
   const meta = { tipo: 'secretaria', project_id: v.project_id || null }
-  if (recAsesor && v.encargado_phone) await enviar(v.encargado_phone, '📅 *VISITA ' + cuando.toUpperCase() + '* — ' + fmtFechaEs(fecha) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente. 🙌', meta)
-  if (recCliente && v.client_phone) await enviar(v.client_phone, 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *' + cuando + '* (' + fmtFechaEs(fecha) + ') a las *' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌', meta)
+  if (recAsesor && v.encargado_phone) await enviar(v.encargado_phone, (tplAsesor && tplAsesor.trim()) ? fill(tplAsesor) : defAsesor, meta)
+  if (recCliente && v.client_phone) await enviar(v.client_phone, (tplCliente && tplCliente.trim()) ? fill(tplCliente) : defCliente, meta)
 }
 
 // Motor PROPIO de recordatorios de visita (independiente de las secretarias).
@@ -794,6 +800,8 @@ async function visitasTick() {
     const horasAntes = Math.max(0, parseInt(await ajuste('vis_horas_antes', '3')) || 0)
     const recCliente = (await ajuste('vis_recordar_cliente', '1')) !== '0'
     const recAsesor = (await ajuste('vis_recordar_asesor', '1')) !== '0'
+    const tplCliente = await ajuste('vis_msg_cliente', '')
+    const tplAsesor = await ajuste('vis_msg_asesor', '')
 
     // 1) recordatorio X DÍAS ANTES (a la hora configurada)
     if (diasAntes > 0 && hhmm >= diasHora) {
@@ -803,7 +811,7 @@ async function visitasTick() {
         .eq('date', fdia).eq('status', 'programada').eq('tipo', 'visita').is('reminded_dia_at', null)
       for (const v of (vs || [])) {
         await supabase.from('visits').update({ reminded_dia_at: new Date().toISOString() }).eq('id', v.id)
-        await mandarRecordatorioVisita(v, fdia, recCliente, recAsesor, diasAntes === 1 ? 'mañana' : 'en ' + diasAntes + ' días')
+        await mandarRecordatorioVisita(v, fdia, recCliente, recAsesor, diasAntes === 1 ? 'mañana' : 'en ' + diasAntes + ' días', tplCliente, tplAsesor)
         log('RECORDATORIO visita (' + diasAntes + 'd antes):', v.client_name, fdia)
       }
     }
@@ -818,7 +826,7 @@ async function visitasTick() {
         const diffMin = (visitDt - nowLima) / 60000
         if (diffMin > 0 && diffMin <= horasAntes * 60) {
           await supabase.from('visits').update({ reminded_hora_at: new Date().toISOString() }).eq('id', v.id)
-          await mandarRecordatorioVisita(v, hoy, recCliente, recAsesor, 'hoy a las ' + String(v.time).slice(0, 5))
+          await mandarRecordatorioVisita(v, hoy, recCliente, recAsesor, 'hoy a las ' + String(v.time).slice(0, 5), tplCliente, tplAsesor)
           log('RECORDATORIO visita (' + horasAntes + 'h antes):', v.client_name, hoy)
         }
       }
