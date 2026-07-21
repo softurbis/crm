@@ -1394,6 +1394,15 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   let conv = await estadoConv(phone, ses)
   if (!conv) { await setConv(phone, { wa_jid: jid }, ses); conv = await estadoConv(phone, ses) }
   else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
+  // tráfico REAL de WhatsApp sobre una conversación que quedó marcada como PRUEBA
+  // (la marcó la consola de pruebas): promoverla a real, si no el auto-avance del
+  // flujo enviaría en modo simulacro y el lead nunca recibiría los mensajes.
+  if (!TEST_ACTIVE && conv?.is_test) {
+    await supabase.from('whatsapp_conversations').update({ is_test: false }).eq('id', conv.id).then(() => {}, () => {})
+    if (conv.lead_id) await supabase.from('leads').update({ is_test: false }).eq('id', conv.lead_id).then(() => {}, () => {})
+    conv.is_test = false
+    log('CONVERSACION real des-marcada de PRUEBA:', phone)
+  }
   await supabase.from('whatsapp_messages').insert({
     conversation_id: conv?.id || null, direction: 'in', body: corto || null, delivery_status: 'recibido',
     media_url: media?.url || null, media_type: media?.tipo || null, media_name: media?.name || null,
@@ -2121,6 +2130,7 @@ async function avanzarFlujo() {
           if (acc === 'mensaje' && (step.sin_respuesta_texto || '').trim()) await enviar(c.phone, step.sin_respuesta_texto.trim(), { tipo: 'lead_flujo', lead_id: c.lead_id, ses })
           await correrFlujo(ses, jid, c.phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)   // avanza al siguiente paso
         }
+        log('AVANZA FLUJO (sin respuesta en ' + num + unit + ') de', c.phone, '·', c.is_test ? '[PRUEBA: NO manda real]' : '[real]')
         if (c.is_test) { TEST_ACTIVE = c.phone; try { await correr() } finally { TEST_ACTIVE = null } }
         else await correr()
       } catch (e) { log('avanzar:', String(e.message || e)) }
