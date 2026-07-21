@@ -33,6 +33,8 @@ export default function Visitas() {
   const [vista, setVista] = useState('mes')   // 'mes' | 'semana'
   const [form, setForm] = useState(null)
   const [cerrar, setCerrar] = useState(null)  // visita que se está cerrando (modal de resultado)
+  const [feedbackTxt, setFeedbackTxt] = useState('')
+  const abrirCierre = v => { setFeedbackTxt(v.resultado_note || ''); setCerrar(v) }
   const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true, msgCliente: '', msgAsesor: '' })
   const [verCfg, setVerCfg] = useState(false)
   const [cfgMsg, setCfgMsg] = useState('')
@@ -113,8 +115,7 @@ export default function Visitas() {
   // CERRAR una visita con su resultado (el bot avisa al admin). recontacto = agenda otra entrada.
   const cerrarVisita = async (v, res) => {
     const meta = RESULTADOS.find(r => r.v === res)
-    const nota = prompt('📝 Nota / detalle del resultado (opcional):\n\n' + meta.t, v.resultado_note || '')
-    if (nota === null) return
+    const nota = feedbackTxt   // viene de la caja de feedback del modal
     let recontactoDate = null
     if (meta.pideFecha) {
       const def = addDias(hoy, 3)
@@ -136,6 +137,13 @@ export default function Visitas() {
       resultado: res, resultado_note: nota.trim() || null,
       recontacto_date: recontactoDate, closed_at: new Date().toISOString(), admin_avisado_at: null,
     }).eq('id', v.id)
+    if (error) { alert('ERROR: ' + error.message); return }
+    setCerrar(null); cargar()
+  }
+
+  // guardar SOLO el feedback (sin cambiar el resultado ni el estado)
+  const guardarFeedback = async (v, feedback) => {
+    const { error } = await supabase.from('visits').update({ resultado_note: (feedback || '').trim() || null }).eq('id', v.id)
     if (error) { alert('ERROR: ' + error.message); return }
     setCerrar(null); cargar()
   }
@@ -208,12 +216,13 @@ export default function Visitas() {
         </p>}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
           {v.status === 'programada' && <>
-            {puedeCrear && !esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)' }} onClick={() => setCerrar(v)}>🏁 CERRAR</button>}
+            {puedeCrear && !esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)' }} onClick={() => abrirCierre(v)}>🏁 CERRAR</button>}
             {puedeCrear && esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'realizada')}>✅ HECHO</button>}
             {puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Editar / reprogramar" onClick={() => setForm({ ...v, time: String(v.time).slice(0, 5) })}>✎</button>}
             {puedeCrear && !esRec && yaRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Reenviar recordatorio" onClick={() => reenviarRecordatorio(v)}>🔁</button>}
             <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'cancelada')}>🚫</button>
           </>}
+          {v.status !== 'programada' && puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Editar feedback de la visita" onClick={() => abrirCierre(v)}>📝 FEEDBACK</button>}
           {v.status !== 'programada' && puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)', color: '#7ba7f7' }} title="Reabrir: vuelve a programada y borra el resultado" onClick={() => reabrirVisita(v)}>🔓 REABRIR</button>}
           {esJefe && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => borrar(v)}>✕</button>}
         </div>
@@ -295,16 +304,23 @@ export default function Visitas() {
 
       {cerrar && (
         <div className="modal-bg" onClick={() => setCerrar(null)}>
-          <div className="glass" style={{ padding: 18, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
-            <b>🏁 CERRAR VISITA — {cerrar.client_name}</b>
-            <p className="muted" style={{ fontSize: 12, margin: '4px 0 12px' }}>¿Cómo resultó la visita? Se registra y el bot avisa al admin. En "recontactar" se agenda la llamada en el calendario.</p>
+          <div className="glass" style={{ padding: 18, maxWidth: 480, width: '92%' }} onClick={e => e.stopPropagation()}>
+            <b>🏁 {cerrar.status === 'programada' ? 'CERRAR VISITA' : 'VISITA'} — {cerrar.client_name}</b>
+            <p className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>Escribe el <b>feedback de la visita</b> y elige el resultado (el bot avisa al admin). O guarda solo el feedback.</p>
+            <textarea value={feedbackTxt} onChange={e => setFeedbackTxt(e.target.value)}
+              placeholder="📝 Feedback de la visita: qué pasó, cómo reaccionó el cliente, qué quedó pendiente, próximos pasos…"
+              style={{ width: '100%', minHeight: 110, textTransform: 'none', fontSize: 13, marginBottom: 10 }} />
+            <div style={{ fontSize: 11, color: '#e0b34c', fontWeight: 700, marginBottom: 5 }}>RESULTADO:</div>
             <div style={{ display: 'grid', gap: 6 }}>
               {RESULTADOS.map(r => (
                 <button key={r.v} className="btn-ghost" style={{ textAlign: 'left', borderColor: r.c + '77', color: r.c, padding: '8px 12px', fontSize: 13 }}
-                  onClick={() => cerrarVisita(cerrar, r.v)}>{r.t}</button>
+                  onClick={() => cerrarVisita(cerrar, r.v)}>{r.t}{cerrar.resultado === r.v ? '  ✓ (actual)' : ''}</button>
               ))}
             </div>
-            <div style={{ marginTop: 12 }}><button className="btn-ghost" onClick={() => setCerrar(null)}>CANCELAR</button></div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button className="btn-ghost" onClick={() => guardarFeedback(cerrar, feedbackTxt)}>💾 SOLO GUARDAR FEEDBACK</button>
+              <button className="btn-ghost" onClick={() => setCerrar(null)}>CANCELAR</button>
+            </div>
           </div>
         </div>
       )}
@@ -329,7 +345,7 @@ export default function Visitas() {
                 <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'} · 👤 {(v.encargado_name || '').split(' ')[0] || 'ENCARGADO'}</p>
                 {puedeCrear && (v.tipo === 'recontacto'
                   ? <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => setEstado(v, 'realizada')}>✅ MARCAR HECHO</button>
-                  : <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => setCerrar(v)}>🏁 CERRAR CON RESULTADO</button>)}
+                  : <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => abrirCierre(v)}>🏁 CERRAR CON RESULTADO</button>)}
               </div>
             ))}
           </div>
