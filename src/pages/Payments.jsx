@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -20,6 +20,47 @@ const EstadoChip = ({ r }) => {
   return <span className={'st-chip ' + cls}>{e}</span>
 }
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+
+const conceptoPago = p => p.income_type === 'cuota' && p.installment
+  ? `CUOTA N ${p.installment.installment_number}`
+  : (p.income_type || '-').toUpperCase()
+
+// Una cascada genera varias aplicaciones de un único depósito. La operación, la
+// fecha y la cuenta identifican ese depósito sin mezclar los pagos sin referencia.
+function agruparPagos(pagos) {
+  const grupos = new Map()
+  for (const pago of pagos) {
+    const op = String(pago.operation_number || '').trim().toUpperCase()
+    const key = !op || op === 'SIN-REF'
+      ? `fila:${pago.id}`
+      : `${pago.date || ''}|${op}|${pago.financial_account_id || ''}`
+    if (!grupos.has(key)) grupos.set(key, { key, items: [], referencia: pago })
+    grupos.get(key).items.push(pago)
+  }
+  return [...grupos.values()].map(g => {
+    const { items } = g
+    const cuotas = items.filter(p => p.income_type === 'cuota' && p.installment)
+      .map(p => p.installment.installment_number).sort((a, b) => a - b)
+    const conceptos = [...new Set(items.map(conceptoPago))]
+    const lotes = [...new Set(items.map(p => p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'))]
+    const clientes = [...new Set(items.map(p => p.client?.full_name || '-'))]
+    const voucher = items.find(p => p.voucher_url)
+    const comprobante = items.find(p => p.receipt_url)
+    return {
+      ...g,
+      total: items.reduce((s, p) => s + Number(p.amount || 0), 0),
+      concepto: cuotas.length === items.length
+        ? `CUOTA${cuotas.length > 1 ? 'S' : ''} N ${cuotas.join(' + ')}`
+        : conceptos.join(' + '),
+      lotes: lotes.join(' + '),
+      clientes: clientes.join(' + '),
+      voucherUrl: voucher?.voucher_url || null,
+      voucherFaltante: items.some(p => !p.voucher_url),
+      comprobanteUrl: comprobante?.receipt_url || null,
+      comprobanteFaltante: items.some(p => !p.receipt_url),
+    }
+  })
+}
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00')
@@ -88,6 +129,7 @@ export default function Payments() {
   const [comUrbis, setComUrbis] = useState('')
   const [secs, setSecs] = useState([])
   const [notifIds, setNotifIds] = useState([])
+  const [gruposAbiertos, setGruposAbiertos] = useState(new Set())
   const readOnly = role === 'manager'
 
   // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
@@ -499,7 +541,9 @@ export default function Payments() {
       return terms.every(w => heno.includes(w))
     })
   }, [pagos, fq, ftipo, fdoc, fest])   // fest FALTABA: por eso el filtro de estado no reaccionaba
-  const pag = usePaginacion(pagosFiltrados, 50)   // 50 por pagina, sin recargar
+  const gruposHistorial = useMemo(() => agruparPagos(pagosFiltrados), [pagosFiltrados])
+  const gruposTotales = useMemo(() => agruparPagos(pagos), [pagos])
+  const pag = usePaginacion(gruposHistorial, 50)   // 50 depósitos por pagina, sin recargar
 
   // opciones para los buscadores. El lote se puede escribir como "G7" o "G-7"
   // (sub incluye ambos), asi la secretaria teclea como le salga.
@@ -512,10 +556,19 @@ export default function Payments() {
   // en cuota/cuadre el cliente viene de la venta del lote: no se elige
   const clienteFijo = (tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
-  const sinVoucher = pagos.filter(p => !p.voucher_url).length
-  const sinComprobante = pagos.filter(p => !p.receipt_url).length
+  const sinVoucher = gruposTotales.filter(g => !g.voucherUrl).length
+  const sinComprobante = gruposTotales.filter(g => !g.comprobanteUrl).length
   const hayFiltro = !!fq || ftipo !== 'todos' || fdoc !== 'todos' || fest !== 'todos'
   const limpiarFiltros = () => { setFq(''); setFtipo('todos'); setFdoc('todos'); setFest('todos') }
+  const abrirPago = r => {
+    setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || '')
+    setAccEdit(r.financial_account_id || ''); setAmtEdit(r.amount)
+  }
+  const alternarGrupo = key => setGruposAbiertos(prev => {
+    const next = new Set(prev)
+    next.has(key) ? next.delete(key) : next.add(key)
+    return next
+  })
 
   return (
     <>
@@ -694,7 +747,7 @@ export default function Payments() {
       </form>}
 
       <h2 className="sub">
-        Historial ({pagosFiltrados.length} de {pagos.length} | {soles(totalFiltrado)})
+        Historial ({gruposHistorial.length} pagos / {pagosFiltrados.length} aplicaciones de {pagos.length} | {soles(totalFiltrado)})
         {!readOnly && sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
         {!readOnly && sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
       </h2>
@@ -725,36 +778,55 @@ export default function Payments() {
         <table>
           <thead><tr><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Estado</th><th>Monto</th><th>Voucher</th><th>Comprobante</th><th>Cliente</th><th>N Op.</th><th>Banco</th></tr></thead>
           <tbody>
-            {pag.pagina.map(r => (
-              <tr key={r.id} className={'row-' + estadoDe(r).toLowerCase()}>
-                <td>{r.date}</td>
-                <td>{r.lot ? `${r.lot.mz}-${r.lot.lt}` : '-'}</td>
-                <td><button className="link-btn" title="Ver documentos" onClick={() => { setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || ''); setAccEdit(r.financial_account_id || ''); setAmtEdit(r.amount) }}>{r.income_type === 'cuota' && r.installment ? `CUOTA N ${r.installment.installment_number}` : r.income_type}</button></td>
-                <td><EstadoChip r={r} /></td>
-                <td>{soles(r.amount)}</td>
-                <td>
-                  {r.voucher_url
-                    ? <a href={r.voucher_url} target="_blank" rel="noreferrer">VER</a>
-                    : readOnly ? <span className="muted">-</span>
+            {pag.pagina.map(g => {
+              const expandible = g.items.length > 1
+              const abierto = gruposAbiertos.has(g.key)
+              const r = g.referencia
+              return (
+                <Fragment key={g.key}>
+                  <tr key={g.key} className={'row-' + estadoDe(r).toLowerCase()}>
+                    <td>{r.date}</td>
+                    <td>{g.lotes}</td>
+                    <td><button className="link-btn" title={expandible ? 'Ver cómo se distribuyó el pago' : 'Ver documentos'} onClick={() => expandible ? alternarGrupo(g.key) : abrirPago(r)}>
+                      {expandible && (abierto ? '▾ ' : '▸ ')}{g.concepto}
+                    </button></td>
+                    <td><EstadoChip r={r} /></td>
+                    <td><b>{soles(g.total)}</b>{expandible && <span className="muted small"> ({g.items.length} cuotas)</span>}</td>
+                    <td>
+                      {g.voucherUrl
+                        ? <><a href={g.voucherUrl} target="_blank" rel="noreferrer">VER</a>{g.voucherFaltante && <span className="warn small"> + falta</span>}</>
+                        : readOnly ? <span className="muted">-</span>
                     : <label className="upload-btn warn">subir
                         <input type="file" accept="image/*,.pdf" hidden
                           onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'voucher_url')} />
                       </label>}
-                </td>
-                <td>
-                  {r.receipt_url
-                    ? <a href={r.receipt_url} target="_blank" rel="noreferrer">VER</a>
-                    : readOnly ? <span className="muted">-</span>
+                    </td>
+                    <td>
+                      {g.comprobanteUrl
+                        ? <><a href={g.comprobanteUrl} target="_blank" rel="noreferrer">VER</a>{g.comprobanteFaltante && <span className="warn small"> + falta</span>}</>
+                        : readOnly ? <span className="muted">-</span>
                     : <label className="upload-btn bad">&#9888; falta
                         <input type="file" accept="image/*,.pdf" hidden
                           onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'receipt_url')} />
                       </label>}
-                </td>
-                <td>{r.client?.full_name || '-'}</td>
-                <td>{r.operation_number}</td>
-                <td>{r.account?.name || '-'}</td>
-              </tr>
-            ))}
+                    </td>
+                    <td>{g.clientes}</td>
+                    <td>{r.operation_number}</td>
+                    <td>{r.account?.name || '-'}</td>
+                  </tr>
+                  {abierto && g.items.map(p => (
+                    <tr key={p.id} style={{ background: 'rgba(255,255,255,.025)' }}>
+                      <td></td>
+                      <td>{p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'}</td>
+                      <td><button className="link-btn muted" title="Ver detalle de esta aplicación" onClick={() => abrirPago(p)}>↳ {conceptoPago(p)}</button></td>
+                      <td><span className="muted small">aplicación</span></td>
+                      <td>{soles(p.amount)}</td>
+                      <td colSpan="5" className="muted small">Parte del pago S/ {soles(g.total)} · operación {r.operation_number}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>

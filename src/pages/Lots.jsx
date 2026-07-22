@@ -21,6 +21,34 @@ async function upload(path, file) {
   return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
 }
 
+// La cascada guarda una aplicación por cuota, pero para auditar contra el
+// voucher se debe ver un único pago con el total y su distribución interna.
+function agruparPagosPorVoucher(pagos, cuotas) {
+  const grupos = new Map()
+  for (const pago of pagos) {
+    const op = String(pago.operation_number || '').trim().toUpperCase()
+    const key = !op || op === 'SIN-REF' ? `fila:${pago.id}` : `${pago.date || ''}|${op}`
+    if (!grupos.has(key)) grupos.set(key, { key, items: [], referencia: pago })
+    grupos.get(key).items.push(pago)
+  }
+  return [...grupos.values()].map(g => {
+    const tipo = [...new Set(g.items.map(p => (p.income_type || '-').toUpperCase()))]
+    const distribucion = g.items.map(p => {
+      const cuota = cuotas.find(q => q.id === p.installment_id)?.installment_number
+      if (cuota) return `N° ${cuota}: S/ ${Number(p.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}`
+      return null
+    }).filter(Boolean).join(' · ')
+    const obs = [...new Set(g.items.map(p => p.observation).filter(Boolean))].join(' | ')
+    const voucher = g.items.find(p => p.voucher_url)
+    return {
+      ...g,
+      tipo: tipo.length === 1 && tipo[0] === 'CUOTA' && g.items.length > 1 ? 'CUOTAS' : tipo.join(' + '),
+      total: g.items.reduce((s, p) => s + Number(p.amount || 0), 0),
+      distribucion: distribucion || '-', voucherUrl: voucher?.voucher_url || null, observacion: obs || '-',
+    }
+  })
+}
+
 export default function Lots() {
   const { role, profile } = useAuth()
   const { pidOp } = useProject()
@@ -286,7 +314,7 @@ export default function Lots() {
   async function cargarDesglose(abrir = false) {
     if (!detail?.sale) return
     const { data } = await supabase.from('daily_income')
-      .select('date, amount, income_type, operation_number, voucher_url, observation, installment_id')
+      .select('id, date, amount, income_type, operation_number, voucher_url, observation, installment_id')
       .eq('sale_id', detail.sale.id).order('date')
     const numDe = id => detail.inst.find(q => q.id === id)?.installment_number ?? 999
     const ordenado = (data || []).slice().sort((a, b) =>
@@ -1175,30 +1203,36 @@ export default function Lots() {
                 })}
               </tbody>
             </table>
-            <h4 style={{ margin: '14px 0 4px' }}>PAGOS REGISTRADOS ({(pagosDesg || []).length})</h4>
-            {!pagosDesg?.length && <p className="muted">Sin pagos registrados para esta venta.</p>}
-            {!!pagosDesg?.length && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
-                <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>CUOTA</th><th>MONTO</th><th>OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
-                <tbody>
-                  {pagosDesg.map((p2, i) => (
-                    <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
-                      <td>{p2.date?.split('-').reverse().join('/')}</td>
-                      <td>{(p2.income_type || '').toUpperCase()}</td>
-                      <td>{p2.installment_id ? ('N° ' + (detail.inst.find(q => q.id === p2.installment_id)?.installment_number ?? '?')) : '-'}</td>
-                      <td>S/ {Number(p2.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
-                      <td style={{ textTransform: 'none' }}>{p2.operation_number}</td>
-                      <td>{p2.voucher_url ? <a href={p2.voucher_url} target="_blank" rel="noreferrer">ver</a> : <span className="bad">falta</span>}</td>
-                      <td style={{ maxWidth: 170, textTransform: 'none' }}>{p2.observation || '-'}</td>
-                    </tr>
-                  ))}
-                  <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
-                    <td colSpan="3">TOTAL PAGOS</td>
-                    <td colSpan="4">S/ {pagosDesg.reduce((x, y) => x + Number(y.amount), 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
+            {(() => {
+              const vouchers = agruparPagosPorVoucher(pagosDesg || [], detail.inst)
+              return <>
+                <h4 style={{ margin: '14px 0 4px' }}>PAGOS SEGÚN VOUCHER ({vouchers.length} pagos | {(pagosDesg || []).length} aplicaciones)</h4>
+                <p className="muted small" style={{ margin: '0 0 5px' }}>Aquí el monto es exactamente el del voucher. El cronograma de arriba muestra cómo la cascada lo aplicó a cada cuota.</p>
+                {!pagosDesg?.length && <p className="muted">Sin pagos registrados para esta venta.</p>}
+                {!!pagosDesg?.length && (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
+                    <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>APLICADO A CUOTAS</th><th>MONTO DEL VOUCHER</th><th>N° PAGO / OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
+                    <tbody>
+                      {vouchers.map(p2 => (
+                        <tr key={p2.key} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                          <td>{p2.referencia.date?.split('-').reverse().join('/')}</td>
+                          <td>{p2.tipo}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{p2.distribucion}</td>
+                          <td><b>S/ {Number(p2.total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b></td>
+                          <td style={{ textTransform: 'none' }}>{p2.referencia.operation_number}</td>
+                          <td>{p2.voucherUrl ? <a href={p2.voucherUrl} target="_blank" rel="noreferrer">ver</a> : <span className="bad">falta</span>}</td>
+                          <td style={{ maxWidth: 170, textTransform: 'none' }}>{p2.observacion}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
+                        <td colSpan="3">TOTAL VOUCHERS</td>
+                        <td colSpan="4">S/ {pagosDesg.reduce((x, y) => x + Number(y.amount), 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </>
+            })()}
           </div>
         </div>
       )}
