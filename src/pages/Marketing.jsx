@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -8,7 +9,15 @@ export default function Marketing() {
   const { role } = useAuth()
   const esSuper = role === 'superuser'
   const puedeMotor = role === 'superuser' || role === 'admin'   // ven el estado del motor (RLS lo permite)
-  const [tab, setTab] = useState('chat')          // 'chat' | 'config' | 'motor'
+  const [sp] = useSearchParams()
+  const tParam = sp.get('t')                       // desde el menú lateral: chat | produccion | config
+  const [tab, setTab] = useState(tParam === 'produccion' ? 'motor' : tParam === 'config' ? 'config' : 'chat')  // 'chat' | 'config' | 'motor'
+  // si el menú cambia ?t= estando ya en la página, sincroniza la pestaña
+  useEffect(() => {
+    if (tParam === 'produccion') setTab('motor')
+    else if (tParam === 'config') setTab('config')
+    else if (tParam === 'chat') setTab('chat')
+  }, [tParam])
 
   // ---- estado del chat ----
   const [proyectos, setProyectos] = useState([])
