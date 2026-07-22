@@ -50,7 +50,13 @@ export default function Marketing() {
     return () => { stop = true; clearInterval(t) }
   }, [convId])
 
-  useEffect(() => { finRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, pensando])
+  // Solo baja el scroll cuando LLEGA un mensaje nuevo (no en cada refresco del
+  // polling): así puedes subir a leer sin que la vista se mueva sola.
+  const prevNumMsgs = useRef(0)
+  useEffect(() => {
+    if (msgs.length > prevNumMsgs.current) finRef.current?.scrollIntoView({ behavior: 'smooth' })
+    prevNumMsgs.current = msgs.length
+  }, [msgs])
 
   const proyNombre = proyectos.find(p => p.sigla === sigla)?.nombre
 
@@ -100,18 +106,6 @@ export default function Marketing() {
 
       {tab === 'chat' && (
         <div className="glass" style={{ padding: 14, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
-          {/* nota de estado / pendientes del panel */}
-          <details style={{ marginBottom: 10, fontSize: 12.5, background: 'rgba(232,193,90,.08)', border: '1px solid rgba(232,193,90,.35)', borderRadius: 8, padding: '8px 12px' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#e8c15a' }}>ℹ️ Estado y pendientes de este panel</summary>
-            <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
-              <li><b>El chat responde solo cuando el “motor” (worker) esté conectado en el servidor.</b> Si escribes y no contesta, es que aún falta prenderlo en el droplet.</li>
-              <li>La pestaña <b>Configuración</b> ya funciona: se llena sola la primera vez que el worker arranca (sube tus instrucciones y fichas actuales). También puedes editarla a mano.</li>
-              <li><b>Fase 1 (actual):</b> chat de texto + parrilla + prompt para GPT.</li>
-              <li><b>Fase 2 (pendiente):</b> descargar la parrilla en Excel y el documento por semana en Word.</li>
-              <li><b>Fase 3 (pendiente):</b> generar las imágenes con IA (gpt-image-1), con confirmación de costo.</li>
-              <li><b>Candado anti-cruce:</b> elige el proyecto arriba antes de pedir nada; el agente queda bloqueado a ese proyecto.</li>
-            </ul>
-          </details>
           {/* selector de proyecto (candado) */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
             <span style={{ fontSize: 13 }}>🔒 Proyecto activo:</span>
@@ -436,6 +430,56 @@ function Estado({ v }) {
 const _th = { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.14)', color: '#9aa0a6', fontWeight: 700, whiteSpace: 'nowrap', fontSize: 11, textTransform: 'uppercase', letterSpacing: .3 }
 const _td = { padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.06)', verticalAlign: 'top', fontSize: 12.5 }
 
+// --- Flujo de producción: cada pieza avanza Brief → Imagen → Canva → Final ---
+const _txtEstado = (s) => {
+  const t = { succeeded: 'listo', queued: 'en cola', leased: 'trabajando', awaiting_approval: 'por aprobar', retry_wait: 'reintento', failed: 'falló', cancelled: 'cancelado', reconcile_required: 'revisar' }
+  return t[s] || s || 'pendiente'
+}
+function PasoChip({ label, status }) {
+  const c = status ? _colorEstado(status) : '#6b7280'
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, color: c, background: c + '22', border: `1px solid ${c}55`, whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 10, color: c }}>{_txtEstado(status)}</span>
+    </span>
+  )
+}
+const ETAPAS_PIEZA = [
+  { t: '📝 Brief', match: o => o.kind === 'CREATE_BRIEF' },
+  { t: '🖼️ Imagen', match: o => o.kind === 'RENDER_STANDARD' || o.kind === 'RENDER_CREATIVE' },
+  { t: '🎨 Canva', match: o => o.kind === 'EXPORT_CANVA' },
+  { t: '✅ Final', match: o => o.kind === 'FINALIZE' },
+]
+function FlujoCampana({ ops, pieces }) {
+  const grid = ops.find(o => o.kind === 'CREATE_GRID')
+  const flecha = <span style={{ color: '#6b7280', alignSelf: 'center', margin: '0 2px' }}>→</span>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {grid && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, minWidth: 52 }}>Campaña</span>
+          <PasoChip label="🗓️ Parrilla" status={grid.status} />
+        </div>
+      )}
+      {pieces.map(p => {
+        const opsP = ops.filter(o => o.piece_id === p.piece_id)
+        return (
+          <div key={p.piece_id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 52, paddingTop: 5 }}>{p.piece_id}</span>
+            {ETAPAS_PIEZA.map((e, i) => (
+              <span key={e.t} style={{ display: 'inline-flex', gap: 6 }}>
+                {i > 0 && flecha}
+                <PasoChip label={e.t} status={opsP.find(e.match)?.status} />
+              </span>
+            ))}
+          </div>
+        )
+      })}
+      {!pieces.length && <span className="muted" style={{ fontSize: 12 }}>Aún no hay piezas en esta campaña.</span>}
+    </div>
+  )
+}
+
 function ProduccionMotor() {
   const [camps, setCamps] = useState([])
   const [campId, setCampId] = useState('')
@@ -484,13 +528,10 @@ function ProduccionMotor() {
 
   return (
     <div className="glass" style={{ padding: 14 }}>
-      <details style={{ marginBottom: 12, fontSize: 12.5, background: 'rgba(90,159,224,.08)', border: '1px solid rgba(90,159,224,.35)', borderRadius: 8, padding: '8px 12px' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#5a9fe0' }}>ℹ️ Qué es esta vista</summary>
-        <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-          Ventana de <b>solo lectura</b> al motor de producción: campañas, piezas, la cola de operaciones y el historial de aprobaciones/eventos.
-          La autoridad sigue en el motor; aquí ves el <b>espejo</b> en Supabase. Para refrescar tras un cambio del motor, se vuelve a sincronizar y se recarga aquí.
-        </p>
-      </details>
+      <p className="muted" style={{ fontSize: 12.5, margin: '0 0 12px', lineHeight: 1.6 }}>
+        El proceso de cada campaña va en orden: <b>🗓️ Parrilla → 📝 Brief → 🖼️ Imagen → 🎨 Canva → ✅ Final aprobado</b>.
+        Aquí ves cada campaña, sus piezas, en qué paso va cada una y sus diseños.
+      </p>
 
       {/* selector de campaña */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
@@ -522,6 +563,10 @@ function ProduccionMotor() {
             <span><b>Sellada:</b> {camp.sealed ? 'sí' : 'no'}</span>
             <span><b>Creada:</b> {_fmtFecha(camp.created_at)}</span>
           </div>
+
+          {/* FLUJO DE PRODUCCIÓN (el orden del proceso, pieza por pieza) */}
+          <h3 style={{ margin: '14px 0 8px', fontSize: 14 }}>🔄 Flujo de producción</h3>
+          <FlujoCampana ops={ops} pieces={pieces} />
 
           {/* GALERÍA DE DISEÑOS */}
           {imgs && imgs.length > 0 && (() => {
