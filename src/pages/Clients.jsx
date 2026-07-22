@@ -38,11 +38,12 @@ export default function Clients() {
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
   const [fproj, setFproj] = useState('todos') // filtro por proyecto
+  const [deletingId, setDeletingId] = useState(null)
 
   async function load() {
     const [{ data, error }, prj] = await Promise.all([
       supabase.from('clients')
-        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), separations(id, status, lot:lots(mz, lt, project_id))')
+        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), co_sales:sales!sales_co_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), separations(id, status, lot:lots(mz, lt, project_id))')
         .order('full_name'),
       supabase.from('projects').select('id, name').order('created_at'),
     ])
@@ -52,9 +53,12 @@ export default function Clients() {
   }
 
   // proyectos a los que esta vinculado un cliente (ventas + separaciones vigentes)
+  function ventasDe(c) {
+    return [...(c.sales || []), ...(c.co_sales || [])]
+  }
   function proysDe(c) {
     const ids = new Set()
-    for (const s of (c.sales || [])) if (s.lot?.project_id) ids.add(s.lot.project_id)
+    for (const s of ventasDe(c)) if (s.lot?.project_id) ids.add(s.lot.project_id)
     for (const sp of (c.separations || [])) if (sp.status === 'vigente' && sp.lot?.project_id) ids.add(sp.lot.project_id)
     return [...ids]
   }
@@ -62,12 +66,40 @@ export default function Clients() {
   // lotes del cliente agrupados por proyecto: { project_id: ['G-7', 'H-3 (exp)'] }
   function lotesDe(c) {
     const m = {}
-    for (const s of (c.sales || [])) {
+    for (const s of ventasDe(c)) {
       const pid = s.lot?.project_id
       if (!pid || !s.lot?.mz) continue
       ;(m[pid] = m[pid] || []).push(`${s.lot.mz}-${s.lot.lt}` + (s.status === 'expropiado' ? ' ⚠' : ''))
     }
     return m
+  }
+
+  // No se borra un cliente que forme parte de una venta o separación, aunque el
+  // lote hoy figure como expropiado: ese vínculo es necesario para el historial.
+  function puedeEliminarCliente(c) {
+    return !ventasDe(c).length && !(c.separations || []).length
+  }
+
+  async function borrarCliente(c) {
+    if (role !== 'superuser') return
+    if (!puedeEliminarCliente(c)) {
+      setMsg({ ok: false, t: 'NO SE PUEDE ELIMINAR: el cliente tiene ventas, separaciones o historial asociado.' })
+      return
+    }
+    if (!confirm(`¿Eliminar definitivamente a ${c.full_name}? Esta acción no se puede deshacer.`)) return
+    setDeletingId(c.id)
+    setMsg(null)
+    try {
+      const { error } = await supabase.from('clients').delete().eq('id', c.id)
+      if (error) throw error
+      setMsg({ ok: true, t: `${c.full_name} fue eliminado.` })
+      if (sel?.id === c.id) setSel(null)
+      await load()
+    } catch (err) {
+      setMsg({ ok: false, t: 'NO SE PUDO ELIMINAR: este cliente tiene registros relacionados que deben conservarse como historial.' })
+    } finally {
+      setDeletingId(null)
+    }
   }
   useEffect(() => { load() }, [])
 
@@ -209,7 +241,7 @@ export default function Clients() {
               <tr key={c.id}>
                 <td>{c.doc_type === 'PEND' ? <span className="bad">&#9888; {c.doc_number}</span> : c.doc_number}</td>
                 <td>{c.full_name}
-                  {(c.sales || []).some(s => s.status === 'expropiado') &&
+                  {ventasDe(c).some(s => s.status === 'expropiado') &&
                     <span className="bad" style={{ marginLeft: 6, fontSize: '.66rem', fontWeight: 700 }}>&#9888; EXPROPIADO</span>}
                 </td>
                 <td>{c.phone_valid ? c.phone : <span className="bad">{c.phone || 'sin celular'}</span>}</td>
@@ -240,6 +272,16 @@ export default function Clients() {
                     <button className="btn-act" onClick={() => abrir(c)}>{readOnly ? '👁️ Ver' : '✏️ Editar'}</button>
                     {(c.sales?.length || 0) > 0 &&
                       <button className="btn-act alt" onClick={() => setCta(c)}>📄 Estado de cuenta</button>}
+                    {role === 'superuser' && (
+                      <button className="btn-act alt" onClick={() => borrarCliente(c)}
+                        disabled={!puedeEliminarCliente(c) || deletingId === c.id}
+                        title={puedeEliminarCliente(c)
+                          ? 'Eliminar cliente sin ventas ni separaciones'
+                          : 'No se elimina porque conserva ventas, separaciones o historial'}
+                        style={!puedeEliminarCliente(c) ? { opacity: .45, cursor: 'not-allowed' } : { color: '#ff8e7a' }}>
+                        {deletingId === c.id ? 'Eliminando...' : '🗑 Borrar'}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

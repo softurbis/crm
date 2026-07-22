@@ -29,6 +29,7 @@ export default function Lots() {
   const [coSel, setCoSel] = useState('')
   const [vencidos, setVencidos] = useState(new Set())
   const [expropiados, setExpropiados] = useState(new Map())
+  const [contactosLote, setContactosLote] = useState(new Map())
   const [searchParams] = useSearchParams()
   const [filter, setFilter] = useState('todos')
   // si venimos del dashboard con ?estado=... aplica ese filtro al abrir
@@ -89,7 +90,41 @@ export default function Lots() {
     // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
       .then(({ data }) => { const m = new Map(); for (const r of (data || [])) m.set(r.lot_id, (m.get(r.lot_id) || 0) + 1); setExpropiados(m) })
+
+    // Datos breves para el mapa: se cargan en bloque, no al pasar por cada lote.
+    // La prioridad es venta activa/pagada, luego separación vigente y finalmente
+    // la última expropiación para que el historial sea visible sin abrir la ficha.
+    Promise.all([
+      supabase.from('sales')
+        .select('lot_id, status, sale_date, client:clients!sales_client_id_fkey(full_name, phone, doc_number), lot:lots!inner(project_id)')
+        .eq('lot.project_id', pidOp)
+        .in('status', ['en_proceso', 'pagado', 'expropiado'])
+        .order('sale_date', { ascending: false }),
+      supabase.from('separations')
+        .select('lot_id, client:clients(full_name, phone, doc_number), lot:lots!inner(project_id)')
+        .eq('lot.project_id', pidOp)
+        .eq('status', 'vigente'),
+    ]).then(([ventas, separaciones]) => {
+      const m = new Map()
+      for (const v of (ventas.data || [])) {
+        if (!v.client || m.has(v.lot_id)) continue
+        m.set(v.lot_id, { ...v.client, tipo: v.status === 'expropiado' ? 'Historial expropiado' : 'Titular' })
+      }
+      for (const s of (separaciones.data || [])) {
+        if (!s.client || m.has(s.lot_id)) continue
+        m.set(s.lot_id, { ...s.client, tipo: 'Separación vigente' })
+      }
+      setContactosLote(m)
+    })
   }, [pidOp])
+
+  function tituloLote(l) {
+    const contacto = contactosLote.get(l.id)
+    const base = `Mz ${l.mz} Lt ${l.lt} — ${LBL[l.status]} — ${l.area_m2} m²`
+    const alerta = vencidos.has(l.id) ? ' — CON CUOTAS VENCIDAS' : ''
+    if (!contacto) return base + alerta
+    return `${base}${alerta}\n${contacto.tipo}: ${contacto.full_name}\nCelular: ${contacto.phone || 'sin celular'}\nDocumento: ${contacto.doc_number || 'sin documento'}`
+  }
 
   // otras ventas ACTIVAS del mismo cliente = posibles destinos al consolidar
   useEffect(() => {
@@ -687,7 +722,7 @@ export default function Lots() {
                     {fila.map(l => (
                       <button key={l.id} className={`parcela ${vencidos.has(l.id) ? 'venc' : ''}`}
                         style={{ '--st': COLORS[l.status] }}
-                        title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]} - ${l.area_m2} m2${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
+                        title={tituloLote(l)}
                         onClick={() => abrirLote(l)}>
                         <b>{l.lt}</b>
                         <small>{Math.round(l.area_m2)} m²</small>
@@ -707,7 +742,7 @@ export default function Lots() {
               {arr.map(l => (
                 <button key={l.id} className={`lot-cell ${vencidos.has(l.id) ? 'venc' : ''}`}
                   style={{ background: COLORS[l.status] }}
-                  title={`Mz ${l.mz} Lt ${l.lt} - ${LBL[l.status]}${vencidos.has(l.id) ? ' - CON CUOTAS VENCIDAS' : ''}`}
+                  title={tituloLote(l)}
                   onClick={() => abrirLote(l)}>
                   {l.lt}
                 </button>
