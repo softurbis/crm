@@ -142,6 +142,12 @@ export default function Marketing() {
                   }}>
                     {!mine && <div style={{ fontSize: 10, fontWeight: 700, opacity: .6, marginBottom: 4, textTransform: 'uppercase' }}>{info ? (m.meta?.tipo === 'prompt' ? '🖼️ Prompt de imagen' : 'Sistema') : 'Agente'}</div>}
                     {m.content}
+                    {m.meta?.url && (
+                      <div style={{ marginTop: 8 }}>
+                        <a className="btn" style={{ fontSize: 12.5, textDecoration: 'none', padding: '7px 14px', display: 'inline-block' }}
+                          href={m.meta.url} target="_blank" rel="noreferrer">⬇️ Descargar {m.meta.nombre || 'archivo'}</a>
+                      </div>
+                    )}
                     {m.meta?.aviso_cruce && <div style={{ marginTop: 6, fontSize: 12, color: '#f0a0a0' }}>⚠️ {m.meta.aviso_cruce}</div>}
                   </div>
                   {!mine && (
@@ -485,8 +491,17 @@ function ProduccionMotor() {
   const [campId, setCampId] = useState('')
   const [datos, setDatos] = useState({ pieces: [], ops: [], apps: [], evs: [], imgs: [] })
   const [verImg, setVerImg] = useState(null)
+  const [archivos, setArchivos] = useState([])
   const [cargando, setCargando] = useState(false)
   const [err, setErr] = useState('')
+
+  // Archivos generados por el agente (parrillas Excel, briefs Word...) subidos por el worker
+  const cargarArchivos = () => {
+    supabase.from('mkt_piezas').select('*').not('storage_url', 'is', null)
+      .order('created_at', { ascending: false }).limit(30)
+      .then(({ data }) => setArchivos(data || []))
+  }
+  useEffect(() => { cargarArchivos() }, [])
 
   const cargarCamps = () => {
     setErr('')
@@ -524,7 +539,7 @@ function ProduccionMotor() {
 
   const camp = camps.find(c => c.campaign_id === campId)
   const { pieces, ops, apps, evs, imgs } = datos
-  const refrescar = () => { cargarCamps(); cargarCamp(campId) }
+  const refrescar = () => { cargarCamps(); cargarCamp(campId); cargarArchivos() }
 
   return (
     <div className="glass" style={{ padding: 14 }}>
@@ -686,6 +701,34 @@ function ProduccionMotor() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ARCHIVOS GENERADOS (parrillas Excel, briefs Word, PDF) */}
+      <h3 style={{ margin: '20px 0 6px', fontSize: 14 }}>📁 Archivos generados ({archivos.length})</h3>
+      {!archivos.length ? (
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          Aún no hay archivos subidos. Cuando el agente exporte una parrilla (Excel) o briefs (Word), aparecen aquí y en el chat con su botón de descarga.
+        </p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th style={_th}>Fecha</th><th style={_th}>Proyecto</th><th style={_th}>Tipo</th><th style={_th}>Archivo</th><th style={_th}></th></tr></thead>
+            <tbody>
+              {archivos.map(a => (
+                <tr key={a.id}>
+                  <td style={{ ..._td, whiteSpace: 'nowrap' }}>{a.created_at ? new Date(a.created_at).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                  <td style={_td}>{a.sigla || '—'}</td>
+                  <td style={_td}>{a.tipo === 'excel' ? '📊 Excel' : a.tipo === 'word' ? '📄 Word' : a.tipo === 'pdf' ? '📕 PDF' : a.tipo}</td>
+                  <td style={_td}>{a.titulo}</td>
+                  <td style={_td}>
+                    <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}
+                      href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {verImg && (
