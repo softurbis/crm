@@ -193,6 +193,33 @@ const _lbl = { display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 2 
 function Ayuda({ children }) {
   return <p className="muted" style={{ fontSize: 11.5, margin: '2px 0 8px', lineHeight: 1.5 }}>{children}</p>
 }
+// Botón de acción "pro" (más grande y redondeado) sobre la clase .btn del tema
+const _btnPro = { padding: '11px 20px', fontSize: 14, fontWeight: 700, borderRadius: 10, alignSelf: 'flex-start' }
+const MODELOS_TEXTO = ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o']
+const MODELOS_IMAGEN = ['gpt-image-1', 'dall-e-3']
+// Lista desplegable con opción "Otro (escribir)" para no quedar atado a las predefinidas.
+function SelectModelo({ value, onChange, opciones }) {
+  const [forzarOtro, setForzarOtro] = useState(false)
+  const esOtro = forzarOtro || (!!value && !opciones.includes(value))
+  return (
+    <>
+      <select value={esOtro ? '__otro__' : (value || '')}
+        onChange={e => {
+          if (e.target.value === '__otro__') setForzarOtro(true)
+          else { setForzarOtro(false); onChange(e.target.value) }
+        }}
+        style={{ width: '100%', textTransform: 'none' }}>
+        <option value="">— elegir —</option>
+        {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+        <option value="__otro__">Otro (escribir)…</option>
+      </select>
+      {esOtro && (
+        <input value={value || ''} onChange={e => onChange(e.target.value)}
+          placeholder="nombre exacto del modelo" style={{ width: '100%', marginTop: 6, textTransform: 'none' }} />
+      )}
+    </>
+  )
+}
 
 function ConfigPanel() {
   const [proys, setProys] = useState([])
@@ -287,12 +314,12 @@ function ConfigPanel() {
             <div style={{ flex: '1 1 200px' }}>
               <label style={_lbl}>Modelo de texto</label>
               <Ayuda>Motor de escritura (briefs, copy, estrategia). Por defecto: gpt-5.</Ayuda>
-              <input value={cfg.modelo_texto ?? ''} onChange={e => setC('modelo_texto', e.target.value)} style={{ width: '100%', textTransform: 'none' }} />
+              <SelectModelo value={cfg.modelo_texto} opciones={MODELOS_TEXTO} onChange={v => setC('modelo_texto', v)} />
             </div>
             <div style={{ flex: '1 1 200px' }}>
               <label style={_lbl}>Modelo de imagen</label>
               <Ayuda>Motor visual. Por defecto: gpt-image-1.</Ayuda>
-              <input value={cfg.modelo_imagen ?? ''} onChange={e => setC('modelo_imagen', e.target.value)} style={{ width: '100%', textTransform: 'none' }} />
+              <SelectModelo value={cfg.modelo_imagen} opciones={MODELOS_IMAGEN} onChange={v => setC('modelo_imagen', v)} />
             </div>
             <div style={{ flex: '1 1 160px' }}>
               <label style={_lbl}>Tope de gasto (US$/mes)</label>
@@ -308,7 +335,7 @@ function ConfigPanel() {
               style={{ width: '100%', minHeight: 280, fontFamily: 'monospace', fontSize: 13, textTransform: 'none', lineHeight: 1.5 }} />
           </div>
 
-          <button className="btn" onClick={guardarGeneral} style={{ alignSelf: 'flex-start' }}>💾 Guardar configuración general</button>
+          <button className="btn" onClick={guardarGeneral} style={_btnPro}>💾 Guardar configuración general</button>
         </div>
       ) : proy ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -373,7 +400,7 @@ function ConfigPanel() {
               style={{ width: '100%', minHeight: 220, fontFamily: 'monospace', fontSize: 13, textTransform: 'none', lineHeight: 1.5 }} />
           </div>
 
-          <button className="btn" onClick={guardarProy} style={{ alignSelf: 'flex-start' }}>💾 Guardar proyecto</button>
+          <button className="btn" onClick={guardarProy} style={_btnPro}>💾 Guardar proyecto</button>
         </div>
       ) : (
         <div className="muted" style={{ fontSize: 13 }}>Proyecto no encontrado.</div>
