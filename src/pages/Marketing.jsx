@@ -627,6 +627,29 @@ function ProduccionMotor() {
   const [archivos, setArchivos] = useState([])
   const [cargando, setCargando] = useState(false)
   const [err, setErr] = useState('')
+  const [cmdMsg, setCmdMsg] = useState('')
+
+  // Decisión humana desde la web -> mkt_wf_comandos -> el worker la ejecuta por
+  // el circuito formal del motor (ligada al SHA-256 exacto que estás viendo).
+  const decidir = async (op, tipo) => {
+    let comentario = null
+    if (tipo === 'pedir_cambios') {
+      comentario = window.prompt('¿Qué corrección pides? (obligatorio)')
+      if (!comentario?.trim()) return
+    } else if (tipo === 'rechazar') {
+      comentario = window.prompt('Motivo del rechazo (obligatorio)')
+      if (!comentario?.trim()) return
+    } else if (!window.confirm('¿Aprobar esta versión?')) return
+    setCmdMsg('Enviando decisión al motor…')
+    const { error } = await supabase.from('mkt_wf_comandos').insert({
+      tipo, project_id: camp?.project_id, campaign_id: op.campaign_id,
+      operation_id: op.operation_id, target_sha256: op.result_sha256,
+      comentario, actor: 'panel',
+    })
+    if (error) { setCmdMsg('ERROR: ' + error.message); return }
+    setCmdMsg('✅ Decisión enviada — el motor la aplica en segundos y el estado se refresca solo.')
+    setTimeout(() => { refrescar(); setCmdMsg('') }, 25000)
+  }
 
   // Archivos generados por el agente (parrillas Excel, briefs Word...) subidos por el worker
   const cargarArchivos = () => {
@@ -715,6 +738,35 @@ function ProduccionMotor() {
           {/* FLUJO DE PRODUCCIÓN (el orden del proceso, pieza por pieza) */}
           <h3 style={{ margin: '14px 0 8px', fontSize: 15 }}>🔄 Flujo de producción</h3>
           <FlujoCampana ops={ops} pieces={pieces} titulos={Object.fromEntries(pieces.map(p => [p.piece_id, p.title]))} />
+
+          {/* REVISIÓN PENDIENTE: decidir desde la web (via mkt_wf_comandos -> motor) */}
+          {(() => {
+            const pendientes = ops.filter(o => o.status === 'awaiting_approval')
+            const OP_LABEL = { CREATE_GRID: 'parrilla', CREATE_BRIEF: 'brief', RENDER_STANDARD: 'diseño', RENDER_CREATIVE: 'diseño creativo', EXPORT_CANVA: 'entrega editable de Canva', FINALIZE: 'entrega final' }
+            return (
+              <>
+                {pendientes.length > 0 && <h3 style={{ margin: '18px 0 8px', fontSize: 15 }}>🔔 Revisión pendiente</h3>}
+                {pendientes.map(op => {
+                  const img = imgs.find(i => i.piece_id === op.piece_id && i.sha256 === op.result_sha256)
+                  return (
+                    <div key={op.operation_id} style={{ background: 'rgba(232,193,90,.08)', border: '1px solid rgba(232,193,90,.4)', borderRadius: 12, padding: '14px 16px', marginBottom: 10, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {img && <a href={img.url} target="_blank" rel="noreferrer" title="Ver la versión exacta en revisión"><img src={img.url} alt="" style={{ width: 84, height: 105, objectFit: 'cover', borderRadius: 8, border: '1px solid rgba(255,255,255,.2)' }} /></a>}
+                      <div style={{ flex: 1, minWidth: 220 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14 }}>{op.piece_id || 'Campaña'} · {OP_LABEL[op.kind] || op.kind}</div>
+                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Versión con huella {String(op.result_sha256 || '').slice(0, 12)}… · intento {op.attempt_count}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button className="btn" onClick={() => decidir(op, 'aprobar')}>✅ Aprobar</button>
+                        <button className="btn-ghost" onClick={() => decidir(op, 'pedir_cambios')}>🔄 Pedir cambios</button>
+                        <button className="btn-ghost" style={{ color: '#f08080' }} onClick={() => decidir(op, 'rechazar')}>❌ Rechazar</button>
+                      </div>
+                    </div>
+                  )
+                })}
+                {cmdMsg && <div style={{ fontSize: 12.5, margin: '4px 0 10px' }}>{cmdMsg}</div>}
+              </>
+            )
+          })()}
 
           {/* GALERÍA DE DISEÑOS */}
           {imgs && imgs.length > 0 && (() => {
