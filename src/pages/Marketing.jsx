@@ -246,6 +246,82 @@ function SelectModelo({ value, onChange, opciones }) {
   )
 }
 
+// 📸 Fotos reales del proyecto: se suben aquí, el worker las pasa a la caja del
+// motor, y el agente las cataloga (escribiendo "fotos" en el chat del proyecto).
+function FotosProyecto({ sigla }) {
+  const [fotos, setFotos] = useState([])
+  const [subiendo, setSubiendo] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [verFoto, setVerFoto] = useState(null)
+
+  const cargar = () => {
+    supabase.from('mkt_fotos').select('*').eq('sigla', sigla).order('created_at', { ascending: false })
+      .then(({ data, error }) => { if (!error) setFotos(data || []) })
+  }
+  useEffect(() => { cargar() }, [sigla])
+
+  const subir = async (e) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    setSubiendo(true); setMsg('Subiendo…')
+    let ok = 0; const fallos = []
+    for (const f of files) {
+      try {
+        const limpio = f.name.normalize('NFKD').replace(/[^\w.\-]+/g, '_')
+        const path = `fotos/${sigla}/${Date.now()}_${limpio}`
+        const { error: e1 } = await supabase.storage.from('marketing').upload(path, f, { contentType: f.type || 'image/jpeg' })
+        if (e1) throw e1
+        const { data: pu } = supabase.storage.from('marketing').getPublicUrl(path)
+        const { error: e2 } = await supabase.from('mkt_fotos').insert({ sigla, nombre: f.name, url: pu.publicUrl, storage_path: path })
+        if (e2) throw e2
+        ok++
+      } catch (ex) { fallos.push(`${f.name}: ${ex.message || ex}`) }
+    }
+    setSubiendo(false)
+    setMsg(fallos.length ? `⚠️ Subidas ${ok}; fallaron: ${fallos.join(' · ')}` : `✅ ${ok} foto(s) subida(s). El agente las recibe en ~1 min; luego escribe "fotos" en el chat para que las analice.`)
+    cargar()
+    e.target.value = ''
+  }
+
+  return (
+    <div>
+      <label style={_lbl}>📸 Fotos reales del proyecto ({fotos.length})</label>
+      <Ayuda>
+        Estas son las fotos que el agente conoce y reparte en parrillas y diseños. Sube aquí las nuevas (dron, avances de obra, laguna…);
+        llegan solas al motor y luego escribes <b>"fotos"</b> en el chat del proyecto para que las analice (solo las nuevas cuestan API).
+      </Ayuda>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <label className="btn" style={{ cursor: 'pointer', fontSize: 13 }}>
+          ⬆️ Subir fotos…
+          <input type="file" accept="image/*" multiple onChange={subir} disabled={subiendo} style={{ display: 'none' }} />
+        </label>
+        {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
+      </div>
+      {fotos.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {fotos.map(f => (
+            <button key={f.id} onClick={() => setVerFoto(f)} title={f.nombre}
+              style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
+              <img src={f.url} alt={f.nombre} loading="lazy"
+                style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
+              <div style={{ fontSize: 10, textAlign: 'center', marginTop: 2, color: f.estado === 'sincronizada' ? '#4ea87a' : '#e0a35a' }}>
+                {f.estado === 'sincronizada' ? '✅ en el motor' : '🕘 en camino'}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {verFoto && (
+        <div onClick={() => setVerFoto(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={verFoto.url} alt={verFoto.nombre} style={{ maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: 8 }} />
+          <div style={{ color: '#fff', marginTop: 10, fontSize: 13 }}>{verFoto.nombre}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ConfigPanel() {
   const [proys, setProys] = useState([])
   const [cfg, setCfg] = useState({})
@@ -417,6 +493,8 @@ function ConfigPanel() {
             <textarea value={proy.tono ?? ''} onChange={e => setP('tono', e.target.value)}
               style={{ width: '100%', minHeight: 60, textTransform: 'none', fontSize: 13 }} />
           </div>
+
+          <FotosProyecto sigla={proy.sigla} />
 
           <div>
             <label style={_lbl}>📄 Ficha del proyecto</label>
