@@ -167,12 +167,19 @@ export default function Marketing() {
                   }}>
                     {!mine && <div style={{ fontSize: 10, fontWeight: 700, opacity: .6, marginBottom: 4, textTransform: 'uppercase' }}>{info ? (m.meta?.tipo === 'prompt' ? '🖼️ Prompt de imagen' : 'Sistema') : 'Agente'}</div>}
                     {m.content}
-                    {m.meta?.url && (
+                    {m.meta?.url && (m.meta?.imagen ? (
+                      <div style={{ marginTop: 8 }}>
+                        <a href={m.meta.url} target="_blank" rel="noreferrer" title="Ver en grande">
+                          <img src={m.meta.url} alt={m.meta.nombre || 'imagen'} loading="lazy"
+                            style={{ maxWidth: 260, maxHeight: 320, borderRadius: 8, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
+                        </a>
+                      </div>
+                    ) : (
                       <div style={{ marginTop: 8 }}>
                         <a className="btn" style={{ fontSize: 12.5, textDecoration: 'none', padding: '7px 14px', display: 'inline-block' }}
                           href={m.meta.url} target="_blank" rel="noreferrer">⬇️ Descargar {m.meta.nombre || 'archivo'}</a>
                       </div>
-                    )}
+                    ))}
                     {m.meta?.aviso_cruce && <div style={{ marginTop: 6, fontSize: 12, color: '#f0a0a0' }}>⚠️ {m.meta.aviso_cruce}</div>}
                   </div>
                   {!mine && (
@@ -857,8 +864,18 @@ function ProduccionMotor() {
                     <tr key={a.id}>
                       <td style={{ ..._td, whiteSpace: 'nowrap' }}>{a.created_at ? new Date(a.created_at).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td style={{ ..._td, fontSize: 11.5, color: '#9aa0a6' }}>{carpetaDe(a.storage_url) || '—'}</td>
-                      <td style={_td}>{a.tipo === 'excel' ? '📊 Excel' : a.tipo === 'word' ? '📄 Word' : a.tipo === 'pdf' ? '📕 PDF' : a.tipo}</td>
-                      <td style={_td}>{a.titulo}</td>
+                      <td style={_td}>{a.tipo === 'excel' ? '📊 Excel' : a.tipo === 'word' ? '📄 Word' : a.tipo === 'pdf' ? '📕 PDF' : a.tipo === 'imagen' ? '🖼️ Imagen' : a.tipo}</td>
+                      <td style={_td}>
+                        {a.tipo === 'imagen' ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <a href={a.storage_url} target="_blank" rel="noreferrer">
+                              <img src={a.storage_url} alt={a.titulo} loading="lazy"
+                                style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 5, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
+                            </a>
+                            {a.titulo}
+                          </span>
+                        ) : a.titulo}
+                      </td>
                       <td style={_td}>
                         <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}
                           href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
