@@ -412,7 +412,8 @@ const _td = { padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.06)
 function ProduccionMotor() {
   const [camps, setCamps] = useState([])
   const [campId, setCampId] = useState('')
-  const [datos, setDatos] = useState({ pieces: [], ops: [], apps: [], evs: [] })
+  const [datos, setDatos] = useState({ pieces: [], ops: [], apps: [], evs: [], imgs: [] })
+  const [verImg, setVerImg] = useState(null)
   const [cargando, setCargando] = useState(false)
   const [err, setErr] = useState('')
 
@@ -428,7 +429,7 @@ function ProduccionMotor() {
   useEffect(() => { cargarCamps() }, [])
 
   const cargarCamp = async (id) => {
-    if (!id) { setDatos({ pieces: [], ops: [], apps: [], evs: [] }); return }
+    if (!id) { setDatos({ pieces: [], ops: [], apps: [], evs: [], imgs: [] }); return }
     setCargando(true); setErr('')
     const [p, o, a, e] = await Promise.all([
       supabase.from('mkt_wf_pieces').select('*').eq('campaign_id', id).order('queue_order'),
@@ -438,13 +439,20 @@ function ProduccionMotor() {
     ])
     const fallo = [p, o, a, e].find(r => r.error)
     if (fallo) setErr(fallo.error.message)
-    setDatos({ pieces: p.data || [], ops: o.data || [], apps: a.data || [], evs: e.data || [] })
+    // imágenes: tolerante si la tabla aún no existe (sql/41 sin correr)
+    let imgs = []
+    try {
+      const ri = await supabase.from('mkt_wf_imagenes').select('*').eq('campaign_id', id)
+        .order('piece_id').order('es_final', { ascending: false }).order('etapa')
+      if (!ri.error) imgs = ri.data || []
+    } catch { /* tabla no creada aún */ }
+    setDatos({ pieces: p.data || [], ops: o.data || [], apps: a.data || [], evs: e.data || [], imgs })
     setCargando(false)
   }
   useEffect(() => { cargarCamp(campId) }, [campId])
 
   const camp = camps.find(c => c.campaign_id === campId)
-  const { pieces, ops, apps, evs } = datos
+  const { pieces, ops, apps, evs, imgs } = datos
   const refrescar = () => { cargarCamps(); cargarCamp(campId) }
 
   return (
@@ -488,8 +496,39 @@ function ProduccionMotor() {
             <span><b>Creada:</b> {_fmtFecha(camp.created_at)}</span>
           </div>
 
+          {/* GALERÍA DE DISEÑOS */}
+          {imgs && imgs.length > 0 && (() => {
+            const porPieza = {}
+            imgs.forEach(im => { const k = im.piece_id || '—'; (porPieza[k] ||= []).push(im) })
+            return (
+              <>
+                <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>🎨 Diseños ({imgs.length}) <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· clic para ampliar</span></h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {Object.entries(porPieza).map(([pid, arr]) => (
+                    <div key={pid}>
+                      <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{pid}</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {arr.map(im => (
+                          <button key={im.id} onClick={() => setVerImg(im)} title={`${im.etapa} ${im.version}`}
+                            style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
+                            <img src={im.url} alt={im.version} loading="lazy"
+                              style={{ width: 92, height: 115, objectFit: 'cover', borderRadius: 6, display: 'block',
+                                border: im.es_final ? '2px solid #4ea87a' : '1px solid rgba(255,255,255,.15)' }} />
+                            <div style={{ fontSize: 10, textAlign: 'center', marginTop: 2, color: im.es_final ? '#4ea87a' : '#9aa0a6' }}>
+                              {im.es_final ? '⭐ ' : ''}{im.version}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
+
           {/* PIEZAS */}
-          <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>🖼️ Piezas ({pieces.length})</h3>
+          <h3 style={{ margin: '18px 0 6px', fontSize: 14 }}>📋 Piezas ({pieces.length})</h3>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr><th style={_th}>#</th><th style={_th}>ID</th><th style={_th}>Título</th><th style={_th}>Estado</th><th style={_th}>Ruta</th><th style={_th}>Canva</th><th style={_th}>Correcc.</th></tr></thead>
@@ -575,6 +614,16 @@ function ProduccionMotor() {
             </div>
           </div>
         </>
+      )}
+
+      {verImg && (
+        <div onClick={() => setVerImg(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={verImg.url} alt={verImg.version} style={{ maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: 8 }} />
+          <div style={{ color: '#fff', marginTop: 10, fontSize: 13 }}>
+            {verImg.piece_id} · {verImg.etapa} · {verImg.version}{verImg.es_final ? ' · ⭐ FINAL' : ''}
+          </div>
+        </div>
       )}
     </div>
   )
