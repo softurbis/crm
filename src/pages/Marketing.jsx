@@ -23,6 +23,7 @@ export default function Marketing() {
   const [proyectos, setProyectos] = useState([])
   const [sigla, setSigla] = useState('')
   const [convId, setConvId] = useState(null)
+  const [convs, setConvs] = useState([])          // historial de conversaciones del proyecto
   const [msgs, setMsgs] = useState([])
   const [texto, setTexto] = useState('')
   const [pensando, setPensando] = useState(false)
@@ -62,12 +63,22 @@ export default function Marketing() {
 
   const nuevaConv = () => { setConvId(null); setMsgs([]); setPensando(false) }
 
-  const asegurarConv = async () => {
+  // Historial de conversaciones del proyecto (las más recientes primero).
+  const cargarConvs = async (s, autoSel = false) => {
+    if (!s) { setConvs([]); return }
+    const { data } = await supabase.from('mkt_conversaciones').select('*')
+      .eq('sigla', s).order('updated_at', { ascending: false }).limit(25)
+    setConvs(data || [])
+    if (autoSel) setConvId(data?.[0]?.id ?? null)   // al entrar, retoma la última charla
+  }
+
+  const asegurarConv = async (titulo) => {
     if (convId) return convId
     const { data, error } = await supabase.from('mkt_conversaciones')
-      .insert({ sigla: sigla || null }).select('id').single()
+      .insert({ sigla: sigla || null, titulo: (titulo || '').slice(0, 60) || null }).select('id').single()
     if (error) { alert('No pude crear la conversación: ' + error.message); return null }
     setConvId(data.id)
+    cargarConvs(sigla)
     return data.id
   }
 
@@ -75,12 +86,14 @@ export default function Marketing() {
     const t = (contenido ?? texto).trim()
     if (!t) return
     if (!sigla) { alert('Elige primero un proyecto arriba (para no mezclar).'); return }
-    const cid = await asegurarConv()
+    const cid = await asegurarConv(t)
     if (!cid) return
     setTexto('')
     const { error } = await supabase.from('mkt_mensajes')
       .insert({ conversacion_id: cid, role: 'user', content: t, estado: 'pendiente', meta })
     if (error) { alert('No se envió: ' + error.message); return }
+    // sube la conversación al tope del historial
+    supabase.from('mkt_conversaciones').update({ updated_at: new Date().toISOString() }).eq('id', cid).then(() => {}, () => {})
     setPensando(true)
   }
 
@@ -109,10 +122,22 @@ export default function Marketing() {
           {/* selector de proyecto (candado) */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
             <span style={{ fontSize: 13 }}>🔒 Proyecto activo:</span>
-            <select value={sigla} onChange={e => { setSigla(e.target.value); nuevaConv() }} style={{ fontSize: 13, minWidth: 220 }}>
+            <select value={sigla} onChange={e => { const s = e.target.value; setSigla(s); nuevaConv(); cargarConvs(s, true) }} style={{ fontSize: 13, minWidth: 220 }}>
               <option value="">— elige un proyecto —</option>
               {proyectos.map(p => <option key={p.sigla} value={p.sigla}>{p.sigla} · {p.nombre}</option>)}
             </select>
+            {sigla && convs.length > 0 && (
+              <select value={convId || ''} onChange={e => setConvId(e.target.value || null)}
+                title="Historial: retoma una conversación anterior y sigue donde quedaste"
+                style={{ fontSize: 12.5, maxWidth: 260 }}>
+                <option value="">🆕 Conversación nueva</option>
+                {convs.map(c => (
+                  <option key={c.id} value={c.id}>
+                    🕘 {(c.titulo || 'Sin título')}{' · '}{new Date(c.updated_at || c.created_at).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' })}
+                  </option>
+                ))}
+              </select>
+            )}
             {!sigla && <span className="muted" style={{ fontSize: 12, color: '#e7c15a' }}>Elige uno para que no se crucen los datos.</span>}
             <span style={{ marginLeft: 'auto' }} />
             <button className="btn-ghost" onClick={cmdParrilla} disabled={!sigla} title="Arma la parrilla del mes">🗓️ Parrilla</button>
