@@ -164,61 +164,211 @@ export default function Marketing() {
 
       {tab === 'motor' && puedeMotor && <ProduccionMotor />}
 
-      {tab === 'config' && esSuper && <ConfigCerebro proyectos={proyectos} />}
+      {tab === 'config' && esSuper && <ConfigPanel />}
     </div>
   )
 }
 
-// -------- Configuración del cerebro (solo superusuario): instrucciones maestras + ficha por proyecto --------
-function ConfigCerebro({ proyectos }) {
-  const [sel, setSel] = useState('instrucciones')   // 'instrucciones' | sigla
-  const [texto, setTexto] = useState('')
-  const [cargando, setCargando] = useState(false)
+// ============================================================================
+// Configuración del agente y proyectos (solo superusuario).
+// General: encender/apagar, modelos, tope de gasto, instrucciones maestras.
+// Por proyecto: nombre, activo, autonomía, WhatsApp, público, tono, color, ficha.
+// Todo se guarda en Supabase; el motor lo usa cuando esté encendido (Proceso B).
+// ============================================================================
+const AUTONOMIAS = [
+  { v: 'manual', t: '🔴 Manual — el agente propone, tú apruebas todo' },
+  { v: 'semi',   t: '🟡 Semiautomático — avanza en pasos seguros, tú apruebas lo importante' },
+  { v: 'auto',   t: '🟢 Automático — trabaja solo (siempre con filtro humano antes de publicar)' },
+]
+const _lbl = { display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 2 }
+function Ayuda({ children }) {
+  return <p className="muted" style={{ fontSize: 11.5, margin: '2px 0 8px', lineHeight: 1.5 }}>{children}</p>
+}
+
+function ConfigPanel() {
+  const [proys, setProys] = useState([])
+  const [cfg, setCfg] = useState({})
+  const [inst, setInst] = useState('')
+  const [sel, setSel] = useState('general')   // 'general' | sigla
+  const [proy, setProy] = useState(null)
+  const [cargando, setCargando] = useState(true)
   const [msg, setMsg] = useState('')
 
-  const cargar = async (clave) => {
-    setCargando(true); setMsg('')
-    if (clave === 'instrucciones') {
-      const { data } = await supabase.from('mkt_brains').select('content').eq('key', 'instrucciones').maybeSingle()
-      setTexto(data?.content || '')
-    } else {
-      const { data } = await supabase.from('mkt_proyectos').select('ficha').eq('sigla', clave).maybeSingle()
-      setTexto(data?.ficha || '')
-    }
+  const cargarBase = async () => {
+    const [p, c] = await Promise.all([
+      supabase.from('mkt_proyectos').select('*').order('orden'),
+      supabase.from('mkt_config').select('*'),
+    ])
+    setProys(p.data || [])
+    const o = {}; (c.data || []).forEach(r => { o[r.key] = r.value })
+    setCfg(o)
     setCargando(false)
   }
+  useEffect(() => { cargarBase() }, [])
 
-  useEffect(() => { cargar(sel) }, [sel])
-
-  const guardar = async () => {
-    setMsg('Guardando…')
-    let error
-    if (sel === 'instrucciones') {
-      ({ error } = await supabase.from('mkt_brains').update({ content: texto, updated_at: new Date().toISOString() }).eq('key', 'instrucciones'))
+  useEffect(() => {
+    setMsg('')
+    if (sel === 'general') {
+      setProy(null)
+      supabase.from('mkt_brains').select('content').eq('key', 'instrucciones').maybeSingle()
+        .then(({ data }) => setInst(data?.content || ''))
     } else {
-      ({ error } = await supabase.from('mkt_proyectos').update({ ficha: texto, updated_at: new Date().toISOString() }).eq('sigla', sel))
+      const p = proys.find(x => x.sigla === sel)
+      setProy(p ? { ...p } : null)
     }
-    setMsg(error ? 'ERROR: ' + error.message : '✅ Guardado — el agente lo usa en ≤1 min')
+  }, [sel, proys])
+
+  const setC = (k, v) => setCfg(o => ({ ...o, [k]: v }))
+  const setP = (k, v) => setProy(o => ({ ...o, [k]: v }))
+
+  const guardarGeneral = async () => {
+    setMsg('Guardando…')
+    const rows = ['agente_activo', 'modelo_texto', 'modelo_imagen', 'tope_gasto_usd']
+      .map(k => ({ key: k, value: String(cfg[k] ?? ''), updated_at: new Date().toISOString() }))
+    const { error: e1 } = await supabase.from('mkt_config').upsert(rows)
+    const { error: e2 } = await supabase.from('mkt_brains')
+      .update({ content: inst, updated_at: new Date().toISOString() }).eq('key', 'instrucciones')
+    setMsg((e1 || e2) ? 'ERROR: ' + (e1 || e2).message : '✅ Guardado')
   }
+
+  const guardarProy = async () => {
+    setMsg('Guardando…')
+    const { sigla, nombre, activo, autonomia, whatsapp, publico, tono, color, ficha } = proy
+    const { error } = await supabase.from('mkt_proyectos').update({
+      nombre, activo, autonomia, whatsapp, publico, tono, color, ficha,
+      updated_at: new Date().toISOString(),
+    }).eq('sigla', sigla)
+    if (!error) await cargarBase()
+    setMsg(error ? 'ERROR: ' + error.message : '✅ Guardado — el agente lo usará cuando esté encendido')
+  }
+
+  if (cargando) return <div className="glass muted" style={{ padding: 14 }}>Cargando configuración…</div>
 
   return (
     <div className="glass" style={{ padding: 14 }}>
-      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-        Edita el <b>cerebro</b> del agente. Se guarda en la base y el worker lo toma en menos de 1 minuto, sin reiniciar nada.
-      </p>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-        <label style={{ fontSize: 13 }}>Editando:</label>
-        <select value={sel} onChange={e => setSel(e.target.value)} style={{ fontSize: 13, minWidth: 260 }}>
-          <option value="instrucciones">🧠 Instrucciones maestras (cerebro general)</option>
-          {proyectos.map(p => <option key={p.sigla} value={p.sigla}>📄 Ficha · {p.sigla} · {p.nombre}</option>)}
+      <details style={{ marginBottom: 12, fontSize: 12.5, background: 'rgba(232,193,90,.08)', border: '1px solid rgba(232,193,90,.35)', borderRadius: 8, padding: '8px 12px' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#e8c15a' }}>ℹ️ Cómo funciona esta configuración</summary>
+        <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
+          Todo lo que cambies aquí se guarda al instante en la base. El agente lo usa <b>cuando esté encendido</b> (el motor de producción, que se activa con el crédito de OpenAI). Elige arriba si configuras el <b>agente en general</b> o un <b>proyecto</b> específico.
+        </p>
+      </details>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
+        <label style={{ fontSize: 13 }}>Configurando:</label>
+        <select value={sel} onChange={e => setSel(e.target.value)} style={{ fontSize: 13, minWidth: 280 }}>
+          <option value="general">⚙️ Agente (general)</option>
+          {proys.map(p => <option key={p.sigla} value={p.sigla}>📁 {p.sigla} · {p.nombre}</option>)}
         </select>
         <span style={{ marginLeft: 'auto' }} />
-        <button className="btn" onClick={guardar} disabled={cargando}>💾 Guardar</button>
         {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
       </div>
-      <textarea value={texto} onChange={e => setTexto(e.target.value)} disabled={cargando}
-        placeholder={cargando ? 'Cargando…' : 'Contenido…'}
-        style={{ width: '100%', minHeight: 'calc(100vh - 280px)', textTransform: 'none', fontSize: 13, fontFamily: 'monospace', lineHeight: 1.5 }} />
+
+      {sel === 'general' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={_lbl}>Estado del agente</label>
+            <Ayuda>Interruptor general. Si lo apagas, el agente no produce en ningún proyecto — útil para pausar todo sin tocar el servidor.</Ayuda>
+            <select value={cfg.agente_activo ?? 'true'} onChange={e => setC('agente_activo', e.target.value)} style={{ fontSize: 13 }}>
+              <option value="true">🟢 Encendido</option>
+              <option value="false">🔴 Apagado</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <label style={_lbl}>Modelo de texto</label>
+              <Ayuda>Motor de escritura (briefs, copy, estrategia). Por defecto: gpt-5.</Ayuda>
+              <input value={cfg.modelo_texto ?? ''} onChange={e => setC('modelo_texto', e.target.value)} style={{ width: '100%', textTransform: 'none' }} />
+            </div>
+            <div style={{ flex: '1 1 200px' }}>
+              <label style={_lbl}>Modelo de imagen</label>
+              <Ayuda>Motor visual. Por defecto: gpt-image-1.</Ayuda>
+              <input value={cfg.modelo_imagen ?? ''} onChange={e => setC('modelo_imagen', e.target.value)} style={{ width: '100%', textTransform: 'none' }} />
+            </div>
+            <div style={{ flex: '1 1 160px' }}>
+              <label style={_lbl}>Tope de gasto (US$/mes)</label>
+              <Ayuda>Freno de costo de OpenAI. Vacío = sin tope.</Ayuda>
+              <input type="number" min="0" value={cfg.tope_gasto_usd ?? ''} onChange={e => setC('tope_gasto_usd', e.target.value)} style={{ width: '100%' }} />
+            </div>
+          </div>
+
+          <div>
+            <label style={_lbl}>🧠 Instrucciones maestras</label>
+            <Ayuda>El cerebro general del agente, con herencia a todos los proyectos. Lo que escribas aquí guía TODO su trabajo (estrategia, estilo, reglas de marca, honestidad).</Ayuda>
+            <textarea value={inst} onChange={e => setInst(e.target.value)}
+              style={{ width: '100%', minHeight: 280, fontFamily: 'monospace', fontSize: 13, textTransform: 'none', lineHeight: 1.5 }} />
+          </div>
+
+          <button className="btn" onClick={guardarGeneral} style={{ alignSelf: 'flex-start' }}>💾 Guardar configuración general</button>
+        </div>
+      ) : proy ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 240px' }}>
+              <label style={_lbl}>Nombre del proyecto</label>
+              <input value={proy.nombre ?? ''} onChange={e => setP('nombre', e.target.value)} style={{ width: '100%', textTransform: 'none' }} />
+            </div>
+            <div style={{ flex: '0 1 140px' }}>
+              <label style={_lbl}>Activo</label>
+              <Ayuda>Sale del selector del chat si lo apagas.</Ayuda>
+              <select value={String(proy.activo)} onChange={e => setP('activo', e.target.value === 'true')} style={{ width: '100%' }}>
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={_lbl}>Autonomía</label>
+            <Ayuda>Cuánto decide solo el agente en este proyecto. Siempre hay filtro humano final antes de publicar.</Ayuda>
+            <select value={proy.autonomia ?? 'manual'} onChange={e => setP('autonomia', e.target.value)} style={{ width: '100%', maxWidth: 520 }}>
+              {AUTONOMIAS.map(a => <option key={a.v} value={a.v}>{a.t}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px' }}>
+              <label style={_lbl}>WhatsApp</label>
+              <Ayuda>Número al que el agente dirige los llamados a la acción de este proyecto.</Ayuda>
+              <input value={proy.whatsapp ?? ''} onChange={e => setP('whatsapp', e.target.value)} placeholder="+51 9..." style={{ width: '100%', textTransform: 'none' }} />
+            </div>
+            <div style={{ flex: '0 1 180px' }}>
+              <label style={_lbl}>Color de marca</label>
+              <Ayuda>Color principal (hex).</Ayuda>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input value={proy.color ?? ''} onChange={e => setP('color', e.target.value)} placeholder="#2e7d32" style={{ flex: 1, textTransform: 'none' }} />
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(proy.color || '') ? proy.color : '#2e7d32'}
+                  onChange={e => setP('color', e.target.value)} style={{ width: 34, height: 30, padding: 0, border: 'none', background: 'none' }} />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label style={_lbl}>Público objetivo</label>
+            <Ayuda>A quién le habla este proyecto (edad, ciudad, intereses). El agente ajusta el mensaje a esto.</Ayuda>
+            <textarea value={proy.publico ?? ''} onChange={e => setP('publico', e.target.value)}
+              style={{ width: '100%', minHeight: 60, textTransform: 'none', fontSize: 13 }} />
+          </div>
+
+          <div>
+            <label style={_lbl}>Tono / voz de marca</label>
+            <Ayuda>Cómo debe sonar (cercano, formal, aspiracional…). Poner ejemplos ayuda mucho.</Ayuda>
+            <textarea value={proy.tono ?? ''} onChange={e => setP('tono', e.target.value)}
+              style={{ width: '100%', minHeight: 60, textTransform: 'none', fontSize: 13 }} />
+          </div>
+
+          <div>
+            <label style={_lbl}>📄 Ficha del proyecto</label>
+            <Ayuda>Todos los datos del proyecto (ubicación, precios, atributos, reglas). Es la fuente de verdad del agente para este proyecto.</Ayuda>
+            <textarea value={proy.ficha ?? ''} onChange={e => setP('ficha', e.target.value)}
+              style={{ width: '100%', minHeight: 220, fontFamily: 'monospace', fontSize: 13, textTransform: 'none', lineHeight: 1.5 }} />
+          </div>
+
+          <button className="btn" onClick={guardarProy} style={{ alignSelf: 'flex-start' }}>💾 Guardar proyecto</button>
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 13 }}>Proyecto no encontrado.</div>
+      )}
     </div>
   )
 }
