@@ -181,7 +181,18 @@ export default function Marketing() {
                 </div>
               )
             })}
-            {pensando && <div className="muted" style={{ fontSize: 13, fontStyle: 'italic' }}>El agente está pensando…</div>}
+            {pensando && (
+              <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)' }}>
+                <style>{`
+                  @keyframes mktBlink { 0%,80%,100%{opacity:.2; transform:translateY(0)} 40%{opacity:1; transform:translateY(-3px)} }
+                  .mkt-dots i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-strong,#4a7);margin-right:5px;animation:mktBlink 1.2s infinite}
+                  .mkt-dots i:nth-child(2){animation-delay:.2s}
+                  .mkt-dots i:nth-child(3){animation-delay:.4s}
+                `}</style>
+                <span className="mkt-dots"><i /><i /><i /></span>
+                <span style={{ fontSize: 13 }}>🤖 El agente está trabajando… <span className="muted">(una parrilla puede tardar 2–3 min)</span></span>
+              </div>
+            )}
             <div ref={finRef} />
           </div>
 
@@ -547,9 +558,9 @@ const _txtEstado = (s) => {
 function PasoChip({ label, status }) {
   const c = status ? _colorEstado(status) : '#6b7280'
   return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, color: c, background: c + '22', border: `1px solid ${c}55`, whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontSize: 10, color: c }}>{_txtEstado(status)}</span>
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+      <span style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13.5, fontWeight: 700, color: c, background: c + '22', border: `1.5px solid ${c}66`, whiteSpace: 'nowrap', boxShadow: status === 'succeeded' ? `0 0 10px ${c}33` : 'none' }}>{label}</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: c }}>{_txtEstado(status)}</span>
     </span>
   )
 }
@@ -559,28 +570,40 @@ const ETAPAS_PIEZA = [
   { t: '🎨 Canva', match: o => o.kind === 'EXPORT_CANVA' },
   { t: '✅ Final', match: o => o.kind === 'FINALIZE' },
 ]
-function FlujoCampana({ ops, pieces }) {
+function FlujoCampana({ ops, pieces, titulos }) {
   const grid = ops.find(o => o.kind === 'CREATE_GRID')
-  const flecha = <span style={{ color: '#6b7280', alignSelf: 'center', margin: '0 2px' }}>→</span>
+  const flecha = <span style={{ color: '#6b7280', alignSelf: 'center', margin: '0 4px', fontSize: 16 }}>→</span>
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {grid && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, minWidth: 52 }}>Campaña</span>
+        <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '12px 16px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 800, minWidth: 64 }}>📦 Campaña</span>
           <PasoChip label="🗓️ Parrilla" status={grid.status} />
         </div>
       )}
       {pieces.map(p => {
         const opsP = ops.filter(o => o.piece_id === p.piece_id)
+        const hechas = ETAPAS_PIEZA.filter(e => opsP.find(e.match)?.status === 'succeeded').length
+        const pct = Math.round((hechas / ETAPAS_PIEZA.length) * 100)
+        const cBar = pct === 100 ? '#4ea87a' : pct >= 50 ? '#5a9fe0' : '#e0a35a'
         return (
-          <div key={p.piece_id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 52, paddingTop: 5 }}>{p.piece_id}</span>
-            {ETAPAS_PIEZA.map((e, i) => (
-              <span key={e.t} style={{ display: 'inline-flex', gap: 6 }}>
-                {i > 0 && flecha}
-                <PasoChip label={e.t} status={opsP.find(e.match)?.status} />
-              </span>
-            ))}
+          <div key={p.piece_id} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '12px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{p.piece_id}</span>
+              {titulos?.[p.piece_id] && <span className="muted" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>{titulos[p.piece_id]}</span>}
+              <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: cBar }}>{pct}%</span>
+            </div>
+            <div style={{ height: 5, borderRadius: 99, background: 'rgba(255,255,255,.08)', marginBottom: 12, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, borderRadius: 99, background: cBar, transition: 'width .4s' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {ETAPAS_PIEZA.map((e, i) => (
+                <span key={e.t} style={{ display: 'inline-flex', gap: 4 }}>
+                  {i > 0 && flecha}
+                  <PasoChip label={e.t} status={opsP.find(e.match)?.status} />
+                </span>
+              ))}
+            </div>
           </div>
         )
       })}
@@ -683,8 +706,8 @@ function ProduccionMotor() {
           </div>
 
           {/* FLUJO DE PRODUCCIÓN (el orden del proceso, pieza por pieza) */}
-          <h3 style={{ margin: '14px 0 8px', fontSize: 14 }}>🔄 Flujo de producción</h3>
-          <FlujoCampana ops={ops} pieces={pieces} />
+          <h3 style={{ margin: '14px 0 8px', fontSize: 15 }}>🔄 Flujo de producción</h3>
+          <FlujoCampana ops={ops} pieces={pieces} titulos={Object.fromEntries(pieces.map(p => [p.piece_id, p.title]))} />
 
           {/* GALERÍA DE DISEÑOS */}
           {imgs && imgs.length > 0 && (() => {
@@ -806,33 +829,48 @@ function ProduccionMotor() {
         </>
       )}
 
-      {/* ARCHIVOS GENERADOS (parrillas Excel, briefs Word, PDF) */}
-      <h3 style={{ margin: '20px 0 6px', fontSize: 14 }}>📁 Archivos generados ({archivos.length})</h3>
+      {/* ARCHIVOS GENERADOS (parrillas Excel, briefs Word, PDF) agrupados por proyecto/carpeta */}
+      <h3 style={{ margin: '20px 0 6px', fontSize: 15 }}>📁 Archivos generados ({archivos.length})</h3>
       {!archivos.length ? (
         <p className="muted" style={{ fontSize: 12.5 }}>
           Aún no hay archivos subidos. Cuando el agente exporte una parrilla (Excel) o briefs (Word), aparecen aquí y en el chat con su botón de descarga.
         </p>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={_th}>Fecha</th><th style={_th}>Proyecto</th><th style={_th}>Tipo</th><th style={_th}>Archivo</th><th style={_th}></th></tr></thead>
-            <tbody>
-              {archivos.map(a => (
-                <tr key={a.id}>
-                  <td style={{ ..._td, whiteSpace: 'nowrap' }}>{a.created_at ? new Date(a.created_at).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                  <td style={_td}>{a.sigla || '—'}</td>
-                  <td style={_td}>{a.tipo === 'excel' ? '📊 Excel' : a.tipo === 'word' ? '📄 Word' : a.tipo === 'pdf' ? '📕 PDF' : a.tipo}</td>
-                  <td style={_td}>{a.titulo}</td>
-                  <td style={_td}>
-                    <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}
-                      href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      ) : (() => {
+        const carpetaDe = (u) => {
+          try {
+            const resto = decodeURIComponent(u).split('/archivos/')[1]
+            if (!resto) return ''
+            const partes = resto.split('/'); partes.pop()
+            return partes.join(' / ').replace(/_+/g, ' ')
+          } catch { return '' }
+        }
+        const porSigla = {}
+        archivos.forEach(a => { const k = a.sigla || '—'; (porSigla[k] ||= []).push(a) })
+        return Object.entries(porSigla).map(([sig, arr]) => (
+          <div key={sig} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '10px 14px', marginBottom: 10 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 6 }}>📂 {sig} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>({arr.length})</span></div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr><th style={_th}>Fecha</th><th style={_th}>Carpeta</th><th style={_th}>Tipo</th><th style={_th}>Archivo</th><th style={_th}></th></tr></thead>
+                <tbody>
+                  {arr.map(a => (
+                    <tr key={a.id}>
+                      <td style={{ ..._td, whiteSpace: 'nowrap' }}>{a.created_at ? new Date(a.created_at).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td style={{ ..._td, fontSize: 11.5, color: '#9aa0a6' }}>{carpetaDe(a.storage_url) || '—'}</td>
+                      <td style={_td}>{a.tipo === 'excel' ? '📊 Excel' : a.tipo === 'word' ? '📄 Word' : a.tipo === 'pdf' ? '📕 PDF' : a.tipo}</td>
+                      <td style={_td}>{a.titulo}</td>
+                      <td style={_td}>
+                        <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}
+                          href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))
+      })()}
 
       {verImg && (
         <div onClick={() => setVerImg(null)}
