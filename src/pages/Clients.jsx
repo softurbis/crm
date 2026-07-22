@@ -38,6 +38,7 @@ export default function Clients() {
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
   const [fproj, setFproj] = useState('todos') // filtro por proyecto
+  const [falta, setFalta] = useState('todos')
   const [deletingId, setDeletingId] = useState(null)
 
   async function load() {
@@ -126,6 +127,10 @@ export default function Clients() {
     const t = q.trim().toLowerCase()
     return list.filter(c => {
       if (fproj !== 'todos' && !proysDe(c).includes(fproj)) return false
+      const dniCompleto = !!(c.dni_url || (c.dni_front_url && c.dni_back_url))
+      if (falta === 'sin_celular' && c.phone_valid) return false
+      if (falta === 'sin_dni' && dniCompleto) return false
+      if (falta === 'dni_pendiente' && c.doc_type !== 'PEND') return false
       if (!t) return true
       // lotes del cliente en varias formas: "G7", "G-7", "mz g lt 7"
       const lotes = (c.sales || []).map(s => s.lot?.mz
@@ -135,10 +140,11 @@ export default function Clients() {
         lotes.includes(t) ||
         (c.phone || '').replace(/\s/g, '').includes(t.replace(/\s/g, ''))
     })
-  }, [list, q, fproj])
+  }, [list, q, fproj, falta])
 
   const pendientes = list.filter(c => c.doc_type === 'PEND').length
   const telInvalidos = list.filter(c => !c.phone_valid).length
+  const dniIncompletos = list.filter(c => !(c.dni_url || (c.dni_front_url && c.dni_back_url))).length
 
   function abrir(c) {
     setSel(c); setNuevo(!c.id)
@@ -221,8 +227,15 @@ export default function Clients() {
           <option value="todos">🏗️ Proyecto: todos</option>
           {allProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        {(q || fproj !== 'todos') && <button className="fx-clear" onClick={() => { setQ(''); setFproj('todos') }} title="Quitar filtros">✕ Limpiar</button>}
+        {(q || fproj !== 'todos' || falta !== 'todos') && <button className="fx-clear" onClick={() => { setQ(''); setFproj('todos'); setFalta('todos') }} title="Quitar filtros">✕ Limpiar</button>}
         {!readOnly && <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => abrir({})}>+ Nuevo cliente</button>}
+      </div>
+      <div className="chips" style={{ margin: '0 0 10px' }}>
+        <span className="muted small" style={{ alignSelf: 'center' }}>Ver:</span>
+        <button className={`chip ${falta === 'todos' ? 'on' : ''}`} onClick={() => setFalta('todos')}>Todos ({list.length})</button>
+        <button className={`chip ${falta === 'sin_celular' ? 'on' : ''}`} onClick={() => setFalta('sin_celular')}>📵 Sin celular válido ({telInvalidos})</button>
+        <button className={`chip ${falta === 'sin_dni' ? 'on' : ''}`} onClick={() => setFalta('sin_dni')}>🪪 DNI incompleto ({dniIncompletos})</button>
+        <button className={`chip ${falta === 'dni_pendiente' ? 'on' : ''}`} onClick={() => setFalta('dni_pendiente')}>⚠ DNI pendiente ({pendientes})</button>
       </div>
       <p className="muted small" style={{ margin: '0 0 10px' }}>{filtrada.length} de {list.length} clientes{fproj !== 'todos' ? ' en ' + nombreProyFull(fproj) : ''}</p>
 
