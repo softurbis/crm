@@ -334,6 +334,17 @@ function FotosProyecto({ sigla }) {
   const [subiendo, setSubiendo] = useState(false)
   const [msg, setMsg] = useState('')
   const [verFoto, setVerFoto] = useState(null)
+  const [grupoUp, setGrupoUp] = useState('')       // grupo/categoría para el próximo lote
+  const [descUp, setDescUp] = useState('')         // descripción para el próximo lote
+
+  const editarFoto = async (f) => {
+    const grupo = window.prompt('Grupo / categoría (ej: Obra, Laguna, Drone, Logo):', f.grupo || '')
+    if (grupo === null) return
+    const descripcion = window.prompt('Descripción — qué muestra y para qué usarla:', f.descripcion || '')
+    if (descripcion === null) return
+    await supabase.from('mkt_fotos').update({ grupo: grupo.trim() || null, descripcion: descripcion.trim() || null }).eq('id', f.id)
+    cargar()
+  }
 
   const cargar = () => {
     supabase.from('mkt_fotos').select('*').eq('sigla', sigla).order('created_at', { ascending: false })
@@ -357,7 +368,7 @@ function FotosProyecto({ sigla }) {
         const { error: e1 } = await supabase.storage.from('marketing').upload(path, f, { contentType: f.type || 'image/jpeg' })
         if (e1) throw e1
         const { data: pu } = supabase.storage.from('marketing').getPublicUrl(path)
-        const { error: e2 } = await supabase.from('mkt_fotos').insert({ sigla, nombre: f.name, url: pu.publicUrl, storage_path: path })
+        const { error: e2 } = await supabase.from('mkt_fotos').insert({ sigla, nombre: f.name, url: pu.publicUrl, storage_path: path, grupo: grupoUp.trim() || null, descripcion: descUp.trim() || null })
         if (e2) throw e2
         ok++
       } catch (ex) { fallos.push(`${f.name}: ${ex.message || ex}`) }
@@ -372,30 +383,53 @@ function FotosProyecto({ sigla }) {
     <div>
       <label style={_lbl}>📸 Fotos reales del proyecto ({fotos.length})</label>
       <Ayuda>
-        Estas son las fotos que el agente conoce y reparte en parrillas y diseños. Sube aquí las nuevas (dron, avances de obra, laguna…);
-        llegan solas al motor y luego escribes <b>"fotos"</b> en el chat del proyecto para que las analice (solo las nuevas cuestan API).
+        Las fotos que el agente conoce y reparte en parrillas y diseños. Ponles un <b>grupo</b> (Obra, Laguna, Drone…) y una <b>descripción</b> —
+        el agente las recibe en su cerebro y sabe cuándo usar cada una. Luego escribe <b>"fotos"</b> en el chat para que también las analice.
       </Ayuda>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <input value={grupoUp} onChange={e => setGrupoUp(e.target.value)} placeholder="Grupo del lote (ej: Obra, Laguna, Drone)"
+          style={{ fontSize: 12.5, textTransform: 'none', flex: '1 1 170px' }} />
+        <input value={descUp} onChange={e => setDescUp(e.target.value)} placeholder="Descripción para las fotos que subas ahora"
+          style={{ fontSize: 12.5, textTransform: 'none', flex: '2 1 260px' }} />
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <label className="btn" style={{ cursor: 'pointer', fontSize: 13 }}>
           ⬆️ Subir fotos…
           <input type="file" accept="image/*" multiple onChange={subir} disabled={subiendo} style={{ display: 'none' }} />
         </label>
+        <span className="muted" style={{ fontSize: 11 }}>el grupo/descripción de arriba se aplica a las que subas ahora (editable después)</span>
         {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
       </div>
-      {fotos.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {fotos.map(f => (
-            <button key={f.id} onClick={() => setVerFoto(f)} title={f.nombre}
-              style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
-              <img src={f.url} alt={f.nombre} loading="lazy"
-                style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
-              <div style={{ fontSize: 10, textAlign: 'center', marginTop: 2, color: f.estado === 'sincronizada' ? '#4ea87a' : '#e0a35a' }}>
-                {f.estado === 'sincronizada' ? '✅ en el motor' : '🕘 en camino'}
+      {fotos.length > 0 && (() => {
+        const grupos = {}
+        fotos.forEach(f => { const g = f.grupo || 'Sin grupo'; (grupos[g] ||= []).push(f) })
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {Object.entries(grupos).map(([g, arr]) => (
+              <div key={g}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 5, color: '#e8c15a' }}>📁 {g} <span className="muted" style={{ fontWeight: 400 }}>({arr.length})</span></div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {arr.map(f => (
+                    <div key={f.id} style={{ width: 132 }}>
+                      <button onClick={() => setVerFoto(f)} title={f.nombre} style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', display: 'block' }}>
+                        <img src={f.url} alt={f.nombre} loading="lazy"
+                          style={{ width: 132, height: 99, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(255,255,255,.15)' }} />
+                      </button>
+                      <div style={{ fontSize: 10.5, marginTop: 3, color: '#c8ccd0', lineHeight: 1.35, minHeight: 26 }}>
+                        {f.descripcion || <span className="muted">sin descripción</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                        <span style={{ fontSize: 9.5, color: f.estado === 'sincronizada' ? '#4ea87a' : '#e0a35a' }}>{f.estado === 'sincronizada' ? '✅ en el motor' : '🕘 en camino'}</span>
+                        <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 6px', marginLeft: 'auto' }} onClick={() => editarFoto(f)} title="Editar grupo y descripción">✏️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )
+      })()}
       {disenos.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <label style={_lbl}>🎨 Diseños generados de este proyecto — historial ({disenos.length})</label>
