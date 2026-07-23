@@ -188,6 +188,11 @@ export default function Marketing() {
                           <img src={m.meta.url} alt={m.meta.nombre || 'imagen'} loading="lazy"
                             style={{ maxWidth: 260, maxHeight: 320, borderRadius: 8, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
                         </a>
+                        <button className="btn-ghost" style={{ fontSize: 12, marginTop: 6, color: '#e6a4d0' }}
+                          title="Sube esta imagen a Canva como diseño editable"
+                          onClick={() => enviar(`subir imagen a canva: ${m.meta.url}`, { comando: 'canva' })}>
+                          🎨 Subir a Canva
+                        </button>
                       </div>
                     ) : (
                       <div style={{ marginTop: 8 }}>
@@ -195,6 +200,12 @@ export default function Marketing() {
                           href={m.meta.url} target="_blank" rel="noreferrer">⬇️ Descargar {m.meta.nombre || 'archivo'}</a>
                       </div>
                     ))}
+                    {m.meta?.canva_url && (
+                      <div style={{ marginTop: 8 }}>
+                        <a className="btn" style={{ fontSize: 12.5, textDecoration: 'none', padding: '7px 14px', display: 'inline-block' }}
+                          href={m.meta.canva_url} target="_blank" rel="noreferrer">🔗 Abrir en Canva para editar</a>
+                      </div>
+                    )}
                     {m.meta?.aviso_cruce && <div style={{ marginTop: 6, fontSize: 12, color: '#f0a0a0' }}>⚠️ {m.meta.aviso_cruce}</div>}
                   </div>
                   {!mine && (
