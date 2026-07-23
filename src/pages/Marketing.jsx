@@ -27,7 +27,13 @@ export default function Marketing() {
   const [msgs, setMsgs] = useState([])
   const [texto, setTexto] = useState('')
   const [pensando, setPensando] = useState(false)
+  const [editPrompt, setEditPrompt] = useState(null)   // editor de prompt antes de generar
   const finRef = useRef(null)
+  // saca el contenido del prompt (los bloques ``` si existen, si no todo el mensaje)
+  const extraerPrompt = (c) => {
+    const m = [...String(c || '').matchAll(/```(?:[a-zA-Z]*\n)?([\s\S]*?)```/g)].map(x => x[1].trim())
+    return m.length ? m.join('\n\n') : String(c || '')
+  }
 
   useEffect(() => {
     supabase.from('mkt_proyectos').select('sigla, nombre, activo, orden').order('orden')
@@ -186,12 +192,17 @@ export default function Marketing() {
                     <span style={{ display: 'inline-flex', gap: 6 }}>
                       <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3 }} onClick={() => copiar(m.content)}>⧉ Copiar</button>
                       {(m.meta?.es_prompt || /```/.test(m.content || '')) && (
-                        <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3, color: '#e6a4d0' }}
-                          title="Genera la imagen real de este prompt con gpt-image-1"
-                          onClick={() => {
-                            if (window.confirm('¿Generar 1 imagen real de este prompt? Costo aprox US$ 0.25 (gpt-image-1, calidad alta).'))
-                              enviar(`generar imagen del mensaje: ${m.id}`, { comando: 'generar_imagen', ref: m.id })
-                          }}>🎨 Generar imagen</button>
+                        <>
+                          <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3, color: '#e6a4d0' }}
+                            title="Genera la imagen real de este prompt con gpt-image-1"
+                            onClick={() => {
+                              if (window.confirm('¿Generar 1 imagen real de este prompt? Costo aprox US$ 0.25 (gpt-image-1, calidad alta).'))
+                                enviar(`generar imagen del mensaje: ${m.id}`, { comando: 'generar_imagen', ref: m.id })
+                            }}>🎨 Generar imagen</button>
+                          <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3 }}
+                            title="Edita el prompt antes de generar"
+                            onClick={() => setEditPrompt({ texto: extraerPrompt(m.content) })}>✏️ Editar</button>
+                        </>
                       )}
                     </span>
                   )}
@@ -221,6 +232,27 @@ export default function Marketing() {
               style={{ flex: 1, resize: 'none', minHeight: 42, maxHeight: 140, textTransform: 'none', fontSize: 14 }} />
             <button className="btn" onClick={() => enviar()} disabled={!sigla || pensando}>Enviar ▸</button>
           </div>
+
+          {/* editor de prompt antes de generar */}
+          {editPrompt && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.72)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div className="glass" style={{ width: 'min(780px, 94vw)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <b style={{ fontSize: 14 }}>✏️ Edita el prompt antes de generar</b>
+                <textarea value={editPrompt.texto} onChange={e => setEditPrompt({ texto: e.target.value })}
+                  style={{ width: '100%', minHeight: '48vh', fontFamily: 'monospace', fontSize: 12.5, textTransform: 'none', lineHeight: 1.5 }} />
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <span className="muted" style={{ fontSize: 11.5, marginRight: 'auto' }}>Al generar se usa exactamente este texto.</span>
+                  <button className="btn-ghost" onClick={() => setEditPrompt(null)}>Cancelar</button>
+                  <button className="btn" onClick={() => {
+                    if (window.confirm('¿Generar 1 imagen con este prompt editado? Costo aprox US$ 0.25')) {
+                      enviar('generar imagen con prompt:\n' + editPrompt.texto, { comando: 'generar_imagen_editada' })
+                      setEditPrompt(null)
+                    }
+                  }}>🎨 Generar (~US$ 0.25)</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
