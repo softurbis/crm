@@ -391,6 +391,49 @@ function FotosProyecto({ sigla }) {
   )
 }
 
+// 💰 Medidor de gasto de OpenAI (lee mkt_uso)
+function MedidorGasto() {
+  const [uso, setUso] = useState([])
+  useEffect(() => {
+    supabase.from('mkt_uso').select('*').order('created_at', { ascending: false }).limit(1000)
+      .then(({ data, error }) => { if (!error) setUso(data || []) })
+  }, [])
+  const hoyISO = new Date().toISOString().slice(0, 10)
+  const mesISO = hoyISO.slice(0, 7)
+  const sum = (arr, f) => arr.reduce((a, x) => a + (Number(x[f]) || 0), 0)
+  const hoy = uso.filter(u => (u.created_at || '').slice(0, 10) === hoyISO)
+  const mes = uso.filter(u => (u.created_at || '').slice(0, 7) === mesISO)
+  const porTipo = {}
+  mes.forEach(u => { porTipo[u.tipo] = (porTipo[u.tipo] || 0) + Number(u.costo_usd || 0) })
+  const Card = ({ t, v }) => (
+    <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, padding: '10px 16px', minWidth: 110 }}>
+      <div className="muted" style={{ fontSize: 11 }}>{t}</div>
+      <div style={{ fontSize: 20, fontWeight: 800 }}>US$ {v.toFixed(2)}</div>
+    </div>
+  )
+  return (
+    <div style={{ background: 'rgba(90,159,224,.06)', border: '1px solid rgba(90,159,224,.3)', borderRadius: 12, padding: 14, marginBottom: 4 }}>
+      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>💰 Gasto de OpenAI <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>· estimado</span></div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Card t="Hoy" v={sum(hoy, 'costo_usd')} />
+        <Card t="Este mes" v={sum(mes, 'costo_usd')} />
+        <Card t="Total" v={sum(uso, 'costo_usd')} />
+      </div>
+      {Object.keys(porTipo).length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12.5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          <span className="muted">Este mes por acción:</span>
+          {Object.entries(porTipo).sort((a, b) => b[1] - a[1]).map(([t, v]) => (
+            <span key={t}>{t}: <b>US$ {v.toFixed(2)}</b></span>
+          ))}
+        </div>
+      )}
+      <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+        Mes: {sum(mes, 'input_tokens').toLocaleString()} tokens entrada · {sum(mes, 'output_tokens').toLocaleString()} salida · {sum(mes, 'imagenes')} imagen(es). Tarifas aproximadas; el número real está en tu panel de OpenAI.
+      </div>
+    </div>
+  )
+}
+
 function ConfigPanel() {
   const [proys, setProys] = useState([])
   const [cfg, setCfg] = useState({})
@@ -471,6 +514,7 @@ function ConfigPanel() {
 
       {sel === 'general' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <MedidorGasto />
           <div>
             <label style={_lbl}>Estado del agente</label>
             <Ayuda>Interruptor general. Si lo apagas, el agente no produce en ningún proyecto — útil para pausar todo sin tocar el servidor.</Ayuda>
