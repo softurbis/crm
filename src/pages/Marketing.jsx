@@ -15,6 +15,7 @@ export default function Marketing() {
   // si el menú cambia ?t= estando ya en la página, sincroniza la pestaña
   useEffect(() => {
     if (tParam === 'produccion') setTab('motor')
+    else if (tParam === 'constructor') setTab('lego')
     else if (tParam === 'config') setTab('config')
     else if (tParam === 'chat') setTab('chat')
   }, [tParam])
@@ -127,6 +128,7 @@ export default function Marketing() {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button className={tab === 'chat' ? 'btn' : 'btn-ghost'} onClick={() => setTab('chat')}>💬 Chat</button>
           {puedeMotor && <button className={tab === 'motor' ? 'btn' : 'btn-ghost'} onClick={() => setTab('motor')}>🏭 Producción</button>}
+          {puedeMotor && <button className={tab === 'lego' ? 'btn' : 'btn-ghost'} onClick={() => setTab('lego')}>🧩 Constructor</button>}
           {esSuper && <button className={tab === 'config' ? 'btn' : 'btn-ghost'} onClick={() => setTab('config')}>⚙️ Configuración</button>}
         </div>
       </div>
@@ -277,6 +279,8 @@ export default function Marketing() {
       )}
 
       {tab === 'motor' && puedeMotor && <ProduccionMotor />}
+
+      {tab === 'lego' && puedeMotor && <Constructor />}
 
       {tab === 'config' && esSuper && <ConfigPanel />}
     </div>
@@ -690,6 +694,191 @@ function ConfigPanel() {
       ) : (
         <div className="muted" style={{ fontSize: 13 }}>Proyecto no encontrado.</div>
       )}
+    </div>
+  )
+}
+
+// ============================================================================
+// 🧩 Constructor de piezas (pieza-lego): 3 zonas — bloques visibles, estrategia
+// y banco de variaciones. El operador orienta el hilo; el agente arma la pieza.
+// ============================================================================
+const LEGO_EST = {
+  objetivo: ['Captar', 'Educar', 'Cerrar venta', 'Recordar'],
+  publico: ['Familia', 'Inversionista', 'Migrante que vuelve', 'Joven primer terreno'],
+  gatillo: ['Pertenencia', 'Miedo a perder', 'Estatus', 'Seguridad', 'Legado', 'Micro-compromiso'],
+  categoria: ['Educativo', 'Emocional', 'Autoridad', 'Urgencia'],
+  tono: ['Cálido', 'Directo', 'Aspiracional', 'Institucional'],
+  formato: ['Post', 'Story', 'Reel', 'Video', 'Carrusel'],
+  red: ['TikTok', 'Facebook', 'Instagram', 'YouTube', 'WhatsApp', 'Todas'],
+}
+const LEGO_EST_LABEL = { objetivo: 'Objetivo', publico: 'Público', gatillo: 'Gatillo psicológico', categoria: 'Categoría', tono: 'Tono', formato: 'Formato', red: 'Red' }
+const LEGO_VIS = [
+  { k: 'gancho', label: 'Gancho', banco: 'gancho', help: 'Lo primero que frena el scroll' },
+  { k: 'titular', label: 'Titular / promesa', help: 'La promesa principal' },
+  { k: 'subtitulo', label: 'Subtítulo / bajada', banco: 'subtitulo', help: 'Aclara o amplía (opcional)' },
+  { k: 'dato_ancla', label: 'Dato ancla', banco: 'dato_ancla', help: 'El número que convence (real, de la ficha)' },
+  { k: 'datos_apoyo', label: 'Datos de apoyo', help: 'Cifras secundarias' },
+  { k: 'ubicacion', label: 'Ubicación', help: 'Dónde queda' },
+  { k: 'cta', label: 'CTA', banco: 'cta', help: 'La acción que se pide' },
+  { k: 'contacto', label: 'Contacto', help: 'WhatsApp / cómo responde el cliente' },
+]
+const LEGO_BANCOS = [
+  { tipo: 'cta', label: 'CTAs' }, { tipo: 'gancho', label: 'Ganchos' },
+  { tipo: 'dato_ancla', label: 'Datos ancla (precios reales)' },
+  { tipo: 'legal', label: 'Frases legales / respaldo' }, { tipo: 'subtitulo', label: 'Subtítulos' },
+]
+
+function Constructor() {
+  const [proys, setProys] = useState([])
+  const [sigla, setSigla] = useState('')
+  const [piezas, setPiezas] = useState([])
+  const [pid, setPid] = useState('')
+  const [p, setP] = useState({ bloques: {} })
+  const [banco, setBanco] = useState([])
+  const [msg, setMsg] = useState('')
+  const [gest, setGest] = useState(false)
+  const [nb, setNb] = useState({ tipo: 'cta', valor: '', categoria: '' })
+
+  useEffect(() => {
+    supabase.from('mkt_proyectos').select('sigla,nombre,activo,orden').order('orden')
+      .then(({ data }) => { const l = (data || []).filter(x => x.activo !== false); setProys(l); setSigla(s => s || l[0]?.sigla || '') })
+  }, [])
+  const cargarProy = () => {
+    if (!sigla) return
+    supabase.from('mkt_lego').select('*').eq('sigla', sigla).order('updated_at', { ascending: false }).then(({ data }) => setPiezas(data || []))
+    supabase.from('mkt_banco').select('*').eq('sigla', sigla).eq('activo', true).order('created_at').then(({ data }) => setBanco(data || []))
+  }
+  useEffect(() => { cargarProy(); setPid(''); setP({ bloques: {} }); setMsg('') }, [sigla])
+  useEffect(() => { if (pid) { const x = piezas.find(z => String(z.id) === String(pid)); if (x) setP({ ...x, bloques: x.bloques || {} }) } }, [pid])
+
+  const setEst = (k, v) => setP(o => ({ ...o, [k]: v }))
+  const setBloque = (k, v) => setP(o => ({ ...o, bloques: { ...(o.bloques || {}), [k]: v } }))
+  const bancoDe = t => banco.filter(b => b.tipo === t)
+
+  const guardar = async () => {
+    if (!sigla) return
+    setMsg('Guardando…')
+    const fila = { sigla, nombre: p.nombre || null, objetivo: p.objetivo, publico: p.publico, gatillo: p.gatillo, categoria: p.categoria, tono: p.tono, formato: p.formato, red: p.red, bloques: p.bloques || {}, updated_at: new Date().toISOString() }
+    let error
+    if (pid) { ({ error } = await supabase.from('mkt_lego').update(fila).eq('id', pid)) }
+    else { const r = await supabase.from('mkt_lego').insert(fila).select('id').single(); error = r.error; if (!error) setPid(String(r.data.id)) }
+    if (!error) cargarProy()
+    setMsg(error ? 'ERROR: ' + error.message : '✅ Guardado')
+  }
+  const agregarBanco = async () => {
+    if (!nb.valor.trim()) return
+    await supabase.from('mkt_banco').insert({ sigla, tipo: nb.tipo, valor: nb.valor.trim(), categoria: nb.categoria.trim() || null })
+    setNb({ ...nb, valor: '', categoria: '' }); cargarProy()
+  }
+  const quitarBanco = async (id) => { await supabase.from('mkt_banco').delete().eq('id', id); cargarProy() }
+
+  const componer = () => {
+    const est = Object.keys(LEGO_EST).filter(k => p[k]).map(k => `${LEGO_EST_LABEL[k]}: ${p[k]}`).join(' · ')
+    const vis = LEGO_VIS.filter(b => p.bloques?.[b.k]).map(b => `- ${b.label}: ${p.bloques[b.k]}`).join('\n')
+    return `Arma esta pieza para ${sigla} respetando EL HILO (todos los bloques hacia el mismo objetivo/gatillo).\n\nESTRATEGIA: ${est || '(sin definir)'}\n\nBLOQUES:\n${vis || '(vacíos)'}\n\nDame el prompt de imagen coherente con esta estrategia (paleta y reglas de marca del proyecto).`
+  }
+  const enviar = async () => {
+    if (!sigla) return
+    setMsg('Enviando al agente…')
+    const { data: conv, error: e1 } = await supabase.from('mkt_conversaciones').insert({ sigla, titulo: `Lego: ${p.nombre || 'pieza'}`.slice(0, 60) }).select('id').single()
+    if (e1) { setMsg('ERROR: ' + e1.message); return }
+    const { error: e2 } = await supabase.from('mkt_mensajes').insert({ conversacion_id: conv.id, role: 'user', content: componer(), estado: 'pendiente' })
+    setMsg(e2 ? 'ERROR: ' + e2.message : '✅ Enviado — ve a 💬 Chat para ver la pieza que arma el agente.')
+  }
+
+  const coherenciaOk = !(p.objetivo || p.gatillo) || (p.bloques?.gancho && p.bloques?.cta)
+
+  return (
+    <div className="glass" style={{ padding: 14 }}>
+      <p className="muted" style={{ fontSize: 12.5, margin: '0 0 12px', lineHeight: 1.6 }}>
+        Una pieza es un lego: cada bloque es una ranura editable. Orienta <b>el hilo</b> con la estrategia,
+        rellena los <b>bloques visibles</b> (o elige del <b>banco</b>), y el agente arma la pieza coherente. Todo pasa por tu aprobación.
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
+        <select value={sigla} onChange={e => setSigla(e.target.value)} style={{ fontSize: 13, minWidth: 200 }}>
+          {proys.map(x => <option key={x.sigla} value={x.sigla}>{x.sigla} · {x.nombre}</option>)}
+        </select>
+        <select value={pid} onChange={e => setPid(e.target.value)} style={{ fontSize: 12.5, minWidth: 200 }}>
+          <option value="">🆕 Pieza nueva</option>
+          {piezas.map(z => <option key={z.id} value={z.id}>🧩 {z.nombre || 'sin nombre'} · {z.objetivo || '—'}</option>)}
+        </select>
+        <input value={p.nombre || ''} onChange={e => setP(o => ({ ...o, nombre: e.target.value }))} placeholder="Nombre de la pieza" style={{ fontSize: 12.5, textTransform: 'none', flex: '1 1 160px' }} />
+        <span style={{ marginLeft: 'auto' }} />
+        <button className="btn" onClick={guardar} style={_btnPro}>💾 Guardar</button>
+        {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 300px' }}>
+          <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>🎯 Estrategia <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· el hilo</span></h3>
+          {Object.keys(LEGO_EST).map(k => (
+            <div key={k} style={{ marginBottom: 8 }}>
+              <label style={{ ..._lbl, fontSize: 12 }}>{LEGO_EST_LABEL[k]}</label>
+              <select value={p[k] || ''} onChange={e => setEst(k, e.target.value)} style={{ width: '100%', fontSize: 12.5, textTransform: 'none' }}>
+                <option value="">— elegir —</option>
+                {LEGO_EST[k].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flex: '2 1 420px' }}>
+          <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>🧱 Bloques visibles</h3>
+          {!coherenciaOk && (
+            <div style={{ fontSize: 12, color: '#e0a35a', marginBottom: 8 }}>⚠️ Definiste estrategia pero falta Gancho y/o CTA — el hilo queda incompleto.</div>
+          )}
+          {LEGO_VIS.map(b => (
+            <div key={b.k} style={{ marginBottom: 10 }}>
+              <label style={{ ..._lbl, fontSize: 12 }}>{b.label} <span className="muted" style={{ fontWeight: 400 }}>· {b.help}</span></label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input value={p.bloques?.[b.k] || ''} onChange={e => setBloque(b.k, e.target.value)}
+                  style={{ flex: '1 1 220px', fontSize: 12.5, textTransform: 'none' }} />
+                {b.banco && bancoDe(b.banco).length > 0 && (
+                  <select value="" onChange={e => { if (e.target.value) setBloque(b.k, e.target.value) }}
+                    title="Elegir del banco" style={{ fontSize: 12, maxWidth: 190 }}>
+                    <option value="">📦 del banco…</option>
+                    {bancoDe(b.banco).map(x => <option key={x.id} value={x.valor}>{x.valor.slice(0, 40)}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+          ))}
+          <button className="btn" onClick={enviar} style={{ ..._btnPro, marginTop: 4 }}>🎨 Enviar al agente para generar</button>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: 12 }}>
+        <button className="btn-ghost" onClick={() => setGest(g => !g)} style={{ fontSize: 13 }}>
+          📦 {gest ? 'Ocultar' : 'Administrar'} banco de variaciones del proyecto ({banco.length})
+        </button>
+        {gest && (
+          <div style={{ marginTop: 10 }}>
+            <Ayuda>El banco son las variaciones aprobadas (CTAs, ganchos, precios reales, frases legales). El agente rota entre ellas para no repetir y nunca inventar.</Ayuda>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+              <select value={nb.tipo} onChange={e => setNb({ ...nb, tipo: e.target.value })} style={{ fontSize: 12.5 }}>
+                {LEGO_BANCOS.map(x => <option key={x.tipo} value={x.tipo}>{x.label}</option>)}
+              </select>
+              <input value={nb.valor} onChange={e => setNb({ ...nb, valor: e.target.value })} placeholder="Nueva variación aprobada" style={{ fontSize: 12.5, textTransform: 'none', flex: '1 1 240px' }} />
+              <input value={nb.categoria} onChange={e => setNb({ ...nb, categoria: e.target.value })} placeholder="categoría (opcional)" style={{ fontSize: 12.5, textTransform: 'none', width: 140 }} />
+              <button className="btn" onClick={agregarBanco}>➕ Agregar</button>
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              {LEGO_BANCOS.map(x => (
+                <div key={x.tipo} style={{ flex: '1 1 240px' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>{x.label} ({bancoDe(x.tipo).length})</div>
+                  {bancoDe(x.tipo).map(b => (
+                    <div key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, padding: '2px 0' }}>
+                      <span style={{ flex: 1 }}>{b.valor}{b.categoria ? <span className="muted"> · {b.categoria}</span> : ''}</span>
+                      <button className="btn-ghost" style={{ fontSize: 11, color: '#f08080', padding: '0 5px' }} onClick={() => quitarBanco(b.id)}>🗑️</button>
+                    </div>
+                  ))}
+                  {!bancoDe(x.tipo).length && <span className="muted" style={{ fontSize: 11 }}>vacío</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

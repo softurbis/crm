@@ -57,6 +57,7 @@ const MKT_COLOR = '#e6a4d0'
 const MKT_SUBS = [
   { to: '/marketing?t=chat', t: 'chat', label: 'Chat', icon: '💬' },
   { to: '/marketing?t=produccion', t: 'produccion', label: 'Producción', icon: '🏭' },
+  { to: '/marketing?t=constructor', t: 'constructor', label: 'Constructor', icon: '🧩' },
   { to: '/marketing?t=config', t: 'config', label: 'Configuración', icon: '⚙️', soloSuper: true },
 ]
 // Mega-grupos del menú General (orden + ícono). Cada uno se abre/cierra.
