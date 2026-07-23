@@ -183,7 +183,17 @@ export default function Marketing() {
                     {m.meta?.aviso_cruce && <div style={{ marginTop: 6, fontSize: 12, color: '#f0a0a0' }}>⚠️ {m.meta.aviso_cruce}</div>}
                   </div>
                   {!mine && (
-                    <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3 }} onClick={() => copiar(m.content)}>⧉ Copiar</button>
+                    <span style={{ display: 'inline-flex', gap: 6 }}>
+                      <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3 }} onClick={() => copiar(m.content)}>⧉ Copiar</button>
+                      {(m.meta?.es_prompt || /```/.test(m.content || '')) && (
+                        <button className="btn-ghost" style={{ fontSize: 11, marginTop: 3, color: '#e6a4d0' }}
+                          title="Genera la imagen real de este prompt con gpt-image-1"
+                          onClick={() => {
+                            if (window.confirm('¿Generar 1 imagen real de este prompt? Costo aprox US$ 0.25 (gpt-image-1, calidad alta).'))
+                              enviar(`generar imagen del mensaje: ${m.id}`, { comando: 'generar_imagen', ref: m.id })
+                          }}>🎨 Generar imagen</button>
+                      )}
+                    </span>
                   )}
                 </div>
               )
