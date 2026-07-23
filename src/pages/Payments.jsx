@@ -130,6 +130,8 @@ export default function Payments() {
   const [secs, setSecs] = useState([])
   const [notifIds, setNotifIds] = useState([])
   const [gruposAbiertos, setGruposAbiertos] = useState(new Set())
+  const [repartoEdit, setRepartoEdit] = useState(null)
+  const [repartoBusy, setRepartoBusy] = useState(false)
   const readOnly = role === 'manager'
 
   // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
@@ -522,6 +524,61 @@ export default function Payments() {
     setView(v => ({ ...v, amount: nuevo, observation: obs })); loadBase()
   }
 
+  function editarReparto(g) {
+    setRepartoEdit({ key: g.key, valores: Object.fromEntries(g.items.map(p => [p.id, String(p.amount)])) })
+    setGruposAbiertos(prev => new Set(prev).add(g.key))
+  }
+
+  async function guardarReparto(g) {
+    if (role !== 'superuser' || repartoEdit?.key !== g.key) return
+    const cambios = g.items.map(p => ({ ...p, nuevo: Math.round(Number(repartoEdit.valores[p.id]) * 100) / 100 }))
+    if (cambios.some(p => !Number.isFinite(p.nuevo) || p.nuevo < 0)) {
+      setMsg({ ok: false, t: 'CADA APLICACIÓN DEBE TENER UN MONTO VÁLIDO MAYOR O IGUAL A CERO.' }); return
+    }
+    const totalNuevo = Math.round(cambios.reduce((s, p) => s + p.nuevo, 0) * 100) / 100
+    if (Math.abs(totalNuevo - Number(g.total)) > 0.009) {
+      setMsg({ ok: false, t: `EL REPARTO SUMA ${soles(totalNuevo)} Y DEBE SEGUIR SUMANDO ${soles(g.total)}, QUE ES EL MONTO DEL VOUCHER.` }); return
+    }
+    const deltas = new Map()
+    for (const p of cambios) deltas.set(p.installment_id, (deltas.get(p.installment_id) || 0) + p.nuevo - Number(p.amount))
+    const cuotaIds = [...deltas.keys()].filter(Boolean)
+    setRepartoBusy(true); setMsg(null)
+    try {
+      const { data: cuotas, error: e0 } = await supabase.from('installments')
+        .select('id, amount, amount_paid, status, paid_date').in('id', cuotaIds)
+      if (e0) throw e0
+      for (const q of (cuotas || [])) {
+        const nuevoPagado = Math.round((Number(q.amount_paid) + (deltas.get(q.id) || 0)) * 100) / 100
+        if (nuevoPagado < -0.009 || nuevoPagado > Number(q.amount) + 0.009) throw new Error('EL REPARTO EXCEDE O DEJA NEGATIVA UNA CUOTA.')
+      }
+      for (const p of cambios) {
+        const { error } = await supabase.from('daily_income').update({ amount: p.nuevo }).eq('id', p.id)
+        if (error) throw error
+      }
+      for (const q of (cuotas || [])) {
+        const nuevoPagado = Math.max(0, Math.round((Number(q.amount_paid) + (deltas.get(q.id) || 0)) * 100) / 100)
+        const pagada = nuevoPagado >= Number(q.amount) - 0.009
+        const { error } = await supabase.from('installments').update({
+          amount_paid: nuevoPagado,
+          status: pagada ? 'pagado' : (q.status === 'vencido' ? 'vencido' : 'pendiente'),
+          paid_date: pagada ? (q.paid_date || g.referencia.date) : null,
+        }).eq('id', q.id)
+        if (error) throw error
+      }
+      await supabase.from('activity_log').insert({
+        action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
+        details: { cambio: 'reparto_voucher', operacion: g.referencia.operation_number, lote: g.lotes, monto_voucher: g.total,
+          antes: cambios.map(p => ({ cuota: p.installment?.installment_number, monto: p.amount })),
+          despues: cambios.map(p => ({ cuota: p.installment?.installment_number, monto: p.nuevo })), project_id: pidOp },
+      })
+      setMsg({ ok: true, t: 'REPARTO ACTUALIZADO. EL MONTO TOTAL DEL VOUCHER SE CONSERVÓ.' })
+      setRepartoEdit(null)
+      await loadBase()
+    } catch (err) {
+      setMsg({ ok: false, t: 'NO SE PUDO ACTUALIZAR EL REPARTO: ' + (err.message || err) })
+    } finally { setRepartoBusy(false) }
+  }
+
   const pagosFiltrados = useMemo(() => {
     // busqueda avanzada: cada palabra puede ir en cualquier orden y contra
     // cualquier dato (lote, cliente, N operacion, concepto). "nilsson g7" o
@@ -781,6 +838,11 @@ export default function Payments() {
             {pag.pagina.map(g => {
               const expandible = g.items.length > 1
               const abierto = gruposAbiertos.has(g.key)
+              const editando = repartoEdit?.key === g.key
+              const puedeEditarReparto = role === 'superuser' && g.items.every(p => p.installment_id)
+              const totalEditado = editando
+                ? Math.round(g.items.reduce((s, p) => s + Number(repartoEdit.valores[p.id] || 0), 0) * 100) / 100
+                : g.total
               const r = g.referencia
               return (
                 <Fragment key={g.key}>
@@ -791,7 +853,11 @@ export default function Payments() {
                       {expandible && (abierto ? '▾ ' : '▸ ')}{g.concepto}
                     </button></td>
                     <td><EstadoChip r={r} /></td>
-                    <td><b>{soles(g.total)}</b>{expandible && <span className="muted small"> ({g.items.length} cuotas)</span>}</td>
+                    <td><b>{soles(g.total)}</b>{expandible && <span className="muted small"> ({g.items.length} cuotas)</span>}
+                      {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} title="Corregir directamente cómo se repartió este voucher" onClick={() => editando ? setRepartoEdit(null) : editarReparto(g)}>
+                        {editando ? 'Cancelar edición' : '✎ Editar reparto'}
+                      </button>}
+                    </td>
                     <td>
                       {g.voucherUrl
                         ? <><a href={g.voucherUrl} target="_blank" rel="noreferrer">VER</a>{g.voucherFaltante && <span className="warn small"> + falta</span>}</>
@@ -814,14 +880,21 @@ export default function Payments() {
                     <td>{r.operation_number}</td>
                     <td>{r.account?.name || '-'}</td>
                   </tr>
-                  {abierto && g.items.map(p => (
+                  {abierto && g.items.map((p, i) => (
                     <tr key={p.id} style={{ background: 'rgba(255,255,255,.025)' }}>
                       <td></td>
                       <td>{p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'}</td>
                       <td><button className="link-btn muted" title="Ver detalle de esta aplicación" onClick={() => abrirPago(p)}>↳ {conceptoPago(p)}</button></td>
                       <td><span className="muted small">aplicación</span></td>
-                      <td>{soles(p.amount)}</td>
-                      <td colSpan="5" className="muted small">Parte del pago S/ {soles(g.total)} · operación {r.operation_number}</td>
+                      <td>{editando
+                        ? <input type="number" step="0.01" min="0" value={repartoEdit.valores[p.id] ?? ''} autoFocus={i === 0}
+                            onChange={e => setRepartoEdit(x => ({ ...x, valores: { ...x.valores, [p.id]: e.target.value } }))}
+                            style={{ width: 92, padding: '3px 5px' }} />
+                        : soles(p.amount)}</td>
+                      <td colSpan="5" className="muted small">{editando && i === g.items.length - 1 ? <>
+                        Reparto: <b className={Math.abs(totalEditado - Number(g.total)) <= 0.009 ? 'ok' : 'bad'}>{soles(totalEditado)} de {soles(g.total)}</b>{' '}
+                        <button className="btn-ghost" style={{ fontSize: 11 }} disabled={repartoBusy || Math.abs(totalEditado - Number(g.total)) > 0.009} onClick={() => guardarReparto(g)}>{repartoBusy ? 'Guardando...' : 'Guardar reparto'}</button>
+                      </> : <>Parte del pago S/ {soles(g.total)} · operación {r.operation_number}</>}</td>
                     </tr>
                   ))}
                 </Fragment>
