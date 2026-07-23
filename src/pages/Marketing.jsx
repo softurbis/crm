@@ -319,6 +319,7 @@ function SelectModelo({ value, onChange, opciones }) {
 // motor, y el agente las cataloga (escribiendo "fotos" en el chat del proyecto).
 function FotosProyecto({ sigla }) {
   const [fotos, setFotos] = useState([])
+  const [disenos, setDisenos] = useState([])
   const [subiendo, setSubiendo] = useState(false)
   const [msg, setMsg] = useState('')
   const [verFoto, setVerFoto] = useState(null)
@@ -326,6 +327,10 @@ function FotosProyecto({ sigla }) {
   const cargar = () => {
     supabase.from('mkt_fotos').select('*').eq('sigla', sigla).order('created_at', { ascending: false })
       .then(({ data, error }) => { if (!error) setFotos(data || []) })
+    // historial de diseños generados de este proyecto (biblioteca)
+    supabase.from('mkt_piezas').select('*').eq('sigla', sigla).eq('tipo', 'imagen')
+      .not('storage_url', 'is', null).order('created_at', { ascending: false })
+      .then(({ data, error }) => { if (!error) setDisenos(data || []) })
   }
   useEffect(() => { cargar() }, [sigla])
 
@@ -380,6 +385,25 @@ function FotosProyecto({ sigla }) {
           ))}
         </div>
       )}
+      {disenos.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <label style={_lbl}>🎨 Diseños generados de este proyecto — historial ({disenos.length})</label>
+          <Ayuda>Todo lo que el agente ha generado para {sigla}, del más nuevo al más antiguo. Clic para ver grande.</Ayuda>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {disenos.map(d => (
+              <button key={d.id} onClick={() => setVerFoto({ url: d.storage_url, nombre: d.titulo })}
+                style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
+                <img src={d.storage_url} alt={d.titulo} loading="lazy"
+                  style={{ width: 92, height: 115, objectFit: 'cover', borderRadius: 6, display: 'block', border: '1px solid rgba(255,255,255,.15)' }} />
+                <div style={{ fontSize: 10, textAlign: 'center', marginTop: 2, color: '#9aa0a6' }}>
+                  {d.created_at ? new Date(d.created_at).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }) : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {verFoto && (
         <div onClick={() => setVerFoto(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
