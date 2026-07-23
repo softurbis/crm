@@ -579,6 +579,83 @@ export default function Payments() {
     } finally { setRepartoBusy(false) }
   }
 
+  // Rehace la cascada desde un voucher: conserva cada monto/voucher, pero vuelve
+  // a repartirlo de la cuota más antigua pendiente hacia adelante. Sirve cuando
+  // se corrigió un reparto antiguo y los pagos posteriores quedaron desfasados.
+  async function recalcularCascadaDesde(g) {
+    if (role !== 'superuser' || !g.referencia.sale_id) return
+    if (!confirm(`¿Recalcular la cascada desde la operación ${g.referencia.operation_number}?\n\nSe conservarán los vouchers y sus montos; se corregirá únicamente a qué cuotas se aplican este pago y los posteriores.`)) return
+    setRepartoBusy(true); setMsg(null)
+    try {
+      const [cuotasR, pagosR] = await Promise.all([
+        supabase.from('installments').select('id, installment_number, amount, status, paid_date').eq('sale_id', g.referencia.sale_id).order('installment_number'),
+        supabase.from('daily_income').select('*').eq('sale_id', g.referencia.sale_id).eq('income_type', 'cuota').order('date').order('created_at'),
+      ])
+      if (cuotasR.error) throw cuotasR.error
+      if (pagosR.error) throw pagosR.error
+      const cuotas = cuotasR.data || []
+      const grupos = agruparPagos(pagosR.data || [])
+      const desde = grupos.findIndex(x => x.items.some(p => p.id === g.referencia.id))
+      if (desde < 0) throw new Error('NO ENCONTRÉ EL PAGO A RECALCULAR.')
+
+      const anteriores = grupos.slice(0, desde).flatMap(x => x.items)
+      const pagado = new Map(cuotas.map(q => [q.id, 0]))
+      for (const p of anteriores) pagado.set(p.installment_id, (pagado.get(p.installment_id) || 0) + Number(p.amount || 0))
+      const nuevos = []
+      const borrarIds = grupos.slice(desde).flatMap(x => x.items.map(p => p.id))
+
+      for (const grupo of grupos.slice(desde)) {
+        let restante = Math.round(Number(grupo.total) * 100) / 100
+        const fuente = grupo.items[0]
+        const conVoucher = grupo.items.find(p => p.voucher_url) || fuente
+        const conComprobante = grupo.items.find(p => p.receipt_url) || fuente
+        for (const cuota of cuotas) {
+          if (restante <= 0.004) break
+          const debe = Math.max(0, Math.round((Number(cuota.amount) - (pagado.get(cuota.id) || 0)) * 100) / 100)
+          if (debe <= 0.004) continue
+          const toma = Math.min(restante, debe)
+          const { id, created_at, ...base } = fuente
+          nuevos.push({
+            ...base, amount: Math.round(toma * 100) / 100, installment_id: cuota.id,
+            voucher_url: conVoucher.voucher_url || null, voucher_note: conVoucher.voucher_note || null,
+            receipt_url: conComprobante.receipt_url || null, receipt_note: conComprobante.receipt_note || null,
+          })
+          pagado.set(cuota.id, (pagado.get(cuota.id) || 0) + toma)
+          restante = Math.round((restante - toma) * 100) / 100
+        }
+        if (restante > 0.01) throw new Error(`LA OPERACIÓN ${grupo.referencia.operation_number} EXCEDE LA DEUDA DE LAS CUOTAS EN ${soles(restante)}.`)
+      }
+
+      if (borrarIds.length) {
+        const { error } = await supabase.from('daily_income').delete().in('id', borrarIds)
+        if (error) throw error
+      }
+      if (nuevos.length) {
+        const { error } = await supabase.from('daily_income').insert(nuevos)
+        if (error) throw error
+      }
+      for (const cuota of cuotas) {
+        const montoPagado = Math.round((pagado.get(cuota.id) || 0) * 100) / 100
+        const pagada = montoPagado >= Number(cuota.amount) - 0.009
+        const { error } = await supabase.from('installments').update({
+          amount_paid: montoPagado,
+          status: pagada ? 'pagado' : (cuota.status === 'vencido' ? 'vencido' : 'pendiente'),
+          paid_date: pagada ? cuota.paid_date || g.referencia.date : null,
+        }).eq('id', cuota.id)
+        if (error) throw error
+      }
+      await supabase.from('activity_log').insert({
+        action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
+        details: { cambio: 'recalculo_cascada', desde_operacion: g.referencia.operation_number, lote: g.lotes, project_id: pidOp },
+      })
+      setRepartoEdit(null)
+      setMsg({ ok: true, t: 'CASCADA RECALCULADA DESDE ESTE VOUCHER.' })
+      await loadBase()
+    } catch (err) {
+      setMsg({ ok: false, t: 'NO SE PUDO RECALCULAR LA CASCADA: ' + (err.message || err) })
+    } finally { setRepartoBusy(false) }
+  }
+
   const pagosFiltrados = useMemo(() => {
     // busqueda avanzada: cada palabra puede ir en cualquier orden y contra
     // cualquier dato (lote, cliente, N operacion, concepto). "nilsson g7" o
@@ -857,6 +934,9 @@ export default function Payments() {
                       {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} title="Corregir directamente cómo se repartió este voucher" onClick={() => editando ? setRepartoEdit(null) : editarReparto(g)}>
                         {editando ? 'Cancelar edición' : '✎ Editar reparto'}
                       </button>}
+                      {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} disabled={repartoBusy}
+                        title="Reparte de nuevo este voucher y los posteriores, respetando el monto de cada cuota"
+                        onClick={() => recalcularCascadaDesde(g)}>↻ Recalcular cascada</button>}
                     </td>
                     <td>
                       {g.voucherUrl
