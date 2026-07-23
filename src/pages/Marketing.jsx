@@ -69,6 +69,14 @@ export default function Marketing() {
 
   const nuevaConv = () => { setConvId(null); setMsgs([]); setPensando(false) }
 
+  const borrarConv = async () => {
+    if (!convId) return
+    if (!window.confirm('¿Borrar esta conversación y todos sus mensajes? No se puede deshacer.')) return
+    const { error } = await supabase.from('mkt_conversaciones').delete().eq('id', convId)
+    if (error) { alert('No se pudo borrar: ' + error.message); return }
+    nuevaConv(); cargarConvs(sigla)
+  }
+
   // Historial de conversaciones del proyecto (las más recientes primero).
   const cargarConvs = async (s, autoSel = false) => {
     if (!s) { setConvs([]); return }
@@ -149,6 +157,7 @@ export default function Marketing() {
             <button className="btn-ghost" onClick={cmdParrilla} disabled={!sigla} title="Arma la parrilla del mes">🗓️ Parrilla</button>
             <button className="btn-ghost" onClick={cmdPrompt} disabled={!sigla || !msgs.length} title="Extrae el prompt de imagen de la última pieza">🖼️ Prompt para GPT</button>
             <button className="btn-ghost" onClick={nuevaConv} title="Empezar de cero">✚ Nueva</button>
+            <button className="btn-ghost" onClick={borrarConv} disabled={!convId} title="Borrar esta conversación" style={{ color: '#f08080' }}>🗑️</button>
           </div>
 
           {/* chat */}
@@ -701,6 +710,16 @@ function ProduccionMotor() {
   }
   useEffect(() => { cargarArchivos() }, [])
 
+  const borrarArchivo = async (a) => {
+    if (!window.confirm(`¿Borrar "${a.titulo}"? (se quita de aquí y del almacenamiento)`)) return
+    try {
+      const path = decodeURIComponent(a.storage_url).split('/marketing/')[1]?.split('?')[0]
+      if (path) await supabase.storage.from('marketing').remove([path])
+    } catch { /* si el storage falla igual quitamos el registro */ }
+    await supabase.from('mkt_piezas').delete().eq('id', a.id)
+    cargarArchivos()
+  }
+
   const cargarCamps = () => {
     setErr('')
     supabase.from('mkt_wf_campaigns').select('*').order('created_at', { ascending: false })
@@ -971,8 +990,12 @@ function ProduccionMotor() {
                         ) : a.titulo}
                       </td>
                       <td style={_td}>
-                        <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}
-                          href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
+                        <span style={{ display: 'inline-flex', gap: 8, whiteSpace: 'nowrap' }}>
+                          <a className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none' }}
+                            href={a.storage_url} target="_blank" rel="noreferrer">⬇️ Descargar</a>
+                          <button className="btn-ghost" style={{ fontSize: 12, color: '#f08080' }}
+                            onClick={() => borrarArchivo(a)} title="Borrar archivo">🗑️</button>
+                        </span>
                       </td>
                     </tr>
                   ))}
