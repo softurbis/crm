@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
@@ -22,7 +23,7 @@ export default function Commissions() {
   const [rows, setRows] = useState([])
   const [ventasSin, setVentasSin] = useState([])
   const [advisors, setAdvisors] = useState([])
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [busy, setBusy] = useState(false)
 
   const [q, setQ] = useState('')

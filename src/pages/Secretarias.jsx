@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
 const DIAS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']]
@@ -74,7 +75,7 @@ export default function Secretarias() {
     const { error } = await supabase.from('secretaries').insert({ full_name: nva.full_name.trim().toUpperCase(), phone: limpio, tipo: nva.tipo })
     if (error) { alert('ERROR: ' + error.message); return }
     await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: nva.tipo === 'gerencia' ? 'gerencia' : 'secretaria', note: nva.full_name.trim().toUpperCase() + ' (' + nva.tipo.toUpperCase() + ')' })
-    setNva({ full_name: '', phone: '', tipo: 'secretaria' }); cargar()
+    setNva({ full_name: '', phone: '', tipo: 'secretaria' }); savedFx(); cargar()
   }
   const toggleActiva = async s => { await supabase.from('secretaries').update({ active: !s.active }).eq('id', s.id); cargar() }
   const toggleSeguimiento = async s => { await supabase.from('secretaries').update({ seguimiento: s.seguimiento === false }).eq('id', s.id); cargar() }
@@ -87,7 +88,7 @@ export default function Secretarias() {
   const agregarRutina = async sid => {
     if (!nr.title.trim() || !nr.days.length) { alert('Título y al menos un día'); return }
     await supabase.from('secretary_routines').insert({ secretary_id: sid, title: nr.title.trim().toUpperCase(), slot: nr.slot, days: nr.days, category: nr.category })
-    setNr({ title: '', slot: 'manana', days: [1, 2, 3, 4, 5, 6], category: 'administrativa' }); cargar()
+    setNr({ title: '', slot: 'manana', days: [1, 2, 3, 4, 5, 6], category: 'administrativa' }); savedFx(); cargar()
   }
   const quitarRutina = async r => { await supabase.from('secretary_routines').delete().eq('id', r.id); cargar() }
   const crearTarea = async () => {
@@ -95,7 +96,7 @@ export default function Secretarias() {
     const slot = extra.time ? (extra.time < '13:00' ? 'manana' : 'tarde') : extra.slot || 'manana'
     const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: extra.sid, title: extra.title.trim().toUpperCase(), date: diaSel, time: extra.time || null, slot, category: extra.category || 'administrativa' })
     if (error) { alert('ERROR: ' + error.message); return }
-    setExtra(null); cargar()
+    setExtra(null); savedFx(); cargar()
   }
   const marcar = async (t, status) => {
     await supabase.from('secretary_tasks').update({ status, answered_at: new Date().toISOString(), answer: 'MARCADO EN EL PANEL POR ' + (profile?.full_name || role).toUpperCase() }).eq('id', t.id)

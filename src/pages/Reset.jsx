@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 
 export default function Reset() {
   const [listo, setListo] = useState(false)
   const [pass, setPass] = useState('')
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [ok, setOk] = useState(false)
 
   useEffect(() => {

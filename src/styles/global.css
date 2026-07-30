@@ -996,3 +996,71 @@ select { cursor: pointer; }
 .hrs-n { font-size: 9.5px; font-weight: 800; color: var(--muted); margin-bottom: 2px; line-height: 1;
   font-variant-numeric: tabular-nums; }
 .hrs-x { font-size: 9px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; height: 12px; }
+
+/* ===== Aviso de "guardado" (animación global, ver lib/saveFx.js) ===== */
+.savefx-layer { position: fixed; inset: 0; z-index: 9999; pointer-events: none; overflow: hidden; }
+.savefx {
+  position: absolute; transform: translate(-50%, -50%);
+  display: grid; place-items: center;
+  will-change: transform, opacity;
+}
+/* ✓ verde en un disco: aparece con un "pop", sube un poco y se desvanece */
+.savefx-check {
+  width: 40px; height: 40px; border-radius: 50%; color: #08160e;
+  background: radial-gradient(circle at 32% 28%, var(--accent-strong), var(--ok));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--ok) 55%, transparent), 0 0 0 6px color-mix(in srgb, var(--ok) 22%, transparent);
+  animation: savefx-pop .5s cubic-bezier(.2,1.5,.4,1) both, savefx-rise 1.25s ease-out both;
+}
+/* Cara loca (solo superusuario): la foto en un disco con un rebote juguetón */
+.savefx-face {
+  width: 74px; height: 74px; border-radius: 50%; overflow: hidden;
+  border: 3px solid var(--accent-strong);
+  box-shadow: 0 10px 26px rgba(0,0,0,.5), 0 0 0 7px color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: savefx-boing .7s cubic-bezier(.2,1.6,.35,1) both, savefx-rise 1.3s ease-out both;
+}
+.savefx-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+@keyframes savefx-pop {
+  0% { transform: translate(-50%, -50%) scale(0); }
+  70% { transform: translate(-50%, -50%) scale(1.15); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes savefx-boing {
+  0% { transform: translate(-50%, -50%) scale(0) rotate(-25deg); }
+  55% { transform: translate(-50%, -50%) scale(1.2) rotate(8deg); }
+  75% { transform: translate(-50%, -50%) scale(.92) rotate(-4deg); }
+  100% { transform: translate(-50%, -50%) scale(1) rotate(0); }
+}
+/* sube y se apaga al final (se combina con el pop/boing de entrada) */
+@keyframes savefx-rise {
+  0%, 55% { margin-top: 0; opacity: 1; }
+  100% { margin-top: -46px; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .savefx-check, .savefx-face { animation: savefx-fade 1s ease-out both; }
+  @keyframes savefx-fade { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+}
+
+/* ===== Card del switch "cara loca" (Usuarios, solo superusuario) ===== */
+.cfg-face { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cfg-face-prev {
+  width: 54px; height: 54px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 2px dashed rgba(255,255,255,.2); background: var(--panel-2);
+  display: grid; place-items: center; color: var(--muted); font-size: 22px;
+}
+.cfg-face-prev img { width: 100%; height: 100%; object-fit: cover; }
+/* Switch tipo toggle */
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .track {
+  width: 44px; height: 24px; border-radius: 20px; flex: none;
+  background: rgba(255,255,255,.16); transition: background .18s;
+  position: relative;
+}
+.switch .track::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; transition: transform .18s; box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.switch input:checked + .track { background: var(--ok); }
+.switch input:checked + .track::after { transform: translateX(20px); }
+.switch input:disabled + .track { opacity: .45; cursor: not-allowed; }

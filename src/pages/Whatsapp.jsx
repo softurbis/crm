@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import BrainMap from '../components/BrainMap'
 
@@ -247,20 +248,20 @@ export default function Whatsapp() {
   const [proys, setProys] = useState([])
   const [brainSel, setBrainSel] = useState('cobranza')
   const [brainTxt, setBrainTxt] = useState('')
-  const [brainMsg, setBrainMsg] = useState('')
+  const [brainMsg, setBrainMsg] = useMsg('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
   const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30', saludoActivo: true, saludoHora: '07:30' })
-  const [secMsg, setSecMsg] = useState('')
+  const [secMsg, setSecMsg] = useMsg('')
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
-  const [projQMsg, setProjQMsg] = useState('')
+  const [projQMsg, setProjQMsg] = useMsg('')
   const [projFlow, setProjFlow] = useState({ reask_min: 0, max_reasks: 1, reask_text: '', reask_unit: 'min', pausa_seg: 3, media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
   const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
   const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
   const [secCards, setSecCards] = useState({})       // tarjetas de seguimiento (por sección)
   const [gerCmds, setGerCmds] = useState([])         // comandos configurables de gerencia
-  const [cfgMsg, setCfgMsg] = useState('')
+  const [cfgMsg, setCfgMsg] = useMsg('')
   const selRef = useRef(null)
   const endRef = useRef(null)
 

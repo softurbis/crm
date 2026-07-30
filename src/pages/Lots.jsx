@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useMsg, savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
@@ -102,7 +103,7 @@ export default function Lots() {
   const [consReason, setConsReason] = useState('')
   const [consOpts, setConsOpts] = useState([])           // otras ventas activas del mismo cliente
   const [uBusy, setUBusy] = useState(false)
-  const [uMsg, setUMsg] = useState(null)
+  const [uMsg, setUMsg] = useMsg(null)
 
   async function loadLots() {
     if (!pidOp) return
@@ -553,7 +554,7 @@ export default function Lots() {
     }
     const { error } = await supabase.from('lots').update(payload).eq('id', sel.id)
     if (error) { setEmsg('ERROR: ' + error.message); return }
-    setEmsg('LOTE ACTUALIZADO')
+    setEmsg('LOTE ACTUALIZADO'); savedFx()
     await loadLots()
     setSel(x => ({ ...x, ...payload, total_price: payload.area_m2 * payload.price_per_m2 }))
     setEdit(false)
@@ -588,7 +589,7 @@ export default function Lots() {
         await supabase.from('sales').update({ status: 'expropiado' }).eq('id', detail.sale.id)
         await supabase.from('daily_income').update({ observation: 'EXPROPIADO' }).eq('sale_id', detail.sale.id)
       }
-      setEmsg('ESTADO CAMBIADO A ' + chgTo.toUpperCase())
+      setEmsg('ESTADO CAMBIADO A ' + chgTo.toUpperCase()); savedFx()
       await loadLots()
       setSel(x => ({ ...x, status: chgTo }))
       setChg(false); setChgReason(''); setChgFile(null)
@@ -623,7 +624,7 @@ export default function Lots() {
     for (const r of sinTotal) {
       await supabase.from('lots').update({ total_price: Number(r.area_m2) * Number(r.price_per_m2) }).eq('id', r.id)
     }
-    setCMsg('OK: ' + rows.length + ' LOTES CREADOS EN MZ ' + mz + (saltados.length ? ' | YA EXISTIAN (saltados): ' + saltados.join(', ') : ''))
+    setCMsg('OK: ' + rows.length + ' LOTES CREADOS EN MZ ' + mz + (saltados.length ? ' | YA EXISTIAN (saltados): ' + saltados.join(', ') : '')); savedFx()
     setCBusy(false)
     loadLots()
   }
@@ -650,7 +651,7 @@ export default function Lots() {
       action: 'UPDATE', entity_type: 'separations', user_email: profile?.email || null,
       details: { cambio: 'extension_separacion', lote: sel.mz + '-' + sel.lt, cliente: sep.client?.full_name || null, antes: sep.extended_until || sep.expiration_date, despues: nueva, motivo: motivo.toUpperCase() },
     })
-    setEmsg('SEPARACION EXTENDIDA HASTA ' + nueva + ' (QUEDA EN BITACORA)')
+    setEmsg('SEPARACION EXTENDIDA HASTA ' + nueva + ' (QUEDA EN BITACORA)'); savedFx()
     setSel(x => ({ ...x }))
   }
 
@@ -676,7 +677,7 @@ export default function Lots() {
       action: 'UPDATE', entity_type: 'separations', user_email: profile?.email || null,
       details: { cambio: 'perdida_separacion', lote: sel.mz + '-' + sel.lt, cliente: sep.client?.full_name || null, monto: sep.amount, motivo: motivo.toUpperCase() },
     })
-    setEmsg('SEPARACION MARCADA COMO PERDIDA — LOTE DISPONIBLE OTRA VEZ')
+    setEmsg('SEPARACION MARCADA COMO PERDIDA — LOTE DISPONIBLE OTRA VEZ'); savedFx()
     await loadLots()
     setSel(x => ({ ...x, status: 'disponible' }))
   }

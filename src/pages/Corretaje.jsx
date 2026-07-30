@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
 const TIPOS = [
@@ -28,7 +29,7 @@ export default function Corretaje() {
   const puede = ['superuser', 'admin'].includes(role)
   const [lista, setLista] = useState([])
   const [sel, setSel] = useState(null)          // propiedad en edición (o null = lista)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useMsg('')
   const [subiendo, setSubiendo] = useState(false)
   const [fotos, setFotos] = useState([])
   const [gastos, setGastos] = useState([])

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
 // Panel del Agente de Marketing. El "cerebro" (instrucciones + fichas) vive en Supabase,
@@ -336,7 +337,7 @@ function FotosProyecto({ sigla }) {
   const [fotos, setFotos] = useState([])
   const [disenos, setDisenos] = useState([])
   const [subiendo, setSubiendo] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useMsg('')
   const [verFoto, setVerFoto] = useState(null)
   const [grupoUp, setGrupoUp] = useState('')       // grupo/categoría para el próximo lote
   const [descUp, setDescUp] = useState('')         // descripción para el próximo lote
@@ -514,7 +515,7 @@ function ConfigPanel() {
   const [sel, setSel] = useState('general')   // 'general' | sigla
   const [proy, setProy] = useState(null)
   const [cargando, setCargando] = useState(true)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useMsg('')
 
   const cargarBase = async () => {
     const [p, c] = await Promise.all([
@@ -735,7 +736,8 @@ function Constructor() {
   const [pid, setPid] = useState('')
   const [p, setP] = useState({ bloques: {} })
   const [banco, setBanco] = useState([])
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useMsg('')
+  const [dirty, setDirty] = useState(false)
   const [gest, setGest] = useState(false)
   const [nb, setNb] = useState({ tipo: 'cta', valor: '', categoria: '' })
 
@@ -748,29 +750,35 @@ function Constructor() {
     supabase.from('mkt_lego').select('*').eq('sigla', sigla).order('updated_at', { ascending: false }).then(({ data }) => setPiezas(data || []))
     supabase.from('mkt_banco').select('*').eq('sigla', sigla).eq('activo', true).order('created_at').then(({ data }) => setBanco(data || []))
   }
-  useEffect(() => { cargarProy(); setPid(''); setP({ bloques: {} }); setMsg('') }, [sigla])
-  useEffect(() => { if (pid) { const x = piezas.find(z => String(z.id) === String(pid)); if (x) setP({ ...x, bloques: x.bloques || {} }) } }, [pid])
+  useEffect(() => { cargarProy(); setPid(''); setP({ bloques: {} }); setMsg(''); setDirty(false) }, [sigla])
+  useEffect(() => { if (pid) { const x = piezas.find(z => String(z.id) === String(pid)); if (x) { setP({ ...x, bloques: x.bloques || {} }); setDirty(false) } } }, [pid])
 
-  const setEst = (k, v) => setP(o => ({ ...o, [k]: v }))
-  const setBloque = (k, v) => setP(o => ({ ...o, bloques: { ...(o.bloques || {}), [k]: v } }))
+  const setEst = (k, v) => { setP(o => ({ ...o, [k]: v })); setDirty(true) }
+  const setBloque = (k, v) => { setP(o => ({ ...o, bloques: { ...(o.bloques || {}), [k]: v } })); setDirty(true) }
   const bancoDe = t => banco.filter(b => b.tipo === t)
 
   const guardar = async () => {
-    if (!sigla) return
+    if (!sigla) return false
     setMsg('Guardando…')
     const fila = { sigla, nombre: p.nombre || null, objetivo: p.objetivo, publico: p.publico, gatillo: p.gatillo, categoria: p.categoria, tono: p.tono, formato: p.formato, red: p.red, bloques: p.bloques || {}, updated_at: new Date().toISOString() }
     let error
     if (pid) { ({ error } = await supabase.from('mkt_lego').update(fila).eq('id', pid)) }
     else { const r = await supabase.from('mkt_lego').insert(fila).select('id').single(); error = r.error; if (!error) setPid(String(r.data.id)) }
-    if (!error) cargarProy()
+    if (!error) { cargarProy(); setDirty(false) }
     setMsg(error ? 'ERROR: ' + error.message : '✅ Guardado')
+    return !error
   }
   const agregarBanco = async () => {
     if (!nb.valor.trim()) return
-    await supabase.from('mkt_banco').insert({ sigla, tipo: nb.tipo, valor: nb.valor.trim(), categoria: nb.categoria.trim() || null })
-    setNb({ ...nb, valor: '', categoria: '' }); cargarProy()
+    const { error } = await supabase.from('mkt_banco').insert({ sigla, tipo: nb.tipo, valor: nb.valor.trim(), categoria: nb.categoria.trim() || null })
+    if (error) { setMsg('ERROR AL AGREGAR: ' + error.message); return }
+    setNb({ ...nb, valor: '', categoria: '' }); cargarProy(); setMsg('Variación guardada')
   }
-  const quitarBanco = async (id) => { await supabase.from('mkt_banco').delete().eq('id', id); cargarProy() }
+  const quitarBanco = async (id) => {
+    const { error } = await supabase.from('mkt_banco').delete().eq('id', id)
+    if (error) { setMsg('ERROR AL QUITAR: ' + error.message); return }
+    cargarProy(); setMsg('Variación quitada')
+  }
 
   const componer = () => {
     const est = Object.keys(LEGO_EST).filter(k => p[k]).map(k => `${LEGO_EST_LABEL[k]}: ${p[k]}`).join(' · ')
@@ -779,6 +787,7 @@ function Constructor() {
   }
   const enviar = async () => {
     if (!sigla) return
+    if (dirty && !(await guardar())) return
     setMsg('Enviando al agente…')
     const { data: conv, error: e1 } = await supabase.from('mkt_conversaciones').insert({ sigla, titulo: `Lego: ${p.nombre || 'pieza'}`.slice(0, 60) }).select('id').single()
     if (e1) { setMsg('ERROR: ' + e1.message); return }
@@ -798,12 +807,17 @@ function Constructor() {
         <select value={sigla} onChange={e => setSigla(e.target.value)} style={{ fontSize: 13, minWidth: 200 }}>
           {proys.map(x => <option key={x.sigla} value={x.sigla}>{x.sigla} · {x.nombre}</option>)}
         </select>
-        <select value={pid} onChange={e => setPid(e.target.value)} style={{ fontSize: 12.5, minWidth: 200 }}>
+        <select value={pid} onChange={e => {
+          const id = e.target.value
+          setPid(id)
+          if (!id) { setP({ bloques: {} }); setDirty(false) }
+        }} style={{ fontSize: 12.5, minWidth: 200 }}>
           <option value="">🆕 Pieza nueva</option>
           {piezas.map(z => <option key={z.id} value={z.id}>🧩 {z.nombre || 'sin nombre'} · {z.objetivo || '—'}</option>)}
         </select>
-        <input value={p.nombre || ''} onChange={e => setP(o => ({ ...o, nombre: e.target.value }))} placeholder="Nombre de la pieza" style={{ fontSize: 12.5, textTransform: 'none', flex: '1 1 160px' }} />
+        <input value={p.nombre || ''} onChange={e => { setP(o => ({ ...o, nombre: e.target.value })); setDirty(true) }} placeholder="Nombre de la pieza" style={{ fontSize: 12.5, textTransform: 'none', flex: '1 1 160px' }} />
         <span style={{ marginLeft: 'auto' }} />
+        {dirty && <span className="warn" style={{ fontSize: 12 }}>● Cambios sin guardar</span>}
         <button className="btn" onClick={guardar} style={_btnPro}>💾 Guardar</button>
         {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
       </div>

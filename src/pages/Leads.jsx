@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
 const ETAPAS = [
@@ -27,7 +28,7 @@ export default function Leads() {
   const [nuevo, setNuevo] = useState(false)
   const [notas, setNotas] = useState([])
   const [nota, setNota] = useState('')
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [dragId, setDragId] = useState(null)
 
   async function load() {

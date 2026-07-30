@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
@@ -93,7 +94,7 @@ export default function Payments() {
   const [clients, setClients] = useState([])
   const [accounts, setAccounts] = useState([])
   const [pagos, setPagos] = useState([])
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [busy, setBusy] = useState(false)
 
   const [fq, setFq] = useState('')

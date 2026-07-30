@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { PALETA_PROYECTOS } from '../context/ProjectContext'
 
@@ -47,7 +48,7 @@ export default function Projects() {
   const [fBrochure, setFBrochure] = useState(null)
   const [fLogo, setFLogo] = useState(null)
   const [na, setNa] = useState({})
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [busy, setBusy] = useState(false)
 
   const CAMPOS = [

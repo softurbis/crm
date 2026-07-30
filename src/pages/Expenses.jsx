@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { letras, fechaLetras } from '../lib/letras'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -36,7 +37,7 @@ export default function Expenses() {
   const readOnly = role === 'manager'
   const [proyecto, setProyecto] = useState(null)
   const [list, setList] = useState([])
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [busy, setBusy] = useState(false)
   const [show, setShow] = useState(false)
   const [fq, setFq] = useState('')

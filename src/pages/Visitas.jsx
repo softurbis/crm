@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg, savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
@@ -37,7 +38,7 @@ export default function Visitas() {
   const abrirCierre = v => { setFeedbackTxt(v.resultado_note || ''); setCerrar(v) }
   const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true, msgCliente: '', msgAsesor: '' })
   const [verCfg, setVerCfg] = useState(false)
-  const [cfgMsg, setCfgMsg] = useState('')
+  const [cfgMsg, setCfgMsg] = useMsg('')
   const hoy = hoyISO()
   const esJefe = ['admin', 'superuser'].includes(role)
 
@@ -107,7 +108,7 @@ export default function Visitas() {
       ? await supabase.from('visits').update({ ...payload, reminded_at: null }).eq('id', form.id)
       : await supabase.from('visits').insert({ ...payload, created_by: profile?.id })
     if (error) { alert('ERROR: ' + error.message); return }
-    setForm(null); cargar()
+    setForm(null); savedFx(); cargar()
   }
   const setEstado = async (v, status) => { await supabase.from('visits').update({ status }).eq('id', v.id); cargar() }
   const borrar = async v => { if (confirm('¿Eliminar la visita de ' + v.client_name + '?')) { await supabase.from('visits').delete().eq('id', v.id); cargar() } }
@@ -138,14 +139,14 @@ export default function Visitas() {
       recontacto_date: recontactoDate, closed_at: new Date().toISOString(), admin_avisado_at: null,
     }).eq('id', v.id)
     if (error) { alert('ERROR: ' + error.message); return }
-    setCerrar(null); cargar()
+    setCerrar(null); savedFx(); cargar()
   }
 
   // guardar SOLO el feedback (sin cambiar el resultado ni el estado)
   const guardarFeedback = async (v, feedback) => {
     const { error } = await supabase.from('visits').update({ resultado_note: (feedback || '').trim() || null }).eq('id', v.id)
     if (error) { alert('ERROR: ' + error.message); return }
-    setCerrar(null); cargar()
+    setCerrar(null); savedFx(); cargar()
   }
 
   // reabrir una visita cerrada: vuelve a PROGRAMADA y borra su resultado

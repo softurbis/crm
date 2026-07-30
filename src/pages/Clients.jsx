@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 
@@ -27,7 +28,7 @@ export default function Clients() {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(null)
   const [form, setForm] = useState({})
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [nuevo, setNuevo] = useState(false)
   const [busy, setBusy] = useState(false)
   const [docType, setDocType] = useState('DNI')

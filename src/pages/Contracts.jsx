@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/Logo'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -88,7 +89,7 @@ export default function Contracts() {
   const [gen, setGen] = useState(null)
   const [editDoc, setEditDoc] = useState(false)
   const [data, setData] = useState(null)
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplText, setTplText] = useState('')
 

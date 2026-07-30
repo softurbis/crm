@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useMsg, faceOn, faceImg, setFaceOn, setFaceImg, savedFx } from '../lib/saveFx'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
 import { PANELS } from '../components/Layout'
@@ -9,6 +10,28 @@ const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } }
 )
+
+// Recorta la imagen a un cuadrado y la reduce a `max`px de lado, devolviéndola
+// como dataURL JPEG. Así la "cara loca" pesa ~20-30 KB y entra holgada en
+// localStorage (no se sube a ningún servidor).
+function comprimirImagen(file, max = 256) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    const img = new Image()
+    fr.onload = () => { img.src = fr.result }
+    fr.onerror = reject
+    img.onerror = reject
+    img.onload = () => {
+      const lado = Math.min(img.width, img.height)
+      const sx = (img.width - lado) / 2, sy = (img.height - lado) / 2
+      const c = document.createElement('canvas')
+      c.width = c.height = max
+      c.getContext('2d').drawImage(img, sx, sy, lado, lado, 0, 0, max, max)
+      resolve(c.toDataURL('image/jpeg', 0.85))
+    }
+    fr.readAsDataURL(file)
+  })
+}
 
 const ROLES = [
   ['superuser', 'SUPERUSUARIO (control total)'],
@@ -23,9 +46,31 @@ export default function Users() {
   const [users, setUsers] = useState([])
   const [projects, setProjects] = useState([])
   const [asig, setAsig] = useState([])
-  const [msg, setMsg] = useState(null)
+  const [msg, setMsg] = useMsg(null)
   const [nu, setNu] = useState({ role: 'secretary' })
   const [busy, setBusy] = useState(false)
+
+  // --- efecto "cara loca" al guardar (solo tú; vive en localStorage de esta PC) ---
+  const [caraOn, setCaraOn] = useState(faceOn())
+  const [caraImg, setCaraImg] = useState(faceImg())
+  async function subirCara(e) {
+    const file = e.target.files?.[0]; e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setMsg({ ok: false, t: 'Elige una imagen (JPG o PNG).' }); return }
+    try {
+      const dataUrl = await comprimirImagen(file, 256)
+      setFaceImg(dataUrl); setCaraImg(dataUrl)
+      setFaceOn(true); setCaraOn(true)
+      savedFx()   // vista previa inmediata
+    } catch { setMsg({ ok: false, t: 'No se pudo leer la imagen.' }) }
+  }
+  function toggleCara() {
+    if (!caraImg) { setMsg({ ok: false, t: 'Primero sube una foto para activar la cara.' }); return }
+    const nuevo = !caraOn
+    setFaceOn(nuevo); setCaraOn(nuevo)
+    if (nuevo) savedFx()
+  }
+  function quitarCara() { setFaceImg(''); setCaraImg(''); setFaceOn(false); setCaraOn(false) }
 
   const [seguim, setSeguim] = useState([])
   const [segAcc, setSegAcc] = useState([])
@@ -172,6 +217,27 @@ export default function Users() {
       </div>
       <p className="muted small">Jerarquia: SUPERUSUARIO (tu) &#8594; ADMINISTRADOR (edita todo, sin acceso a usuarios ni bitacora) &#8594; SECRETARIA (opera) &#8594; GERENCIA (solo ver).</p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+
+      <div className="glass form-card">
+        <p style={{ margin: 0 }}><b>⚙️ EFECTO AL GUARDAR</b> <span className="muted small">— solo tú, vive en esta computadora</span></p>
+        <p className="muted small" style={{ margin: '2px 0 8px' }}>
+          Al activarlo, cuando guardes en cualquier parte del sistema salta esta foto en vez del ✓ verde. La foto <b>no se sube a ningún lado</b>: queda solo en este navegador.
+        </p>
+        <div className="cfg-face">
+          <span className="cfg-face-prev">{caraImg ? <img src={caraImg} alt="" /> : '🙂'}</span>
+          <label className="switch">
+            <input type="checkbox" checked={caraOn} disabled={!caraImg} onChange={toggleCara} />
+            <span className="track" />
+            <span className="small">{caraOn ? 'Activado' : 'Desactivado'}</span>
+          </label>
+          <label className="btn-act" style={{ cursor: 'pointer' }}>
+            {caraImg ? 'Cambiar foto' : 'Subir foto'}
+            <input type="file" accept="image/*" hidden onChange={subirCara} />
+          </label>
+          {caraImg && <button type="button" className="btn-ghost" onClick={() => savedFx()}>Probar</button>}
+          {caraImg && <button type="button" className="btn-ghost" onClick={quitarCara}>Quitar foto</button>}
+        </div>
+      </div>
 
       <form className="glass form-card" onSubmit={crearUsuario}>
         <p><b>CREAR USUARIO NUEVO</b></p>

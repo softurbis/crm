@@ -5,6 +5,7 @@ import { useProject, colorProyecto } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import Avatar from './Avatar'
+import SaveFx from './SaveFx'
 
 // Boton flotante "volver arriba": aparece al bajar y desaparece arriba del todo.
 // En listas largas (clientes, cuotas, contratos) evita tener que scrollear a mano.
@@ -259,6 +260,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <VolverArriba />
+      <SaveFx />
     </div>
   )
 }
