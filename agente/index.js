@@ -12,6 +12,7 @@ const { createClient } = require('@supabase/supabase-js')
 const cron = require('node-cron')
 const pino = require('pino')
 const qrcode = require('qrcode-terminal')
+const crypto = require('crypto')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
@@ -1711,8 +1712,15 @@ async function extraerMedia(sock, m, msg) {
   try {
     if (Number(mm.fileLength || 0) <= 50 * 1024 * 1024) {   // tope de subida de Supabase Storage
       const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
-      const ruta = 'wa-chat/' + telDeJid(m.key.remoteJid || '') + '/' + Date.now() + '.' + extDe(mtipo, mm.mimetype, media.name)
-      const { error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true })
+      // DEDUPLICACION por huella del contenido: el mismo archivo (la imagen del
+      // flujo que el bot manda a cada lead, una foto reenviada, etc.) se guarda
+      // UNA sola vez y todos los chats apuntan a esa copia. Antes cada envio
+      // subia una copia nueva: 159 copias de un plano de 33 MB = 5.2 GB de mas.
+      const huella = crypto.createHash('sha256').update(buff).digest('hex').slice(0, 32)
+      const ruta = 'wa-chat/_unicos/' + huella + '.' + extDe(mtipo, mm.mimetype, media.name)
+      const { data: ya } = await supabase.storage.from('urbis-files').list('wa-chat/_unicos', { search: huella, limit: 1 })
+      let error = null
+      if (!ya || !ya.length) ({ error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true }))
       if (!error) media.url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
       else log('media (storage):', error.message)
     } else log('media muy pesada, no se descarga (', mm.fileLength, 'bytes )')
