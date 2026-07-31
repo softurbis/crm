@@ -896,7 +896,7 @@ select { cursor: pointer; }
 }
 .fx-clear:hover { background: var(--error); color: #0d150f; border-color: var(--error); }
 
-/* ---- fechas editables por superusuario (cronograma / ficha) ---- */
+/* ---- campos editables por superusuario (cronograma / ficha) ---- */
 .fecha-edit {
   background: transparent; border: 1px dashed rgba(156,203,134,.4); color: inherit;
   border-radius: 6px; padding: 1px 6px; font: inherit; font-size: inherit;

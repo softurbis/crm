@@ -359,6 +359,75 @@ export default function Lots() {
     reload()
   }
 
+  // ---- CAMBIAR MONTO DESDE UNA CUOTA (superusuario) ----
+  // Se conserva todo lo ya pactado/pagado antes de la cuota elegida. El nuevo
+  // importe se replica hasta la penultima cuota y la ultima absorbe el ajuste
+  // de centavos para que el cronograma siga sumando exactamente lo financiado.
+  async function editarMontoCuotasDesde(q) {
+    const inst = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
+    const inicio = inst.findIndex(i => i.id === q.id)
+    const ultima = inst.length - 1
+    if (inicio < 0 || ultima < 1) { alert('SE NECESITAN AL MENOS DOS CUOTAS PARA HACER ESTE AJUSTE.'); return }
+    if (inicio === ultima) { alert('LA ULTIMA CUOTA SE CALCULA SOLA PARA CUADRAR EL SALDO. Elige una cuota anterior.'); return }
+
+    const afectadas = inst.slice(inicio)
+    if (afectadas.some(i => i.status === 'pagado')) {
+      alert('NO SE PUEDE CAMBIAR ESTE TRAMO PORQUE INCLUYE CUOTAS YA PAGADAS. Elige una cuota posterior a la ultima pagada.')
+      return
+    }
+
+    const montoStr = prompt(
+      'Nuevo monto fijo desde la cuota ' + q.installment_number + ' hasta la ' + inst[ultima - 1].installment_number + ' (S/).\n\n' +
+      'La cuota ' + inst[ultima].installment_number + ' se calculara automaticamente para cuadrar el saldo:',
+      Number(q.amount).toFixed(2),
+    )
+    if (montoStr === null) return
+    const monto = Math.round(Number(String(montoStr).replace(',', '.')) * 100) / 100
+    if (!(monto > 0)) { alert('MONTO INVALIDO.'); return }
+
+    const fijos = inst.slice(inicio, ultima)
+    const minimoFijo = Math.max(...fijos.map(i => Number(i.amount_paid || 0)))
+    if (monto < minimoFijo - 0.004) {
+      alert('EL MONTO NO PUEDE SER MENOR A LO YA PAGADO EN UNA CUOTA DEL TRAMO (S/ ' + minimoFijo.toFixed(2) + ').')
+      return
+    }
+
+    const antes = inst.slice(0, inicio).reduce((s, i) => s + Number(i.amount), 0)
+    const montoFinal = Math.round((Number(detail.sale.financed_amount) - antes - monto * fijos.length) * 100) / 100
+    const cuotaFinal = inst[ultima]
+    if (montoFinal <= 0) {
+      alert('ESE MONTO DEJA LA ULTIMA CUOTA EN S/ ' + montoFinal.toFixed(2) + '. Usa un monto menor para que el cronograma cuadre.')
+      return
+    }
+    if (montoFinal < Number(cuotaFinal.amount_paid || 0) - 0.004) {
+      alert('ESE MONTO DEJA LA ULTIMA CUOTA (S/ ' + montoFinal.toFixed(2) + ') POR DEBAJO DE LO QUE YA SE PAGO (S/ ' + Number(cuotaFinal.amount_paid).toFixed(2) + ').')
+      return
+    }
+
+    const motivo = prompt('Motivo del cambio de cuotas (obligatorio):')
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const resumen = 'Cuotas ' + q.installment_number + ' a ' + fijos[fijos.length - 1].installment_number + ': S/ ' + monto.toFixed(2) +
+      ' cada una. Cuota ' + cuotaFinal.installment_number + ': S/ ' + montoFinal.toFixed(2) + '.'
+    if (!confirm('CAMBIAR CRONOGRAMA\n\n' + resumen + '\n\nNo se modifican pagos registrados.\nMotivo: ' + motivo.trim().toUpperCase() + '\n\nConfirmar?')) return
+
+    const idsFijos = fijos.map(i => i.id)
+    const { error: e1 } = await supabase.from('installments').update({ amount: monto }).in('id', idsFijos)
+    if (e1) { alert('ERROR: ' + e1.message); return }
+    const { error: e2 } = await supabase.from('installments').update({ amount: montoFinal }).eq('id', cuotaFinal.id)
+    if (e2) { alert('ERROR: ' + e2.message); return }
+    const { error: e3 } = await supabase.from('sales').update({ monthly_amount: monto }).eq('id', detail.sale.id)
+    if (e3) { alert('ERROR: ' + e3.message); return }
+    await logCambio('installments', detail.sale.id, {
+      cambio: 'monto_cuotas_desde', lote: sel.mz + '-' + sel.lt,
+      desde_cuota: q.installment_number, hasta_cuota: fijos[fijos.length - 1].installment_number,
+      monto_fijo: monto, cuota_ajuste: cuotaFinal.installment_number, monto_cuota_ajuste: montoFinal,
+      motivo: motivo.trim().toUpperCase(),
+    })
+    alert('CRONOGRAMA ACTUALIZADO. ' + resumen + ' MOTIVO REGISTRADO EN BITACORA.')
+    reload()
+  }
+
   // ---- EDITAR FECHA DE VENCIMIENTO de una cuota (superusuario) ----
   async function editarVence(q) {
     const nueva = prompt('Nueva fecha de VENCIMIENTO de la cuota ' + q.installment_number + ' (AAAA-MM-DD):', q.due_date || '')
@@ -1156,7 +1225,7 @@ export default function Lots() {
                   onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
               </>)}
             </h4>
-            {role === 'superuser' && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en una fecha de <b>VENCE</b> o <b>PAGADA EL</b> para corregirla.</p>}
+            {role === 'superuser' && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
               <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>N°</th><th>VENCE</th><th>MONTO</th><th>PAGADO</th><th>ESTADO</th><th>PAGADA EL</th></tr></thead>
               <tbody>
@@ -1193,7 +1262,9 @@ export default function Lots() {
                       <td>{sup
                         ? <button className="fecha-edit" onClick={() => editarVence(q)} title="Corregir vencimiento">{q.due_date?.split('-').reverse().join('/')} <span>✎</span></button>
                         : q.due_date?.split('-').reverse().join('/')}</td>
-                      <td>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                      <td>{sup
+                        ? <button className="fecha-edit" onClick={() => editarMontoCuotasDesde(q)} title="Cambiar el monto desde esta cuota">S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })} <span>✎</span></button>
+                        : <>S/ {Number(q.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</>}</td>
                       <td>S/ {Number(q.amount_paid).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
                       <td><span className={q.status === 'pagado' ? 'ok' : q.status === 'vencido' ? 'bad' : 'warn'}>&#9679; {q.status.toUpperCase()}</span></td>
                       <td>{sup && pagadaEl
