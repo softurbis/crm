@@ -114,8 +114,14 @@ export default function Lots() {
     loadLots()
     supabase.from('clients').select('id, full_name, doc_number').order('full_name')
       .then(({ data }) => setClientes(data || []))
-    supabase.from('installments').select('sales!inner(lot_id, status, lot:lots!inner(project_id))').eq('status', 'vencido')
-      .then(({ data }) => setVencidos(new Set((data || []).filter(r => r.sales.status === 'en_proceso' && r.sales.lot?.project_id === pidOp).map(r => r.sales.lot_id))))
+    // "vencida" se calcula EN VIVO (fecha ya pasada + no pagada + con saldo), no por el
+    // estado guardado, para que el mapa nunca quede desactualizado si nadie tocó la cuota.
+    const hoyVenc = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)   // fecha Perú (UTC-5)
+    supabase.from('installments').select('amount, amount_paid, sales!inner(lot_id, status, lot:lots!inner(project_id))')
+      .neq('status', 'pagado').lt('due_date', hoyVenc)
+      .then(({ data }) => setVencidos(new Set((data || [])
+        .filter(r => r.sales.status === 'en_proceso' && r.sales.lot?.project_id === pidOp && (Number(r.amount) - Number(r.amount_paid)) > 2)
+        .map(r => r.sales.lot_id))))
     // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
       .then(({ data }) => { const m = new Map(); for (const r of (data || [])) m.set(r.lot_id, (m.get(r.lot_id) || 0) + 1); setExpropiados(m) })
