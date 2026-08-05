@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Documentación del sistema Urbis Control — CRM de venta de lotes.">
+<title>Urbis Control — Documentación del sistema</title>
+<style>
+  html,body{margin:0;padding:0;background:#0e1613}
+  @media (prefers-color-scheme: light){html,body{background:#eef1ea}}
+  body{display:flex;justify-content:center}
+  .u-wrap{max-width:1120px;width:100%}
+</style>
+</head>
+<body>
+<style>
+  :root{
+    --ground:#eef1ea; --panel:#ffffff; --panel2:#e7ece1; --ink:#18231c; --ink2:#3f4d42;
+    --muted:#5f6d5f; --accent:#2f7d4c; --accent2:#256b3f; --line:rgba(20,40,25,.12);
+    --ok:#1f8a52; --warn:#b07a12; --crit:#c0463a; --shadow:0 10px 30px rgba(20,40,25,.10);
+    --radius:14px;
+    --sans:-apple-system,'Segoe UI',system-ui,Roboto,sans-serif;
+    --mono:ui-monospace,'Cascadia Code','Consolas',monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#0e1613; --panel:#17221b; --panel2:#1e2c23; --ink:#eef3ea; --ink2:#c4d1c2;
+      --muted:#9aa896; --accent:#9ccb86; --accent2:#bfe3a6; --line:rgba(255,255,255,.09);
+      --ok:#6fdd9b; --warn:#e6b34a; --crit:#ff8e7a; --shadow:0 12px 34px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#eef1ea; --panel:#ffffff; --panel2:#e7ece1; --ink:#18231c; --ink2:#3f4d42;
+    --muted:#5f6d5f; --accent:#2f7d4c; --accent2:#256b3f; --line:rgba(20,40,25,.12);
+    --ok:#1f8a52; --warn:#b07a12; --crit:#c0463a; --shadow:0 10px 30px rgba(20,40,25,.10);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0e1613; --panel:#17221b; --panel2:#1e2c23; --ink:#eef3ea; --ink2:#c4d1c2;
+    --muted:#9aa896; --accent:#9ccb86; --accent2:#bfe3a6; --line:rgba(255,255,255,.09);
+    --ok:#6fdd9b; --warn:#e6b34a; --crit:#ff8e7a; --shadow:0 12px 34px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  .u-wrap{
+    font-family:var(--sans); color:var(--ink); background:
+      radial-gradient(900px 520px at 88% -12%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 60%),
+      var(--ground);
+    min-height:640px; border-radius:16px; overflow:hidden; position:relative;
+    line-height:1.6; padding:0;
+  }
+  .u-stage{padding:34px clamp(20px,5vw,64px) 20px; min-height:600px; display:flex; flex-direction:column}
+  .slide{display:none; animation:fade .34s ease both}
+  .u-wrap.is-doc .slide{display:block; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:22px}
+  .u-wrap.is-deck .slide.active{display:block}
+  @keyframes fade{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+  @media (prefers-reduced-motion: reduce){.slide{animation:none}}
+
+  .eyebrow{font-family:var(--mono); font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--accent); font-weight:600; margin-bottom:10px; display:flex; align-items:center; gap:8px}
+  .eyebrow::before{content:""; width:22px; height:2px; background:var(--accent); display:inline-block}
+  h1.title{font-size:clamp(30px,5.4vw,52px); line-height:1.04; margin:.1em 0 .35em; font-weight:800;
+    letter-spacing:-.02em; text-wrap:balance}
+  h2.title{font-size:clamp(23px,3.6vw,34px); line-height:1.1; margin:.1em 0 .5em; font-weight:750;
+    letter-spacing:-.015em; text-wrap:balance}
+  .lead{font-size:clamp(16px,2vw,19px); color:var(--ink2); max-width:64ch}
+  .muted{color:var(--muted)}
+  .mono{font-family:var(--mono)}
+  b,strong{font-weight:700}
+
+  .grid{display:grid; gap:14px; margin-top:20px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px 18px; box-shadow:var(--shadow)}
+  .card h3{margin:0 0 6px; font-size:16.5px; display:flex; align-items:center; gap:9px; font-weight:700}
+  .card p{margin:0; font-size:14.5px; color:var(--ink2)}
+  .ico{width:30px; height:30px; flex:none; border-radius:9px; display:grid; place-items:center;
+    background:color-mix(in srgb,var(--accent) 18%,transparent); font-size:16px}
+
+  .kv{display:flex; flex-direction:column; gap:2px}
+  .badges{display:flex; flex-wrap:wrap; gap:8px; margin-top:22px}
+  .badge{font-family:var(--mono); font-size:12.5px; padding:6px 11px; border-radius:999px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink2); white-space:nowrap}
+  .pill{font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase;
+    padding:2px 9px; border-radius:999px; font-weight:600}
+  .pill.ok{color:var(--ok); background:color-mix(in srgb,var(--ok) 15%,transparent)}
+  .pill.warn{color:var(--warn); background:color-mix(in srgb,var(--warn) 16%,transparent)}
+  .pill.crit{color:var(--crit); background:color-mix(in srgb,var(--crit) 15%,transparent)}
+
+  ul.clean{list-style:none; padding:0; margin:14px 0 0; display:flex; flex-direction:column; gap:9px}
+  ul.clean li{padding-left:24px; position:relative; font-size:15px; color:var(--ink2)}
+  ul.clean li::before{content:""; position:absolute; left:2px; top:9px; width:8px; height:8px;
+    border-radius:50%; background:var(--accent)}
+  ul.clean li.no::before{background:var(--crit)}
+  ul.clean li b{color:var(--ink)}
+
+  .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin-top:22px}
+  .node{flex:1; min-width:150px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:14px 15px; box-shadow:var(--shadow)}
+  .node .t{font-weight:700; font-size:15px; margin-bottom:3px}
+  .node .d{font-size:13px; color:var(--muted)}
+  .node.accent{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));
+    background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+  .arrow{align-self:center; color:var(--muted); font-size:20px; flex:none}
+
+  .lvl{display:flex; gap:14px; align-items:flex-start; padding:13px 0; border-top:1px solid var(--line)}
+  .lvl:first-of-type{border-top:none}
+  .lvl .n{font-family:var(--mono); font-weight:700; font-size:15px; width:54px; flex:none;
+    color:var(--accent); padding-top:2px}
+  .lvl .b{flex:1}
+  .lvl .b .h{font-weight:700; font-size:15.5px}
+  .lvl .b .p{font-size:14px; color:var(--ink2); margin-top:2px}
+
+  .stat-row{display:flex; flex-wrap:wrap; gap:26px; margin-top:20px}
+  .stat .n{font-size:34px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+    color:var(--accent)}
+  .stat .l{font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em}
+
+  /* nav */
+  .u-nav{position:sticky; bottom:0; display:flex; align-items:center; gap:14px;
+    padding:12px clamp(20px,5vw,64px); background:color-mix(in srgb,var(--ground) 88%,transparent);
+    border-top:1px solid var(--line); backdrop-filter:blur(8px)}
+  .u-wrap.is-doc .u-nav{display:none}
+  .dots{display:flex; gap:6px; flex-wrap:wrap; flex:1; justify-content:center}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--line); border:none; padding:0; cursor:pointer;
+    transition:background .2s, transform .2s}
+  .dot.on{background:var(--accent); transform:scale(1.25)}
+  .nbtn{font-family:var(--sans); font-size:14px; font-weight:600; cursor:pointer; color:var(--ink);
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 15px;
+    display:inline-flex; align-items:center; gap:6px}
+  .nbtn:hover{border-color:var(--accent); color:var(--accent)}
+  .nbtn:disabled{opacity:.4; cursor:not-allowed}
+  .nbtn:focus-visible,.dot:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .count{font-family:var(--mono); font-size:13px; color:var(--muted); min-width:52px; text-align:center}
+  .brandmark{position:absolute; top:20px; right:clamp(20px,5vw,64px); font-family:var(--mono); font-size:12px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--muted)}
+  .footnote{margin-top:auto; padding-top:18px; font-size:12.5px; color:var(--muted); font-family:var(--mono)}
+  .credit{margin-top:26px; padding-top:15px; border-top:1px solid var(--line); border-radius:0;
+    font-size:14.5px; color:var(--ink2)}
+  .credit b{color:var(--accent); font-weight:700; letter-spacing:.01em}
+  table.mini{border-collapse:collapse; width:100%; margin-top:16px; font-size:14px}
+  table.mini th,table.mini td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line)}
+  table.mini th{font-family:var(--mono); font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted)}
+  table.mini td b{color:var(--ink)}
+  .split{display:grid; grid-template-columns:1fr 1fr; gap:26px}
+  @media (max-width:680px){.split{grid-template-columns:1fr}}
+</style>
+
+<div class="u-wrap is-doc" id="deck">
+  <div class="brandmark">Urbis Control</div>
+  <div class="u-stage">
+
+    <!-- 1 · PORTADA -->
+    <section class="slide" data-name="Portada">
+      <div class="eyebrow">Sistema Urbis · Documentación</div>
+      <h1 class="title">Urbis Control</h1>
+      <p class="lead">El CRM que corre toda la venta de lotes de Urbis Group — de la captación del lead
+      por WhatsApp hasta la cobranza de la última cuota, con todo el equipo trabajando sobre una sola base.</p>
+      <div class="stat-row">
+        <div class="stat"><div class="n">2</div><div class="l">proyectos activos</div></div>
+        <div class="stat"><div class="n">~400</div><div class="l">lotes</div></div>
+        <div class="stat"><div class="n">247</div><div class="l">leads captados</div></div>
+        <div class="stat"><div class="n">17</div><div class="l">módulos</div></div>
+      </div>
+      <div class="badges">
+        <span class="badge">React + Vite</span>
+        <span class="badge">Supabase · Postgres/Auth/Storage</span>
+        <span class="badge">WhatsApp · bot + API oficial</span>
+        <span class="badge">GitHub Pages</span>
+        <span class="badge">Droplet DigitalOcean</span>
+      </div>
+      <div class="footnote">En producción: softurbis.github.io/crm · Página pública: /propiedades</div>
+    </section>
+
+    <!-- 2 · ARQUITECTURA -->
+    <section class="slide" data-name="Cómo está armado">
+      <div class="eyebrow">Arquitectura</div>
+      <h2 class="title">Cómo está armado</h2>
+      <p class="lead">Cuatro piezas que se hablan entre sí. El panel es lo que ve el equipo;
+      Supabase guarda todo; el droplet es el cerebro que trabaja solo; Meta lleva y trae los WhatsApp.</p>
+      <div class="flow">
+        <div class="node"><div class="t">Panel web</div><div class="d">React en GitHub Pages. Lo que abre el equipo en el navegador.</div></div>
+        <div class="arrow">↔</div>
+        <div class="node accent"><div class="t">Supabase</div><div class="d">La base de datos, los archivos (vouchers, DNI, fotos) y los usuarios.</div></div>
+        <div class="arrow">↔</div>
+        <div class="node"><div class="t">Droplet</div><div class="d">Bot de WhatsApp, agente de marketing y el backup diario. Siempre encendido.</div></div>
+        <div class="arrow">↔</div>
+        <div class="node"><div class="t">WhatsApp / Meta</div><div class="d">El canal por el que entran leads y salen los recordatorios de cobranza.</div></div>
+      </div>
+      <div class="footnote">Editar el panel → build → push → se publica solo. El droplet se actualiza con git pull.</div>
+    </section>
+
+    <!-- 3 · ROLES -->
+    <section class="slide" data-name="Quién ve qué">
+      <div class="eyebrow">Permisos</div>
+      <h2 class="title">Quién ve qué</h2>
+      <p class="lead">Cinco roles en jerarquía. Cada quien entra al sistema y solo ve y toca lo que le toca —
+      lo controla la base (RLS), no un simple candado en pantalla.</p>
+      <div class="grid g3">
+        <div class="card"><h3><span class="ico">👑</span>Superusuario</h3><p>Control total. Único que ve la bitácora, gestiona usuarios y hace los cuadres delicados.</p></div>
+        <div class="card"><h3><span class="ico">🛠️</span>Administrador</h3><p>Edita todo (ventas, cuotas, gastos) pero no toca usuarios ni bitácora.</p></div>
+        <div class="card"><h3><span class="ico">📋</span>Secretaria</h3><p>Opera el día a día: registra pagos, atiende chats, agenda visitas.</p></div>
+        <div class="card"><h3><span class="ico">👁️</span>Gerencia</h3><p>Solo ver. Dashboard y reportes sin poder modificar nada.</p></div>
+        <div class="card"><h3><span class="ico">🤝</span>Asesor</h3><p>Solo el chat de WhatsApp de sus proyectos. Recibe los leads que le derivan.</p></div>
+      </div>
+    </section>
+
+    <!-- 4 · MAPA DE MÓDULOS -->
+    <section class="slide" data-name="Mapa de módulos">
+      <div class="eyebrow">Panorama</div>
+      <h2 class="title">Los módulos, de un vistazo</h2>
+      <div class="grid g2">
+        <div class="card"><h3><span class="ico">🏷️</span>Comercial</h3><p>Dashboard · Clientes · Leads y Seguimiento · Visitas · Corretaje (venta de inmuebles de terceros).</p></div>
+        <div class="card"><h3><span class="ico">🗺️</span>Operación por proyecto</h3><p>Mapa de lotes · Ventas · Cuotas · Gastos · Contratos · Comisiones.</p></div>
+        <div class="card"><h3><span class="ico">💬</span>Comunicación</h3><p>Bandeja de WhatsApp unificada · Bot de leads · Cobranza automática.</p></div>
+        <div class="card"><h3><span class="ico">🎨</span>Marketing</h3><p>Agente que produce contenido gráfico y lleva la parrilla.</p></div>
+        <div class="card"><h3><span class="ico">🔐</span>Administración</h3><p>Usuarios y permisos · Bitácora · Proyectos.</p></div>
+        <div class="card"><h3><span class="ico">🌐</span>Página pública</h3><p>/propiedades — el escaparate de lotes y corretaje hacia afuera.</p></div>
+      </div>
+    </section>
+
+    <!-- 5 · COMERCIAL -->
+    <section class="slide" data-name="Comercial">
+      <div class="eyebrow">Módulos · Comercial</div>
+      <h2 class="title">Captar y hacer seguimiento</h2>
+      <ul class="clean">
+        <li><b>Dashboard</b> — la foto del negocio: ventas, cobranza, cuotas por vencer, embudo de leads.</li>
+        <li><b>Clientes</b> — ficha de cada comprador: DNI (frente/reverso o un solo doc), teléfonos, notas.</li>
+        <li><b>Leads / Seguimiento</b> — el kanban de interesados: de <span class="mono">nuevo</span> a <span class="mono">ganado</span>, con temperatura (frío/tibio/caliente) y motivo si se pierde.</li>
+        <li><b>Visitas</b> — agenda de visitas al proyecto con encargado, punto de encuentro, recordatorios y cierre con resultado (asistió / no vino / recontactar).</li>
+        <li><b>Corretaje</b> — módulo aparte para vender inmuebles de terceros, con su propia página pública.</li>
+      </ul>
+    </section>
+
+    <!-- 6 · OPERACIÓN POR PROYECTO -->
+    <section class="slide" data-name="Operación por proyecto">
+      <div class="eyebrow">Módulos · Operación</div>
+      <h2 class="title">El corazón: lotes, ventas y cuotas</h2>
+      <ul class="clean">
+        <li><b>Mapa de lotes</b> — cada lote pintado por estado (disponible, separado, vendido, expropiado). Filtro "con vencidas". Creación masiva de lotes.</li>
+        <li><b>Ventas</b> — la venta de un lote: precio = separación + inicial + financiado; cronograma de cuotas.</li>
+        <li><b>Cuotas</b> — registrar pagos con <b>lectura de voucher (OCR)</b>: lee monto, N° de operación, fecha y banco de la imagen y los sugiere, sin autocompletar a ciegas.</li>
+        <li><b>Gastos</b> — solicitudes de gasto con correlativo, constancia imprimible y flujo de aprobación.</li>
+        <li><b>Contratos</b> — plantilla por proyecto, contrato firmado y documentos de respaldo.</li>
+        <li><b>Comisiones</b> — vendedores/asesores y el pago de sus comisiones con su recibo.</li>
+      </ul>
+    </section>
+
+    <!-- 7 · CUADRE SUPERUSUARIO -->
+    <section class="slide" data-name="Cuadre de migración">
+      <div class="eyebrow">Operación · Superusuario</div>
+      <h2 class="title">Herramientas de cuadre</h2>
+      <p class="lead">Los datos vinieron migrados de Excel y algunos llegaron torcidos. El superusuario tiene
+      bisturíes para corregir sin romper la caja real (los vouchers y sus montos nunca se tocan).</p>
+      <div class="grid g2">
+        <div class="card"><h3>Cambiar titular · Consolidar lotes</h3><p>Reasignar un lote a otro cliente o unir 2 lotes en uno.</p></div>
+        <div class="card"><h3>Recuadrar cuotas</h3><p>Redistribuir lo ya pagado en las cuotas, en orden, sin mover los pagos de caja.</p></div>
+        <div class="card"><h3>Insertar cuota faltante</h3><p>Para cronogramas migrados con un hueco (falta la cuota 11, etc.).</p></div>
+        <div class="card"><h3>Editar fechas</h3><p>Vencimiento, fecha de pago, entrega o venta — cada cambio queda en la bitácora.</p></div>
+      </div>
+    </section>
+
+    <!-- 8 · COBRANZA AUTOMÁTICA -->
+    <section class="slide" data-name="Cobranza automática">
+      <div class="eyebrow">Automatización</div>
+      <h2 class="title">Cobranza automática, en 4 niveles</h2>
+      <p class="lead">El sistema vigila cada cuota y escala el tono solo. El interruptor por venta permite
+      apagar la cobranza de un lote puntual desde el Mapa de lotes.</p>
+      <div style="margin-top:8px">
+        <div class="lvl"><div class="n">A</div><div class="b"><div class="h">Al día</div><div class="p">Avisos amables 5 y 3 días antes, y el mismo día del vencimiento.</div></div></div>
+        <div class="lvl"><div class="n">A+</div><div class="b"><div class="h">Recién vencida</div><div class="p">Re-aviso a los 2 y 4 días; luego pasa a gestión humana (alerta al admin).</div></div></div>
+        <div class="lvl"><div class="n">B</div><div class="b"><div class="h">2 cuotas vencidas</div><div class="p">Recordatorio cada 3 días pidiendo regularizar.</div></div></div>
+        <div class="lvl"><div class="n">C</div><div class="b"><div class="h">3 o más vencidas</div><div class="p">Mensaje severo: riesgo de resolución del contrato conforme a lo firmado.</div></div></div>
+      </div>
+    </section>
+
+    <!-- 9 · BOT DE LEADS -->
+    <section class="slide" data-name="Bot de leads">
+      <div class="eyebrow">Automatización</div>
+      <h2 class="title">El bot que atiende a los interesados</h2>
+      <p class="lead">Cuando alguien escribe al WhatsApp de un proyecto, el bot corre un flujo que
+      <b>tú diseñas desde el panel</b> (Constructor) — no está escrito a fuego en el código.</p>
+      <div class="split">
+        <ul class="clean">
+          <li>Saluda, identifica el proyecto por el número al que escribieron.</li>
+          <li>Envía fotos, plano y video del proyecto según el flujo.</li>
+          <li>Hace las preguntas de calificación (ramas por palabra clave o número).</li>
+        </ul>
+        <ul class="clean">
+          <li>Registra al lead en el kanban con sus respuestas.</li>
+          <li>Deriva a un <b>asesor humano</b>, que sigue desde su propio celular.</li>
+          <li>Si alguien del panel responde, el bot <b>se calla</b> en ese chat (modo humano).</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 10 · WHATSAPP MIGRACIÓN -->
+    <section class="slide" data-name="WhatsApp: canal oficial">
+      <div class="eyebrow">Comunicación · En transición</div>
+      <h2 class="title">De la conexión "pirata" al canal oficial</h2>
+      <p class="lead">El bot funcionaba con Baileys (WhatsApp no oficial) y eso terminó en cuentas
+      bloqueadas. Se está migrando al canal <b>oficial de Meta</b>, donde el envío masivo es el uso previsto.</p>
+      <div class="flow">
+        <div class="node"><div class="t">Antes · Baileys</div><div class="d">No oficial. Ráfagas de cobranza = riesgo de baneo permanente.</div></div>
+        <div class="arrow">→</div>
+        <div class="node accent"><div class="t">Ahora · Cloud API oficial</div><div class="d">Número verificado, plantillas aprobadas, cero riesgo de baneo. El panel no cambia.</div></div>
+      </div>
+      <ul class="clean">
+        <li>Número nuevo → <b>leads</b> (responder es gratis).</li>
+        <li>Número antiguo oficial → <b>cobranza</b> con plantillas (centavos por mensaje).</li>
+      </ul>
+    </section>
+
+    <!-- 11 · MARKETING -->
+    <section class="slide" data-name="Agente de marketing">
+      <div class="eyebrow">Módulos · Marketing</div>
+      <h2 class="title">El agente de marketing</h2>
+      <p class="lead">Un asistente que ayuda a producir el contenido de las redes de Urbis, dentro del mismo panel.</p>
+      <div class="grid g3">
+        <div class="card"><h3>💬 Chat</h3><p>Conversas con el agente; propone temáticas, copy y genera imágenes.</p></div>
+        <div class="card"><h3>🏭 Producción</h3><p>Las piezas producidas quedan archivadas y listas para publicar.</p></div>
+        <div class="card"><h3>🧩 Constructor</h3><p>Armas piezas por bloques: objetivo, público, gancho, formato, red.</p></div>
+      </div>
+      <div class="footnote">Corre en el droplet (headless). Cerebro OpenAI. Hoy limitado por crédito de OpenAI.</div>
+    </section>
+
+    <!-- 12 · DIFERENCIADORES -->
+    <section class="slide" data-name="Lo que hace bien">
+      <div class="eyebrow">Fortalezas</div>
+      <h2 class="title">Lo que hace especialmente bien</h2>
+      <div class="grid g2">
+        <div class="card"><h3><span class="ico">🧾</span>OCR de vouchers</h3><p>Lee el comprobante en el navegador (gratis) y cuadra contra la cuota que toca.</p></div>
+        <div class="card"><h3><span class="ico">📋</span>Bitácora blindada</h3><p>Registra TODO y ni el superusuario puede borrarla — sirve de control real.</p></div>
+        <div class="card"><h3><span class="ico">🎨</span>Un número por proyecto</h3><p>Bandeja unificada, cada chat teñido con el color de su proyecto.</p></div>
+        <div class="card"><h3><span class="ico">🔒</span>Permisos por base (RLS)</h3><p>La seguridad vive en la base, no solo en la pantalla: no se salta.</p></div>
+      </div>
+    </section>
+
+    <!-- 13 · LO QUE NO HACE -->
+    <section class="slide" data-name="Lo que NO hace">
+      <div class="eyebrow">Límites · Honestidad</div>
+      <h2 class="title">Lo que el sistema NO hace (todavía)</h2>
+      <ul class="clean">
+        <li class="no">No es <b>contabilidad formal</b> ni emite comprobantes electrónicos a SUNAT.</li>
+        <li class="no">No hay <b>app móvil nativa</b>: se usa desde el navegador (funciona en el celular).</li>
+        <li class="no">La cobranza y los leads <b>dependen de WhatsApp</b>; si el canal cae, se opera a mano.</li>
+        <li class="no"><b>No marca la mora solo</b>: una cuota que vence sigue como "pendiente" hasta que algo la toca — <span class="pill warn">pendiente</span> queda arreglarlo con recálculo en vivo.</li>
+        <li class="no">El agente de marketing no produce de verdad sin <b>crédito de OpenAI</b>.</li>
+      </ul>
+    </section>
+
+    <!-- 14 · INFRAESTRUCTURA -->
+    <section class="slide" data-name="Infraestructura y costos">
+      <div class="eyebrow">Operación</div>
+      <h2 class="title">Dónde vive y cuánto cuesta</h2>
+      <table class="mini">
+        <thead><tr><th>Pieza</th><th>Qué es</th><th>Costo</th></tr></thead>
+        <tbody>
+          <tr><td><b>Panel web</b></td><td>React en GitHub Pages</td><td>gratis</td></tr>
+          <tr><td><b>Supabase</b></td><td>Base + archivos + auth (plan Free)</td><td>$0 (tras limpiar 6.6 GB de basura)</td></tr>
+          <tr><td><b>Droplet</b></td><td>Bot, marketing y backups</td><td>~$6 / mes</td></tr>
+          <tr><td><b>WhatsApp oficial</b></td><td>Cloud API de Meta</td><td>leads gratis · cobranza centavos</td></tr>
+          <tr><td><b>Backup diario</b></td><td>pg_dump + archivos, 3:00 am</td><td>gratis</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 15 · ESTADO -->
+    <section class="slide" data-name="Estado y pendientes">
+      <div class="eyebrow">Roadmap</div>
+      <h2 class="title">Dónde estamos hoy</h2>
+      <div class="split">
+        <div>
+          <div class="pill ok" style="margin-bottom:10px; display:inline-block">Listo y en producción</div>
+          <ul class="clean">
+            <li>CRM completo operando a diario.</li>
+            <li>Backup diario montado y verificado.</li>
+            <li>Storage limpio, debajo del límite gratis.</li>
+            <li>Canal oficial de WhatsApp funcionando (prueba).</li>
+          </ul>
+        </div>
+        <div>
+          <div class="pill warn" style="margin-bottom:10px; display:inline-block">En curso / pendiente</div>
+          <ul class="clean">
+            <li class="no">Migrar los 2 números reales a la API oficial.</li>
+            <li class="no">Recálculo en vivo de cuotas vencidas.</li>
+            <li class="no">Cobranza por plantillas oficiales.</li>
+            <li class="no">Recargar crédito de OpenAI (marketing).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 16 · CIERRE -->
+    <section class="slide" data-name="Cierre">
+      <div class="eyebrow">En una frase</div>
+      <h1 class="title" style="font-size:clamp(26px,4.4vw,42px)">Una sola base para vender lotes,
+      cobrarlos y atender a la gente — con el equipo entero mirando lo mismo.</h1>
+      <p class="lead">Urbis Control reemplazó los Excel sueltos por un sistema que capta, vende, cobra y
+      deja rastro de todo. Lo que viene es blindar el WhatsApp y afinar los detalles.</p>
+      <div class="credit">Desarrollado por <b>Ing. César O'Higgins</b></div>
+      <div class="footnote">Documentación del sistema · Urbis Group · softurbis.github.io/crm</div>
+    </section>
+
+  </div>
+
+  <nav class="u-nav" aria-label="Navegación de diapositivas">
+    <button class="nbtn" id="prev">← Anterior</button>
+    <div class="dots" id="dots"></div>
+    <span class="count" id="count"></span>
+    <button class="nbtn" id="next">Siguiente →</button>
+  </nav>
+</div>
+
+<script>
+(function(){
+  var deck=document.getElementById('deck');
+  var slides=[].slice.call(deck.querySelectorAll('.slide'));
+  var dotsBox=document.getElementById('dots');
+  var count=document.getElementById('count');
+  var prev=document.getElementById('prev'), next=document.getElementById('next');
+  var i=0;
+  deck.classList.remove('is-doc'); deck.classList.add('is-deck');
+  slides.forEach(function(s,idx){
+    var b=document.createElement('button');
+    b.className='dot'; b.setAttribute('aria-label','Ir a: '+s.dataset.name);
+    b.addEventListener('click',function(){go(idx)});
+    dotsBox.appendChild(b);
+  });
+  var dots=[].slice.call(dotsBox.children);
+  function render(){
+    slides.forEach(function(s,idx){s.classList.toggle('active',idx===i)});
+    dots.forEach(function(d,idx){d.classList.toggle('on',idx===i)});
+    count.textContent=(i+1)+' / '+slides.length;
+    prev.disabled=(i===0); next.disabled=(i===slides.length-1);
+  }
+  function go(n){i=Math.max(0,Math.min(slides.length-1,n)); render();
+    deck.scrollIntoView({behavior:'smooth',block:'nearest'});}
+  prev.addEventListener('click',function(){go(i-1)});
+  next.addEventListener('click',function(){go(i+1)});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key==='PageDown'){go(i+1)}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){go(i-1)}
+  });
+  render();
+})();
+</script>
+
+</body>
+</html>
