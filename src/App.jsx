@@ -18,7 +18,6 @@ import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
 import Visitas from './pages/Visitas'
 import Commissions from './pages/Commissions'
-import Marketing from './pages/Marketing'
 import Corretaje from './pages/Corretaje'
 import Publico from './pages/Publico'
 
@@ -46,7 +45,6 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="probar-bot" element={<TestBot />} />
-        <Route path="marketing" element={<Marketing />} />
         <Route path="corretaje" element={<Corretaje />} />
         <Route path="secretarias" element={<Secretarias />} />
         <Route path="visitas" element={<Visitas />} />

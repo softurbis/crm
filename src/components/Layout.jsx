@@ -44,7 +44,6 @@ const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482', grupo: 'Comunicación' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Comunicación' },
-  { to: '/marketing', label: 'Marketing', icon: '🎨', staff: true, color: '#e6a4d0' },   // desplegable propio (submenú)
   { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
@@ -52,14 +51,6 @@ const GLOBAL = [
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Administración' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Administración' },
   { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Administración' },
-]
-// Submenú de Marketing (sub-vistas de la misma página vía ?t=)
-const MKT_COLOR = '#e6a4d0'
-const MKT_SUBS = [
-  { to: '/marketing?t=chat', t: 'chat', label: 'Chat', icon: '💬' },
-  { to: '/marketing?t=produccion', t: 'produccion', label: 'Producción', icon: '🏭' },
-  { to: '/marketing?t=constructor', t: 'constructor', label: 'Constructor', icon: '🧩' },
-  { to: '/marketing?t=config', t: 'config', label: 'Configuración', icon: '⚙️', soloSuper: true },
 ]
 // Mega-grupos del menú General (orden + ícono). Cada uno se abre/cierra.
 const ORDEN_GRUPOS = ['Comunicación', 'Comercial', 'Administración']
@@ -120,7 +111,6 @@ export default function Layout() {
 
   const _loc = useLocation()
   const pathname = _loc.pathname
-  const tActivo = new URLSearchParams(_loc.search).get('t') || 'chat'   // sub-vista activa de Marketing
   const accentMod = [...GLOBAL, ...PROYECTO].find(m => m.to === '/' ? pathname === '/' : pathname.startsWith(m.to))?.color
 
   // Color del proyecto activo: se inyecta como --accent en el contenido, asi los
@@ -152,27 +142,6 @@ export default function Layout() {
             : (<>
                 {/* Dashboard suelto arriba */}
                 {GLOBAL.filter(m => m.to === '/' && verItem(m)).map(Item)}
-
-                {/* Marketing: desplegable con sus sub-vistas (chat / producción / configuración) */}
-                {verItem(GLOBAL.find(m => m.to === '/marketing')) && (
-                  <div className={`proj-grp ${grupoAbierto('Marketing') ? 'open' : ''}`} style={{ '--pc': MKT_COLOR }}>
-                    <button type="button" className="proj-head" onClick={e => { e.stopPropagation(); toggleGrupo('Marketing') }}>
-                      <span style={{ fontSize: 15, width: 18, textAlign: 'center' }}>🎨</span>
-                      <span className="proj-name">Marketing</span>
-                      <span className={`proj-caret ${grupoAbierto('Marketing') ? 'open' : ''}`}>&#9656;</span>
-                    </button>
-                    {grupoAbierto('Marketing') && (
-                      <div className="proj-items">
-                        {MKT_SUBS.filter(s => !s.soloSuper || role === 'superuser').map(s => (
-                          <NavLink key={s.to} to={s.to} style={{ '--mi': MKT_COLOR }}
-                            className={({ isActive }) => (isActive && tActivo === s.t) ? 'nav-item active' : 'nav-item'}>
-                            <span>{s.icon}</span> {s.label}
-                          </NavLink>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Mega-grupos: Comunicación, Comercial, Administración */}
                 {ORDEN_GRUPOS.map(g => {

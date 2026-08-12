@@ -16,7 +16,8 @@ const TABLAS_LBL = {
   corr_propiedades: 'CORRETAJE · PROP.', corr_config: 'CORRETAJE · CONFIG',
   corr_gastos: 'CORRETAJE · GASTOS', corr_documentos: 'CORRETAJE · DOCS',
   corr_consultas: 'CORRETAJE · CONSULTAS', corr_proyectos_pub: 'CORRETAJE · PROYECTOS',
-  // marketing
+  // marketing (histórico: el agente salió del CRM en ago 2026; se conservan
+  // estos nombres para que los registros viejos de la bitácora sigan legibles)
   mkt_brains: 'MKT · CEREBRO', mkt_proyectos: 'MKT · PROYECTOS',
 }
 // tablas cuyos cambios cuentan como "configuración del bot" en el resumen
