@@ -13,9 +13,12 @@ const cron = require('node-cron')
 const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 const crypto = require('crypto')
+const TG = require('./telegram')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+// registro de vínculos teléfono -> chat de Telegram (canal interno de seguimiento)
+const TGREG = TG.activo() ? TG.crearRegistro(supabase, (...a) => log(...a)) : null
 
 // ===== MODO PRUEBAS (consola / chat virtual) =====
 // Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
@@ -630,6 +633,28 @@ async function enviar(phone, texto, meta = {}) {
     const dig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone)
     log('[SIM] ' + dig + ' | ' + (meta.tipo || 'msj') + ' | ' + String(texto).replace(/\n+/g, ' ⏎ '))
     return true
+  }
+  // ---- CANAL INTERNO POR TELEGRAM ----
+  // Si la persona (secretaria, gerencia, asesor, admin) tiene su Telegram vinculado,
+  // sus avisos salen por ahí: gratis, sin gastar reputación del número y sin depender
+  // de que WhatsApp esté conectado. Los clientes y leads NO pasan por aquí (no están
+  // vinculados), así que su experiencia no cambia.
+  {
+    const digTg = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
+    const chat = TGREG ? await TGREG.chatDe(digTg) : null
+    if (chat) {
+      const ok = await TG.tgEnviar(chat, texto)
+      await supabase.from('scheduled_messages').insert({
+        recipient_phone: digTg, body: texto, tipo: meta.tipo || 'manual',
+        installment_id: meta.installment_id || null, client_id: meta.client_id || null,
+        lead_id: meta.lead_id || null, sale_id: meta.sale_id || null,
+        scheduled_for: new Date().toISOString(),
+        status: ok ? 'enviado' : 'fallido', sent_at: ok ? new Date().toISOString() : null,
+        last_error: ok ? null : 'no se pudo entregar por Telegram',
+      })
+      log((ok ? 'TELEGRAM ✔' : 'TELEGRAM ✗') + ' [' + (meta.tipo || 'msj') + '] a', digTg)
+      return ok
+    }
   }
   if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); return false }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
@@ -2072,6 +2097,68 @@ async function supervisarSesiones() {
   }
 }
 
+// ============ CANAL INTERNO POR TELEGRAM (entrada) ============
+// Lo que el equipo escribe al bot entra por aquí y se atiende con los MISMOS
+// manejadores de siempre (checklist de secretarias, comandos de gerencia,
+// consultas al sistema). Solo cambia por dónde llega el mensaje.
+async function manejarTelegram(chatId, texto, info) {
+  if (!TGREG) return
+  const t = texto.trim()
+  let phone = await TGREG.telDe(chatId)
+
+  // ---- vinculación: la persona se identifica con su número del sistema ----
+  if (!phone) {
+    const m = t.match(/^\/?(?:soy|start)\s+\+?(\d{9,15})$/i)
+    if (!m) {
+      await TG.tgEnviar(chatId, '👋 Hola, soy el asistente interno de *URBIS GROUP*.\n\nPara reconocerte, escríbeme tu número tal como está en el sistema:\n\n*/soy 51999888777*')
+      return
+    }
+    const dig = m[1].replace(/\D/g, '')
+    const p9 = dig.slice(-9)
+    const { data: sec } = await supabase.from('secretaries').select('full_name, phone').ilike('phone', `%${p9}%`).limit(1)
+    const conocido = (sec && sec[0]) || (ADMIN && ADMIN.slice(-9) === p9 ? { full_name: 'GERENCIA', phone: ADMIN } : null)
+    if (!conocido) {
+      await TG.tgEnviar(chatId, '❌ Ese número no está registrado en el sistema. Pídele al administrador que te dé de alta en *Seguimiento* y vuelve a intentarlo.')
+      return
+    }
+    const ok = await TGREG.vincular(chatId, conocido.phone, info?.nombre)
+    await TG.tgEnviar(chatId, ok
+      ? `✅ ¡Listo, ${String(conocido.full_name || '').split(' ')[0]}! Quedaste vinculado.\n\nDesde ahora recibes por aquí tus recordatorios y pases de lista. Respóndeme igual que antes (*LISTO*, los números de lo hecho, o tus consultas al sistema).`
+      : '❌ No pude vincularte. Avísale al administrador.')
+    return
+  }
+
+  await supabase.from('telegram_links').update({ last_seen: new Date().toISOString() }).eq('chat_id', chatId).then(() => {}, () => {})
+  if (/^\/?(desvincular|salir)$/i.test(t)) {
+    await TGREG.desvincular(chatId)
+    await TG.tgEnviar(chatId, '🔌 Listo, te desvinculé. Escribe */soy <tu número>* cuando quieras volver.')
+    return
+  }
+  if (/^\/?(ayuda|help|start)$/i.test(t)) {
+    await TG.tgEnviar(chatId, '🤖 *Asistente interno URBIS*\n\n• Responde *LISTO* o los números de lo que completaste del pase de lista.\n• Escríbeme consultas del sistema (cuotas, lotes, clientes) y te respondo.\n• */desvincular* para dejar de recibir avisos aquí.')
+    return
+  }
+
+  // ---- misma atención que por WhatsApp, según el tipo de número ----
+  const tnum = await tipoNumero(phone)
+  const esGerencia = tnum === 'gerencia' || phone === ADMIN
+  if (esGerencia) {
+    if (await comandosPrivilegiados(phone, phone, t)) return
+    if (!(await tieneChecklistAbierto(phone))) {
+      if (await comandosGerencia(phone, phone, t)) return
+      if (await atenderInterno(phone, phone, t, 'GERENCIA')) return
+    }
+  }
+  await manejarSecretaria(phone, phone, t).catch(e => log('TG sec:', String(e.message || e)))
+}
+
+function arrancarTelegram() {
+  if (!TG.activo()) { log('TELEGRAM: sin TELEGRAM_BOT_TOKEN — el seguimiento sigue por WhatsApp'); return }
+  TGREG.cargar().then(() => {
+    TG.escuchar((chatId, texto, info) => manejarTelegram(chatId, texto, info).catch(e => log('TG:', String(e.message || e))), (...a) => log(...a))
+  })
+}
+
 async function arrancar() {
   let rows = []
   try {
@@ -2091,6 +2178,7 @@ async function arrancar() {
   cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
+  arrancarTelegram()
   log(`Agente iniciado (${rows.length} sesion(es)). Cobranza diaria a las ${hh}:${mm} (hora Lima).`)
 
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
