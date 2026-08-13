@@ -25,6 +25,10 @@ function origenOk(req, env) {
   return lista.includes(o) ? o : null
 }
 
+// El BOT del droplet no tiene sesión de usuario: se identifica con una clave
+// compartida (BOT_SECRET). Sin esa clave configurada, esta vía queda cerrada.
+const esBot = (req, env) => !!env.BOT_SECRET && req.headers.get('X-Urbis-Bot') === env.BOT_SECRET
+
 // La sesión la valida Supabase: si el token no sirve, no se sube nada.
 async function usuarioValido(req, env) {
   const auth = req.headers.get('Authorization') || ''
@@ -37,7 +41,8 @@ async function usuarioValido(req, env) {
 
 export default {
   async fetch(req, env) {
-    const origen = origenOk(req, env)
+    const bot = esBot(req, env)
+    const origen = origenOk(req, env) || (bot ? '*' : null)
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origen || 'null') })
     if (!origen) return new Response('origen no autorizado', { status: 403 })
 
@@ -45,7 +50,7 @@ export default {
     if (req.method !== 'POST' || url.pathname !== '/subir') {
       return new Response('usa POST /subir', { status: 404, headers: cors(origen) })
     }
-    if (!(await usuarioValido(req, env))) {
+    if (!bot && !(await usuarioValido(req, env))) {
       return new Response(JSON.stringify({ error: 'sesión inválida' }), { status: 401, headers: { ...cors(origen), 'Content-Type': 'application/json' } })
     }
 

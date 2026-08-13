@@ -57,8 +57,16 @@ PATH="$PATH:/usr/local/bin:/usr/bin"
 command -v node >/dev/null 2>&1 || { for d in /root/.nvm/versions/node/*/bin; do PATH="$PATH:$d"; done; }
 command -v node >/dev/null 2>&1 || { echo "ERROR: no encuentro node"; exit 1; }
 echo "===== $(date '+%F %T') inicio ====="
+# 1) la base de datos (todas las tablas)
 node "$DIR/backup_supabase.mjs" --env "$DIR/.env" --out "$DIR/copias" --jobs 3
 RC=$?
+# 2) los ARCHIVOS, que desde ago 2026 viven en Cloudflare R2 (Cloudflare no hace
+#    copias por ti). Si aún no hay credenciales de R2, se avisa y se continúa.
+if [ -f "$DIR/.env.r2" ] && [ -f "$DIR/backup_r2.mjs" ]; then
+  node "$DIR/backup_r2.mjs" --env "$DIR/.env.r2" --out "$DIR/copias/r2" --jobs 4 || RC=$?
+else
+  echo "AVISO: sin $DIR/.env.r2 — los archivos de R2 NO se estan respaldando"
+fi
 # retención: solo los últimos 14 snapshots diarios de datos (el storage es espejo, no crece por día)
 ls -1d "$DIR/copias/data/"*/ 2>/dev/null | sort | head -n -14 | xargs -r rm -rf
 echo "===== $(date '+%F %T') fin (rc=$RC) ====="

@@ -218,6 +218,22 @@ async function tamanoDe(url) {
 }
 const VIDEO_MAX_MB = Number(process.env.VIDEO_MAX_MB || 62)
 
+// Las imágenes del material (fotos y planos del proyecto) tienen una versión
+// liviana ".wa.jpg" en R2: WhatsApp rechaza imágenes de más de ~5 MB y de todos
+// modos las recomprime a ~1600 px. Si existe la liviana, se envía esa —el cliente
+// la recibe SIEMPRE y se ve igual—; el panel sigue mostrando la completa.
+const _waCache = new Map()
+async function versionLiviana(url) {
+  if (!/\.(jpe?g|png|webp)$/i.test(url)) return url
+  if (_waCache.has(url)) return _waCache.get(url)
+  const liviana = url.replace(/\.(jpe?g|png|webp)$/i, '.wa.jpg')
+  let out = url
+  try { const r = await fetch(liviana, { method: 'HEAD' }); if (r.ok) out = liviana } catch {}
+  if (_waCache.size > 200) _waCache.clear()
+  _waCache.set(url, out)
+  return out
+}
+
 async function enviarArchivo(jid, url, clase, caption, ses) {
   const etiqueta = (clase === 'video' ? '🎬 VIDEO' : clase === 'plano' ? '🗺️ PLANO' : clase === 'brochure' ? '📘 BROCHURE' : clase === 'documento' ? '📄 DOCUMENTO' : '📷 FOTO') + ' ENVIADO' + (caption ? ': ' + caption : '')
   if (TEST_ACTIVE) {   // modo prueba: no se manda media real, se anota lo que se habría enviado
@@ -238,7 +254,7 @@ async function enviarArchivo(jid, url, clase, caption, ses) {
     if (clase === 'video' && (await tamanoDe(url)) > VIDEO_MAX_MB * 1024 * 1024) guardarMsg(await S.sock.sendMessage(dest, { document: { url }, fileName: 'VIDEO.mp4', mimetype: 'video/mp4', caption: caption || undefined }))
     else if (clase === 'video') guardarMsg(await S.sock.sendMessage(dest, { video: { url }, caption: caption || undefined }))
     else if (esDoc) guardarMsg(await S.sock.sendMessage(dest, { document: { url }, mimetype: 'application/pdf', fileName: (clase === 'brochure' ? 'BROCHURE' : clase === 'plano' ? 'PLANO-ACTUALIZADO' : (String(caption || 'DOCUMENTO').replace(/[^\w .-]/g, '').trim().slice(0, 40) || 'DOCUMENTO')) + '.pdf', caption: caption || undefined }))
-    else guardarMsg(await S.sock.sendMessage(dest, { image: { url }, caption: caption || undefined }))
+    else guardarMsg(await S.sock.sendMessage(dest, { image: { url: await versionLiviana(url) }, caption: caption || undefined }))
     enviadosHoy++; S.enviados = (S.enviados || 0) + 1
     await supabase.from('scheduled_messages').insert({ recipient_phone: telDeJid(dest), body: etiqueta, tipo: 'ia', session_id: sesId(S), scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString() })
     log('MEDIA [' + clase + '] enviada a', telDeJid(dest), 'por', S.row.label || 'PRINCIPAL')
@@ -1842,6 +1858,40 @@ function extDe(tipo, mimetype, nombre) {
   return tipo === 'image' ? 'jpg' : tipo === 'video' ? 'mp4' : tipo === 'audio' ? 'ogg' : tipo === 'sticker' ? 'webp' : 'bin'
 }
 
+// ---------- GUARDADO DE ARCHIVOS: Cloudflare R2 (con respaldo a Supabase) ----------
+// Los archivos del sistema viven en R2 (10 GB gratis, sin costo de salida). El bot
+// sube a través del Worker, identificándose con su clave. Si el Worker no responde,
+// cae de vuelta a Supabase Storage para no perder la media de un cliente.
+const R2_WORKER = (process.env.R2_WORKER || '').replace(/\/$/, '')
+const R2_BOT_SECRET = process.env.R2_BOT_SECRET || ''
+const R2_PUBLIC = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '')
+
+async function guardarArchivo(ruta, buffer, mime) {
+  // ¿ya está en R2? (dedup: la misma huella no se vuelve a subir)
+  if (R2_PUBLIC) {
+    try {
+      const r = await fetch(R2_PUBLIC + '/' + ruta.split('/').map(encodeURIComponent).join('/'), { method: 'HEAD' })
+      if (r.ok) return R2_PUBLIC + '/' + ruta.split('/').map(encodeURIComponent).join('/')
+    } catch {}
+  }
+  if (R2_WORKER && R2_BOT_SECRET) {
+    try {
+      const fd = new FormData()
+      fd.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), ruta.split('/').pop())
+      fd.append('ruta', ruta)
+      const r = await fetch(R2_WORKER + '/subir', { method: 'POST', headers: { 'X-Urbis-Bot': R2_BOT_SECRET }, body: fd })
+      if (r.ok) return (await r.json()).url
+      log('R2 respondio ' + r.status + ': se guarda en Supabase como respaldo')
+    } catch (e) { log('R2 no disponible (' + String(e.message || e) + '): se guarda en Supabase') }
+  }
+  const { data: ya } = await supabase.storage.from('urbis-files').list(ruta.split('/').slice(0, -1).join('/'), { search: ruta.split('/').pop(), limit: 1 })
+  if (!ya || !ya.length) {
+    const { error } = await supabase.storage.from('urbis-files').upload(ruta, buffer, { contentType: mime || undefined, upsert: true })
+    if (error) { log('media (storage):', error.message); return null }
+  }
+  return supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
+}
+
 // media de un mensaje de WhatsApp (foto/video/audio/documento) → descarga a Storage
 async function extraerMedia(sock, m, msg) {
   const mm = msg.imageMessage || msg.videoMessage || msg.documentMessage || msg.audioMessage || msg.stickerMessage
@@ -1857,11 +1907,7 @@ async function extraerMedia(sock, m, msg) {
       // subia una copia nueva: 159 copias de un plano de 33 MB = 5.2 GB de mas.
       const huella = crypto.createHash('sha256').update(buff).digest('hex').slice(0, 32)
       const ruta = 'wa-chat/_unicos/' + huella + '.' + extDe(mtipo, mm.mimetype, media.name)
-      const { data: ya } = await supabase.storage.from('urbis-files').list('wa-chat/_unicos', { search: huella, limit: 1 })
-      let error = null
-      if (!ya || !ya.length) ({ error } = await supabase.storage.from('urbis-files').upload(ruta, buff, { contentType: mm.mimetype || undefined, upsert: true }))
-      if (!error) media.url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
-      else log('media (storage):', error.message)
+      media.url = await guardarArchivo(ruta, buff, mm.mimetype)
     } else log('media muy pesada, no se descarga (', mm.fileLength, 'bytes )')
   } catch (e) { log('media:', String(e.message || e)) }
   // sin URL (muy pesada o falló la descarga): dejar rastro en el chat para que se sepa que llegó algo
