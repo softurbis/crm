@@ -577,34 +577,7 @@ export default function Whatsapp() {
     setProysAll(data || [])
   }
   const sesionViva = s => s.latido && (Date.now() - new Date(s.latido).getTime()) < 120000
-  const crearSesion = async () => {
-    const label = prompt('Nombre del número (ej. CASHIBO, EL TRIUNFO):')
-    if (!label || !label.trim()) return
-    // elegir su proyecto de una (auto-asignar al vincular)
-    const libres = proysAll.filter(p => !sesiones.some(s => s.project_id === p.id))
-    let projectId = null
-    if (libres.length) {
-      const lista = libres.map((p, i) => (i + 1) + ') ' + p.name).join('\n')
-      const r = prompt('¿Qué proyecto atiende este número? Escribe el número (o deja vacío para asignarlo luego):\n\n' + lista)
-      const n = parseInt(String(r || '').trim(), 10)
-      if (n >= 1 && n <= libres.length) projectId = libres[n - 1].id
-    }
-    const { error } = await supabase.from('wa_sessions').insert({ label: label.trim().toUpperCase(), project_id: projectId })
-    if (error) { alert('ERROR: ' + error.message); return }
-    alert('✅ Número creado' + (projectId ? ' y asignado a su proyecto.' : '.') + '\n\nEn ~30 segundos aparecerá su QR aquí para escanear con el celular. Ese número atenderá solo a su proyecto con el flujo del bot.')
-    cargarSesiones()
-  }
-  // cambiar el proyecto de un número y (opcional) etiquetar sus chats existentes con ese proyecto
-  const cambiarProyectoSesion = async (s, projectId) => {
-    await setSesCampo(s.id, { project_id: projectId })
-    if (projectId) {
-      const { count } = await supabase.from('whatsapp_conversations').select('id', { count: 'exact', head: true }).eq('session_id', s.id).or('project_id.is.null,project_id.neq.' + projectId)
-      if (count && confirm('¿Etiquetar los ' + count + ' chat(s) de este número con el proyecto elegido?\n\n(Así todo lo que entró antes por este número también queda en su proyecto.)')) {
-        await supabase.from('whatsapp_conversations').update({ project_id: projectId }).eq('session_id', s.id)
-        cargarConvs()
-      }
-    }
-  }
+  // (crear y asignar el número se hace desde la ficha del proyecto, en Proyectos)
   // abrir CEREBROS directo en el flujo del proyecto de este número
   const abrirFlujoDe = async projectId => {
     setVerBrains(true)
@@ -877,14 +850,11 @@ export default function Whatsapp() {
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <b>📱 NÚMEROS DE WHATSAPP (uno por proyecto)</b>
-            <button className="btn" onClick={crearSesion}>➕ AGREGAR NÚMERO</button>
           </div>
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
-            Cada proyecto atiende desde su propio número (chip propio). El <b>★ CORPORATIVO</b> además lleva el seguimiento
-            de secretarias, gerencia y avisos internos. Al agregar un número, su QR aparece arriba en ~30 segundos.
-            <br />🗄️ <b>Backup:</b> al vincular un número, WhatsApp sincroniza su <b>historial reciente de chats</b> y las
-            <b> etiquetas que ya tenían en el celular</b> (si es WhatsApp Business) — aparecen solos en la bandeja. El número
-            actual ya vinculado: usa <b>🔄 VINCULAR</b> para bajar su historial viejo (re-escanea el QR).
+            Los números se crean y se vinculan <b>desde la ficha de cada proyecto</b> (menú <b>Proyectos</b>): ahí sale su QR
+            y el interruptor del bot. Aquí solo ves el estado y los controles de operación.
+            El <b>★ CORPORATIVO</b> lleva además el seguimiento de secretarias, gerencia y avisos internos.
           </p>
           {sesiones.length === 0 && <p className="muted">Aún no hay números registrados (¿ya se corrió sql/30 y se redesplegó el agente?).</p>}
           {sesiones.map(s => (
@@ -894,11 +864,10 @@ export default function Whatsapp() {
                 onBlur={e => setSesCampo(s.id, { label: e.target.value.trim().toUpperCase() })} style={{ width: 130, fontWeight: 700 }} />
               <span className="muted" style={{ fontSize: 12, width: 110 }}>{s.phone ? '+' + s.phone : '(sin vincular)'}</span>
               {s.hist_ultimo && <span className="muted" style={{ fontSize: 10 }} title={'Historial de chats importado del celular: ' + new Date(s.hist_ultimo).toLocaleString('es-PE')}>🗄️ backup ✓</span>}
-              <select value={s.project_id || ''} onChange={e => cambiarProyectoSesion(s, e.target.value || null)} style={{ fontSize: 11, maxWidth: 190 }}
-                title="Proyecto que atiende este número: sus leads y su cobranza salen por aquí">
-                <option value="">— sin proyecto —</option>
-                {proysAll.map(p => <option key={p.id} value={p.id} disabled={sesiones.some(x => x.id !== s.id && x.project_id === p.id)}>{p.name}</option>)}
-              </select>
+              <span className="muted" style={{ fontSize: 11, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title="Proyecto que atiende este número (se asigna al crearlo desde su ficha en Proyectos)">
+                {proysAll.find(p => p.id === s.project_id)?.name || '— sin proyecto —'}
+              </span>
               <button className="btn-ghost" onClick={() => setSesCampo(s.id, { leads_activo: !(s.leads_activo !== false) })}
                 title={s.leads_activo !== false ? 'LEADS de este número ENCENDIDO: atiende a los interesados con el flujo de su proyecto. Clic para apagar (solo humano).' : 'LEADS de este número APAGADO: no responde a interesados nuevos. Clic para encender.'}
                 style={{ fontSize: 10, borderColor: s.leads_activo !== false ? '#9ccb86' : '#8b95a1', color: s.leads_activo !== false ? '#9ccb86' : '#8b95a1' }}>

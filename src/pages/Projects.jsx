@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
@@ -50,6 +51,9 @@ export default function Projects() {
   const [na, setNa] = useState({})
   const [msg, setMsg] = useMsg(null)
   const [busy, setBusy] = useState(false)
+  // número de WhatsApp de cada proyecto (wa_sessions), con su QR cuando toca vincular
+  const [sesiones, setSesiones] = useState([])
+  const [qrs, setQrs] = useState({})
 
   const CAMPOS = [
     ['name', 'Nombre del proyecto', true],
@@ -85,6 +89,60 @@ export default function Projects() {
     setStats(st)
   }
   useEffect(() => { load() }, [])
+
+  // ---- NÚMERO DE WHATSAPP DEL PROYECTO (se vincula desde su propia ficha) ----
+  // Mientras haya alguno esperando QR se refresca cada 5 s para mostrarlo apenas
+  // el agente lo genere; el resto del tiempo cada 30 s (no gastar egress).
+  async function cargarSesiones() {
+    const { data, error } = await supabase.from('wa_sessions')
+      .select('id, label, phone, estado, project_id, qr, latido, is_corporate, leads_activo')
+    if (error) return   // sql/30 sin correr: la sección simplemente no aparece
+    setSesiones(data || [])
+    const imgs = {}
+    for (const s of (data || [])) {
+      if (s.estado === 'esperando_qr' && s.qr) {
+        try { imgs[s.id] = await QRCode.toDataURL(s.qr, { width: 240, margin: 1 }) } catch {}
+      }
+    }
+    setQrs(imgs)
+  }
+  useEffect(() => {
+    cargarSesiones()
+    const esperando = sesiones.some(s => s.estado === 'esperando_qr')
+    const t = setInterval(cargarSesiones, esperando ? 5000 : 30000)
+    return () => clearInterval(t)
+  }, [sesiones.some(s => s.estado === 'esperando_qr')])
+
+  const sesionDe = pid => sesiones.find(s => s.project_id === pid) || null
+  const sesionViva = s => s && s.latido && (Date.now() - new Date(s.latido).getTime()) < 120000
+
+  // Crea el número del proyecto y pide su QR de una: sin listas ni menús.
+  async function vincularNumero(p) {
+    const ya = sesionDe(p.id)
+    if (ya) {
+      if (!confirm(`¿Vincular otro celular al número de ${p.name}?\n\nSe cierra el WhatsApp actual y en ~30 segundos aparece el QR aquí mismo.`)) return
+      const { error } = await supabase.from('wa_sessions').update({ relink: true }).eq('id', ya.id)
+      setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'QR SOLICITADO — aparece aquí en ~30 segundos' })
+      cargarSesiones(); return
+    }
+    const etiqueta = p.name.trim().toUpperCase().slice(0, 40)
+    const { error } = await supabase.from('wa_sessions').insert({ label: etiqueta, project_id: p.id })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'NÚMERO CREADO PARA ' + p.name + ' — su QR aparece aquí en ~30 segundos' })
+    cargarSesiones()
+  }
+  async function setSesion(id, campos) {
+    const { error } = await supabase.from('wa_sessions').update(campos).eq('id', id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    cargarSesiones()
+  }
+  async function quitarNumero(s, p) {
+    if (s.is_corporate) { setMsg({ ok: false, t: 'Es el número corporativo (seguimiento/avisos): márcalo desde WhatsApp antes de quitarlo.' }); return }
+    if (!confirm(`¿Quitar el número de ${p.name}?\n\nSus chats quedan en el historial, pero ese WhatsApp deja de atenderse.`)) return
+    await supabase.from('wa_sessions').delete().eq('id', s.id)
+    setMsg({ ok: true, t: 'NÚMERO QUITADO DE ' + p.name })
+    cargarSesiones()
+  }
 
   // habilitar/deshabilitar el proyecto para el bot de leads
   async function toggleBot(p) {
@@ -304,6 +362,47 @@ export default function Projects() {
               {p.copia_literal_url && <> <a href={p.copia_literal_url} target="_blank" rel="noreferrer" className="small">VER PARTIDA</a></>}
               {p.carta_poder_url && <> | <a href={p.carta_poder_url} target="_blank" rel="noreferrer" className="small">VER PODER</a></>}
             </p>
+
+            {/* WhatsApp del proyecto: se vincula aquí mismo, sin pasar por otra pantalla */}
+            {canEdit && (() => {
+              const ses = sesionDe(p.id)
+              const viva = sesionViva(ses)
+              const esperandoQR = ses && ses.estado === 'esperando_qr'
+              return (
+                <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', padding: '9px 0', borderTop: '1px solid rgba(255,255,255,.07)', borderBottom: '1px solid rgba(255,255,255,.07)', margin: '10px 0' }}>
+                  <span style={{ fontSize: 15 }}>{esperandoQR ? '📱' : viva ? '🟢' : ses ? '🔴' : '📵'}</span>
+                  <b style={{ fontSize: 13 }}>WhatsApp del proyecto:</b>
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {!ses ? 'sin número' : ses.phone ? '+' + ses.phone : '(creado, falta escanear el QR)'}
+                    {ses && ses.is_corporate && ' · ★ corporativo'}
+                  </span>
+                  {ses && (
+                    <button className="btn-ghost" style={{ fontSize: 10, borderColor: ses.leads_activo !== false ? '#9ccb86' : '#8b95a1', color: ses.leads_activo !== false ? '#9ccb86' : '#8b95a1' }}
+                      title={ses.leads_activo !== false ? 'El bot atiende a los interesados que escriban a este número. Clic para apagarlo (solo humano).' : 'El bot NO responde a interesados en este número. Clic para encenderlo.'}
+                      onClick={() => setSesion(ses.id, { leads_activo: !(ses.leads_activo !== false) })}>
+                      🤖 LEADS {ses.leads_activo !== false ? 'ON' : 'OFF'}</button>
+                  )}
+                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <button className="btn" style={{ fontSize: 11 }} onClick={() => vincularNumero(p)}
+                      title={ses ? 'Escanear el QR con otro celular' : 'Crear el número de este proyecto y mostrar su QR'}>
+                      {ses ? '🔄 VINCULAR OTRO CELULAR' : '📱 VINCULAR NÚMERO'}</button>
+                    {ses && <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSesion(ses.id, { restart: true })} title="Reiniciar este número (no pide QR)">🔁</button>}
+                    {ses && !ses.is_corporate && <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => quitarNumero(ses, p)} title="Quitar el número de este proyecto">✕</button>}
+                  </span>
+                  {esperandoQR && (
+                    <div style={{ width: '100%', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                      {qrs[ses.id]
+                        ? <img src={qrs[ses.id]} alt={'QR de ' + p.name} style={{ width: 200, height: 200, borderRadius: 10, background: '#fff', padding: 8 }} />
+                        : <span className="muted small">Generando el QR… (aparece solo en ~30 segundos)</span>}
+                      <span className="muted small" style={{ maxWidth: 320 }}>
+                        En el celular de este proyecto: <b>WhatsApp → Dispositivos vinculados → Vincular dispositivo</b> y escanea este código.
+                        Al vincular, WhatsApp sincroniza además su historial reciente de chats.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             <div className="cards">
               <div className="card glass"><p className="muted">Recaudado</p><p className="kpi">{soles(s.ingresos)}</p></div>
