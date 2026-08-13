@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg, faceOn, faceImg, setFaceOn, setFaceImg, savedFx } from '../lib/saveFx'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
@@ -163,9 +164,7 @@ export default function Users() {
       const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
       // el nombre cambia en cada subida para que el navegador no muestre la foto vieja en cache
       const path = `avatars/${u.id}-${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-      if (error) throw new Error(error.message)
-      const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+      const url = await subirRuta(path, file)
       const { error: e2 } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', u.id)
       if (e2) throw new Error(e2.message)
       setMsg({ ok: true, t: 'FOTO ACTUALIZADA' + (u.id === profile?.id ? ' — RECARGA PARA VERLA EN TU MENU' : '') })

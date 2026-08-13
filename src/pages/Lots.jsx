@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { upload } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -14,13 +15,6 @@ const LBL = {
   entregado: 'Entregado', invadido: 'Invadido', expropiado: 'Expropiado',
 }
 
-async function upload(path, file) {
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-  const full = `${path}-${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
-  if (error) throw new Error('Error al subir documento: ' + error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
-}
 
 // La cascada guarda una aplicación por cuota, pero para auditar contra el
 // voucher se debe ver un único pago con el total y su distribución interna.

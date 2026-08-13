@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -77,13 +78,6 @@ function addMonths(dateStr, n) {
   return d.toISOString().slice(0, 10)
 }
 
-async function upload(path, file) {
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-  const full = `${path}-${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
-  if (error) throw new Error('Error al subir archivo: ' + error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
-}
 
 export default function Payments() {
   const { profile, role } = useAuth()

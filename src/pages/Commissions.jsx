@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -10,9 +11,8 @@ const hoy = () => new Date().toISOString().slice(0, 10)
 async function subirRH(id, file) {
   const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
   const path = `rh/${id}-${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-  if (error) throw new Error('Error al subir RH: ' + error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+  try { return await subirRuta(path, file) }
+  catch (e) { throw new Error('Error al subir RH: ' + e.message) }
 }
 
 export default function Commissions() {

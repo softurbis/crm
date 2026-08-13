@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { letras, fechaLetras } from '../lib/letras'
 import { useAuth } from '../context/AuthContext'
@@ -23,13 +24,6 @@ Sin otro particular, firmo la presente para los fines que correspondan.
 Pucallpa, {{FECHA_LETRAS}}.
 {{FIRMA_RECEPTOR}}`
 
-async function upload(path, file) {
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-  const full = `${path}-${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
-  if (error) throw new Error(error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
-}
 
 export default function Expenses() {
   const { profile, role } = useAuth()

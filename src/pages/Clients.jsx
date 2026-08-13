@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
@@ -166,9 +167,8 @@ export default function Clients() {
   async function subirFoto(file, cara, doc) {
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
     const path = `dni/${doc}-${cara}-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-    if (error) throw new Error('No se pudo subir la foto (' + cara + '): ' + error.message + '. Verifica el bucket urbis-files en Supabase Storage.')
-    return supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+    try { return await subirRuta(path, file) }
+    catch (e) { throw new Error('No se pudo subir la foto (' + cara + '): ' + e.message) }
   }
 
   async function guardar(e) {

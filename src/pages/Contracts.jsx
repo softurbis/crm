@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/Logo'
@@ -140,9 +141,9 @@ export default function Contracts() {
     if (nota === null) return   // cancelo: no se sube nada
     const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
     const path = `contratos/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+    let url
+    try { url = await subirRuta(path, file) }
+    catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }); return }
     await supabase.from('sales').update({ signed_contract_url: url, contract_note: nota.trim() || null }).eq('id', v.id)
     setMsg({ ok: true, t: 'CONTRATO FIRMADO SUBIDO' }); load()
   }
@@ -173,9 +174,9 @@ export default function Contracts() {
     if (nota === null) return
     const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
     const path = `contratos/respaldo/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+    let url
+    try { url = await subirRuta(path, file) }
+    catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }); return }
     const next = [...docs, { url, note: (nota.trim() || 'Documento de respaldo') }]
     const { error: e2 } = await supabase.from('sales').update({ extra_docs: next }).eq('id', v.id)
     if (e2) { setMsg({ ok: false, t: 'ERROR: ' + e2.message }); return }

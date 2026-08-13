@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 
@@ -17,9 +18,7 @@ const simbolo = m => (m === 'PEN' ? 'S/' : 'US$')
 async function subir(file, carpeta) {
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
   const path = `corretaje/${carpeta}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-  if (error) throw new Error(error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+  return await subirRuta(path, file)
 }
 
 const diasPara = fecha => fecha ? Math.ceil((new Date(fecha) - new Date()) / 86400000) : null

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
+import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { PALETA_PROYECTOS } from '../context/ProjectContext'
@@ -14,13 +15,6 @@ function diasPara(fecha) {
   return Math.ceil((new Date(fecha + 'T12:00:00') - new Date(hoyISO() + 'T12:00:00')) / 86400000)
 }
 
-async function upload(path, file) {
-  const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
-  const full = `${path}-${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('urbis-files').upload(full, file, { upsert: true })
-  if (error) throw new Error(error.message)
-  return supabase.storage.from('urbis-files').getPublicUrl(full).data.publicUrl
-}
 
 function LegalChip({ label, expiry, docUrl }) {
   const d = diasPara(expiry)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
+import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import BrainMap from '../components/BrainMap'
@@ -82,13 +83,13 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
     if (adj) {
       const ext = (adj.file.name.split('.').pop() || 'bin').toLowerCase()
       const ruta = 'wa-chat/panel/' + conv.id + '/' + Date.now() + '.' + ext
-      const { error } = await supabase.storage.from('urbis-files').upload(ruta, adj.file, { contentType: adj.file.type || undefined, upsert: true })
-      if (error) {
-        const esLimite = /exceed|too large|payload|maximum/i.test(String(error.message))
-        alert('No se pudo subir el archivo: ' + error.message + (esLimite ? '\n\n⚠️ Es el límite de Supabase Storage. Súbelo en: Supabase → Project Settings → Storage → "Upload file size limit" (el plan Free permite hasta 50 MB).' : ''))
+      let urlAdj
+      try { urlAdj = await subirRuta(ruta, adj.file) }
+      catch (err) {
+        alert('No se pudo subir el archivo: ' + err.message)
         setMandando(false); return
       }
-      media = { media_url: supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl, media_type: adj.tipo, media_name: adj.file.name }
+      media = { media_url: urlAdj, media_type: adj.tipo, media_name: adj.file.name }
     }
     const { error } = await supabase.from('scheduled_messages').insert({
       recipient_phone: conv.phone, body: body || null, tipo: 'manual_panel', status: 'pendiente',
@@ -418,9 +419,9 @@ export default function Whatsapp() {
     for (const file of files) {
       const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
       const path = 'bot-flow/' + brainSel.slice(2) + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '.' + ext
-      const { error } = await supabase.storage.from('urbis-files').upload(path, file, { upsert: true })
-      if (error) { alert('No se pudo subir ' + file.name + ': ' + error.message); continue }
-      const url = supabase.storage.from('urbis-files').getPublicUrl(path).data.publicUrl
+      let url
+      try { url = await subirRuta(path, file) }
+      catch (err) { alert('No se pudo subir ' + file.name + ': ' + err.message); continue }
       libAdd({ id: nuevoPasoId(), tipo, url, desc: '' })
     }
     setSubiendo(false)
