@@ -174,6 +174,18 @@ function jidDe(phone) {
 function telDeJid(jid) { return (jid || '').split('@')[0].replace(/\D/g, '') }
 
 async function flag(k) { const { data } = await supabase.from('bot_settings').select('value').eq('key', k).maybeSingle(); return !data || data.value !== '0' }
+// ¿el canal interno (seguimiento y gerencia) está en Telegram? Entonces los números
+// de WhatsApp son solo comerciales: no interceptan al admin ni a las secretarias.
+// Se cachea 30 s porque se consulta en cada mensaje entrante.
+let _segCanal = { t: 0, v: false }
+async function seguimientoEnTelegram() {
+  if (Date.now() - _segCanal.t < 30000) return _segCanal.v
+  try {
+    const { data } = await supabase.from('bot_settings').select('value').eq('key', 'seguimiento_canal').maybeSingle()
+    _segCanal = { t: Date.now(), v: String(data?.value || '').toLowerCase() === 'telegram' }
+  } catch { _segCanal = { t: Date.now(), v: false } }
+  return _segCanal.v
+}
 async function tipoNumero(soloDig) {
   const k9 = String(soloDig).slice(-9)
   if (TEST_PROFILES.has(k9)) return TEST_PROFILES.get(k9)   // modo prueba: perfil forzado
@@ -1626,7 +1638,13 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   // solo media sin texto: queda registrada para verla en el panel; no hay nada que responder
   if (!corto) return
 
-  if (phone === ADMIN) {
+  // Lo INTERNO (gerencia y seguimiento) vive en Telegram desde ago 2026: en ese
+  // caso los números de WhatsApp son solo comerciales y no interceptan a nadie —
+  // así el propio ADMIN puede escribirle a un número de proyecto y probar el
+  // flujo de leads igual que un cliente, sin recibir reportes.
+  const internoAqui = !(await seguimientoEnTelegram())
+
+  if (internoAqui && phone === ADMIN) {
     if (await comandosPrivilegiados(jid, phone, texto)) return
     // el ADMIN: comandos configurables, comando gratis o Q&A con IA (sin importar el checklist)
     if (await comandosGerencia(jid, phone, texto)) return
@@ -1657,7 +1675,7 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   const tnum = await tipoNumero(phone)
   if (tnum === 'silencio') { log('SILENCIO TOTAL: ignorando a', phone); return }
   if (tnum === 'desactivado') { log('NUMERO ADMINISTRATIVO: sin respuesta a', phone); return }
-  if (tnum === 'secretaria' || tnum === 'gerencia') {
+  if (internoAqui && (tnum === 'secretaria' || tnum === 'gerencia')) {
     // GERENCIA (Victor/Alex): comandos privilegiados (tarea/aprende), comandos gratis y Q&A;
     // las secretarias solo hacen su control de actividades. No se interrumpe un checklist con IA.
     if (tnum === 'gerencia') {
