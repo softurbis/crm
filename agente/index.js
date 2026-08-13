@@ -344,14 +344,110 @@ async function comandoDirecto(texto) {
     const { data: proys } = await supabase.from('projects').select('id, name').order('name')
     const nombreProy = id => (proys || []).find(p => p.id === id)?.name || '—'
 
-    if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola)$/.test(t)) {
-      return '📋 *COMANDOS RÁPIDOS (gratis):*\n\n' +
-        '• *resumen* — panorama del día (todo en uno)\n' +
+    if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola|buenas|buenos dias|buenas tardes|buenas noches|hey|que tal|qu[eé] tal)[!.\s]*$/.test(t)) {
+      return '👋 *ASISTENTE URBIS* — escríbeme cualquiera de estas palabras:\n\n' +
+        '📊 *PANORAMA*\n' +
+        '• *resumen* — el día entero en una pantalla\n' +
         '• *lotes* — disponibles y precios por proyecto\n' +
-        '• *comisiones* — por cobrar (total y por asesor)\n' +
-        '• *gastos* — del año por proyecto y mes\n' +
-        '• *visitas* — programadas próximas\n' +
-        '• *vencidas* — cuotas vencidas por proyecto' + PIE_COMANDO
+        '• *entregados* — lotes ya entregados\n\n' +
+        '💵 *DINERO*\n' +
+        '• *vencidas* — cuotas vencidas por proyecto\n' +
+        '• *cartera* — deuda total por cobrar\n' +
+        '• *ingresos* — recaudado del mes\n' +
+        '• *pagos de hoy* — lo que entró hoy\n' +
+        '• *gastos* — del año por proyecto\n' +
+        '• *comisiones* — por cobrar y por asesor\n\n' +
+        '🏷️ *COMERCIAL*\n' +
+        '• *ventas* — ventas y su estado\n' +
+        '• *separaciones* — vigentes y vencidas\n' +
+        '• *clientes* — cartera de clientes\n' +
+        '• *leads* — embudo de prospectos\n' +
+        '• *visitas* — próximas programadas\n' +
+        '• *contratos* — ventas sin contrato firmado\n' +
+        '• *top asesores* — ranking de vendedores\n\n' +
+        '🔎 *BUSCAR* (escribe la palabra + el dato)\n' +
+        '• *lote V-1* — ficha completa de un lote\n' +
+        '• *cliente Percy* — estado de cuenta de un cliente\n\n' +
+        '📋 *EQUIPO*\n' +
+        '• *pendientes* — tareas sin cerrar\n' +
+        '• *cumplimiento* — productividad del equipo' + PIE_COMANDO
+    }
+
+    // ---- BUSCAR UN LOTE: "lote V-1", "lote mz V lt 1" ----
+    const mLote = t.match(/^lote\s+(?:mz\s*)?([a-z0-9]+)[\s\-.]*(?:lt\s*)?(\d+)\s*$/)
+    if (mLote) {
+      const mz = mLote[1].toUpperCase(), lt = mLote[2]
+      const { data: lots } = await supabase.from('lots')
+        .select('id, mz, lt, status, area_m2, total_price, project_id').ilike('mz', mz).eq('lt', lt)
+      if (!lots || !lots.length) return '🔎 No encontré el lote *' + mz + '-' + lt + '*.' + PIE_COMANDO
+      let out = ''
+      for (const L of lots) {
+        out += (out ? '\n\n' : '') + '📍 *LOTE ' + L.mz + '-' + L.lt + '* — ' + nombreProy(L.project_id)
+        out += '\nEstado: *' + String(L.status || '-').toUpperCase() + '* · ' + (L.area_m2 || '-') + ' m² · ' + soles(L.total_price)
+        const { data: ss } = await supabase.from('sales')
+          .select('id, status, total_sale_price, sale_date, client:clients!sales_client_id_fkey(full_name, phone)')
+          .eq('lot_id', L.id).order('sale_date', { ascending: false })
+        const venta = (ss || []).find(s => s.status !== 'expropiado')
+        if (!venta) { out += '\n_Sin venta registrada._'; continue }
+        out += '\n👤 ' + (venta.client?.full_name || '-') + (venta.client?.phone ? ' (+' + venta.client.phone + ')' : '')
+        const { data: qs } = await supabase.from('installments')
+          .select('installment_number, due_date, amount, amount_paid, status').eq('sale_id', venta.id).order('installment_number')
+        const hoyS = new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10)
+        let pagado = 0, saldo = 0, nVenc = 0
+        for (const q of (qs || [])) {
+          pagado += Number(q.amount_paid || 0)
+          const falta = Number(q.amount) - Number(q.amount_paid)
+          if (falta > 2) { saldo += falta; if (q.due_date && q.due_date < hoyS) nVenc++ }
+        }
+        const prox = (qs || []).find(q => (Number(q.amount) - Number(q.amount_paid)) > 2 && q.due_date >= hoyS)
+        out += '\n💰 Pagado ' + soles(pagado) + ' · Saldo *' + soles(saldo) + '* (' + (qs || []).length + ' cuotas)'
+        if (nVenc) out += '\n⚠️ *' + nVenc + ' cuota(s) vencida(s)*'
+        if (prox) out += '\n📅 Próxima: cuota ' + prox.installment_number + ' el ' + String(prox.due_date).split('-').reverse().join('/') + ' — ' + soles(Number(prox.amount) - Number(prox.amount_paid))
+      }
+      return out + PIE_COMANDO
+    }
+
+    // ---- BUSCAR UN CLIENTE: "cliente Percy", "cliente 12345678" ----
+    const mCli = t.match(/^cliente\s+(.{3,})$/)
+    if (mCli) {
+      const q = mCli[1].trim()
+      const { data: cs } = await supabase.from('clients')
+        .select('id, full_name, doc_number, phone').or(`full_name.ilike.%${q}%,doc_number.ilike.%${q}%`).limit(5)
+      if (!cs || !cs.length) return '🔎 No encontré ningún cliente con *' + q + '*.' + PIE_COMANDO
+      let out = ''
+      for (const c of cs) {
+        out += (out ? '\n\n' : '') + '👤 *' + c.full_name + '*' + (c.doc_number ? ' · DNI ' + c.doc_number : '') + (c.phone ? ' · +' + c.phone : '')
+        const { data: ss } = await supabase.from('sales')
+          .select('id, status, lot:lots(mz, lt, project_id)').eq('client_id', c.id).neq('status', 'expropiado')
+        if (!ss || !ss.length) { out += '\n_Sin lotes registrados._'; continue }
+        for (const s of ss) {
+          const { data: qs } = await supabase.from('installments')
+            .select('due_date, amount, amount_paid').eq('sale_id', s.id)
+          const hoyS = new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10)
+          let saldo = 0, nVenc = 0
+          for (const q2 of (qs || [])) { const f = Number(q2.amount) - Number(q2.amount_paid); if (f > 2) { saldo += f; if (q2.due_date && q2.due_date < hoyS) nVenc++ } }
+          out += '\n  • Lote *' + (s.lot?.mz || '?') + '-' + (s.lot?.lt || '?') + '* (' + nombreProy(s.lot?.project_id) + ') — saldo ' + soles(saldo) + (nVenc ? ' · ⚠️ ' + nVenc + ' vencida(s)' : ' · al día ✅')
+        }
+      }
+      return out + PIE_COMANDO
+    }
+
+    // ---- VENTAS SIN CONTRATO FIRMADO ----
+    if (/contrato/.test(t)) {
+      const { data: ss } = await supabase.from('sales')
+        .select('signed_contract_url, sale_date, client:clients!sales_client_id_fkey(full_name), lot:lots(mz, lt, project_id)')
+        .in('status', ['en_proceso', 'pagado'])
+      const sin = (ss || []).filter(s => !s.signed_contract_url)
+      if (!sin.length) return '📄 *CONTRATOS*\n¡Todas las ventas tienen su contrato firmado! ✅' + PIE_COMANDO
+      const porProy = {}
+      for (const s of sin) { const k = nombreProy(s.lot?.project_id); (porProy[k] = porProy[k] || []).push(s) }
+      let out = '📄 *VENTAS SIN CONTRATO FIRMADO*: ' + sin.length + ' de ' + (ss || []).length
+      for (const [p, arr] of Object.entries(porProy)) {
+        out += '\n\n*' + p + '* (' + arr.length + ')'
+        out += '\n' + arr.slice(0, 12).map(s => '• ' + (s.lot?.mz || '?') + '-' + (s.lot?.lt || '?') + ' — ' + (s.client?.full_name || '-')).join('\n')
+        if (arr.length > 12) out += '\n  …y ' + (arr.length - 12) + ' más'
+      }
+      return out + PIE_COMANDO
     }
 
     if (/resumen|reporte|dashboard|panorama|balance|como vamos|c[oó]mo vamos/.test(t)) {
@@ -2134,14 +2230,31 @@ async function manejarTelegram(chatId, texto, info) {
     await TG.tgEnviar(chatId, '🔌 Listo, te desvinculé. Escribe */soy <tu número>* cuando quieras volver.')
     return
   }
-  if (/^\/?(ayuda|help|start)$/i.test(t)) {
-    await TG.tgEnviar(chatId, '🤖 *Asistente interno URBIS*\n\n• Responde *LISTO* o los números de lo que completaste del pase de lista.\n• Escríbeme consultas del sistema (cuotas, lotes, clientes) y te respondo.\n• */desvincular* para dejar de recibir avisos aquí.')
-    return
-  }
-
   // ---- misma atención que por WhatsApp, según el tipo de número ----
   const tnum = await tipoNumero(phone)
   const esGerencia = tnum === 'gerencia' || phone === ADMIN
+
+  // Saludo o "menú": TODOS (también las secretarias) ven la lista de comandos.
+  if (/^\/?(ayuda|help|start|comandos|menu|men[uú]|opciones|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|qu[eé] tal)[!.\s]*$/i.test(t)) {
+    const menu = await comandoDirecto('hola')
+    await TG.tgEnviar(chatId, (menu || '🤖 *Asistente interno URBIS*') +
+      '\n\n📋 Del pase de lista: responde *LISTO* o los *números* de lo que ya hiciste.\n🔌 */desvincular* para dejar de recibir avisos aquí.')
+    return
+  }
+
+  // Comandos de consulta para el equipo. Los datos sensibles (dinero de la
+  // empresa: comisiones, cartera, ingresos, gastos, ranking) quedan solo para
+  // gerencia; el resto del equipo consulta lo operativo de su día a día.
+  if (!esGerencia) {
+    const sensible = /comision|cartera|deuda total|por cobrar|saldo total|ingres|recaud|cobrado|caja|gastos?\b|top asesor|mejor asesor|ranking/i.test(t)
+    if (sensible) {
+      await TG.tgEnviar(chatId, '🔒 Esa información es solo para gerencia. Escribe *hola* para ver lo que sí puedes consultar.')
+      return
+    }
+    const resp = await comandoDirecto(t)
+    if (resp) { await TG.tgEnviar(chatId, resp); return }
+  }
+
   if (esGerencia) {
     if (await comandosPrivilegiados(phone, phone, t)) return
     if (!(await tieneChecklistAbierto(phone))) {
