@@ -601,8 +601,12 @@ export default function Whatsapp() {
   }
   const restartSesion = async s => { await setSesCampo(s.id, { restart: true }); alert('Reinicio de "' + s.label + '" solicitado (tarda ~30-60 seg; no pide QR).') }
   const borrarSesion = async s => {
-    if (s.is_corporate) { alert('El número corporativo no se elimina (primero marca otro como corporativo).'); return }
-    if (!confirm(`¿ELIMINAR el número "${s.label}"?\n\nSus chats quedan en el historial pero ese WhatsApp deja de atenderse desde el panel.`)) return
+    // El corporativo ya no lleva el seguimiento (eso vive en Telegram), así que
+    // también se puede eliminar; solo se avisa por si aún se usa como respaldo.
+    const aviso = s.is_corporate
+      ? `¿ELIMINAR el número CORPORATIVO "${s.label}"?\n\nEra el respaldo para avisos internos que no tuvieran número propio (el seguimiento ya sale por Telegram).\n\nSus chats quedan en el historial.`
+      : `¿ELIMINAR el número "${s.label}"?\n\nSus chats quedan en el historial pero ese WhatsApp deja de atenderse desde el panel.`
+    if (!confirm(aviso)) return
     await supabase.from('wa_sessions').delete().eq('id', s.id)
     cargarSesiones()
   }
@@ -819,29 +823,11 @@ export default function Whatsapp() {
         </div>
       </div>
 
-      {/* QR pendientes: uno por cada número esperando vinculación */}
-      {sesiones.filter(s => s.estado === 'esperando_qr' && qrsSes[s.id]).map(s => (
-        <div key={s.id} className="glass" style={{ padding: 18, marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(224,179,76,.5)' }}>
-          <img src={qrsSes[s.id]} alt={'QR ' + s.label} style={{ width: 220, height: 220, borderRadius: 10, background: '#fff', padding: 8 }} />
-          <div style={{ maxWidth: 420 }}>
-            <b>📱 ESCANEA ESTE QR CON EL CELULAR DE «{s.label || 'PRINCIPAL'}»</b>
-            <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-              En ese celular: WhatsApp → Dispositivos vinculados → Vincular dispositivo → apunta a este código.
-              El QR se renueva solo cada ~30 segundos. Cuando conecte, este recuadro desaparece y arriba se pone 🟢.
-            </p>
-          </div>
-        </div>
-      ))}
-      {sesiones.length === 0 && qrImg && (
-        <div className="glass" style={{ padding: 18, marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(224,179,76,.5)' }}>
-          <img src={qrImg} alt="QR de WhatsApp" style={{ width: 220, height: 220, borderRadius: 10, background: '#fff', padding: 8 }} />
-          <div style={{ maxWidth: 420 }}>
-            <b>📱 ESCANEA ESTE QR CON EL CELULAR DEL BOT</b>
-            <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-              En el celular: WhatsApp → Dispositivos vinculados → Vincular dispositivo → apunta a este código.
-              El QR se renueva solo cada ~30 segundos. Cuando conecte, este recuadro desaparece y arriba dirá CONECTADO.
-            </p>
-          </div>
+      {/* Los QR de vinculación se muestran en la ficha de cada proyecto (menú Proyectos) */}
+      {sesiones.some(s => s.estado === 'esperando_qr') && (
+        <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c', fontSize: 13 }}>
+          📱 Hay {sesiones.filter(s => s.estado === 'esperando_qr').length} número(s) esperando vinculación.
+          El QR sale en <b>Proyectos → la ficha del proyecto</b>.
         </div>
       )}
 
@@ -883,7 +869,7 @@ export default function Whatsapp() {
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button className="btn-ghost" onClick={() => relinkSesion(s)} title="Escanear QR con otro celular">🔄 VINCULAR</button>
                 <button className="btn-ghost" onClick={() => restartSesion(s)} title="Reiniciar solo este número (no pide QR)">🔁</button>
-                {!s.is_corporate && <button className="btn-ghost" onClick={() => borrarSesion(s)} title="Eliminar este número">✕</button>}
+                <button className="btn-ghost" onClick={() => borrarSesion(s)} title="Eliminar este número">✕</button>
               </span>
             </div>
           ))}
