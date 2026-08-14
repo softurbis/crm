@@ -127,6 +127,13 @@ export default function Lots() {
   const [cierreFile, setCierreFile] = useState(null)
   const [cierreBusy, setCierreBusy] = useState(false)
   const [cierreMsg, setCierreMsg] = useMsg(null)
+  // Pago viejo que nunca se registro en una venta YA EXPROPIADA. La pantalla de
+  // Pagos solo trabaja con ventas vivas ('en_proceso'/'pagado'), asi que esa
+  // plata —que si entro a la empresa— no tenia por donde entrar al sistema.
+  const [pagoExp, setPagoExp] = useState(null)      // { exp, cuotas, f }
+  const [pagoExpFile, setPagoExpFile] = useState(null)
+  const [pagoExpBusy, setPagoExpBusy] = useState(false)
+  const [pagoExpMsg, setPagoExpMsg] = useMsg(null)
   const puedeCierre = ['admin', 'superuser'].includes(role)
 
   async function loadLots() {
@@ -429,6 +436,68 @@ export default function Lots() {
     setCierreBusy(false)
   }
 
+  // ---- PAGO QUE FALTO REGISTRAR EN UNA VENTA EXPROPIADA (admin/superusuario) ----
+  // El lote se expropio, pero despues aparece un voucher del cliente que nunca se
+  // subio. Esa plata ENTRO de verdad: tiene que sumar en lo pagado y en la caja,
+  // no anotarse como "dinero que entro al cerrar" (eso es del acuerdo, otra cosa).
+  async function abrirPagoExp(exp) {
+    setPagoExpMsg(null); setPagoExpFile(null)
+    setPagoExp({
+      exp, cuotas: null,
+      f: { date: '', amount: '', operation_number: '', operation_type: 'TRANSFERENCIA', installment_id: '', observation: '' },
+    })
+    // el cronograma de la venta expropiada sigue existiendo: si el pago era de una
+    // cuota concreta se puede enganchar ahi y la cuota queda saldada.
+    const { data } = await supabase.from('installments')
+      .select('id, installment_number, amount, amount_paid, due_date')
+      .eq('sale_id', exp.id).order('installment_number')
+    setPagoExp(p => (p && p.exp.id === exp.id ? { ...p, cuotas: data || [] } : p))
+  }
+
+  async function guardarPagoExp(ev) {
+    ev.preventDefault()
+    const { exp, f } = pagoExp
+    const monto = Math.round(Number(f.amount) * 100) / 100
+    if (!(monto > 0)) { setPagoExpMsg({ ok: false, t: 'EL MONTO DEBE SER MAYOR A CERO.' }); return }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.date)) { setPagoExpMsg({ ok: false, t: 'REVISA LA FECHA DEL PAGO (AAAA-MM-DD).' }); return }
+    const motivo = (f.observation || '').trim()
+    if (motivo.length < 5) { setPagoExpMsg({ ok: false, t: 'ESCRIBE DE DONDE SALE ESTE PAGO (OBLIGATORIO, QUEDA EN BITACORA).' }); return }
+    const cuota = (pagoExp.cuotas || []).find(q => q.id === f.installment_id) || null
+    if (cuota && monto > Number(cuota.amount) - Number(cuota.amount_paid) + 0.01) {
+      setPagoExpMsg({ ok: false, t: 'EL MONTO PASA LO QUE DEBE LA CUOTA ' + cuota.installment_number + '. DEJA "NINGUNA CUOTA" O CORRIGE EL MONTO.' }); return
+    }
+    setPagoExpBusy(true); setPagoExpMsg(null)
+    try {
+      const op = (f.operation_number || 'SIN-REF').toUpperCase()
+      const voucherUrl = pagoExpFile ? await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, pagoExpFile) : null
+      const { error } = await supabase.from('daily_income').insert({
+        project_id: pidOp, lot_id: sel.id, client_id: exp.client_id || null, sale_id: exp.id,
+        installment_id: cuota?.id || null,
+        date: f.date, amount: monto,
+        operation_number: op, operation_type: f.operation_type,
+        income_type: cuota ? 'cuota' : 'otro',
+        observation: ('PAGO DE VENTA EXPROPIADA REGISTRADO A MANO | ' + motivo.toUpperCase()).slice(0, 400),
+        origin: 'sistema', voucher_url: voucherUrl,
+        registered_by: profile?.id || null, approved: true, approved_at: new Date().toISOString(),
+      })
+      if (error) throw error
+      await logCambio('daily_income', exp.id, {
+        cambio: 'pago_venta_expropiada', lote: sel.mz + '-' + sel.lt,
+        cliente: exp.client?.full_name || null,
+        monto, fecha: f.date, operacion: op, cuota: cuota?.installment_number || null,
+        pagado_antes: exp.pagado, pagado_despues: Math.round((Number(exp.pagado) + monto) * 100) / 100,
+        motivo: motivo.toUpperCase(), voucher: !!voucherUrl,
+      })
+      setPagoExpMsg({ ok: true, t: 'PAGO REGISTRADO. YA SUMA EN LO PAGADO Y EN LA CAJA.' })
+      savedFx()
+      setPagoExp(null); setPagoExpFile(null)
+      reload()
+    } catch (err) {
+      setPagoExpMsg({ ok: false, t: 'ERROR: ' + (err.message || err) })
+    }
+    setPagoExpBusy(false)
+  }
+
   // ---- INSERTAR CUOTA FALTANTE (superusuario) ----
   // Migración con hueco (ej. falta la 11). Crea solo esa cuota; NO toca las demás.
   async function insertarCuota() {
@@ -631,7 +700,7 @@ export default function Lots() {
       // historial de EXPROPIACIONES de este lote: cliente original, dinero pagado
       // (perdido) y como cerro la plata (sql/50), si ya se registro.
       let expropiaciones = []
-      const COLS_EXP = 'id, sale_date, total_sale_price, initial_amount_paid, client:clients!sales_client_id_fkey(full_name, doc_number)'
+      const COLS_EXP = 'id, sale_date, total_sale_price, initial_amount_paid, client_id, client:clients!sales_client_id_fkey(full_name, doc_number)'
       const qExp = cols => supabase.from('sales').select(cols)
         .eq('lot_id', sel.id).eq('status', 'expropiado').order('sale_date')
       let resExp = await qExp(COLS_EXP + ', ' + COLS_CIERRE)
@@ -1083,7 +1152,10 @@ export default function Lots() {
                               <td><b>{e.client?.full_name || '—'}</b>{e.client?.doc_number ? <><br /><span className="muted">{e.client.doc_number}</span></> : null}</td>
                               <td>{e.sale_date ? e.sale_date.split('-').reverse().join('/') : '—'}</td>
                               <td>{f(e.total_sale_price)}</td>
-                              <td><b style={{ color: '#c39ce0' }}>{f(e.pagado)}</b></td>
+                              <td><b style={{ color: '#c39ce0' }}>{f(e.pagado)}</b>
+                                {puedeCierre && <div><button className="link-btn" style={{ fontSize: 11 }}
+                                  onClick={() => abrirPagoExp(e)}>&#43; pago que faltó</button></div>}
+                              </td>
                               <td>
                                 {tieneCierre(e) ? (
                                   <div className="small">
@@ -1618,6 +1690,76 @@ export default function Lots() {
             })()}
             {cierreMsg && <p className={cierreMsg.ok ? 'ok' : 'error'}>{cierreMsg.t}</p>}
             <button className="btn-primary" disabled={cierreBusy}>{cierreBusy ? 'Guardando…' : 'Guardar cierre'}</button>
+          </form>
+        </div>
+      )}
+
+      {/* ---- PAGO QUE FALTO EN UNA VENTA EXPROPIADA (admin/superusuario) ---- */}
+      {pagoExp && (
+        <div className="modal-bg" onClick={() => setPagoExp(null)}>
+          <form className="glass modal" onClick={e => e.stopPropagation()} onSubmit={guardarPagoExp}
+            style={{ maxWidth: 720, width: '96%', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div className="modal-head">
+              <h2>Pago que faltó — MZ {sel?.mz} LT {sel?.lt}</h2>
+              <button type="button" className="btn-ghost" onClick={() => setPagoExp(null)}>&#10005;</button>
+            </div>
+            <p className="muted small" style={{ margin: '0 0 6px' }}>
+              Venta expropiada de <b>{pagoExp.exp.client?.full_name || '—'}</b> · hoy figura pagado{' '}
+              <b style={{ color: '#c39ce0' }}>S/ {Number(pagoExp.exp.pagado).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b>.
+              Esto es para la plata que <b>sí entró</b> y nunca se registró. Suma en lo pagado y en la caja del proyecto.
+            </p>
+            <p className="hint" style={{ margin: '0 0 8px' }}>
+              Si lo que quieres anotar es cómo terminó el acuerdo (penalidad, devolución), eso va en <b>completar cierre</b>, no acá.
+            </p>
+
+            <div className="form-grid">
+              <label>Fecha del pago
+                <input type="date" value={pagoExp.f.date}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, date: e.target.value } }))} required />
+              </label>
+              <label>Monto S/
+                <input type="number" step="0.01" min="0.01" placeholder="0.00" value={pagoExp.f.amount}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, amount: e.target.value } }))} required />
+              </label>
+              <label>N° de operación <span className="muted small">(si no se ubica, déjalo vacío)</span>
+                <input value={pagoExp.f.operation_number} placeholder="SIN-REF"
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, operation_number: e.target.value } }))} />
+              </label>
+              <label>Tipo de operación
+                <select value={pagoExp.f.operation_type}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, operation_type: e.target.value } }))}>
+                  {['TRANSFERENCIA', 'DEPOSITO', 'BILLETERA DIGITAL', 'EFECTIVO', 'POR CONFIRMAR'].map(v => <option key={v}>{v}</option>)}
+                </select>
+              </label>
+              <label className="span2">¿A qué cuota va? <span className="muted small">(opcional — si la eliges, esa cuota queda saldada)</span>
+                <select value={pagoExp.f.installment_id}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, installment_id: e.target.value } }))}>
+                  <option value="">NINGUNA — solo suma a lo pagado</option>
+                  {(pagoExp.cuotas || []).map(q => {
+                    const debe = Math.round((Number(q.amount) - Number(q.amount_paid)) * 100) / 100
+                    return <option key={q.id} value={q.id} disabled={debe <= 0.01}>
+                      CUOTA {String(q.installment_number).padStart(2, '0')} · vence {q.due_date} · debe S/ {debe.toFixed(2)}
+                    </option>
+                  })}
+                </select>
+              </label>
+              <label className="span2">Voucher del cliente <span className="muted small">(opcional: es plata vieja, puede no estar)</span>
+                <input type="file" accept="image/*,.pdf" onChange={e => setPagoExpFile(e.target.files[0] || null)} />
+              </label>
+              <label className="span2">¿De dónde sale este pago? <span className="muted small">(obligatorio, queda en bitácora)</span>
+                <textarea rows="2" style={{ textTransform: 'none' }} value={pagoExp.f.observation}
+                  placeholder="Ej: voucher de la cuota 04 que estaba en el Drive y nunca se subió"
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, observation: e.target.value } }))} required />
+              </label>
+            </div>
+            {Number(pagoExp.f.amount) > 0 && (
+              <p className="hint" style={{ margin: '6px 0' }}>
+                Lo pagado por este cliente pasaría de <b>S/ {Number(pagoExp.exp.pagado).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b> a{' '}
+                <b>S/ {(Math.round((Number(pagoExp.exp.pagado) + Number(pagoExp.f.amount)) * 100) / 100).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b>.
+              </p>
+            )}
+            {pagoExpMsg && <p className={pagoExpMsg.ok ? 'ok' : 'error'}>{pagoExpMsg.t}</p>}
+            <button className="btn-primary" disabled={pagoExpBusy}>{pagoExpBusy ? 'Guardando…' : 'Registrar el pago'}</button>
           </form>
         </div>
       )}
