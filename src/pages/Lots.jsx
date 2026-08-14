@@ -436,6 +436,45 @@ export default function Lots() {
     setCierreBusy(false)
   }
 
+  // ---- BORRAR EL CIERRE ECONOMICO (admin/superusuario) ----
+  // El cierre es una ANOTACION del acuerdo, no plata en caja. Si lo que se anoto
+  // ahi en realidad fue un pago del cliente, ese pago se registra como pago (y
+  // suma), y el cierre tiene que irse: si no, la misma plata queda contada dos
+  // veces. Lo borrado va integro a la bitacora —incluido el enlace al acuerdo—
+  // por si hay que reponerlo; el archivo en R2 no se toca.
+  async function borrarCierre() {
+    const { exp } = cierre
+    if (!confirm('BORRAR EL CIERRE ECONOMICO de ' + (exp.client?.full_name || 'este cliente') + '?\n\n'
+      + 'Se borran fecha, montos, saldo, notas y el enlace al acuerdo firmado.\n'
+      + 'Los PAGOS del cliente NO se tocan.\n\nTodo queda en bitacora.')) return
+    setCierreBusy(true); setCierreMsg(null)
+    try {
+      const { error } = await supabase.from('sales').update({
+        expr_fecha_cierre: null, expr_monto_recuperado: null, expr_monto_devuelto: null,
+        expr_saldo: null, expr_acuerdo_url: null, expr_notas: null,
+        expr_cierre_at: null, expr_cierre_by: null,
+      }).eq('id', exp.id)
+      if (error) throw error
+      await logCambio('sales', exp.id, {
+        cambio: 'borrar_cierre_expropiacion', lote: sel.mz + '-' + sel.lt,
+        cliente: exp.client?.full_name || null, pagado_por_el_cliente: exp.pagado,
+        borrado: {
+          fecha_cierre: exp.expr_fecha_cierre || null,
+          recuperado: exp.expr_monto_recuperado ?? null,
+          devuelto: exp.expr_monto_devuelto ?? null,
+          saldo: exp.expr_saldo ?? null,
+          acuerdo_url: exp.expr_acuerdo_url || null,
+          notas: exp.expr_notas || null,
+        },
+      })
+      setCierreMsg({ ok: true, t: 'CIERRE BORRADO (QUEDA EN BITACORA)' })
+      savedFx()
+      setCierre(null); setCierreFile(null)
+      reload()
+    } catch (err) { setCierreMsg({ ok: false, t: 'ERROR: ' + (err.message || err) }) }
+    setCierreBusy(false)
+  }
+
   // ---- PAGO QUE FALTO REGISTRAR EN UNA VENTA EXPROPIADA (admin/superusuario) ----
   // El lote se expropio, pero despues aparece un voucher del cliente que nunca se
   // subio. Esa plata ENTRO de verdad: tiene que sumar en lo pagado y en la caja,
@@ -1690,6 +1729,15 @@ export default function Lots() {
             })()}
             {cierreMsg && <p className={cierreMsg.ok ? 'ok' : 'error'}>{cierreMsg.t}</p>}
             <button className="btn-primary" disabled={cierreBusy}>{cierreBusy ? 'Guardando…' : 'Guardar cierre'}</button>
+            {tieneCierre(cierre.exp) && (
+              <>
+                {' '}
+                <button type="button" className="btn-ghost bad" disabled={cierreBusy} onClick={borrarCierre}>Borrar cierre</button>
+                <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                  Si ese monto fue en realidad un pago del cliente, bórralo de acá y regístralo con <b>+ pago que faltó</b>: así suma en lo pagado y en la caja, en vez de quedar como una nota.
+                </p>
+              </>
+            )}
           </form>
         </div>
       )}
