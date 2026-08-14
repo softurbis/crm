@@ -376,6 +376,11 @@ export default function Migracion() {
           <b> DOCUMENTOS</b> y <b>DNI</b> deciden a dónde va cada uno. Los <b>IMPRIMIR.docx</b> se descartan solos.
         </p>
         <p className="hint" style={{ margin: '6px 0 0' }}>
+          <b>Los Word no hay que convertirlos:</b> si el .docx es una foto pegada en Word (como casi todos los
+          vouchers), al subirlo el sistema le saca la foto y guarda esa, tal cual, sin perder calidad. Si el Word
+          es un documento de verdad —un contrato, una constancia redactada— se sube completo sin tocarlo.
+        </p>
+        <p className="hint" style={{ margin: '6px 0 0' }}>
           <b>De los gastos:</b> también entran los de <b>DOCUMENTOS ADMINISTRATIVOS</b> — las constancias de
           recepción van al espacio de <b>constancia</b> del gasto y los RxH / facturas / vouchers de depósito
           al de <b>sustento</b>. Se emparejan por el lote que nombran, el concepto y el mes. Los que nombran el
