@@ -25,7 +25,9 @@ export default function Dashboard() {
       let expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status, type, recipient, description').in('project_id', ids)
       if (expensesRes.error) expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, type, recipient, description').in('project_id', ids)
       const [lots, income, salesR, venc, seps] = await Promise.all([
-        supabase.from('lots').select('project_id, status, total_price').in('project_id', ids),
+        // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
+        // (sus pagos si siguen contando, porque salen de daily_income)
+        supabase.from('lots').select('project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado'),
         supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids),
         supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
         supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),

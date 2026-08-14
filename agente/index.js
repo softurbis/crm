@@ -296,7 +296,8 @@ async function responderInternoIA(jid, phone, texto, quien) {
     let ctx = ''
     // 1) Proyectos: lotes por estado + rango de precios
     for (const p of (proys || [])) {
-      const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id)
+      // los ELIMINADOS ya no existen en el terreno: no entran en el total que el bot informa
+      const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id).neq('status', 'eliminado')
       const all = lots || []
       const by = {}
       for (const l of all) by[l.status] = (by[l.status] || 0) + 1
@@ -481,7 +482,7 @@ async function comandoDirecto(texto) {
     if (/resumen|reporte|dashboard|panorama|balance|como vamos|c[oó]mo vamos/.test(t)) {
       const hoy = new Date().toISOString().slice(0, 10), mes = hoy.slice(0, 7)
       const [{ data: lots }, { data: sales }, { data: venc }, { data: coms }, { data: gastos }, { data: vis }] = await Promise.all([
-        supabase.from('lots').select('status'),
+        supabase.from('lots').select('status').neq('status', 'eliminado'),
         supabase.from('sales').select('status'),
         supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status)').eq('status', 'vencido'),
         supabase.from('commissions').select('amount').eq('status', 'pendiente'),
@@ -510,7 +511,7 @@ async function comandoDirecto(texto) {
     if (/\blotes?\b|disponibl|disponibilidad/.test(t)) {
       let out = '🏘️ *LOTES DISPONIBLES*\n'
       for (const p of (proys || [])) {
-        const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id)
+        const { data: lots } = await supabase.from('lots').select('status, total_price').eq('project_id', p.id).neq('status', 'eliminado')
         const disp = (lots || []).filter(l => l.status === 'disponible')
         const precios = disp.map(l => Number(l.total_price)).filter(n => n > 0)
         out += '\n*' + p.name + '*: ' + disp.length + ' de ' + (lots || []).length + ' lotes'
@@ -613,7 +614,7 @@ async function comandoDirecto(texto) {
       return '💵 *PAGOS DE HOY*\n' + (ing || []).length + ' pagos · ' + soles((ing || []).reduce((s, x) => s + Number(x.amount || 0), 0)) + '.' + PIE_COMANDO
     }
     if (/entregad/.test(t)) {
-      const { data: lots } = await supabase.from('lots').select('status')
+      const { data: lots } = await supabase.from('lots').select('status').neq('status', 'eliminado')
       return '🏡 *LOTES ENTREGADOS*\nTotal entregados: *' + (lots || []).filter(l => l.status === 'entregado').length + '*.' + PIE_COMANDO
     }
     if (/top asesor|mejor asesor|ranking asesor/.test(t)) {

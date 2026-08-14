@@ -69,7 +69,7 @@ export default function Projects() {
   async function load() {
     const [p, l, i, g, a] = await Promise.all([
       supabase.from('projects').select('*').order('created_at'),
-      supabase.from('lots').select('project_id, status'),
+      supabase.from('lots').select('project_id, status').neq('status', 'eliminado'),   // eliminado = ya no existe, no cuenta
       supabase.from('daily_income').select('project_id, amount'),
       supabase.from('expenses').select('project_id, amount'),
       supabase.from('financial_accounts').select('*'),

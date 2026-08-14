@@ -268,6 +268,8 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .st-chip.st-ok { background: rgba(134,181,126,.15); color: var(--ok); }
 .st-chip.st-exp { background: rgba(154,107,201,.2); color: #b58ad9; }
 .st-chip.st-per { background: rgba(224,82,82,.18); color: var(--error); }
+/* documento que NO se va a tener (cascada, cuadre): ni alerta ni todo bien */
+.st-chip.st-na { background: rgba(255,255,255,.07); color: #b9bcc2; font-weight: 600; }
 tr.row-expropiado td { background: rgba(154,107,201,.07); }
 tr.row-perdida td { background: rgba(224,82,82,.07); }
 

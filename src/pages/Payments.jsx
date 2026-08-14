@@ -48,6 +48,10 @@ function agruparPagos(pagos) {
     const clientes = [...new Set(items.map(p => p.client?.full_name || '-'))]
     const voucher = items.find(p => p.voucher_url)
     const comprobante = items.find(p => p.receipt_url)
+    // "no aplica": el deposito nunca va a tener ese documento (cascada, cuadre,
+    // canje). Vale para todo el grupo, que es como lo ve y lo marca el operador.
+    const voucherNA = items.every(p => p.voucher_na)
+    const comprobanteNA = items.every(p => p.receipt_na)
     return {
       ...g,
       total: items.reduce((s, p) => s + Number(p.amount || 0), 0),
@@ -57,12 +61,22 @@ function agruparPagos(pagos) {
       lotes: lotes.join(' + '),
       clientes: clientes.join(' + '),
       voucherUrl: voucher?.voucher_url || null,
-      voucherFaltante: items.some(p => !p.voucher_url),
+      voucherNA, voucherNAMotivo: items.find(p => p.voucher_na_reason)?.voucher_na_reason || null,
+      voucherFaltante: items.some(p => !p.voucher_url && !p.voucher_na),
       comprobanteUrl: comprobante?.receipt_url || null,
-      comprobanteFaltante: items.some(p => !p.receipt_url),
+      comprobanteNA, comprobanteNAMotivo: items.find(p => p.receipt_na_reason)?.receipt_na_reason || null,
+      comprobanteFaltante: items.some(p => !p.receipt_url && !p.receipt_na),
     }
   })
 }
+
+const COLS = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
+const COLS_NA = ', voucher_na, voucher_na_reason, receipt_na, receipt_na_reason'   // sql/49
+
+// voucher_url -> voucher_na / voucher_na_reason (idem receipt_url)
+const campoNA = campo => campo.replace('_url', '_na')
+const campoNAMotivo = campo => campo.replace('_url', '_na_reason')
+const nombreDoc = campo => campo === 'voucher_url' ? 'VOUCHER DEL CLIENTE' : 'COMPROBANTE INTERNO'
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00')
@@ -127,6 +141,7 @@ export default function Payments() {
   const [gruposAbiertos, setGruposAbiertos] = useState(new Set())
   const [repartoEdit, setRepartoEdit] = useState(null)
   const [repartoBusy, setRepartoBusy] = useState(false)
+  const [naOk, setNaOk] = useState(true)   // false = sql/49 sin correr: sin "no aplica"
   const readOnly = role === 'manager'
 
   // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
@@ -134,13 +149,15 @@ export default function Payments() {
   // historial salia incompleto: los mas antiguos (iniciales, lotes entregados)
   // se perdian y los filtros parecian rotos.
   async function traerPagos() {
-    const cols = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
     const paso = 1000
-    let desde = 0, todo = []
-    for (let guard = 0; guard < 50; guard++) {
+    let desde = 0, todo = [], cols = COLS + COLS_NA
+    for (let guard = 0; guard < 60; guard++) {
       const { data, error } = await supabase.from('daily_income').select(cols)
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false })
         .range(desde, desde + paso - 1)
+      // sql/49 todavia sin correr: se reintenta sin las columnas de "no aplica"
+      // para que el historial siga funcionando (los botones se ocultan solos).
+      if (error && cols !== COLS) { cols = COLS; setNaOk(false); continue }
       if (error || !data?.length) break
       todo = todo.concat(data)
       if (data.length < paso) break
@@ -422,10 +439,72 @@ export default function Payments() {
       const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
       if (nota === null) return   // cancelo: no se sube nada
       const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
-      await supabase.from('daily_income').update({ [campo]: url, [campoNota(campo)]: nota.trim() || null }).eq('id', row.id)
+      const patch = { [campo]: url, [campoNota(campo)]: nota.trim() || null }
+      // si el documento aparecio despues de todo, la marca "no aplica" ya no vale
+      if (naOk) { patch[campoNA(campo)] = false; patch[campoNAMotivo(campo)] = null }
+      await supabase.from('daily_income').update(patch).eq('id', row.id)
       setMsg({ ok: true, t: campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO' })
       loadBase()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
+  }
+
+  // ---- DOCUMENTOS QUE NO APLICAN ----
+  // La cascada aplica un deposito a varias cuotas y los cuadres/canjes no tienen
+  // voucher: pedirlos para siempre obligaba a subir el mismo papel varias veces.
+  // Aqui se marca, con motivo (bitacora), y deja de contar como faltante.
+  // `filas` son todas las aplicaciones del mismo deposito: se marcan juntas.
+  async function marcarNoAplica(filas, campo) {
+    const doc = nombreDoc(campo)
+    const motivo = prompt('¿Por qué este pago NO va a tener ' + doc + '?\n\n' +
+      'Ej: es parte de una cascada y el voucher está en el primer pago / cuadre de migración sin documento.\n' +
+      'El motivo queda en la bitácora (obligatorio, mínimo 5 caracteres):')
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { setMsg({ ok: false, t: 'MOTIVO OBLIGATORIO (mínimo 5 caracteres).' }); return }
+    const texto = motivo.trim().toUpperCase().slice(0, 300)
+    const ids = filas.map(p => p.id)
+    const { error } = await supabase.from('daily_income')
+      .update({ [campoNA(campo)]: true, [campoNAMotivo(campo)]: texto }).in('id', ids)
+    if (error) { setMsg({ ok: false, t: 'NO SE PUDO MARCAR: ' + error.message }); return }
+    await registrarNoAplica(filas, campo, texto, true)
+    setMsg({ ok: true, t: doc + ' MARCADO COMO NO APLICA' + (ids.length > 1 ? ' (' + ids.length + ' aplicaciones del mismo pago)' : '') + '. MOTIVO EN BITÁCORA.' })
+    if (view && ids.includes(view.id)) setView(v => ({ ...v, [campoNA(campo)]: true, [campoNAMotivo(campo)]: texto }))
+    loadBase()
+  }
+
+  async function quitarNoAplica(filas, campo) {
+    const doc = nombreDoc(campo)
+    if (!confirm('¿Volver a pedir el ' + doc + ' de este pago?\n\nDejará de estar marcado como "no aplica" y volverá a la lista de faltantes.')) return
+    const ids = filas.map(p => p.id)
+    const { error } = await supabase.from('daily_income')
+      .update({ [campoNA(campo)]: false, [campoNAMotivo(campo)]: null }).in('id', ids)
+    if (error) { setMsg({ ok: false, t: 'NO SE PUDO QUITAR LA MARCA: ' + error.message }); return }
+    await registrarNoAplica(filas, campo, null, false)
+    setMsg({ ok: true, t: 'MARCA QUITADA: EL ' + doc + ' VUELVE A PEDIRSE.' })
+    if (view && ids.includes(view.id)) setView(v => ({ ...v, [campoNA(campo)]: false, [campoNAMotivo(campo)]: null }))
+    loadBase()
+  }
+
+  const registrarNoAplica = (filas, campo, motivo, marcado) => supabase.from('activity_log').insert({
+    action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
+    details: {
+      cambio: marcado ? 'documento_no_aplica' : 'documento_vuelve_a_pedirse',
+      documento: nombreDoc(campo), motivo,
+      operacion: filas[0]?.operation_number || null,
+      lote: filas[0]?.lot ? filas[0].lot.mz + '-' + filas[0].lot.lt : null,
+      cliente: filas[0]?.client?.full_name || null,
+      monto: filas.reduce((s, p) => s + Number(p.amount || 0), 0),
+      aplicaciones: filas.length, project_id: pidOp,
+    },
+  })
+
+  // Todas las aplicaciones del mismo deposito (misma fecha + N° operacion + cuenta),
+  // igual que las agrupa el historial. Un pago SIN-REF va solo.
+  const filasDelPago = r => {
+    const op = String(r.operation_number || '').trim().toUpperCase()
+    if (!op || op === 'SIN-REF') return [r]
+    return pagos.filter(x => (x.date || '') === (r.date || '') &&
+      String(x.operation_number || '').trim().toUpperCase() === op &&
+      (x.financial_account_id || '') === (r.financial_account_id || ''))
   }
 
   // editar/agregar la nota de un documento ya subido
@@ -658,8 +737,10 @@ export default function Payments() {
     const terms = fq.trim().toLowerCase().split(/\s+/).filter(Boolean)
     return pagos.filter(p => {
       if (ftipo !== 'todos' && p.income_type !== ftipo) return false
-      if (fdoc === 'sin_voucher' && p.voucher_url) return false
-      if (fdoc === 'sin_comprobante' && p.receipt_url) return false
+      // los marcados "no aplica" ya no son faltantes: no salen en estos filtros
+      if (fdoc === 'sin_voucher' && (p.voucher_url || p.voucher_na)) return false
+      if (fdoc === 'sin_comprobante' && (p.receipt_url || p.receipt_na)) return false
+      if (fdoc === 'no_aplica' && !p.voucher_na && !p.receipt_na) return false
       if (fest !== 'todos' && estadoDe(p) !== fest) return false
       if (!terms.length) return true
       const heno = [
@@ -685,14 +766,45 @@ export default function Payments() {
   // en cuota/cuadre el cliente viene de la venta del lote: no se elige
   const clienteFijo = (tipo === 'cuota' || tipo === 'cuadre') && !!ctx?.sale
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
-  const sinVoucher = gruposTotales.filter(g => !g.voucherUrl).length
-  const sinComprobante = gruposTotales.filter(g => !g.comprobanteUrl).length
+  const sinVoucher = gruposTotales.filter(g => !g.voucherUrl && !g.voucherNA).length
+  const sinComprobante = gruposTotales.filter(g => !g.comprobanteUrl && !g.comprobanteNA).length
+  const noAplica = gruposTotales.filter(g => g.voucherNA || g.comprobanteNA).length
   const hayFiltro = !!fq || ftipo !== 'todos' || fdoc !== 'todos' || fest !== 'todos'
   const limpiarFiltros = () => { setFq(''); setFtipo('todos'); setFdoc('todos'); setFest('todos') }
   const abrirPago = r => {
     setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || '')
     setAccEdit(r.financial_account_id || ''); setAmtEdit(r.amount)
   }
+  // Celda de VOUCHER / COMPROBANTE del historial: el documento, o el boton para
+  // subirlo, o la marca "no aplica" cuando ese pago no va a tener documento.
+  function celdaDoc(g, campo) {
+    const esVoucher = campo === 'voucher_url'
+    const url = esVoucher ? g.voucherUrl : g.comprobanteUrl
+    const na = esVoucher ? g.voucherNA : g.comprobanteNA
+    const motivo = esVoucher ? g.voucherNAMotivo : g.comprobanteNAMotivo
+    const falta = esVoucher ? g.voucherFaltante : g.comprobanteFaltante
+    if (url) return <><a href={url} target="_blank" rel="noreferrer">VER</a>{falta && <span className="warn small"> + falta</span>}</>
+    if (na) return (
+      <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
+        no aplica
+        {!readOnly && <button className="link-btn" style={{ marginLeft: 4, fontSize: 11 }}
+          title="Volver a pedir este documento" onClick={() => quitarNoAplica(g.items, campo)}>&#8634;</button>}
+      </span>
+    )
+    if (readOnly) return <span className="muted">-</span>
+    return (
+      <>
+        <label className={'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>{esVoucher ? 'subir' : '⚠ falta'}
+          <input type="file" accept="image/*,.pdf" hidden
+            onChange={e => e.target.files[0] && subirDoc(g.referencia, e.target.files[0], campo)} />
+        </label>
+        {naOk && <button className="link-btn" style={{ display: 'block', fontSize: 10, marginTop: 2 }}
+          title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo."
+          onClick={() => marcarNoAplica(g.items, campo)}>no aplica</button>}
+      </>
+    )
+  }
+
   const alternarGrupo = key => setGruposAbiertos(prev => {
     const next = new Set(prev)
     next.has(key) ? next.delete(key) : next.add(key)
@@ -879,6 +991,7 @@ export default function Payments() {
         Historial ({gruposHistorial.length} pagos / {pagosFiltrados.length} aplicaciones de {pagos.length} | {soles(totalFiltrado)})
         {!readOnly && sinVoucher > 0 && <span className="warn"> | SIN VOUCHER: {sinVoucher}</span>}
         {!readOnly && sinComprobante > 0 && <span className="bad"> | FALTA COMPROBANTE: {sinComprobante}</span>}
+        {!readOnly && noAplica > 0 && <span className="muted" style={{ fontWeight: 400 }}> | NO APLICA: {noAplica}</span>}
       </h2>
       <div className="filtros">
         <input className="search fx-search" placeholder="Buscar: lote (G7), cliente, N° operación… (varias palabras)"
@@ -893,6 +1006,7 @@ export default function Payments() {
           <option value="todos">📎 Docs: todos</option>
           <option value="sin_voucher">Sin voucher</option>
           <option value="sin_comprobante">Sin comprobante</option>
+          {noAplica > 0 && <option value="no_aplica">Marcados "no aplica" ({noAplica})</option>}
         </select>
         <select className={`fx-sel ${fest !== 'todos' ? 'on' : ''}`} value={fest} onChange={e => setFest(e.target.value)}>
           <option value="todos">● Estado: todos</option>
@@ -933,24 +1047,8 @@ export default function Payments() {
                         title="Reparte de nuevo este voucher y los posteriores, respetando el monto de cada cuota"
                         onClick={() => recalcularCascadaDesde(g)}>↻ Recalcular cascada</button>}
                     </td>
-                    <td>
-                      {g.voucherUrl
-                        ? <><a href={g.voucherUrl} target="_blank" rel="noreferrer">VER</a>{g.voucherFaltante && <span className="warn small"> + falta</span>}</>
-                        : readOnly ? <span className="muted">-</span>
-                    : <label className="upload-btn warn">subir
-                        <input type="file" accept="image/*,.pdf" hidden
-                          onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'voucher_url')} />
-                      </label>}
-                    </td>
-                    <td>
-                      {g.comprobanteUrl
-                        ? <><a href={g.comprobanteUrl} target="_blank" rel="noreferrer">VER</a>{g.comprobanteFaltante && <span className="warn small"> + falta</span>}</>
-                        : readOnly ? <span className="muted">-</span>
-                    : <label className="upload-btn bad">&#9888; falta
-                        <input type="file" accept="image/*,.pdf" hidden
-                          onChange={e => e.target.files[0] && subirDoc(r, e.target.files[0], 'receipt_url')} />
-                      </label>}
-                    </td>
+                    <td>{celdaDoc(g, 'voucher_url')}</td>
+                    <td>{celdaDoc(g, 'receipt_url')}</td>
                     <td>{g.clientes}</td>
                     <td>{r.operation_number}</td>
                     <td>{r.account?.name || '-'}</td>
@@ -1075,7 +1173,20 @@ export default function Payments() {
                     {u && !readOnly && <> | <button className="link-btn" onClick={() => notaDoc(campo)}>&#128221; nota</button></>}</p>
                   {view[campoNota(campo)] && <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{view[campoNota(campo)]}</p>}
                   {!u
-                    ? <p className="bad big-alert">&#9888; NO SUBIDO</p>
+                    ? view[campoNA(campo)]
+                      // marcado a proposito: este pago no va a tener este documento
+                      ? <>
+                          <p className="muted big-alert" style={{ color: '#b9bcc2' }}>NO APLICA</p>
+                          <p className="muted small" style={{ textTransform: 'none' }}>{view[campoNAMotivo(campo)] || 'sin motivo registrado'}</p>
+                          {!readOnly && <button className="btn-ghost" style={{ fontSize: 12 }}
+                            onClick={() => quitarNoAplica(filasDelPago(view), campo)}>&#8634; Volver a pedirlo</button>}
+                        </>
+                      : <>
+                          <p className="bad big-alert">&#9888; NO SUBIDO</p>
+                          {!readOnly && naOk && <button className="btn-ghost" style={{ fontSize: 12 }}
+                            title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo y queda en bitácora."
+                            onClick={() => marcarNoAplica(filasDelPago(view), campo)}>No aplica a este pago</button>}
+                        </>
                     : u.toLowerCase().includes('.pdf')
                       ? <iframe src={u} title={t} />
                       : <img src={u} alt={t} />}

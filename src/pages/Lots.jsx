@@ -9,11 +9,24 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 const COLORS = {
   disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
   entregado: '#3fb6a8', invadido: '#c94f4f', expropiado: '#9a6bc9',
+  eliminado: '#6d6f74',
 }
 const LBL = {
   disponible: 'Disponible', separado: 'Separado', vendido: 'Vendido',
   entregado: 'Entregado', invadido: 'Invadido', expropiado: 'Expropiado',
+  eliminado: 'Eliminado',
 }
+// Un lote ELIMINADO ya no existe en el terreno (expropiacion, cambio de trazo o
+// marcador de migracion). No se puede borrar de la base porque arrastra ventas y
+// pagos reales, pero NO debe contar como lote: no suma en el total del proyecto ni
+// aparece en el mapa. Queda accesible con su propio filtro para auditarlo.
+const esLote = l => l.status !== 'eliminado'
+const EN_CARTERA = ['vendido', 'entregado']   // ya son de un cliente y siguen en cobranza
+
+// cierre economico de una expropiacion (sql/50)
+const COLS_CIERRE = 'expr_fecha_cierre, expr_monto_recuperado, expr_monto_devuelto, expr_saldo, expr_acuerdo_url, expr_notas, expr_cierre_at'
+const tieneCierre = e => !!(e.expr_fecha_cierre || e.expr_monto_recuperado != null ||
+  e.expr_monto_devuelto != null || e.expr_saldo != null || e.expr_acuerdo_url || e.expr_notas)
 
 
 // La cascada guarda una aplicación por cuota, pero para auditar contra el
@@ -40,6 +53,10 @@ function agruparPagosPorVoucher(pagos, cuotas) {
       tipo: tipo.length === 1 && tipo[0] === 'CUOTA' && g.items.length > 1 ? 'CUOTAS' : tipo.join(' + '),
       total: g.items.reduce((s, p) => s + Number(p.amount || 0), 0),
       distribucion: distribucion || '-', voucherUrl: voucher?.voucher_url || null, observacion: obs || '-',
+      // marcado en el panel de pagos: este deposito no va a tener voucher (sql/49)
+      voucherNA: g.items.every(p => p.voucher_na),
+      voucherNAMotivo: g.items.find(p => p.voucher_na_reason)?.voucher_na_reason || null,
+      cuotas: g.items.map(p => cuotas.find(q => q.id === p.installment_id)?.installment_number).filter(Boolean),
     }
   })
 }
@@ -65,6 +82,12 @@ export default function Lots() {
   const [detail, setDetail] = useState(null)
   const [desg, setDesg] = useState(false)
   const [pagosDesg, setPagosDesg] = useState(null)
+  // el desglosado tiene dos vistas: el cronograma (limpio) y el historial de pagos
+  // (con su propio buscador y orden), para no revisar todo en una sola lista corta.
+  const [desgVista, setDesgVista] = useState('cuotas')   // 'cuotas' | 'pagos'
+  const [pagoQ, setPagoQ] = useState('')
+  const [pagoOrden, setPagoOrden] = useState('fecha')    // 'fecha' | 'monto'
+  const [pagoAsc, setPagoAsc] = useState(true)
   const [simu, setSimu] = useState(null)
   const [historial, setHistorial] = useState([])
 
@@ -98,6 +121,13 @@ export default function Lots() {
   const [consOpts, setConsOpts] = useState([])           // otras ventas activas del mismo cliente
   const [uBusy, setUBusy] = useState(false)
   const [uMsg, setUMsg] = useMsg(null)
+
+  // ---- ficha de cierre de una EXPROPIACION (admin/superusuario) ----
+  const [cierre, setCierre] = useState(null)        // { exp, f } = la expropiacion que se completa
+  const [cierreFile, setCierreFile] = useState(null)
+  const [cierreBusy, setCierreBusy] = useState(false)
+  const [cierreMsg, setCierreMsg] = useMsg(null)
+  const puedeCierre = ['admin', 'superuser'].includes(role)
 
   async function loadLots() {
     if (!pidOp) return
@@ -314,14 +344,89 @@ export default function Lots() {
   // carga (o recarga) el desglosado de pagos de la venta actual. `abrir` = abre el modal.
   async function cargarDesglose(abrir = false) {
     if (!detail?.sale) return
-    const { data } = await supabase.from('daily_income')
-      .select('id, date, amount, income_type, operation_number, voucher_url, observation, installment_id')
+    const COLS = 'id, date, amount, income_type, operation_number, voucher_url, observation, installment_id'
+    let res = await supabase.from('daily_income').select(COLS + ', voucher_na, voucher_na_reason')
       .eq('sale_id', detail.sale.id).order('date')
+    // sql/49 sin correr todavia: el desglosado funciona igual, sin la marca "no aplica"
+    if (res.error) res = await supabase.from('daily_income').select(COLS).eq('sale_id', detail.sale.id).order('date')
+    const { data } = res
     const numDe = id => detail.inst.find(q => q.id === id)?.installment_number ?? 999
     const ordenado = (data || []).slice().sort((a, b) =>
       (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
     setPagosDesg(ordenado)
-    if (abrir) setDesg(true)
+    if (abrir) { setDesgVista('cuotas'); setPagoQ(''); setPagoOrden('fecha'); setPagoAsc(true); setDesg(true) }
+  }
+
+  // ---- CIERRE DE UNA EXPROPIACION (admin/superusuario) ----
+  // La expropiacion se ejecuta el dia que se firma, pero la plata se cierra despues:
+  // cuanto entro, cuanto se devolvio y con que saldo quedo. Esta ficha se completa
+  // cuando se sepa, sin tocar los pagos historicos del cliente.
+  function abrirCierre(exp) {
+    setCierreMsg(null); setCierreFile(null)
+    setCierre({
+      exp,
+      f: {
+        sale_date: exp.sale_date || '',
+        total_sale_price: exp.total_sale_price ?? '',
+        expr_fecha_cierre: exp.expr_fecha_cierre || '',
+        expr_monto_recuperado: exp.expr_monto_recuperado ?? '',
+        expr_monto_devuelto: exp.expr_monto_devuelto ?? '',
+        expr_saldo: exp.expr_saldo ?? '',
+        expr_notas: exp.expr_notas || '',
+      },
+    })
+  }
+
+  async function guardarCierre(e) {
+    e.preventDefault()
+    const { exp, f } = cierre
+    const num = v => (v === '' || v === null || v === undefined ? null : Math.round(Number(v) * 100) / 100)
+    const rec = num(f.expr_monto_recuperado), dev = num(f.expr_monto_devuelto), sal = num(f.expr_saldo)
+    if ([rec, dev].some(v => v !== null && (!Number.isFinite(v) || v < 0))) {
+      setCierreMsg({ ok: false, t: 'LOS MONTOS RECUPERADO Y DEVUELTO NO PUEDEN SER NEGATIVOS.' }); return
+    }
+    if (sal !== null && !Number.isFinite(sal)) { setCierreMsg({ ok: false, t: 'SALDO INVALIDO.' }); return }
+    const precio = num(f.total_sale_price)
+    if (!(precio > 0)) { setCierreMsg({ ok: false, t: 'EL PRECIO DE LA VENTA DEBE SER MAYOR A CERO.' }); return }
+    for (const [k, lbl] of [['sale_date', 'fecha de venta'], ['expr_fecha_cierre', 'fecha de cierre']]) {
+      if (f[k] && !/^\d{4}-\d{2}-\d{2}$/.test(f[k])) { setCierreMsg({ ok: false, t: 'REVISA LA ' + lbl.toUpperCase() + ' (AAAA-MM-DD).' }); return }
+    }
+    if (!f.sale_date) { setCierreMsg({ ok: false, t: 'LA FECHA DE VENTA NO PUEDE QUEDAR VACIA.' }); return }
+    setCierreBusy(true); setCierreMsg(null)
+    try {
+      let acuerdoUrl = exp.expr_acuerdo_url || null
+      if (cierreFile) acuerdoUrl = await upload(`expropiaciones/${exp.id}`, cierreFile)
+      const payload = {
+        sale_date: f.sale_date, total_sale_price: precio,
+        expr_fecha_cierre: f.expr_fecha_cierre || null,
+        expr_monto_recuperado: rec, expr_monto_devuelto: dev, expr_saldo: sal,
+        expr_acuerdo_url: acuerdoUrl, expr_notas: (f.expr_notas || '').trim().toUpperCase() || null,
+        expr_cierre_at: new Date().toISOString(), expr_cierre_by: profile?.id || null,
+      }
+      const { error } = await supabase.from('sales').update(payload).eq('id', exp.id)
+      if (error) throw error
+      await logCambio('sales', exp.id, {
+        cambio: 'cierre_expropiacion', lote: sel.mz + '-' + sel.lt,
+        cliente: exp.client?.full_name || null, pagado_por_el_cliente: exp.pagado,
+        antes: {
+          fecha_venta: exp.sale_date, precio: exp.total_sale_price,
+          recuperado: exp.expr_monto_recuperado ?? null, devuelto: exp.expr_monto_devuelto ?? null,
+          saldo: exp.expr_saldo ?? null, fecha_cierre: exp.expr_fecha_cierre || null,
+        },
+        despues: {
+          fecha_venta: payload.sale_date, precio: payload.total_sale_price,
+          recuperado: rec, devuelto: dev, saldo: sal, fecha_cierre: payload.expr_fecha_cierre,
+        },
+        acuerdo_firmado: !!acuerdoUrl, notas: payload.expr_notas,
+      })
+      setCierreMsg({ ok: true, t: 'CIERRE GUARDADO (QUEDA EN BITACORA)' })
+      savedFx()
+      setCierre(null); setCierreFile(null)
+      reload()
+    } catch (err) {
+      setCierreMsg({ ok: false, t: 'ERROR: ' + (err.message || err) + (String(err.message || '').includes('expr_') ? ' — ¿falta correr sql/50?' : '') })
+    }
+    setCierreBusy(false)
   }
 
   // ---- INSERTAR CUOTA FALTANTE (superusuario) ----
@@ -523,11 +628,15 @@ export default function Lots() {
         const enGrupo = new Set(grupo || [`${sel.mz}-${sel.lt}`])
         hermanosLotes = [...new Set((os || []).map(x => `${x.lot.mz}-${x.lot.lt}`))].filter(k => !enGrupo.has(k))
       }
-      // historial de EXPROPIACIONES de este lote: cliente original + dinero pagado (perdido)
+      // historial de EXPROPIACIONES de este lote: cliente original, dinero pagado
+      // (perdido) y como cerro la plata (sql/50), si ya se registro.
       let expropiaciones = []
-      const { data: exps } = await supabase.from('sales')
-        .select('id, sale_date, total_sale_price, initial_amount_paid, client:clients!sales_client_id_fkey(full_name, doc_number)')
+      const COLS_EXP = 'id, sale_date, total_sale_price, initial_amount_paid, client:clients!sales_client_id_fkey(full_name, doc_number)'
+      const qExp = cols => supabase.from('sales').select(cols)
         .eq('lot_id', sel.id).eq('status', 'expropiado').order('sale_date')
+      let resExp = await qExp(COLS_EXP + ', ' + COLS_CIERRE)
+      if (resExp.error) resExp = await qExp(COLS_EXP)   // sql/50 sin correr todavia
+      const { data: exps } = resExp
       if (exps?.length) {
         const expIds = exps.map(e => e.id)
         const { data: incs } = await supabase.from('daily_income').select('sale_id, amount').in('sale_id', expIds)
@@ -591,24 +700,35 @@ export default function Lots() {
     setSimu({ envios, humanos, pausadas, sinAccion, fecha: new Date().toLocaleString('es-PE') })
   }
 
+  // lotes que SI existen (los eliminados solo se ven con su propio filtro)
+  const activos = useMemo(() => lots.filter(esLote), [lots])
+
   const byMz = useMemo(() => {
     const g = {}
-    for (const l of lots) {
+    const base = filter === 'eliminado' ? lots.filter(l => !esLote(l)) : activos
+    for (const l of base) {
       if (filter === 'vencidas') { if (!vencidos.has(l.id)) continue }
       else if (filter === 'expropiado') { if (!expropiados.has(l.id)) continue }
-      else if (filter !== 'todos' && l.status !== filter) continue
+      else if (filter === 'cartera') { if (!EN_CARTERA.includes(l.status)) continue }
+      else if (!['todos', 'eliminado'].includes(filter) && l.status !== filter) continue
       ;(g[l.mz] = g[l.mz] || []).push(l)
     }
     for (const k in g) g[k].sort((a, b) => Number(a.lt) - Number(b.lt) || String(a.lt).localeCompare(String(b.lt)))
     return g
-  }, [lots, filter, vencidos, expropiados])
+  }, [lots, activos, filter, vencidos, expropiados])
 
   const counts = useMemo(() => {
-    const c = { todos: lots.length, vencidas: vencidos.size }
-    for (const l of lots) c[l.status] = (c[l.status] || 0) + 1
-    c.expropiado = expropiados.size  // historial de expropiaciones (aparte del estado actual)
+    const vivos = new Set(activos.map(l => l.id))
+    const c = { todos: activos.length }
+    for (const l of activos) c[l.status] = (c[l.status] || 0) + 1
+    // los históricos también se cuentan solo sobre lotes que existen, para que el
+    // número del chip coincida con lo que aparece al hacerle clic
+    c.vencidas = [...vencidos].filter(id => vivos.has(id)).length
+    c.expropiado = [...expropiados.keys()].filter(id => vivos.has(id)).length
+    c.cartera = EN_CARTERA.reduce((s, st) => s + (c[st] || 0), 0)
+    c.eliminado = lots.length - activos.length
     return c
-  }, [lots, vencidos, expropiados])
+  }, [lots, activos, vencidos, expropiados])
 
   function abrirLote(l) {
     setSel(l); setEdit(false); setEmsg(null); setChg(false); setChgReason(''); setChgFile(null)
@@ -793,6 +913,14 @@ export default function Lots() {
             {s === 'todos' ? 'Todos' : LBL[s]} ({counts[s] || 0})
           </button>
         ))}
+        {/* vendidos y entregados juntos: los dos ya son de un cliente y siguen en cobranza.
+            El punto lleva los dos colores para no perder la distincion del mapa. */}
+        <button className={`chip ${filter === 'cartera' ? 'on' : ''}`}
+          style={{ '--dot': `linear-gradient(90deg, ${COLORS.vendido} 50%, ${COLORS.entregado} 50%)` }}
+          title="Vendidos + entregados: lotes que ya tienen dueño y siguen en gestión de cobranza"
+          onClick={() => setFilter('cartera')}>
+          <span className="dot" /> En cartera ({counts.cartera || 0})
+        </button>
         <span className="muted small" style={{ alignSelf: 'center', margin: '0 .3rem', opacity: .6 }}>| histórico:</span>
         <button className={`chip ${filter === 'vencidas' ? 'on' : ''}`} style={{ '--dot': '#e05252' }}
           onClick={() => setFilter('vencidas')}>
@@ -802,10 +930,31 @@ export default function Lots() {
           onClick={() => setFilter('expropiado')}>
           <span className="dot" /> Expropiados ({counts.expropiado || 0})
         </button>
+        {counts.eliminado > 0 && (
+          <button className={`chip ${filter === 'eliminado' ? 'on' : ''}`} style={{ '--dot': COLORS.eliminado }}
+            title="Lotes que ya no existen en el terreno. No cuentan en el total del proyecto, pero conservan sus pagos para auditoría."
+            onClick={() => setFilter('eliminado')}>
+            <span className="dot" /> Eliminados ({counts.eliminado})
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         <button className={`chip ${vista === 'plano' ? 'on' : ''}`} onClick={() => setVista('plano')}>🗺️ Plano</button>
         <button className={`chip ${vista === 'lista' ? 'on' : ''}`} onClick={() => setVista('lista')}>☰ Lista</button>
       </div>
+
+      {filter === 'eliminado' && (
+        <p className="hint" style={{ margin: '-.7rem 0 1rem' }}>
+          &#9888; Estos lotes <b>ya no existen</b> en el terreno, por eso no cuentan en el total del
+          proyecto ({counts.todos} lotes). No se pueden borrar porque arrastran ventas y pagos reales:
+          su plata sigue registrada en caja y en el estado de cuenta del cliente.
+        </p>
+      )}
+      {filter === 'cartera' && (
+        <p className="hint" style={{ margin: '-.7rem 0 1rem' }}>
+          &#128203; <b>En cartera</b> = vendidos ({counts.vendido || 0}) + entregados ({counts.entregado || 0}).
+          Todos tienen dueño y siguen en gestión de cobranza; cada uno conserva su color en el mapa.
+        </p>
+      )}
 
       {vista === 'plano' ? (
         <div className="plano-wrap">
@@ -892,6 +1041,9 @@ export default function Lots() {
                 {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">✎</button>}</p>}
               {detail?.sale && <p><span className="muted">Fecha de venta:</span> <b>{detail.sale.sale_date ? detail.sale.sale_date.split('-').reverse().join('/') : '—'}</b>
                 {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('sale_date', 'fecha de venta', detail.sale.sale_date, 'sales', detail.sale.id)} title="Corregir fecha de venta">✎</button>}</p>}
+              {sel.status === 'eliminado' && <p className="hint" style={{ color: '#c9cbd0', margin: '4px 0' }}>
+                &#9888; Este lote está marcado como <b>ELIMINADO</b>: no existe en el terreno y no cuenta en el
+                total del proyecto. Se conserva únicamente porque tiene ventas y pagos reales asociados.</p>}
               {expropiados.get(sel.id) && <p className="hint" style={{ color: '#c39ce0', margin: '4px 0' }}>&#9888; Este lote fue EXPROPIADO <b>{expropiados.get(sel.id)} {expropiados.get(sel.id) > 1 ? 'veces' : 'vez'}</b> (histórico). Ver el detalle y el dinero perdido más abajo.</p>}
               {sel.associated_to && !detail?.grupo && <p><span className="muted">Asociado a:</span> {sel.associated_to}</p>}
               {detail?.grupo && <p className="hint" style={{ margin: '4px 0' }}>&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
@@ -905,20 +1057,47 @@ export default function Lots() {
               <div className="ficha" style={{ borderLeft: '3px solid #c39ce0' }}>
                 {(() => {
                   const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-                  const totalExp = detail.expropiaciones.reduce((s, e) => s + Number(e.pagado), 0)
+                  const exps = detail.expropiaciones
+                  const totalExp = exps.reduce((s, e) => s + Number(e.pagado), 0)
+                  const totalRec = exps.reduce((s, e) => s + Number(e.expr_monto_recuperado || 0), 0)
+                  const totalDev = exps.reduce((s, e) => s + Number(e.expr_monto_devuelto || 0), 0)
+                  const conCierre = exps.filter(tieneCierre).length
                   return (
                     <>
-                      <p style={{ color: '#c39ce0', margin: '0 0 4px' }}><b>&#9888; HISTORIAL DE EXPROPIACIONES ({detail.expropiaciones.length})</b></p>
-                      <p><span className="muted">Dinero total pagado y perdido por los clientes:</span> <b style={{ color: '#c39ce0' }}>{f(totalExp)}</b></p>
+                      <p style={{ color: '#c39ce0', margin: '0 0 4px' }}><b>&#9888; HISTORIAL DE EXPROPIACIONES ({exps.length})</b></p>
+                      <p><span className="muted">Pagado por los clientes:</span> <b style={{ color: '#c39ce0' }}>{f(totalExp)}</b>
+                        {totalRec > 0 && <> · <span className="muted">recuperado al cerrar:</span> <b className="ok">{f(totalRec)}</b></>}
+                        {totalDev > 0 && <> · <span className="muted">devuelto:</span> <b className="warn">{f(totalDev)}</b></>}
+                      </p>
+                      {conCierre < exps.length && (
+                        <p className="muted small" style={{ margin: '0 0 4px' }}>
+                          {exps.length - conCierre} de {exps.length} {exps.length - conCierre === 1 ? 'expropiación' : 'expropiaciones'} sin cierre económico registrado
+                          {puedeCierre ? ' — complétalo en la columna CIERRE.' : '.'}
+                        </p>
+                      )}
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem', marginTop: 4 }}>
-                        <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>CLIENTE ORIGINAL</th><th>FECHA VENTA</th><th>PRECIO</th><th>PAGADO (PERDIDO)</th></tr></thead>
+                        <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>CLIENTE ORIGINAL</th><th>FECHA VENTA</th><th>PRECIO</th><th>PAGADO (PERDIDO)</th><th>CIERRE ECONÓMICO</th></tr></thead>
                         <tbody>
-                          {detail.expropiaciones.map((e, i) => (
+                          {exps.map((e, i) => (
                             <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.07)', verticalAlign: 'top' }}>
                               <td><b>{e.client?.full_name || '—'}</b>{e.client?.doc_number ? <><br /><span className="muted">{e.client.doc_number}</span></> : null}</td>
                               <td>{e.sale_date ? e.sale_date.split('-').reverse().join('/') : '—'}</td>
                               <td>{f(e.total_sale_price)}</td>
                               <td><b style={{ color: '#c39ce0' }}>{f(e.pagado)}</b></td>
+                              <td>
+                                {tieneCierre(e) ? (
+                                  <div className="small">
+                                    {e.expr_fecha_cierre && <div><span className="muted">cerrado el</span> {e.expr_fecha_cierre.split('-').reverse().join('/')}</div>}
+                                    {e.expr_monto_recuperado != null && <div><span className="muted">entró:</span> <b className="ok">{f(e.expr_monto_recuperado)}</b></div>}
+                                    {e.expr_monto_devuelto != null && <div><span className="muted">devuelto:</span> <b className="warn">{f(e.expr_monto_devuelto)}</b></div>}
+                                    {e.expr_saldo != null && <div><span className="muted">saldo:</span> <b className={Number(e.expr_saldo) < 0 ? 'bad' : 'ok'}>{f(e.expr_saldo)}</b> <span className="muted">{Number(e.expr_saldo) < 0 ? '(en contra)' : '(a favor)'}</span></div>}
+                                    {e.expr_acuerdo_url && <div><a href={e.expr_acuerdo_url} target="_blank" rel="noreferrer">ver acuerdo firmado</a></div>}
+                                    {e.expr_notas && <div className="muted" style={{ textTransform: 'none' }}>{e.expr_notas}</div>}
+                                  </div>
+                                ) : <span className="muted small">sin registrar</span>}
+                                {puedeCierre && <div><button className="link-btn" style={{ fontSize: 11 }}
+                                  onClick={() => abrirCierre(e)}>{tieneCierre(e) ? '✎ editar cierre' : '✎ completar cierre'}</button></div>}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1194,7 +1373,8 @@ export default function Lots() {
 
       {desg && detail?.sale && (
         <div className="modal-bg" onClick={() => setDesg(false)}>
-          <div className="modal glass" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, width: '95%', maxHeight: '86vh', overflowY: 'auto' }}>
+          <div className="modal glass" onClick={e => e.stopPropagation()}
+            style={{ maxWidth: desgVista === 'pagos' ? 1060 : 780, width: '96%', maxHeight: '88vh', overflowY: 'auto' }}>
             <div className="modal-head">
               <b>DESGLOSADO DE PAGOS — MZ {sel?.mz} LT {sel?.lt}</b>
               <button className="btn-ghost" onClick={() => setDesg(false)}>✕</button>
@@ -1216,6 +1396,18 @@ export default function Lots() {
                 </p>
               )
             })()}
+
+            {/* dos vistas separadas: el cronograma no se mezcla con el historial */}
+            <div className="chips" style={{ margin: '10px 0 4px' }}>
+              <button className={`chip ${desgVista === 'cuotas' ? 'on' : ''}`} onClick={() => setDesgVista('cuotas')}>
+                📅 Cronograma de cuotas ({detail.inst.length})
+              </button>
+              <button className={`chip ${desgVista === 'pagos' ? 'on' : ''}`} onClick={() => setDesgVista('pagos')}>
+                📑 Historial de pagos ({agruparPagosPorVoucher(pagosDesg || [], detail.inst).length})
+              </button>
+            </div>
+
+            {desgVista === 'cuotas' && <>
             <h4 style={{ margin: '10px 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
               CRONOGRAMA DE CUOTAS ({detail.inst.length})
               {role === 'superuser' && (<>
@@ -1275,30 +1467,78 @@ export default function Lots() {
                 })}
               </tbody>
             </table>
-            {(() => {
-              const vouchers = agruparPagosPorVoucher(pagosDesg || [], detail.inst)
+            </>}
+
+            {desgVista === 'pagos' && (() => {
+              const todos = agruparPagosPorVoucher(pagosDesg || [], detail.inst)
+              // busqueda por cualquier dato del pago: fecha, tipo, N° operacion,
+              // cuota a la que se aplico, observacion o monto ("1958" encuentra 1,958.33)
+              const terms = pagoQ.trim().toLowerCase().split(/\s+/).filter(Boolean)
+              const vouchers = todos.filter(p2 => {
+                if (!terms.length) return true
+                const heno = [
+                  p2.referencia.date || '', (p2.referencia.date || '').split('-').reverse().join('/'),
+                  p2.tipo, p2.referencia.operation_number || '', p2.observacion,
+                  p2.cuotas.map(n => 'cuota ' + n).join(' '), String(p2.total),
+                ].join(' ').toLowerCase()
+                return terms.every(w => heno.includes(w))
+              }).sort((a, b) => {
+                const cmp = pagoOrden === 'monto'
+                  ? Number(a.total) - Number(b.total)
+                  : (a.referencia.date || '').localeCompare(b.referencia.date || '')
+                return pagoAsc ? cmp : -cmp
+              })
+              const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+              const sumaVista = vouchers.reduce((x, y) => x + Number(y.total), 0)
+              const sumaTodo = (pagosDesg || []).reduce((x, y) => x + Number(y.amount), 0)
+              const ordenBtn = (v, txt) => (
+                <button className={`chip ${pagoOrden === v ? 'on' : ''}`} style={{ fontSize: 12 }}
+                  onClick={() => pagoOrden === v ? setPagoAsc(a => !a) : (setPagoOrden(v), setPagoAsc(v === 'fecha'))}>
+                  {txt}{pagoOrden === v ? (pagoAsc ? ' ↑' : ' ↓') : ''}
+                </button>
+              )
               return <>
-                <h4 style={{ margin: '14px 0 4px' }}>PAGOS SEGÚN VOUCHER ({vouchers.length} pagos | {(pagosDesg || []).length} aplicaciones)</h4>
-                <p className="muted small" style={{ margin: '0 0 5px' }}>Aquí el monto es exactamente el del voucher. El cronograma de arriba muestra cómo la cascada lo aplicó a cada cuota.</p>
+                <p className="muted small" style={{ margin: '2px 0 8px' }}>
+                  Cada fila es <b>un pago real</b>, por el monto exacto del voucher. El cronograma muestra cómo la
+                  cascada lo repartió entre las cuotas.
+                </p>
+                <div className="filtros" style={{ marginBottom: 8 }}>
+                  <input className="search" style={{ textTransform: 'none' }}
+                    placeholder="Buscar: fecha (15/06/2026), N° operación, cuota, monto, observación…"
+                    value={pagoQ} onChange={e => setPagoQ(e.target.value)} />
+                  <span className="muted small" style={{ alignSelf: 'center' }}>ordenar por:</span>
+                  {ordenBtn('fecha', 'Fecha')}
+                  {ordenBtn('monto', 'Monto')}
+                  {pagoQ && <button className="fx-clear" onClick={() => setPagoQ('')}>✕ Limpiar</button>}
+                </div>
                 {!pagosDesg?.length && <p className="muted">Sin pagos registrados para esta venta.</p>}
-                {!!pagosDesg?.length && (
+                {!!pagosDesg?.length && !vouchers.length && <p className="muted">Ningún pago coincide con «{pagoQ}».</p>}
+                {!!vouchers.length && (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
-                    <thead><tr style={{ textAlign: 'left', opacity: .7 }}><th>FECHA</th><th>TIPO</th><th>APLICADO A CUOTAS</th><th>MONTO DEL VOUCHER</th><th>N° PAGO / OPERACIÓN</th><th>VOUCHER</th><th>OBS.</th></tr></thead>
+                    <thead><tr style={{ textAlign: 'left', opacity: .7 }}>
+                      <th>FECHA</th><th>TIPO</th><th>APLICADO A CUOTAS</th><th style={{ textAlign: 'right' }}>MONTO DEL VOUCHER</th><th>N° PAGO / OPERACIÓN</th><th>VOUCHER</th><th>OBSERVACIÓN</th>
+                    </tr></thead>
                     <tbody>
                       {vouchers.map(p2 => (
-                        <tr key={p2.key} style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
-                          <td>{p2.referencia.date?.split('-').reverse().join('/')}</td>
+                        <tr key={p2.key} style={{ borderTop: '1px solid rgba(255,255,255,.07)', verticalAlign: 'top' }}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{p2.referencia.date?.split('-').reverse().join('/')}</td>
                           <td>{p2.tipo}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{p2.distribucion}</td>
-                          <td><b>S/ {Number(p2.total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b></td>
+                          <td>{p2.distribucion}</td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{f(p2.total)}</b>
+                            {p2.items.length > 1 && <span className="muted small"> ({p2.items.length} aplic.)</span>}</td>
                           <td style={{ textTransform: 'none' }}>{p2.referencia.operation_number}</td>
-                          <td>{p2.voucherUrl ? <a href={p2.voucherUrl} target="_blank" rel="noreferrer">ver</a> : <span className="bad">falta</span>}</td>
-                          <td style={{ maxWidth: 170, textTransform: 'none' }}>{p2.observacion}</td>
+                          <td>{p2.voucherUrl
+                            ? <a href={p2.voucherUrl} target="_blank" rel="noreferrer">ver</a>
+                            : p2.voucherNA
+                              ? <span className="st-chip st-na" title={p2.voucherNAMotivo || 'no aplica'}>no aplica</span>
+                              : <span className="bad">falta</span>}</td>
+                          <td style={{ textTransform: 'none' }}>{p2.observacion}</td>
                         </tr>
                       ))}
                       <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
-                        <td colSpan="3">TOTAL VOUCHERS</td>
-                        <td colSpan="4">S/ {pagosDesg.reduce((x, y) => x + Number(y.amount), 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+                        <td colSpan="3">{terms.length ? 'TOTAL DE LO FILTRADO (' + vouchers.length + ' de ' + todos.length + ' pagos)' : 'TOTAL PAGADO EN ' + todos.length + ' PAGOS'}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{f(terms.length ? sumaVista : sumaTodo)}</td>
+                        <td colSpan="3">{terms.length ? <span className="muted small" style={{ fontWeight: 400 }}>de {f(sumaTodo)} en total</span> : null}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1306,6 +1546,79 @@ export default function Lots() {
               </>
             })()}
           </div>
+        </div>
+      )}
+
+      {/* ---- CIERRE ECONOMICO DE UNA EXPROPIACION (admin/superusuario) ---- */}
+      {cierre && (
+        <div className="modal-bg" onClick={() => setCierre(null)}>
+          <form className="glass modal" onClick={e => e.stopPropagation()} onSubmit={guardarCierre}
+            style={{ maxWidth: 720, width: '96%', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div className="modal-head">
+              <h2>Cierre de expropiación — MZ {sel?.mz} LT {sel?.lt}</h2>
+              <button type="button" className="btn-ghost" onClick={() => setCierre(null)}>&#10005;</button>
+            </div>
+            <p className="muted small" style={{ margin: '0 0 6px' }}>
+              Cliente original: <b>{cierre.exp.client?.full_name || '—'}</b> · pagó y perdió{' '}
+              <b style={{ color: '#c39ce0' }}>S/ {Number(cierre.exp.pagado).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b>.
+              Sus pagos <b>no se tocan</b>: acá solo se registra cómo terminó el acuerdo.
+            </p>
+
+            <p className="muted small" style={{ margin: '8px 0 2px', fontWeight: 700 }}>DATOS DE LA VENTA (corrígelos si se cargaron mal)</p>
+            <div className="form-grid">
+              <label>Fecha de venta
+                <input type="date" value={cierre.f.sale_date}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, sale_date: e.target.value } }))} required />
+              </label>
+              <label>Precio de la venta S/
+                <input type="number" step="0.01" min="0.01" value={cierre.f.total_sale_price}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, total_sale_price: e.target.value } }))} required />
+              </label>
+            </div>
+
+            <p className="muted small" style={{ margin: '12px 0 2px', fontWeight: 700 }}>CÓMO TERMINÓ LA PLATA</p>
+            <div className="form-grid">
+              <label>Fecha del cierre / acuerdo
+                <input type="date" value={cierre.f.expr_fecha_cierre}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_fecha_cierre: e.target.value } }))} />
+              </label>
+              <label>Dinero que ENTRÓ al final S/ <span className="muted small">(penalidad, gastos, saldo cobrado)</span>
+                <input type="number" step="0.01" min="0" placeholder="0.00" value={cierre.f.expr_monto_recuperado}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_monto_recuperado: e.target.value } }))} />
+              </label>
+              <label>Dinero DEVUELTO al cliente S/
+                <input type="number" step="0.01" min="0" placeholder="0.00" value={cierre.f.expr_monto_devuelto}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_monto_devuelto: e.target.value } }))} />
+              </label>
+              <label>Saldo final S/ <span className="muted small">(+ a favor · − en contra)</span>
+                <input type="number" step="0.01" placeholder="0.00" value={cierre.f.expr_saldo}
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_saldo: e.target.value } }))} />
+              </label>
+              <label className="span2">Acuerdo firmado {cierre.exp.expr_acuerdo_url && <a href={cierre.exp.expr_acuerdo_url} target="_blank" rel="noreferrer">(ver el que ya está subido)</a>}
+                <input type="file" accept="image/*,.pdf" onChange={e => setCierreFile(e.target.files[0] || null)} />
+              </label>
+              <label className="span2">Notas del cierre
+                <textarea rows="3" style={{ textTransform: 'none' }} value={cierre.f.expr_notas}
+                  placeholder="Qué se acordó, condiciones, pendientes…"
+                  onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_notas: e.target.value } }))} />
+              </label>
+            </div>
+            {(() => {
+              // referencia para no adivinar: lo que la empresa retiene si devuelve lo indicado
+              const dev = Number(cierre.f.expr_monto_devuelto || 0)
+              const rec = Number(cierre.f.expr_monto_recuperado || 0)
+              const retenido = Math.round((Number(cierre.exp.pagado) - dev + rec) * 100) / 100
+              return <p className="hint" style={{ margin: '6px 0' }}>
+                Referencia: pagado {Number(cierre.exp.pagado).toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                {dev ? ' − devuelto ' + dev.toLocaleString('es-PE', { minimumFractionDigits: 2 }) : ''}
+                {rec ? ' + entró ' + rec.toLocaleString('es-PE', { minimumFractionDigits: 2 }) : ''}
+                {' '}= <b>S/ {retenido.toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b> que quedan en la empresa.
+                El saldo final lo escribes tú, porque lo define el acuerdo.
+              </p>
+            })()}
+            {cierreMsg && <p className={cierreMsg.ok ? 'ok' : 'error'}>{cierreMsg.t}</p>}
+            <button className="btn-primary" disabled={cierreBusy}>{cierreBusy ? 'Guardando…' : 'Guardar cierre'}</button>
+          </form>
         </div>
       )}
 
