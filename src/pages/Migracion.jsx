@@ -111,7 +111,9 @@ export default function Migracion() {
   const [errores, setErrores] = useState([])
   const [listo, setListo] = useState(null)
   const [ver, setVer] = useState('listos')
-  const [manual, setManual] = useState({})   // ruta del archivo -> id del gasto elegido a mano
+  const [manual, setManual] = useState({})       // ruta del archivo -> id del gasto elegido a mano
+  const [confirmados, setConfirmados] = useState(() => new Set())   // los "revisar" que el usuario aprobó
+  const [aceptarTodo, setAceptarTodo] = useState(false)
   const [msg, setMsg] = useMsg(null)
 
   const nombreProyecto = projects?.find(p => p.id === pidOp)?.name || 'el proyecto'
@@ -162,6 +164,33 @@ export default function Migracion() {
         if (info.tipo === 'ignorar') { filas.push({ ...base, estado: 'ignorar', detalle: info.motivo }); continue }
         const campo = gasto === 'gasto-constancia' ? 'request_doc_url' : 'voucher_url'
         const lotesArch = lotesEn(nombre)
+
+        // Una "CONSTANCIA DE RECEPCIÓN DE DINERO" puede ser de plata que ENTRÓ
+        // (la que se le da al cliente cuando paga: ahí es el comprobante interno
+        // de SU pago) o de plata que SALIÓ (comisión, sueldo, viático: ahí es del
+        // gasto). Se distingue por el nombre: si no menciona un concepto de
+        // egreso y sí menciona un lote, es del cliente.
+        const esEgreso = /COMISION|SUELDO|VIATICO|ADMINISTRATIV|TOPOGRAF|RETROEXCAVADORA|ESPECIALISTA|MACEDO|PERIFONEO|PUBLICIDAD|BANNER|VOLANTE|DRONEO|CALLES/.test(sinTildes(nombre))
+        if (gasto === 'gasto-constancia' && !esEgreso && lotesArch.length) {
+          const l = porLote.get(lotesArch[0])
+          const pagosLote = l ? datos.pagos.filter(x => x.lot_id === l.id) : []
+          // el comprobante de una constancia es el pago mas grande sin comprobante
+          const cand = pagosLote.filter(x => reemplazar || !x.receipt_url)
+            .sort((a, b) => Number(b.amount) - Number(a.amount))
+          if (cand.length) {
+            filas.push({
+              ...base, estado: 'revisar', destino: 'comprobante', etiqueta: 'MZ ' + l.mz + ' LT ' + l.lt,
+              tabla: 'daily_income', ids: [cand[0].id], campo: 'receipt_url',
+              detalle: `constancia de dinero RECIBIDO del cliente → comprobante interno del pago de ${soles(cand[0].amount)} del ${cand[0].date} (${cand[0].income_type}) — CONFIRMA`,
+            })
+            continue
+          }
+          if (pagosLote.length) {
+            filas.push({ ...base, estado: 'ya-tiene', etiqueta: 'MZ ' + l.mz + ' LT ' + l.lt,
+              detalle: 'constancia del cliente: todos los pagos de ese lote ya tienen comprobante' })
+            continue
+          }
+        }
         const concepto = conceptoDe(nombre)
         // se puntúa a cada gasto: el lote es la señal fuerte, después el concepto,
         // después el mes. Nada se sube sin que el número calce o tú lo confirmes.
@@ -290,7 +319,14 @@ export default function Migracion() {
     return c
   }, [plan])
 
-  const aSubir = useMemo(() => plan.filter(f => f.estado === 'listo' || f.estado === 'revisar'), [plan])
+  // Lo dudoso NO se sube solo: "listo" es lo que el nombre del archivo dice sin
+  // ambigüedad; "revisar" es una sugerencia mía y necesita que la aprueben, una
+  // por una o todas de golpe. Adivinar a qué pago o gasto va un comprobante y
+  // subirlo sin permiso es peor que dejarlo pendiente.
+  const aSubir = useMemo(() => plan.filter(f =>
+    f.estado === 'listo' || (f.estado === 'revisar' && (aceptarTodo || confirmados.has(f.ruta)))
+  ), [plan, confirmados, aceptarTodo])
+  const porRevisar = useMemo(() => plan.filter(f => f.estado === 'revisar'), [plan])
   const visibles = useMemo(() => {
     if (ver === 'todos') return plan
     if (ver === 'listos') return plan.filter(f => f.estado === 'listo' || f.estado === 'revisar')
@@ -445,18 +481,36 @@ export default function Migracion() {
               <button key={k} className={`chip ${ver === k ? 'on' : ''}`} onClick={() => setVer(k)}>{l} ({n})</button>
             ))}
           </div>
-          {cuenta.revisar > 0 && ver === 'listos' && (
-            <p className="hint" style={{ margin: '0 0 8px' }}>
-              &#9888; {cuenta.revisar} archivos quedaron marcados <b>revisar</b>: había más de un archivo para el mismo
-              tipo de pago, así que se emparejaron por orden de nombre y fecha. Míralos antes de subir.
-            </p>
+          {porRevisar.length > 0 && (
+            <div className="hint" style={{ margin: '0 0 8px' }}>
+              <p style={{ margin: 0 }}>
+                &#9888; <b>{porRevisar.length} archivos son una sugerencia mía, no una certeza</b> — el nombre no
+                alcanza para estar seguro. <b>No se suben</b> hasta que marques su casilla (columna OK).
+                {' '}Aprobados: <b>{aceptarTodo ? porRevisar.length : [...confirmados].filter(r => porRevisar.some(f => f.ruta === r)).length}</b> de {porRevisar.length}.
+              </p>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, fontWeight: 400 }}>
+                <input type="checkbox" checked={aceptarTodo} disabled={subiendo}
+                  onChange={e => setAceptarTodo(e.target.checked)} />
+                Acepto todas las sugerencias de golpe (reviso después desde cada ficha)
+              </label>
+            </div>
           )}
           <div className="glass table-wrap">
             <table>
-              <thead><tr><th>Archivo</th><th>Lote</th><th>Va a</th><th>Estado</th><th>Detalle</th></tr></thead>
+              <thead><tr><th>OK</th><th>Archivo</th><th>Lote</th><th>Va a</th><th>Estado</th><th>Detalle</th></tr></thead>
               <tbody>
                 {visibles.slice(0, 400).map((f, i) => (
                   <tr key={i}>
+                    <td>
+                      {f.estado === 'revisar' && !subiendo && (
+                        <input type="checkbox" title="Aprobar esta sugerencia"
+                          checked={aceptarTodo || confirmados.has(f.ruta)} disabled={aceptarTodo}
+                          onChange={e => setConfirmados(s => {
+                            const n = new Set(s); e.target.checked ? n.add(f.ruta) : n.delete(f.ruta); return n
+                          })} />
+                      )}
+                      {f.estado === 'listo' && <span className="ok">✓</span>}
+                    </td>
                     <td style={{ textTransform: 'none' }}>{f.nombre} <span className="muted small">({f.kb} KB)</span></td>
                     <td>{f.etiqueta || '—'}</td>
                     <td>{f.destino ? DESTINO_LBL[f.destino] : '—'}</td>

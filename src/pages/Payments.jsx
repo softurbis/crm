@@ -7,6 +7,7 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import { leerVoucher, esImagen } from '../lib/leerVoucher'
 import VoucherReview from '../components/VoucherReview'
+import VisorDoc from '../components/VisorDoc'
 import Buscador from '../components/Buscador'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
@@ -1187,9 +1188,7 @@ export default function Payments() {
                             title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo y queda en bitácora."
                             onClick={() => marcarNoAplica(filasDelPago(view), campo)}>No aplica a este pago</button>}
                         </>
-                    : u.toLowerCase().includes('.pdf')
-                      ? <iframe src={u} title={t} />
-                      : <img src={u} alt={t} />}
+                    : <VisorDoc url={u} titulo={t} />}
                 </div>
               ))}
             </div>

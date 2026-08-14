@@ -270,6 +270,19 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .st-chip.st-per { background: rgba(224,82,82,.18); color: var(--error); }
 /* documento que NO se va a tener (cascada, cuadre): ni alerta ni todo bien */
 .st-chip.st-na { background: rgba(255,255,255,.07); color: #b9bcc2; font-weight: 600; }
+
+/* Word convertido para verlo en el panel: se lee como una hoja, no como el resto
+   de la interfaz (fondo claro, texto oscuro), porque es un documento. */
+.doc-word {
+  background: #fdfdfb; color: #1a1a1a; border-radius: 8px; padding: 18px 22px;
+  overflow: auto; text-transform: none; font-size: .9rem; line-height: 1.5;
+}
+.doc-word p { margin: 0 0 .6em; }
+.doc-word h1, .doc-word h2, .doc-word h3 { color: #111; margin: .8em 0 .4em; line-height: 1.25; }
+.doc-word table { border-collapse: collapse; width: 100%; margin: .6em 0; }
+.doc-word td, .doc-word th { border: 1px solid #c8c8c4; padding: 4px 7px; }
+.doc-word img { max-width: 100%; height: auto; }
+.doc-word strong { color: #000; }
 tr.row-expropiado td { background: rgba(154,107,201,.07); }
 tr.row-perdida td { background: rgba(224,82,82,.07); }
 

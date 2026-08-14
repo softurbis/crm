@@ -5,6 +5,7 @@ import { useMsg } from '../lib/saveFx'
 import { letras, fechaLetras } from '../lib/letras'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import VisorDoc from '../components/VisorDoc'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -32,6 +33,7 @@ export default function Expenses() {
   const [proyecto, setProyecto] = useState(null)
   const [list, setList] = useState([])
   const [msg, setMsg] = useMsg(null)
+  const [verDoc, setVerDoc] = useState(null)   // { url, titulo } del documento abierto
   const [busy, setBusy] = useState(false)
   const [show, setShow] = useState(false)
   const [fq, setFq] = useState('')
@@ -151,14 +153,17 @@ export default function Expenses() {
     const nota = g[campo.replace('_url', '_note')]
     return g[campo]
       ? <>
-          <a href={g[campo]} target="_blank" rel="noreferrer">VER</a>
+          {/* "ver" abre el documento dentro del panel: un Word tambien, que antes
+              solo se podia bajar y abrir en Word aparte */}
+          <button className="link-btn" onClick={() => setVerDoc({ url: g[campo], titulo: label })}>VER</button>
+          {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
           {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
           {nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}
         </>
       : readOnly
       ? <span className="muted">-</span>
       : <label className={`upload-btn ${alerta ? 'bad' : ''}`}>{alerta ? '⚠ ' : ''}{label}
-          <input type="file" accept="image/*,.pdf" hidden
+          <input type="file" accept="image/*,.pdf,.docx" hidden
             onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
         </label>
   }
@@ -370,6 +375,19 @@ export default function Expenses() {
           </div>
         )
       })()}
+
+      {verDoc && (
+        <div className="modal-bg" onClick={() => setVerDoc(null)}>
+          <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 900, width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-head">
+              <b>{String(verDoc.titulo || 'documento').toUpperCase()}</b>
+              <a href={verDoc.url} target="_blank" rel="noreferrer" className="muted small">abrir aparte ↗</a>
+              <button className="btn-ghost" onClick={() => setVerDoc(null)}>&#10005;</button>
+            </div>
+            <VisorDoc url={verDoc.url} titulo={verDoc.titulo} alto={560} />
+          </div>
+        </div>
+      )}
     </>
   )
 }
