@@ -25,7 +25,43 @@ import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const CARPETAS = { VOUCHERS: 'voucher', BOLETAS: 'comprobante', DOCUMENTOS: 'contrato', DNI: 'dni' }
-const DESTINO_LBL = { voucher: 'Voucher del cliente', comprobante: 'Comprobante interno', contrato: 'Contrato firmado', dni: 'DNI del cliente' }
+const DESTINO_LBL = {
+  voucher: 'Voucher del cliente', comprobante: 'Comprobante interno', contrato: 'Contrato firmado', dni: 'DNI del cliente',
+  'gasto-constancia': 'Constancia del gasto', 'gasto-sustento': 'Sustento del gasto (RxH / factura)',
+}
+// Los documentos de EGRESOS no viven en la carpeta del lote sino en
+// DOCUMENTOS ADMINISTRATIVOS, ordenados por año y mes. Cada gasto tiene dos
+// espacios en el sistema: la constancia firmada y el sustento (RxH o factura).
+const CARPETAS_GASTO = [
+  [/CONSTANCIAS?\s+DE\s+RECEPCION/, 'gasto-constancia'],
+  [/ESCANEO\s+DE\s+CONSTANCIAS/, 'gasto-constancia'],
+  [/RXH\s*Y\s*FAC|RXH|FACTURAS?/, 'gasto-sustento'],
+  [/VOUCHER\s+DE\s+DEPOSITOS/, 'gasto-sustento'],
+]
+const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SETIEMBRE', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
+const MES_NUM = { ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6, JULIO: 7, AGOSTO: 8, SETIEMBRE: 9, SEPTIEMBRE: 9, OCTUBRE: 10, NOVIEMBRE: 11, DICIEMBRE: 12 }
+
+// Todos los lotes que menciona un texto. Aguanta las formas reales que usa la
+// secretaria: "MZ B LT 16", "MZ. D LT. 04", "MZ A LT 8 Y 9" (dos lotes) y hasta
+// "MZ 7 LT B", que está al revés.
+function lotesEn(texto) {
+  const t = sinTildes(texto).replace(/\./g, ' ')
+  const out = []
+  for (const m of t.matchAll(/MZ\s*([A-Z0-9]+)\s+LT\s*([A-Z0-9]+((?:\s+Y\s+\d+)*))/g)) {
+    let mz = m[1], resto = m[2]
+    const nums = [...resto.matchAll(/\d+/g)].map(x => String(Number(x[0])))
+    const letra = /^[A-Z]$/.test(mz) ? mz : (resto.match(/^[A-Z]$/) ? resto : null)
+    if (/^[A-Z]$/.test(mz)) { for (const n of nums) out.push(mz + '-' + n) }
+    else if (letra) out.push(letra + '-' + String(Number(mz)))   // venía al revés
+  }
+  return [...new Set(out)]
+}
+const CONCEPTOS = [
+  [/COMISION/, 'PAGO DE COMISION'],
+  [/TOPOGRAF|RETROEXCAVADORA|LEVANTAMIENTO|ESPECIALISTA|DESARROLLO/, 'GASTOS DE DESARROLLO'],
+  [/ADMINISTRATIV|VIATICO|COMIDA|COMBUSTIBLE|SUELDO|MOVILIDAD/, 'GASTOS ADMINISTRATIVOS'],
+]
+const conceptoDe = txt => (CONCEPTOS.find(([re]) => re.test(sinTildes(txt))) || [])[1] || null
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const sinTildes = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
 const limpio = s => sinTildes(s).replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase()
@@ -35,14 +71,18 @@ const limpio = s => sinTildes(s).replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '
 function leerRuta(ruta) {
   const partes = String(ruta).split('/').filter(Boolean)
   const nombre = partes[partes.length - 1]
-  let lote = null, carpeta = null
-  for (const p of partes) {
-    const m = sinTildes(p).match(/MZ\s*([A-Z]+)\s*LT\s*0*(\d+)/)
+  let lote = null, carpeta = null, gasto = null, anio = null, mes = null
+  for (const p of partes.slice(0, -1)) {
+    const s = sinTildes(p).trim()
+    const m = s.match(/MZ\s*([A-Z]+)\s*LT\s*0*(\d+)/)
     if (m && !lote) lote = { mz: m[1], lt: m[2] }
-    const c = CARPETAS[sinTildes(p).trim()]
+    const c = CARPETAS[s]
     if (c) carpeta = c
+    for (const [re, tipo] of CARPETAS_GASTO) if (!gasto && re.test(s)) gasto = tipo
+    const a = s.match(/\b(20\d\d)\b/); if (a) anio = Number(a[1])
+    const mm = MESES.find(x => s.includes(x)); if (mm) mes = MES_NUM[mm]
   }
-  return { lote, carpeta, nombre }
+  return { lote, carpeta, gasto, anio, mes, nombre }
 }
 
 // Qué pago cubre este archivo, según cómo lo nombró la secretaria.
@@ -71,6 +111,7 @@ export default function Migracion() {
   const [errores, setErrores] = useState([])
   const [listo, setListo] = useState(null)
   const [ver, setVer] = useState('listos')
+  const [manual, setManual] = useState({})   // ruta del archivo -> id del gasto elegido a mano
   const [msg, setMsg] = useMsg(null)
 
   const nombreProyecto = projects?.find(p => p.id === pidOp)?.name || 'el proyecto'
@@ -79,19 +120,23 @@ export default function Migracion() {
     if (!pidOp) return
     setDatos(null); setArchivos([]); setListo(null)
     async function cargar() {
-      const [lotes, ventas, pagos] = await Promise.all([
+      const [lotes, ventas, pagos, gastos] = await Promise.all([
         supabase.from('lots').select('id, mz, lt').eq('project_id', pidOp),
         supabase.from('sales').select('id, lot_id, client_id, status, signed_contract_url, client:clients!sales_client_id_fkey(id, full_name, dni_front_url, dni_back_url)')
           .in('status', ['en_proceso', 'pagado', 'expropiado']),
         supabase.from('daily_income')
           .select('id, date, amount, income_type, voucher_url, receipt_url, lot_id, installment:installments(installment_number)')
           .eq('project_id', pidOp).order('date'),
+        supabase.from('expenses')
+          .select('id, type, issue_date, reception_date, amount, description, recipient, voucher_url, request_doc_url')
+          .eq('project_id', pidOp).order('issue_date'),
       ])
       const míos = new Set((lotes.data || []).map(l => l.id))
       setDatos({
         lotes: lotes.data || [],
         ventas: (ventas.data || []).filter(v => míos.has(v.lot_id)),
         pagos: pagos.data || [],
+        gastos: gastos.data || [],
       })
     }
     cargar()
@@ -108,9 +153,48 @@ export default function Migracion() {
     // se agrupan por lote+carpeta+tipo para poder emparejar en orden cuando hay varios
     const grupos = new Map()
     for (const f of archivos) {
-      const { lote, carpeta, nombre } = leerRuta(f.webkitRelativePath || f.name)
+      const { lote, carpeta, gasto, anio, mes, nombre } = leerRuta(f.webkitRelativePath || f.name)
       const info = leerNombre(nombre)
       const base = { file: f, nombre, ruta: f.webkitRelativePath || f.name, kb: Math.round(f.size / 1024) }
+
+      // ---- DOCUMENTOS DE GASTOS (constancias, RxH, facturas, vouchers de depósito) ----
+      if (gasto) {
+        if (info.tipo === 'ignorar') { filas.push({ ...base, estado: 'ignorar', detalle: info.motivo }); continue }
+        const campo = gasto === 'gasto-constancia' ? 'request_doc_url' : 'voucher_url'
+        const lotesArch = lotesEn(nombre)
+        const concepto = conceptoDe(nombre)
+        // se puntúa a cada gasto: el lote es la señal fuerte, después el concepto,
+        // después el mes. Nada se sube sin que el número calce o tú lo confirmes.
+        const puntuados = (datos.gastos || []).map(g => {
+          const lotesG = lotesEn(g.description || '')
+          let p = 0
+          if (lotesArch.length && lotesG.some(x => lotesArch.includes(x))) p += 10
+          if (concepto && g.type === concepto) p += 4
+          const fg = g.issue_date || g.reception_date || ''
+          if (anio && fg.slice(0, 4) === String(anio)) p += 2
+          if (mes && Number(fg.slice(5, 7)) === mes) p += 3
+          return { g, p }
+        }).filter(x => x.p > 0).sort((a, b) => b.p - a.p)
+        const elegido = manual[base.ruta] ? (datos.gastos || []).find(g => g.id === manual[base.ruta]) : puntuados[0]?.g
+        const seguro = !manual[base.ruta] && puntuados[0] && puntuados[0].p >= 10 &&
+          (!puntuados[1] || puntuados[1].p < puntuados[0].p)
+        if (!elegido) {
+          filas.push({ ...base, estado: 'sin-destino', destino: gasto, gasto: true, campo,
+            candidatos: datos.gastos || [],
+            detalle: `no encontré a qué gasto corresponde${lotesArch.length ? ' (menciona ' + lotesArch.join(', ') + ')' : ''} — elígelo tú` })
+          continue
+        }
+        const yaTiene = elegido[campo]
+        filas.push({
+          ...base, estado: yaTiene && !reemplazar ? 'ya-tiene' : (seguro ? 'listo' : 'revisar'),
+          destino: gasto, gasto: true, campo, tabla: 'expenses', id: elegido.id, candidatos: datos.gastos || [],
+          etiqueta: (elegido.issue_date || '').slice(0, 7),
+          detalle: `${elegido.type} · ${soles(elegido.amount)} · ${elegido.issue_date || 's/f'} · ${(elegido.description || '').slice(0, 60)}` +
+            (seguro ? '' : ' — CONFIRMA que es el correcto'),
+        })
+        continue
+      }
+
       if (!lote) { filas.push({ ...base, estado: 'sin-destino', detalle: 'no pude leer la manzana y el lote de la ruta' }); continue }
       const l = porLote.get(lote.mz + '-' + String(Number(lote.lt)))
       if (!l) { filas.push({ ...base, estado: 'sin-destino', detalle: `el lote MZ ${lote.mz} LT ${lote.lt} no existe en ${nombreProyecto}` }); continue }
@@ -198,7 +282,7 @@ export default function Migracion() {
       }
     }
     return filas
-  }, [datos, archivos, reemplazar, nombreProyecto])
+  }, [datos, archivos, reemplazar, nombreProyecto, manual])
 
   const cuenta = useMemo(() => {
     const c = { listos: 0, revisar: 0, 'ya-tiene': 0, 'sin-destino': 0, ignorar: 0, extra: 0 }
@@ -226,7 +310,8 @@ export default function Migracion() {
       setProgreso({ hechos: i, total: aSubir.length, actual: `${f.etiqueta} · ${f.nombre}` })
       try {
         const ext = (f.nombre.split('.').pop() || 'bin').toLowerCase()
-        const carpetaR2 = f.destino === 'voucher' ? 'vouchers' : f.destino === 'comprobante' ? 'comprobantes' : f.destino === 'contrato' ? 'contratos' : 'dni'
+        const carpetaR2 = f.destino === 'voucher' ? 'vouchers' : f.destino === 'comprobante' ? 'comprobantes'
+          : f.destino === 'contrato' ? 'contratos' : f.destino === 'dni' ? 'dni' : 'comprobantes/gastos'
         const ruta = `${carpetaR2}/${limpio(nombreProyecto)}/${f.etiqueta ? limpio(f.etiqueta) : 'sin-lote'}/${limpio(f.nombre.replace(/\.[^.]+$/, ''))}.${ext}`
         const url = await subirRuta(ruta, f.file)
         if (f.tabla === 'daily_income') {
@@ -286,9 +371,16 @@ export default function Migracion() {
           4. Revisa el plan y recién entonces dale a subir.
         </p>
         <p className="hint" style={{ margin: '8px 0 0' }}>
-          Los archivos se reconocen por su nombre: <b>SEPARACION</b>, <b>INICIAL</b>, <b>CUOTA 07</b> (o
+          <b>De los lotes:</b> se reconocen por su nombre — <b>SEPARACION</b>, <b>INICIAL</b>, <b>CUOTA 07</b> (o
           <b> CUOTA 02,03,04</b> si un depósito pagó varias). Las carpetas <b>VOUCHERS</b>, <b>BOLETAS</b>,
           <b> DOCUMENTOS</b> y <b>DNI</b> deciden a dónde va cada uno. Los <b>IMPRIMIR.docx</b> se descartan solos.
+        </p>
+        <p className="hint" style={{ margin: '6px 0 0' }}>
+          <b>De los gastos:</b> también entran los de <b>DOCUMENTOS ADMINISTRATIVOS</b> — las constancias de
+          recepción van al espacio de <b>constancia</b> del gasto y los RxH / facturas / vouchers de depósito
+          al de <b>sustento</b>. Se emparejan por el lote que nombran, el concepto y el mes. Los que nombran el
+          lote salen como <b>listos</b>; los genéricos (viáticos, sueldos, administrativos) salen como
+          <b> revisar</b> con un desplegable para que elijas el gasto exacto — eso no lo adivino.
         </p>
       </div>
 
@@ -306,7 +398,7 @@ export default function Migracion() {
         {!datos && pidOp && <p className="muted">Cargando lotes y pagos del proyecto…</p>}
         {datos && (
           <p className="muted small">
-            {nombreProyecto}: {datos.lotes.length} lotes · {datos.ventas.length} ventas · {datos.pagos.length} pagos registrados.
+            {nombreProyecto}: {datos.lotes.length} lotes · {datos.ventas.length} ventas · {datos.pagos.length} pagos · {datos.gastos.length} gastos registrados.
             {!datos.pagos.length && <b className="bad"> Ojo: este proyecto todavía no tiene pagos cargados, así que no hay a qué enganchar los vouchers.</b>}
           </p>
         )}
@@ -371,7 +463,21 @@ export default function Migracion() {
                       {f.estado === 'ignorar' && <span className="st-chip st-na">descartado</span>}
                       {f.estado === 'extra' && <span className="st-chip st-na">sobrante</span>}
                     </td>
-                    <td className="muted small" style={{ textTransform: 'none' }}>{f.detalle}</td>
+                    <td className="muted small" style={{ textTransform: 'none' }}>
+                      {f.detalle}
+                      {/* en los documentos de gasto se puede elegir a mano a cuál va */}
+                      {f.gasto && !subiendo && (
+                        <select value={f.id || ''} style={{ display: 'block', marginTop: 3, maxWidth: 420, fontSize: 11 }}
+                          onChange={e => setManual(m => ({ ...m, [f.ruta]: e.target.value }))}>
+                          <option value="">— elegir el gasto —</option>
+                          {(f.candidatos || []).map(g => (
+                            <option key={g.id} value={g.id}>
+                              {(g.issue_date || 's/f')} · {soles(g.amount)} · {g.type} · {(g.description || '').slice(0, 45)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
