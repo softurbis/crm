@@ -51,6 +51,8 @@ const GLOBAL = [
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Administración' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Administración' },
   { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Administración' },
+  // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
+  { to: '/migracion', label: 'Migración', icon: '📥', admin: true, color: '#7fb0d8', grupo: 'Administración' },
 ]
 // Mega-grupos del menú General (orden + ícono). Cada uno se abre/cierra.
 const ORDEN_GRUPOS = ['Comunicación', 'Comercial', 'Administración']

@@ -2,6 +2,9 @@ node_modules
 dist
 .env
 .env.local
+.env.r2
+.env.r2.*
+.env.migracion
 *.log
 .DS_Store
 

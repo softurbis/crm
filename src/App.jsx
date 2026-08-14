@@ -19,6 +19,7 @@ import Reset from './pages/Reset'
 import Visitas from './pages/Visitas'
 import Commissions from './pages/Commissions'
 import Corretaje from './pages/Corretaje'
+import Migracion from './pages/Migracion'
 import Publico from './pages/Publico'
 
 function Protected({ children }) {
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="proyectos" element={<Projects />} />
         <Route path="usuarios" element={<Users />} />
         <Route path="bitacora" element={<Bitacora />} />
+        <Route path="migracion" element={<Migracion />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
