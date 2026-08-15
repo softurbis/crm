@@ -1762,6 +1762,14 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
     return
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
+  // respuesta propia de la opcion: lo que el bot contesta SEGUN lo que eligio el
+  // cliente ("¿te comunico con un asesor?" → No → "Sin problema, aqui estare").
+  // Antes habia que inventar un paso entero para cada rama.
+  if ((elegida.respuesta || '').trim()) {
+    const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
+    const rta = String(elegida.respuesta).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
+    await enviar(jid, rta, { tipo: 'lead_flujo', lead_id: lead.id, ses })
+  }
   if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
   let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
   if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1

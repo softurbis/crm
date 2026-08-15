@@ -409,7 +409,7 @@ export default function Whatsapp() {
       setProjFlow({
         reask_min: fl?.reask_min ?? 0, max_reasks: fl?.max_reasks ?? 1, reask_text: fl?.reask_text || '', reask_unit: fl?.reask_unit || 'min', pausa_seg: fl?.pausa_seg ?? 3,
         media_lib: Array.isArray(fl?.media_lib) ? fl.media_lib : [], bombardeo: Array.isArray(fl?.bombardeo) ? fl.bombardeo : [],
-        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_unit: s.reask_unit || '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
+        steps: Array.isArray(fl?.steps) ? fl.steps.map(s => ({ id: s.id || nuevoPasoId(), tipo: s.tipo === 'pregunta' ? 'pregunta' : 'mensaje', texto: s.texto || '', media: s.media || [], pasar_asesor: !!s.pasar_asesor, reask_min: s.reask_min ?? '', reask_unit: s.reask_unit || '', reask_veces: s.reask_veces ?? '', reask_text: s.reask_text || '', sin_respuesta: s.sin_respuesta || 'siguiente', sin_respuesta_texto: s.sin_respuesta_texto || '', opciones: (s.opciones || []).map(o => ({ label: o.label || '', claves: o.claves || '', respuesta: o.respuesta || '', ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })) })) : [],
       })
     }
   }
@@ -421,7 +421,7 @@ export default function Whatsapp() {
   const flowMedia = (i, key) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, media: (s.media || []).includes(key) ? s.media.filter(m => m !== key) : [...(s.media || []), key] } : s) }))
   const flowMediaMove = (i, mi, d) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => { if (j !== i) return s; const a = [...(s.media || [])]; const k = mi + d; if (k < 0 || k >= a.length) return s;[a[mi], a[k]] = [a[k], a[mi]]; return { ...s, media: a } }) }))
   const optSet = (i, oi, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).map((o, k) => k === oi ? { ...o, ...patch } : o) } : s) }))
-  const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', ir_a: '', pasar_asesor: false }] } : s) }))
+  const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', respuesta: '', ir_a: '', pasar_asesor: false }] } : s) }))
   // Una pregunta de UNA sola opción deja al cliente sin forma de decir que no:
   // contesta "No", el bot no lo encuentra y repregunta. Este botón arma las dos
   // opciones de una vez, con sus palabras ya puestas y editables.
@@ -431,8 +431,8 @@ export default function Whatsapp() {
       ...s,
       opciones: [
         ...(s.opciones || []),
-        { label: 'Sí', claves: 'si, claro, ok, dale, ya, listo, por favor, obvio', ir_a: '', pasar_asesor: true },
-        { label: 'No', claves: 'no, ahorita no, más tarde, después, todavía no, gracias', ir_a: '', pasar_asesor: false },
+        { label: 'Sí', claves: 'si, claro, ok, dale, ya, listo, por favor, obvio', respuesta: '', ir_a: '', pasar_asesor: true },
+        { label: 'No', claves: 'no, ahorita no, más tarde, después, todavía no, gracias', respuesta: 'Sin problema 😊 Cualquier duda escríbeme por acá y seguimos cuando quieras.', ir_a: '', pasar_asesor: false },
       ],
     } : s),
   }))
@@ -470,7 +470,7 @@ export default function Whatsapp() {
         ...(s.tipo === 'pregunta' && (s.reask_text || '').trim() ? { reask_text: (s.reask_text || '').trim() } : {}),
         ...(s.tipo === 'pregunta' ? { sin_respuesta: ['mensaje', 'asesor', 'siguiente', 'detener'].includes(s.sin_respuesta) ? s.sin_respuesta : 'detener' } : {}),
         ...(s.tipo === 'pregunta' && s.sin_respuesta === 'mensaje' && (s.sin_respuesta_texto || '').trim() ? { sin_respuesta_texto: (s.sin_respuesta_texto || '').trim() } : {}),
-        opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
+        opciones: s.tipo === 'pregunta' ? (s.opciones || []).map(o => ({ label: (o.label || '').trim(), claves: (o.claves || '').trim(), respuesta: (o.respuesta || '').trim(), ir_a: o.ir_a || '', pasar_asesor: !!o.pasar_asesor })).filter(o => o.label) : [],
       })).filter(s => s.texto || (s.media && s.media.length) || (s.opciones && s.opciones.length)),
     }
     const notify = String(projNotify || '').replace(/\D/g, '') || null
@@ -1192,6 +1192,7 @@ export default function Whatsapp() {
                         <div key={oi} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
                           <input value={o.label} placeholder="Opción (ej. Inversión)" onChange={e => optSet(i, oi, { label: e.target.value })} style={{ flex: '1 1 120px', textTransform: 'none' }} />
                           <input value={o.claves} placeholder="palabras clave: invertir, negocio" onChange={e => optSet(i, oi, { claves: e.target.value })} style={{ flex: '1 1 150px', textTransform: 'none' }} />
+                          <input value={o.respuesta || ''} placeholder="respuesta si elige esto (opcional)" title="Lo que el bot contesta cuando el cliente elige esta opción. Acepta {nombre} y {proyecto}." onChange={e => optSet(i, oi, { respuesta: e.target.value })} style={{ flex: '1 1 190px', textTransform: 'none' }} />
                           <select value={o.ir_a} onChange={e => optSet(i, oi, { ir_a: e.target.value })} style={{ fontSize: 11 }}>
                             <option value="">→ siguiente paso</option>
                             {projFlow.steps.map((st, si) => si !== i ? <option key={st.id} value={st.id}>→ Paso {si + 1}</option> : null)}

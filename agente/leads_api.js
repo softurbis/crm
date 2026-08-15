@@ -208,6 +208,12 @@ async function responderFlujo(phone, lead, conv, corto) {
     return
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
+  // respuesta propia de la opcion (ver index.js): contesta segun lo que eligio
+  if ((elegida.respuesta || '').trim()) {
+    const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
+    const rta = String(elegida.respuesta).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
+    await enviar(phone, rta, { tipo: 'lead_flujo', lead_id: lead.id })
+  }
   if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
   let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
   if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1
