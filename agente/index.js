@@ -15,6 +15,7 @@ const qrcode = require('qrcode-terminal')
 const crypto = require('crypto')
 const TG = require('./telegram')
 const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
+const { elegirOpcion } = require('./opciones')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
@@ -37,6 +38,20 @@ async function refrescarAdmin() {
 }
 refrescarAdmin()
 setInterval(refrescarAdmin, 60000)
+
+// Palabras que el operador agrega desde el panel para leer un SI o un NO
+// (bot_settings.claves_si / claves_no). SE SUMAN a las de fabrica, no las
+// reemplazan: asi nadie puede dejar al bot sin entender un "si" por error.
+let CLAVES_SN = { si: '', no: '' }
+async function refrescarClavesSN() {
+  try {
+    const { data } = await supabase.from('bot_settings').select('key, value').in('key', ['claves_si', 'claves_no'])
+    const kv = Object.fromEntries((data || []).map(r => [r.key, r.value || '']))
+    CLAVES_SN = { si: kv.claves_si || '', no: kv.claves_no || '' }
+  } catch {}
+}
+refrescarClavesSN()
+setInterval(refrescarClavesSN, 60000)
 
 // re-vinculacion pedida desde el panel VIEJO (bot_settings.wa_relink): aplica a la
 // sesion CORPORATIVA. El panel nuevo pide relink por sesion (wa_sessions.relink).
@@ -1587,12 +1602,19 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
     await correrFlujo(ses, jid, phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
     return
   }
-  let elegida = null
-  const soloNum = /^\s*\d+\s*$/.test(corto)
-  const n = parseInt(corto.replace(/\D/g, ''), 10)
-  if (soloNum && n >= 1 && n <= ops.length) elegida = ops[n - 1]
-  if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
+  const elegida = elegirOpcion(corto, ops, CLAVES_SN)
   if (!elegida) {
+    // No se entendio. Antes se repreguntaba SIN LIMITE: el lead que contestaba
+    // algo fuera del libreto quedaba dando vueltas para siempre. A la segunda,
+    // se lo pasa a un humano — si escribio algo que el bot no entiende, casi
+    // siempre es una pregunta de verdad, y ahi lo quiere una persona.
+    const intentos = Number(conv?.flow_reasks || 0) + 1
+    await setConv(phone, { flow_reasks: intentos }, ses)
+    if (intentos >= 2) {
+      await enviar(jid, 'Mejor te comunico con un asesor para que te ayude 🙌', { tipo: 'lead_flujo', lead_id: lead.id, ses })
+      await pasarAsesor(ses, jid, phone, lead, 'no_entendio')
+      return
+    }
     await enviar(jid, bloqueNoEntendi(ops), { tipo: 'lead_flujo', lead_id: lead.id, ses })
     return
   }

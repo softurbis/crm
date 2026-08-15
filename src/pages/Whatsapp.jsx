@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
-import { useMsg } from '../lib/saveFx'
+import { useMsg, savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import BrainMap from '../components/BrainMap'
 
@@ -241,6 +241,9 @@ export default function Whatsapp() {
   const [nvo, setNvo] = useState({ phone: '', tipo: 'desactivado', note: '' })
   const [edNum, setEdNum] = useState(null)
   const [adminPhone, setAdminPhone] = useState('')
+  // palabras propias para leer un SI o un NO (se suman a las de fabrica del bot)
+  const [clavesSi, setClavesSi] = useState('')
+  const [clavesNo, setClavesNo] = useState('')
   const [waEstado, setWaEstado] = useState('')
   const [qrImg, setQrImg] = useState('')
   const [waLatido, setWaLatido] = useState('')
@@ -281,6 +284,8 @@ export default function Whatsapp() {
       })
       setFlags(f)
       const kv = Object.fromEntries(data.map(r => [r.key, r.value]))
+      setClavesSi(kv.claves_si || '')
+      setClavesNo(kv.claves_no || '')
       let cks = ['11:00', '16:30']
       try { const c = JSON.parse(kv.sec_checkins || '[]'); if (Array.isArray(c) && c.length) cks = c.map(x => String(x).slice(0, 5)) } catch {}
       setSecCfg({
@@ -315,6 +320,18 @@ export default function Whatsapp() {
     await supabase.from('bot_settings').upsert({ key: 'admin_phone', value: d, updated_at: new Date().toISOString() })
     setAdminPhone(d)
     alert('✅ ADMIN cambiado a +' + d + '. El bot lo aplica en máx. 1 minuto.')
+  }
+  // se guardan tal cual las escribió el operador; el bot las normaliza al comparar
+  // (tildes y mayúsculas dan igual) y las SUMA a las que ya trae de fábrica
+  const guardarClavesSN = async () => {
+    const filas = [
+      { key: 'claves_si', value: clavesSi.trim(), updated_at: new Date().toISOString() },
+      { key: 'claves_no', value: clavesNo.trim(), updated_at: new Date().toISOString() },
+    ]
+    const { error } = await supabase.from('bot_settings').upsert(filas)
+    if (error) { setCfgMsg('ERROR: ' + error.message); return }
+    savedFx()
+    setCfgMsg('PALABRAS GUARDADAS — el bot las aplica en máx. 1 minuto')
   }
   const setFlag = async (k, val) => {
     await supabase.from('bot_settings').upsert({ key: k, value: val ? '1' : '0', updated_at: new Date().toISOString() })
@@ -1050,6 +1067,25 @@ export default function Whatsapp() {
             <div style={{ border: '1px solid rgba(156,203,134,.5)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'rgba(156,203,134,.06)' }}>
               <b style={{ color: 'var(--accent-strong)', fontSize: 13 }}>🧩 FLUJO DEL BOT (sin IA)</b>
               <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Lo único fijo es que el bot <b>reconoce el proyecto</b> por el mensaje del cliente (y si no lo identifica, le pregunta cuál). De ahí en adelante corre <b>SOLO estos pasos, tal cual</b>: mensajes con material adjunto y preguntas cerradas que responden por <b>número o palabra clave</b>, con ramas (ir a otro paso) y disparadores de <b>pasar al asesor</b>. <b>El 1er paso es tu bienvenida</b> (no hay nada predeterminado: ni nombre, ni preguntas por defecto). Vacío = el bot solo registra el lead y avisa al asesor. Usa <b>{'{proyecto}'}</b> y <b>{'{nombre}'}</b> en cualquier texto y se reemplazan solos.</p>
+
+              {/* El bot ya entiende los "si" y "no" de siempre (con o sin tilde, con
+                  emoji, "ya pues", "ahorita no"...). Acá se AGREGAN las de la casa;
+                  no reemplazan a las de fábrica. Vale para todos los proyectos. */}
+              <div style={{ border: '1px solid rgba(120,180,140,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(120,180,140,.06)' }}>
+                <b style={{ fontSize: 12, color: '#7fbf9a' }}>👍 Palabras que el bot lee como SÍ o como NO</b>
+                <p className="muted" style={{ fontSize: 11, margin: '3px 0 6px' }}>
+                  Ya vienen las de siempre (<i>sí, claro, ok, dale, ya, listo, 👍 · no, ahorita no, más tarde, lo voy a pensar</i>) — con tilde o sin tilde, da igual.
+                  Acá <b>agregas las tuyas</b>, separadas por coma. Sirven en <b>todos los proyectos</b> y en cualquier pregunta de Sí/No.
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input value={clavesSi} placeholder="para SÍ: mándale, hagámoslo, ya pues" onChange={e => setClavesSi(e.target.value)} style={{ flex: '1 1 220px', textTransform: 'none' }} />
+                  <input value={clavesNo} placeholder="para NO: nanay, ni hablar, después vemos" onChange={e => setClavesNo(e.target.value)} style={{ flex: '1 1 220px', textTransform: 'none' }} />
+                  <button className="btn-ghost" onClick={guardarClavesSN}>💾 Guardar palabras</button>
+                </div>
+                <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
+                  Si el bot no entiende <b>dos veces seguidas</b>, deja de repreguntar y pasa el lead a un asesor.
+                </p>
+              </div>
 
               <div style={{ border: '1px solid rgba(232,151,90,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
                 <b style={{ fontSize: 12, color: '#e8975a' }}>📎 Material del flujo (se sube aquí, no del proyecto)</b>

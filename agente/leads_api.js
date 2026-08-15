@@ -26,12 +26,25 @@ const { createClient } = require('@supabase/supabase-js')
 const { enviarTexto, enviarMedia, servidorWebhook, bajarMedia } = require('./cloudapi')
 const { subirAR2 } = require('./r2')
 const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
+const { elegirOpcion } = require('./opciones')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 const espera = ms => new Promise(r => setTimeout(r, ms))
 let PAUSA_MS = 3000
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
+
+// palabras propias para leer un SI o un NO (bot_settings), igual que el bot
+let CLAVES_SN = { si: '', no: '' }
+async function refrescarClavesSN() {
+  try {
+    const { data } = await supabase.from('bot_settings').select('key, value').in('key', ['claves_si', 'claves_no'])
+    const kv = Object.fromEntries((data || []).map(r => [r.key, r.value || '']))
+    CLAVES_SN = { si: kv.claves_si || '', no: kv.claves_no || '' }
+  } catch {}
+}
+refrescarClavesSN()
+setInterval(refrescarClavesSN, 60000)
 
 // admin configurable desde el panel (bot_settings.admin_phone), igual que el bot
 async function refrescarAdmin() {
@@ -180,12 +193,17 @@ async function responderFlujo(phone, lead, conv, corto) {
     await correrFlujo(phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
     return
   }
-  let elegida = null
-  const soloNum = /^\s*\d+\s*$/.test(corto)
-  const n = parseInt(corto.replace(/\D/g, ''), 10)
-  if (soloNum && n >= 1 && n <= ops.length) elegida = ops[n - 1]
-  if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
+  const elegida = elegirOpcion(corto, ops, CLAVES_SN)
   if (!elegida) {
+    // mismo criterio que el bot de Baileys: a la segunda vez que no se entiende,
+    // lo atiende una persona en vez de repreguntar sin fin
+    const intentos = Number(conv?.flow_reasks || 0) + 1
+    await setConv(phone, { flow_reasks: intentos })
+    if (intentos >= 2) {
+      await enviar(phone, 'Mejor te comunico con un asesor para que te ayude 🙌', { tipo: 'lead_flujo', lead_id: lead.id })
+      await pasarAsesor(phone, lead, 'no_entendio')
+      return
+    }
     await enviar(phone, bloqueNoEntendi(ops), { tipo: 'lead_flujo', lead_id: lead.id })
     return
   }
