@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
-import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, corto } from '../components/Graficos'
+import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, Lineas, corto } from '../components/Graficos'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
@@ -47,7 +47,7 @@ export default function Dashboard() {
       const ym = hoy.slice(0, 7)
       const en90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
 
-      const [lots, income, salesR, venc, seps, delMes, proximas] = await Promise.all([
+      const [lots, income, salesR, venc, seps, delMes, proximas, crono, leads] = await Promise.all([
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
@@ -60,6 +60,9 @@ export default function Dashboard() {
         todas(() => supabase.from('installments').select('id, amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').order('id')),
         // lo que viene: 90 días hacia adelante, para planificar la caja
         todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en90).neq('status', 'pagado').order('id')),
+        // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').order('id')),
+        todas(() => supabase.from('leads').select('id, status, project_id').order('id')),
       ])
       const mio = v => ids.includes(v.sales?.lot?.project_id) && v.sales?.status === 'en_proceso'
       setRaw({
@@ -70,6 +73,8 @@ export default function Dashboard() {
         seps: seps.filter(x => ids.includes(x.lot?.project_id)),
         cuotasMes: delMes.filter(mio),
         proximas: proximas.filter(mio),
+        crono: crono.filter(mio),
+        leads: leads.filter(l => !l.project_id || ids.includes(l.project_id)),
       })
     }
     load()
@@ -204,6 +209,46 @@ export default function Dashboard() {
       valor: Math.round(v), color: '#7ec8e3',
     }))
 
+    // ACUMULADO: lo que el cronograma decia que ya deberia estar cobrado, contra
+    // lo que de verdad entro. La distancia entre las dos lineas ES la mora, y se
+    // ve si se abre o se cierra con el tiempo.
+    const porMes = {}
+    for (const q of (raw.crono || [])) {
+      const k = String(q.due_date || '').slice(0, 7)
+      if (!k) continue
+      const b2 = (porMes[k] ||= { debio: 0, real: 0 })
+      b2.debio += Number(q.amount)
+      b2.real += Number(q.amount_paid)
+    }
+    const ymHoy = raw.hoy.slice(0, 7)
+    const mesesCurva = Object.keys(porMes).filter(k => k <= ymHoy).sort().slice(-14)
+    let accD = 0, accR = 0
+    const curva = mesesCurva.map(k => {
+      accD += porMes[k].debio; accR += porMes[k].real
+      return { k, debio: Math.round(accD), real: Math.round(accR) }
+    })
+
+    // EMBUDO DE LEADS: donde se caen. El % es contra el paso anterior.
+    const ORDEN = [['nuevo', 'Escribieron'], ['contactado', 'Contactados'], ['interesado', 'Interesados'],
+                   ['visita_agendada', 'Visita agendada'], ['negociacion', 'En negociación'], ['ganado', 'Ganados']]
+    const porEstado = {}
+    for (const l of (raw.leads || [])) porEstado[l.status] = (porEstado[l.status] || 0) + 1
+    const totLeads = (raw.leads || []).length
+    const embudo = ORDEN.map(([k, lbl], i) => ({
+      label: lbl, valor: porEstado[k] || 0,
+      color: ['#7ec8e3', '#6aa9d6', '#5b8fc9', '#4f83c2', '#4bb96a', '#3fa85e'][i],
+    }))
+
+    // RITMO DE VENTA: a este paso, cuando se acaba el proyecto
+    const ult6 = Object.keys(P).length ? null : null
+    const ventasUlt6 = raw.sales.filter(v => {
+      const d = new Date(v.sale_date + 'T00:00:00')
+      return !isNaN(d) && (new Date(raw.hoy + 'T00:00:00') - d) <= 183 * 86400000
+    }).length
+    const ritmo = ventasUlt6 / 6
+    const disponiblesTot = raw.lots.filter(l => l.status === 'disponible').length
+    const mesesRestantes = ritmo > 0 ? Math.round(disponiblesTot / ritmo) : null
+
     const gastosPorTipo = {}
     for (const g of raw.expenses.filter(x => x.status !== 'solicitado')) {
       const k = (g.type || 'OTRO').toUpperCase()
@@ -211,7 +256,7 @@ export default function Dashboard() {
     }
     const COL = ['#4f83c2', '#e0913f', '#9a6bc9', '#3fb6a8', '#c94f4f', '#6d6f74', '#4caf72']
     return {
-      porProy, esperado, cobradoMes, top, tramos, calendario,
+      porProy, esperado, cobradoMes, top, tramos, calendario, curva, embudo, totLeads, ritmo, mesesRestantes, disponiblesTot, ventasUlt6,
       pctCobranza: esperado ? (cobradoMes / esperado * 100) : 0,
       gastosTipo: Object.entries(gastosPorTipo).sort((a, z) => z[1] - a[1])
         .map(([k, v], i) => ({ label: k, valor: Math.round(v), color: COL[i % COL.length] })),
@@ -310,6 +355,32 @@ export default function Dashboard() {
               ? <BarrasH filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v), color: '#d9534f' }))} />
               : <p className="ok small">Nadie tiene cuotas vencidas. ✅</p>}
           </div>
+        </div>
+      )}
+
+      {/* ---- LO QUE DEBIO ENTRAR CONTRA LO QUE ENTRO ---- */}
+      {comp?.curva?.length > 1 && (
+        <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+          <h2 className="sub">LO QUE DEBIÓ ENTRAR CONTRA LO QUE ENTRÓ</h2>
+          <Lineas
+            etiquetas={comp.curva.map(c => MESES_L[Number(c.k.split('-')[1]) - 1].slice(0, 3) + " '" + c.k.slice(2, 4))}
+            series={[
+              { label: 'Debió entrar', color: '#7ec8e3', datos: comp.curva.map(c => c.debio), punteada: true },
+              { label: 'Entró de verdad', color: '#4bb96a', datos: comp.curva.map(c => c.real) },
+            ]}
+            brecha alto={260}
+          />
+          {(() => {
+            const u = comp.curva[comp.curva.length - 1]
+            const brecha = u.debio - u.real
+            const pct = u.debio ? (u.real / u.debio * 100) : 0
+            return (
+              <p className={pct >= 85 ? 'ok' : 'bad'} style={{ margin: '6px 0 0', fontSize: 13, textTransform: 'none' }}>
+                Según los cronogramas ya debían estar cobrados <b>{soles(u.debio)}</b> y entraron <b>{soles(u.real)}</b>:
+                se cobró el <b>{pct.toFixed(0)}%</b>{brecha > 0 ? <> — faltan <b>{soles(brecha)}</b>, que es la mora acumulada de toda la historia.</> : '.'}
+              </p>
+            )
+          })()}
         </div>
       )}
 
@@ -509,6 +580,75 @@ export default function Dashboard() {
         </table>
         <p className="muted small">Clic en un mes para ver su resumen arriba.</p>
       </div>
+
+      {/* ---- EMBUDO DE LEADS + RITMO DE VENTA ---- */}
+      <div className="graf-2">
+        <div className="glass form-card">
+          <h2 className="sub">EMBUDO DE LEADS</h2>
+          {comp?.totLeads ? (
+            <>
+              <BarrasH formato={n => n + (n === 1 ? ' lead' : ' leads')} filas={comp.embudo.filter(e => e.valor > 0)} />
+              {(() => {
+                const g = comp.embudo.find(e => e.label === 'Ganados')?.valor || 0
+                const v = comp.embudo.find(e => e.label === 'Visita agendada')?.valor || 0
+                return (
+                  <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                    De <b>{comp.totLeads}</b> leads, <b>{v}</b> llegaron a agendar visita
+                    ({(v / comp.totLeads * 100).toFixed(0)}%) y <b>{g}</b> terminaron en venta
+                    ({(g / comp.totLeads * 100).toFixed(0)}%).
+                    Donde el escalón cae más fuerte, ahí se está perdiendo la plata.
+                  </p>
+                )
+              })()}
+            </>
+          ) : <p className="muted small">Todavía no hay leads registrados.</p>}
+        </div>
+        <div className="glass form-card">
+          <h2 className="sub">RITMO DE VENTA</h2>
+          {comp?.ritmo > 0 ? (
+            <>
+              <p className="kpi" style={{ margin: 0 }}>{comp.ritmo.toFixed(1)} <span style={{ fontSize: '.9rem', fontWeight: 400 }}>lotes por mes</span></p>
+              <p className="muted small" style={{ margin: '2px 0 8px', textTransform: 'none' }}>
+                promedio de los últimos 6 meses ({comp.ventasUlt6} ventas)
+              </p>
+              <BarrasH formato={n => n + ' lotes'} filas={[
+                { label: 'Disponibles hoy', valor: comp.disponiblesTot, color: '#4caf72' },
+                { label: 'Se venden por mes', valor: Math.round(comp.ritmo * 10) / 10, color: '#4f83c2' },
+              ]} />
+              <p className={comp.mesesRestantes && comp.mesesRestantes < 12 ? 'warn' : 'ok'} style={{ margin: '6px 0 0', fontSize: 13, textTransform: 'none' }}>
+                A este ritmo quedan <b>{comp.mesesRestantes} meses</b> de inventario
+                {comp.mesesRestantes ? <> — se agotaría alrededor de <b>{(() => {
+                  const d = new Date(); d.setMonth(d.getMonth() + comp.mesesRestantes)
+                  return MESES_L[d.getMonth()].toLowerCase() + ' de ' + d.getFullYear()
+                })()}</b>.</> : '.'}
+              </p>
+            </>
+          ) : <p className="muted small">Sin ventas en los últimos 6 meses: no se puede estimar el ritmo.</p>}
+        </div>
+      </div>
+
+      {/* ---- ESTE AÑO CONTRA EL PASADO ---- */}
+      {(() => {
+        const anios = [...new Set(Object.keys(D.meses).map(k => k.slice(0, 4)))].sort().slice(-2)
+        if (anios.length < 2) return null
+        const COL = ['#6d7f8f', '#4bb96a']
+        return (
+          <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+            <h2 className="sub">ESTE AÑO CONTRA EL PASADO</h2>
+            <Lineas
+              etiquetas={MESES_L.map(m => m.slice(0, 3))}
+              series={anios.map((a, i) => ({
+                label: a, color: COL[i],
+                datos: MESES_L.map((_, mi) => Math.round(D.meses[a + '-' + String(mi + 1).padStart(2, '0')]?.rec || 0)),
+              }))}
+              alto={250}
+            />
+            <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+              Cobrado por mes. Los meses que aún no llegaron salen en cero.
+            </p>
+          </div>
+        )
+      })()}
 
       {/* ---- LIMITES DEL SISTEMA (solo superusuario) ---- */}
       {role === 'superuser' && limites && (

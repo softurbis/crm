@@ -228,3 +228,78 @@ export function Chispa({ datos, color = '#4bb96a', alto = 26 }) {
     </svg>
   )
 }
+
+// ----------------------------------------------------------------- LINEAS
+// Dos o mas series sobre el mismo eje: sirve para "lo que debio entrar contra lo
+// que entro" y para "este año contra el pasado". Lo que importa no es cada punto
+// sino la DISTANCIA entre las lineas, asi que la brecha se pinta.
+export function Lineas({ series, etiquetas, alto = 240, brecha = false, formato = soles }) {
+  const [hover, setHover] = useState(null)
+  if (!series?.length || !etiquetas?.length) return <p className="muted small">Sin datos todavía.</p>
+  const W = 760, H = alto, padL = 52, padB = 34, padT = 12
+  const tope = Math.max(...series.flatMap(s => s.datos), 1)
+  const x = i => padL + (etiquetas.length === 1 ? 0 : (i / (etiquetas.length - 1)) * (W - padL - 14))
+  const y = v => padT + (H - padT - padB) * (1 - v / tope)
+  const pts = s => s.datos.map((v, i) => `${x(i)},${y(v)}`).join(' ')
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} onMouseLeave={() => setHover(null)}>
+        {[0, .25, .5, .75, 1].map(f => (
+          <g key={f}>
+            <line x1={padL} x2={W - 8} y1={y(tope * f)} y2={y(tope * f)} stroke="currentColor" opacity=".12" />
+            <text x={padL - 6} y={y(tope * f) + 3} textAnchor="end" fontSize="9.5" fill="currentColor" opacity=".55">{corto(tope * f)}</text>
+          </g>
+        ))}
+        {brecha && series.length >= 2 && (
+          <polygon points={`${pts(series[0])} ${series[1].datos.map((v, i) => `${x(etiquetas.length - 1 - i)},${y(series[1].datos[etiquetas.length - 1 - i])}`).join(' ')}`}
+            fill={series[0].color} opacity=".12" />
+        )}
+        {series.map(s => (
+          <g key={s.label}>
+            <polyline points={pts(s)} fill="none" stroke={s.color} strokeWidth="2.2"
+              strokeDasharray={s.punteada ? '5 4' : undefined} />
+            {s.datos.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={hover === i ? 4 : 2.4} fill={s.color} />)}
+          </g>
+        ))}
+        {etiquetas.map((e, i) => (
+          <g key={i} onMouseEnter={() => setHover(i)}>
+            <rect x={x(i) - (W - padL) / etiquetas.length / 2} y={padT} width={(W - padL) / etiquetas.length}
+              height={H - padT - padB} fill={hover === i ? 'rgba(255,255,255,.06)' : 'transparent'} />
+            <text x={x(i)} y={H - padB + 14} textAnchor="middle" fontSize="9.5" fill="currentColor"
+              opacity={hover === i ? 1 : .6} fontWeight={hover === i ? 700 : 400}>{e}</text>
+          </g>
+        ))}
+        <g transform={`translate(${padL},${H - 5})`} fontSize="9.5" fill="currentColor">
+          {series.map((s, i) => (
+            <g key={s.label} transform={`translate(${i * 132},0)`}>
+              <line x1="0" y1="-3" x2="14" y2="-3" stroke={s.color} strokeWidth="2.2" strokeDasharray={s.punteada ? '5 4' : undefined} />
+              <text x="18" y="1" opacity=".75">{s.label}</text>
+            </g>
+          ))}
+        </g>
+      </svg>
+      {hover != null && (
+        <div style={{
+          position: 'absolute', top: 6, right: 6, background: 'var(--panel-2, rgba(20,26,22,.97))',
+          border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '7px 10px',
+          fontSize: 12, pointerEvents: 'none', minWidth: 160, boxShadow: '0 6px 18px rgba(0,0,0,.45)',
+        }}>
+          <b style={{ display: 'block', marginBottom: 3 }}>{etiquetas[hover]}</b>
+          {series.map(s => (
+            <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <span style={{ color: s.color }}>{s.label}</span><b>{formato(s.datos[hover])}</b>
+            </div>
+          ))}
+          {series.length >= 2 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, borderTop: '1px solid rgba(255,255,255,.14)', marginTop: 3, paddingTop: 3 }}>
+              <span className="muted">diferencia</span>
+              <b style={{ color: series[1].datos[hover] >= series[0].datos[hover] ? '#4bb96a' : '#d9534f' }}>
+                {formato(series[1].datos[hover] - series[0].datos[hover])}
+              </b>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
