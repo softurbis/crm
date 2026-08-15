@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [raw, setRaw] = useState(null)
   const [fmes, setFmes] = useState('todos')
   const [verDetalle, setVerDetalle] = useState(false)
+  const [tic, setTic] = useState(0)          // sube con cada cambio en la base: dispara la recarga
   const conGeneral = role !== 'secretary'
 
   useEffect(() => {
@@ -51,18 +52,18 @@ export default function Dashboard() {
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
-        todas(() => supabase.from('daily_income').select('id, project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids).order('id')),
-        todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)').order('id')),
+        todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation').in('project_id', ids).order('id')),
+        todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').order('id')),
-        todas(() => supabase.from('separations').select('id, amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)').order('id')),
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        todas(() => supabase.from('separations').select('id, amount, date, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').order('id')),
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         // lo que viene: 6 meses hacia adelante, para planificar la caja
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').order('id')),
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').order('id')),
-        todas(() => supabase.from('leads').select('id, status, project_id').order('id')),
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        todas(() => supabase.from('leads').select('id, status, project_id').in('project_id', ids).order('id')),
       ])
       const mio = v => ids.includes(v.sales?.lot?.project_id) && v.sales?.status === 'en_proceso'
       setRaw({
@@ -74,11 +75,27 @@ export default function Dashboard() {
         cuotasMes: delMes.filter(mio),
         proximas: proximas.filter(mio),
         crono: crono.filter(mio),
+        _t: Date.now(),
         leads: leads.filter(l => !l.project_id || ids.includes(l.project_id)),
       })
     }
     load()
-  }, [pid, projects])
+  }, [pid, projects, tic])
+
+  // EN VIVO: cuando entra un pago, se registra una venta o cambia un lote, el
+  // panel se recarga solo. Se espera 4 segundos y se junta todo lo que haya
+  // pasado en ese rato: una cobranza puede insertar varias filas seguidas y no
+  // tiene sentido recargar cinco veces.
+  useEffect(() => {
+    let t = null
+    const patear = () => { clearTimeout(t); t = setTimeout(() => setTic(x => x + 1), 4000) }
+    const ch = supabase.channel('dash-vivo')
+    for (const tabla of ['daily_income', 'sales', 'lots', 'installments', 'separations', 'expenses']) {
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: tabla }, patear)
+    }
+    ch.subscribe()
+    return () => { clearTimeout(t); supabase.removeChannel(ch) }
+  }, [])
 
   const D = useMemo(() => {
     if (!raw) return null
@@ -124,15 +141,35 @@ export default function Dashboard() {
     }
   }, [raw])
 
-  const det = useMemo(() => {
-    if (fmes === 'todos' || !raw) return null
-    const enMes = f => (f || '').slice(0, 7) === fmes
-    return {
-      pagos: raw.income.filter(i => enMes(i.date)).sort((a, b) => (a.date < b.date ? -1 : 1)),
-      ventas: raw.sales.filter(v => enMes(v.sale_date)),
-      seps: raw.seps.filter(x => enMes(x.date)),
-      gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
-    }
+  // El desglosado de un mes necesita nombres de cliente, lote y numero de cuota:
+  // esos JOIN pesaban en CADA carga del dashboard aunque no se abriera ningun mes.
+  // Ahora se piden solo cuando se elige uno, y solo de ese mes.
+  const [det, setDet] = useState(null)
+  useEffect(() => {
+    if (fmes === 'todos' || !raw) { setDet(null); return }
+    let vivo = true
+    const desde = fmes + '-01', hasta = fmes + '-31'
+    ;(async () => {
+      const [pagos, ventas, seps] = await Promise.all([
+        todas(() => supabase.from('daily_income')
+          .select('id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)')
+          .in('project_id', raw.ids).gte('date', desde).lte('date', hasta).order('id')),
+        todas(() => supabase.from('sales')
+          .select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)')
+          .in('lot.project_id', raw.ids).gte('sale_date', desde).lte('sale_date', hasta).order('id')),
+        todas(() => supabase.from('separations')
+          .select('id, amount, date, client:clients(full_name), lot:lots!inner(project_id, mz, lt)')
+          .in('lot.project_id', raw.ids).gte('date', desde).lte('date', hasta).order('id')),
+      ])
+      if (!vivo) return
+      const enMes = f => (f || '').slice(0, 7) === fmes
+      setDet({
+        pagos: pagos.sort((a, b) => (a.date < b.date ? -1 : 1)),
+        ventas, seps,
+        gastos: raw.expenses.filter(g => g.status !== 'solicitado' && enMes(g.issue_date || g.reception_date)),
+      })
+    })()
+    return () => { vivo = false }
   }, [raw, fmes])
 
   // ---- serie de los ultimos 12 meses, en orden (D.mesesOrden viene al reves) ----
@@ -357,6 +394,70 @@ export default function Dashboard() {
         <ProjectPicker withGeneral={conGeneral}
           generalLabel={role === 'admin' ? 'GENERAL (todos los proyectos)' : 'TOTAL (mis proyectos)'} />
       </div>
+
+      {/* ---- LO PRIMERO QUE SE VE: a que ritmo se vende y cuando se acaba ---- */}
+      {comp && (
+        <div className="glass form-card" style={{ marginBottom: '1rem', borderLeft: '3px solid var(--accent-strong)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 8 }}>
+            <h2 className="sub" style={{ margin: 0 }}>RITMO Y HORIZONTE</h2>
+            <span className="muted small" style={{ textTransform: 'none' }}>
+              últimos 6 meses · <b style={{ color: '#4bb96a' }}>● en vivo</b>
+              {raw?._t ? ' · actualizado ' + new Date(raw._t).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : ''}
+            </span>
+          </div>
+          <div className="cards" style={{ gap: '.7rem' }}>
+            <div className="glass card">
+              <p className="muted">SE VENDEN</p>
+              <p className="kpi kpi-big" style={{ color: '#4f83c2' }}>{comp.ritmo.toFixed(1)}</p>
+              <p className="muted small" style={{ textTransform: 'none' }}>lotes por mes · {comp.ventasUlt6} en 6 meses</p>
+            </div>
+            <div className="glass card">
+              <p className="muted">QUEDAN POR VENDER</p>
+              <p className="kpi kpi-big">{comp.disponiblesTot}</p>
+              <p className="muted small" style={{ textTransform: 'none' }}>lotes disponibles</p>
+            </div>
+            <div className="glass card">
+              <p className="muted">SE TERMINAN DE VENDER</p>
+              <p className="kpi kpi-big" style={{ color: comp.mesesRestantes && comp.mesesRestantes > 60 ? '#e0913f' : '#4bb96a' }}>
+                {comp.mesesRestantes ?? '—'}<span style={{ fontSize: '1rem', fontWeight: 400 }}> meses</span>
+              </p>
+              <p className="muted small" style={{ textTransform: 'none' }}>
+                {comp.mesesRestantes ? 'a este ritmo, hasta ' + (() => { const d = new Date(); d.setMonth(d.getMonth() + comp.mesesRestantes); return MESES_L[d.getMonth()].toLowerCase() + ' ' + d.getFullYear() })() : 'sin ventas recientes'}
+              </p>
+            </div>
+            {(() => {
+              const saldo = comp.ritmos.reduce((a, r) => a + r.saldo, 0)
+              const porMes = comp.ritmos.reduce((a, r) => a + r.cobrMes, 0)
+              const meses = porMes > 0 ? Math.ceil(saldo / porMes) : null
+              return (
+                <>
+                  <div className="glass card">
+                    <p className="muted">FALTA COBRAR</p>
+                    <p className="kpi kpi-big" style={{ color: '#e0913f' }}>{corto(saldo)}</p>
+                    <p className="muted small" style={{ textTransform: 'none' }}>entran {soles(porMes)} por mes</p>
+                  </div>
+                  <div className="glass card">
+                    <p className="muted">SE TERMINA DE COBRAR</p>
+                    <p className="kpi kpi-big" style={{ color: meses && meses > 48 ? '#e0913f' : '#4bb96a' }}>
+                      {meses ?? '—'}<span style={{ fontSize: '1rem', fontWeight: 400 }}> meses</span>
+                    </p>
+                    <p className="muted small" style={{ textTransform: 'none' }}>
+                      {meses ? 'a este ritmo, hasta ' + (() => { const d = new Date(); d.setMonth(d.getMonth() + meses); return MESES_L[d.getMonth()].toLowerCase() + ' ' + d.getFullYear() })() : '—'}
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+          {comp.ritmos.length > 1 && (
+            <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+              Ojo: son <b>{comp.ritmos.length} proyectos</b> con ritmos muy distintos
+              ({comp.ritmos.map(r => r.nombre.replace(/^LAS PRADERAS DE |^EL TRIUNFO DE /i, '') + ' ' + r.ritmo.toFixed(1)).join(' · ')} por mes).
+              El detalle de cada uno está más abajo, en <b>RITMO Y HORIZONTE POR PROYECTO</b>.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="cards cards-big">
         {cards.map(c => (
