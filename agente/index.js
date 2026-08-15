@@ -477,6 +477,68 @@ async function comandoDirecto(texto) {
       return out + PIE_COMANDO
     }
 
+    // PostgREST entrega como MAXIMO 1000 filas por pedido. Sin paginar, un
+    // proyecto con 4,000 cuotas se lee a medias y el reporte miente con cara de
+    // seguro (decia "41 ventas sin cronograma" cuando eran 9). El .order() no es
+    // adorno: sin orden explicito las paginas no son estables y se saltan filas.
+    const todasLasFilas = async (tabla, columnas, filtrar, orden = 'id') => {
+      const out = []
+      for (let desde = 0; ; desde += 1000) {
+        let q = supabase.from(tabla).select(columnas).order(orden).range(desde, desde + 999)
+        const { data, error } = await filtrar(q)
+        if (error || !data || !data.length) break
+        out.push(...data)
+        if (data.length < 1000) break
+      }
+      return out
+    }
+
+    // ---- ESTADO DE LA MIGRACION, PROYECTO POR PROYECTO ----
+    // Cuando se carga un proyecto nuevo (Neshuya, Pucallpa...) siempre quedan
+    // huecos: contratos ilegibles, cronogramas que no se pudieron leer, pagos que
+    // entraron a caja sin venta. Esto los cuenta para saber por donde seguir, en
+    // vez de tener que abrir el panel lote por lote.
+    if (/migracion|migraci[oó]n|carga de datos|estado de la carga|que falta cargar|qu[eé] falta cargar/.test(t)) {
+      let out = '🏗️ *ESTADO DE LA MIGRACIÓN*'
+      for (const p of (proys || [])) {
+        const [{ data: lots }, { data: sales }] = await Promise.all([
+          supabase.from('lots').select('id, status').eq('project_id', p.id).neq('status', 'eliminado'),
+          supabase.from('sales').select('id, status, signed_contract_url, lot:lots!inner(mz, lt, project_id)').eq('lot.project_id', p.id).in('status', ['en_proceso', 'pagado']),
+        ])
+        if (!lots?.length && !sales?.length) continue
+        const idsVenta = (sales || []).map(s => s.id)
+        // las cuotas SI hay que traerlas todas (se necesita saber que venta tiene
+        // cronograma); los pagos se cuentan en la base, que es mas barato
+        const cuotas = idsVenta.length ? await todasLasFilas('installments', 'sale_id', q => q.in('sale_id', idsVenta)) : []
+        const [{ count: nPagos }, { data: sinVenta }, { count: nSinDueno }] = await Promise.all([
+          supabase.from('daily_income').select('id', { count: 'exact', head: true }).eq('project_id', p.id),
+          supabase.from('daily_income').select('amount').eq('project_id', p.id).is('sale_id', null),
+          supabase.from('daily_income').select('id', { count: 'exact', head: true }).eq('project_id', p.id).is('client_id', null),
+        ])
+        const conCrono = new Set(cuotas.map(c => c.sale_id))
+        // una venta PAGADA sin cronograma no es un hueco: es una venta al contado.
+        // El problema son las que siguen en proceso, porque a esas hay que cobrarles
+        // y sin cronograma no hay cuota que cobrar.
+        const sinCrono = (sales || []).filter(s => s.status === 'en_proceso' && !conCrono.has(s.id))
+        const vendidos = (lots || []).filter(l => ['vendido', 'entregado'].includes(l.status)).length
+        const sinContrato = (sales || []).filter(s => !s.signed_contract_url).length
+        const sinDueno = { length: nSinDueno || 0 }
+        const plataSuelta = (sinVenta || []).reduce((s, x) => s + Number(x.amount || 0), 0)
+
+        const faltas = []
+        if (vendidos > (sales || []).length) faltas.push('🏷️ ' + (vendidos - (sales || []).length) + ' lote(s) marcados vendidos *sin venta creada*')
+        if (sinCrono.length) faltas.push('📅 ' + sinCrono.length + ' venta(s) *sin cronograma*: ' + sinCrono.slice(0, 6).map(s => s.lot.mz + '-' + s.lot.lt).join(', ') + (sinCrono.length > 6 ? '…' : ''))
+        if ((sinVenta || []).length) faltas.push('💸 ' + sinVenta.length + ' pago(s) por ' + soles(plataSuelta) + ' *sin venta asociada*')
+        if (sinDueno.length) faltas.push('❓ ' + sinDueno.length + ' pago(s) *sin cliente*: no salen en el estado de cuenta de nadie')
+        if (sinContrato) faltas.push('📄 ' + sinContrato + ' venta(s) sin contrato firmado subido')
+
+        out += '\n\n*' + p.name + '*'
+        out += '\n   ' + (lots || []).length + ' lotes · ' + (sales || []).length + ' ventas · ' + cuotas.length + ' cuotas · ' + (nPagos || 0) + ' pagos'
+        out += faltas.length ? '\n   ' + faltas.join('\n   ') : '\n   ✅ Sin pendientes de carga'
+      }
+      return out + PIE_COMANDO
+    }
+
     // ---- VENTAS SIN CONTRATO FIRMADO ----
     if (/contrato/.test(t)) {
       const { data: ss } = await supabase.from('sales')
@@ -497,30 +559,46 @@ async function comandoDirecto(texto) {
 
     if (/resumen|reporte|dashboard|panorama|balance|como vamos|c[oó]mo vamos/.test(t)) {
       const hoy = new Date().toISOString().slice(0, 10), mes = hoy.slice(0, 7)
-      const [{ data: lots }, { data: sales }, { data: venc }, { data: coms }, { data: gastos }, { data: vis }] = await Promise.all([
-        supabase.from('lots').select('status').neq('status', 'eliminado'),
-        supabase.from('sales').select('status'),
-        supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status)').eq('status', 'vencido'),
-        supabase.from('commissions').select('amount').eq('status', 'pendiente'),
-        supabase.from('expenses').select('amount, issue_date').gte('issue_date', mes + '-01'),
-        supabase.from('visits').select('date, time, client_name, project:projects(name)').eq('status', 'programada').gte('date', hoy).order('date').order('time').limit(3),
+      const [{ data: lots }, { data: sales }, { data: venc }, { data: gastos }, { data: vis }] = await Promise.all([
+        supabase.from('lots').select('status, project_id').neq('status', 'eliminado'),
+        supabase.from('sales').select('status, lot:lots(project_id)'),
+        supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status, lot:lots(project_id))').eq('status', 'vencido'),
+        supabase.from('expenses').select('amount, issue_date, project_id').gte('issue_date', mes + '-01'),
+        supabase.from('visits').select('date, time, client_name, project_id, project:projects(name)').eq('status', 'programada').gte('date', hoy).order('date').order('time').limit(20),
       ])
-      const disp = (lots || []).filter(l => l.status === 'disponible').length
-      const vendidos = (lots || []).filter(l => ['vendido', 'entregado'].includes(l.status)).length
-      const enProc = (sales || []).filter(s => s.status === 'en_proceso').length
-      const pagadas = (sales || []).filter(s => s.status === 'pagado').length
-      let vN = 0, vS = 0
-      for (const q of (venc || [])) { if (q.sale?.status !== 'en_proceso') continue; const d = Number(q.amount) - Number(q.amount_paid); if (d > 0.05) { vN++; vS += d } }
+      // un balde por proyecto: el total de todo junto no dice a quien hay que apretar
+      const B = {}
+      const b = pid => (B[pid || '—'] ||= { disp: 0, vend: 0, proc: 0, pag: 0, vN: 0, vS: 0, gas: 0, vis: 0 })
+      for (const l of (lots || [])) { const x = b(l.project_id); if (l.status === 'disponible') x.disp++; if (['vendido', 'entregado'].includes(l.status)) x.vend++ }
+      for (const s of (sales || [])) { const x = b(s.lot?.project_id); if (s.status === 'en_proceso') x.proc++; if (s.status === 'pagado') x.pag++ }
+      for (const q of (venc || [])) {
+        if (q.sale?.status !== 'en_proceso') continue
+        const d = Number(q.amount) - Number(q.amount_paid)
+        if (d > 0.05) { const x = b(q.sale?.lot?.project_id); x.vN++; x.vS += d }
+      }
+      for (const g of (gastos || [])) if (String(g.issue_date || '').slice(0, 7) === mes) b(g.project_id).gas += Number(g.amount || 0)
+      for (const v of (vis || [])) b(v.project_id).vis++
+
+      let out = '📊 *RESUMEN — ' + hoy.split('-').reverse().join('/') + '*'
+      const T = { vS: 0, vN: 0, gas: 0 }
+      for (const [pid, x] of Object.entries(B).sort((a, c) => c[1].vS - a[1].vS)) {
+        T.vS += x.vS; T.vN += x.vN; T.gas += x.gas
+        out += '\n\n*' + nombreProy(pid) + '*'
+        out += '\n   🏘️ ' + x.disp + ' disponibles · ' + x.vend + ' vendidos'
+        out += '\n   💰 ' + x.proc + ' ventas en proceso · ' + x.pag + ' pagadas'
+        if (x.vN) out += '\n   ⚠️ *' + x.vN + ' cuotas vencidas · ' + soles(x.vS) + '*'
+        if (x.gas) out += '\n   💸 Gastos del mes: ' + soles(x.gas)
+        if (x.vis) out += '\n   📅 ' + x.vis + ' visita(s) programada(s)'
+      }
+      // las comisiones no son de un proyecto sino del asesor: van aparte, al final
+      const { data: coms } = await supabase.from('commissions').select('amount').eq('status', 'pendiente')
       const comTot = (coms || []).reduce((s, c) => s + Number(c.amount || 0), 0)
-      const gasTot = (gastos || []).filter(g => String(g.issue_date || '').slice(0, 7) === mes).reduce((s, g) => s + Number(g.amount || 0), 0)
       const prox = (vis || [])[0]
-      let out = '📊 *RESUMEN — ' + hoy.split('-').reverse().join('/') + '*\n'
-      out += '\n🏘️ Lotes: *' + disp + '* disponibles · ' + vendidos + ' vendidos'
-      out += '\n💰 Ventas: *' + enProc + '* en proceso · ' + pagadas + ' pagadas'
-      out += '\n⚠️ Vencidas: *' + vN + '* cuotas · ' + soles(vS)
+      out += '\n\n━━━━━━━━━━'
+      out += '\n⚠️ Vencido total: *' + soles(T.vS) + '* (' + T.vN + ' cuotas)'
       out += '\n💼 Comisiones por cobrar: *' + soles(comTot) + '*'
-      out += '\n💸 Gastos del mes: *' + soles(gasTot) + '*'
-      out += '\n📅 Próximas visitas: *' + (vis || []).length + '*' + (prox ? ' (sig: ' + String(prox.date).split('-').reverse().join('/') + ' ' + String(prox.time || '').slice(0, 5) + ' ' + (prox.client_name || '') + ')' : '')
+      out += '\n💸 Gastos del mes: *' + soles(T.gas) + '*'
+      if (prox) out += '\n📅 Próxima visita: ' + String(prox.date).split('-').reverse().join('/') + ' ' + String(prox.time || '').slice(0, 5) + ' — ' + (prox.client_name || '') + ' (' + (prox.project?.name || '—') + ')'
       return out + PIE_COMANDO
     }
 
@@ -538,13 +616,25 @@ async function comandoDirecto(texto) {
 
     if (/comision/.test(t)) {
       const { data: coms } = await supabase.from('commissions')
-        .select('amount, advisor:advisors(code, full_name)').eq('status', 'pendiente')
+        .select('amount, advisor:advisors(code, full_name), sale:sales(lot:lots(project_id))').eq('status', 'pendiente')
       if (!coms || !coms.length) return '💼 *COMISIONES POR COBRAR*\nNo hay comisiones pendientes.' + PIE_COMANDO
       const tot = coms.reduce((s, c) => s + Number(c.amount || 0), 0)
-      const porAsesor = {}
-      for (const c of coms) { const k = c.advisor?.full_name || c.advisor?.code || '—'; porAsesor[k] = (porAsesor[k] || 0) + Number(c.amount || 0) }
-      let out = '💼 *COMISIONES POR COBRAR*\nTotal: *' + soles(tot) + '* en ' + coms.length + ' comisiones\n'
-      out += Object.entries(porAsesor).sort((a, b) => b[1] - a[1]).map(([k, v]) => '• ' + k + ': ' + soles(v)).join('\n')
+      // por proyecto, y dentro de cada uno por asesor: asi se sabe a quien se le
+      // debe y de que proyecto salio esa venta
+      const agg = {}
+      for (const c of coms) {
+        const pid = c.sale?.lot?.project_id || '—'
+        const quien = c.advisor?.full_name || c.advisor?.code || '—'
+        const a = (agg[pid] ||= { tot: 0, n: 0, por: {} })
+        a.tot += Number(c.amount || 0); a.n++
+        a.por[quien] = (a.por[quien] || 0) + Number(c.amount || 0)
+      }
+      let out = '💼 *COMISIONES POR COBRAR*'
+      for (const [pid, a] of Object.entries(agg).sort((x, y) => y[1].tot - x[1].tot)) {
+        out += '\n\n*' + nombreProy(pid) + '* — ' + soles(a.tot) + ' (' + a.n + ')'
+        out += '\n' + Object.entries(a.por).sort((x, y) => y[1] - x[1]).map(([k, v]) => '   • ' + k + ': ' + soles(v)).join('\n')
+      }
+      out += '\n\n━━━━━━━━━━\n*TOTAL: ' + soles(tot) + '* en ' + coms.length + ' comisiones'
       return out + PIE_COMANDO
     }
 
@@ -604,25 +694,78 @@ async function comandoDirecto(texto) {
       return '💵 *INGRESOS DEL MES (' + mes + ')*\nTotal recaudado: *' + soles(totMes) + '* en ' + (ing || []).length + ' pagos.' + PIE_COMANDO
     }
     if (/separacion|separad|apartad/.test(t)) {
-      const { data: seps } = await supabase.from('separations').select('amount, status').eq('status', 'vigente')
-      const tot = (seps || []).reduce((s, x) => s + Number(x.amount || 0), 0)
-      return '📝 *SEPARACIONES VIGENTES*\n*' + (seps || []).length + '* separaciones · ' + soles(tot) + ' apartado.' + PIE_COMANDO
+      const { data: seps } = await supabase.from('separations')
+        .select('amount, expiration_date, lot:lots(project_id)').eq('status', 'vigente')
+      if (!seps || !seps.length) return '📝 *SEPARACIONES VIGENTES*\nNo hay lotes apartados.' + PIE_COMANDO
+      const hoyS = new Date().toISOString().slice(0, 10)
+      const agg = {}
+      let tot = 0
+      for (const s of seps) {
+        const a = (agg[s.lot?.project_id || '—'] ||= { s: 0, n: 0, por_vencer: 0 })
+        a.s += Number(s.amount || 0); a.n++; tot += Number(s.amount || 0)
+        if (String(s.expiration_date || '') < hoyS) a.por_vencer++
+      }
+      let out = '📝 *SEPARACIONES VIGENTES*'
+      for (const [pid, a] of Object.entries(agg).sort((x, y) => y[1].n - x[1].n)) {
+        out += '\n\n*' + nombreProy(pid) + '*\n   ' + a.n + ' separaciones · ' + soles(a.s)
+        if (a.por_vencer) out += '\n   🔒 ' + a.por_vencer + ' ya vencida(s), el lote queda bloqueado'
+      }
+      out += '\n\n━━━━━━━━━━\n*TOTAL: ' + seps.length + ' separaciones · ' + soles(tot) + '*'
+      return out + PIE_COMANDO
     }
     if (/\bclientes?\b|comprador/.test(t)) {
+      // por proyecto: un cliente puede tener lotes en varios, se cuenta en cada uno
+      const { data: vs } = await supabase.from('sales')
+        .select('client_id, lot:lots(project_id)').in('status', ['en_proceso', 'pagado'])
+      const agg = {}
+      for (const v of (vs || [])) {
+        const pid = v.lot?.project_id || '—'
+        ;(agg[pid] ||= new Set()).add(v.client_id)
+      }
       const { count } = await supabase.from('clients').select('doc_number', { count: 'exact', head: true })
-      return '👥 *CLIENTES*\nTotal registrados: *' + (count || 0) + '*.' + PIE_COMANDO
+      let out = '👥 *CLIENTES CON LOTE*'
+      for (const [pid, set] of Object.entries(agg).sort((x, y) => y[1].size - x[1].size))
+        out += '\n\n*' + nombreProy(pid) + '*: ' + set.size + ' clientes'
+      out += '\n\n━━━━━━━━━━\n*' + (count || 0) + '* registrados en total (incluye leads y separaciones)'
+      return out + PIE_COMANDO
     }
     if (/cartera|deuda total|por cobrar|saldo total/.test(t)) {
-      const { data: ins } = await supabase.from('installments').select('amount, amount_paid, sale:sales!inner(status)').neq('status', 'pagado')
+      const { data: ins } = await supabase.from('installments')
+        .select('amount, amount_paid, due_date, sale:sales!inner(status, lot:lots(project_id))').neq('status', 'pagado')
+      const hoyC = new Date().toISOString().slice(0, 10)
+      const agg = {}
       let tot = 0, n = 0
-      for (const q of (ins || [])) { if (q.sale?.status !== 'en_proceso') continue; const d = Number(q.amount) - Number(q.amount_paid); if (d > 0.05) { tot += d; n++ } }
-      return '📊 *CARTERA POR COBRAR*\nSaldo pendiente total: *' + soles(tot) + '* en ' + n + ' cuotas.' + PIE_COMANDO
+      for (const q of (ins || [])) {
+        if (q.sale?.status !== 'en_proceso') continue
+        const d = Number(q.amount) - Number(q.amount_paid)
+        if (d <= 0.05) continue
+        const a = (agg[q.sale?.lot?.project_id || '—'] ||= { s: 0, n: 0, vs: 0, vn: 0 })
+        a.s += d; a.n++; tot += d; n++
+        if (String(q.due_date || '') < hoyC) { a.vs += d; a.vn++ }   // ya vencida
+      }
+      if (!n) return '📊 *CARTERA POR COBRAR*\nNo hay saldo pendiente. ✅' + PIE_COMANDO
+      let out = '📊 *CARTERA POR COBRAR*'
+      for (const [pid, a] of Object.entries(agg).sort((x, y) => y[1].s - x[1].s)) {
+        out += '\n\n*' + nombreProy(pid) + '*'
+        out += '\n   Por cobrar: *' + soles(a.s) + '* en ' + a.n + ' cuotas'
+        if (a.vn) out += '\n   ⚠️ Vencido: *' + soles(a.vs) + '* en ' + a.vn + ' cuotas'
+      }
+      out += '\n\n━━━━━━━━━━\n*TOTAL: ' + soles(tot) + '* · ' + n + ' cuotas'
+      return out + PIE_COMANDO
     }
     if (/pipeline|\bleads?\b|prospecto|kanban/.test(t)) {
-      const { data: lds } = await supabase.from('leads').select('status')
-      const by = {}; for (const l of (lds || [])) by[l.status] = (by[l.status] || 0) + 1
+      const { data: lds } = await supabase.from('leads').select('status, project_id')
+      if (!lds || !lds.length) return '📇 *PIPELINE DE LEADS*\nSin leads.' + PIE_COMANDO
       const orden = ['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion', 'ganado', 'perdido']
-      return '📇 *PIPELINE DE LEADS*\n' + (orden.filter(k => by[k]).map(k => '• ' + k.toUpperCase().replace('_', ' ') + ': ' + by[k]).join('\n') || 'Sin leads.') + PIE_COMANDO
+      const agg = {}
+      for (const l of lds) { const a = (agg[l.project_id || '—'] ||= {}); a[l.status] = (a[l.status] || 0) + 1 }
+      let out = '📇 *PIPELINE DE LEADS*'
+      for (const [pid, by] of Object.entries(agg).sort((x, y) => Object.values(y[1]).reduce((s, v) => s + v, 0) - Object.values(x[1]).reduce((s, v) => s + v, 0))) {
+        const tot = Object.values(by).reduce((s, v) => s + v, 0)
+        out += '\n\n*' + (pid === '—' ? 'SIN PROYECTO ASIGNADO' : nombreProy(pid)) + '* (' + tot + ')'
+        out += '\n' + orden.filter(k => by[k]).map(k => '   • ' + k.toUpperCase().replace('_', ' ') + ': ' + by[k]).join('\n')
+      }
+      return out + PIE_COMANDO
     }
     if (/pagos de hoy|ingresos de hoy|recaudado hoy/.test(t)) {
       const hoy = new Date().toISOString().slice(0, 10)
