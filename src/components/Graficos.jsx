@@ -114,6 +114,7 @@ export function BarrasMes({ meses, alto = 210, onMes }) {
 // --------------------------------------------------------------- ROSCA (donut)
 // Composicion: en qué estado están los lotes, o de dónde sale la plata.
 export function Rosca({ partes, titulo, centro, formato }) {
+  const [hover, setHover] = useState(null)
   const lista = (partes || []).filter(p => Number(p?.valor) > 0)
   const tot = lista.reduce((s, p) => s + Number(p.valor), 0)
   if (!tot) return <p className="muted small">Sin datos todavía.</p>
@@ -125,21 +126,44 @@ export function Rosca({ partes, titulo, centro, formato }) {
     const grande = a1 - a0 > Math.PI ? 1 : 0
     const P = (rad, a) => [60 + rad * Math.cos(a), 60 + rad * Math.sin(a)]
     const [x0, y0] = P(R, a0), [x1, y1] = P(R, a1), [x2, y2] = P(r, a1), [x3, y3] = P(r, a0)
-    return { ...p, d: `M${x0},${y0} A${R},${R} 0 ${grande} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${grande} 0 ${x3},${y3} Z` }
+    // hacia donde "sale" la porcion cuando se la señala
+    const med = (a0 + a1) / 2
+    return { ...p, dx: Math.cos(med) * 3.5, dy: Math.sin(med) * 3.5,
+      d: `M${x0},${y0} A${R},${R} 0 ${grande} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${grande} 0 ${x3},${y3} Z` }
   })
+  const h = hover != null ? arcos[hover] : null
+  const fmt = v => (formato ? formato(v) : v)
   return (
     <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-      <svg viewBox="0 0 120 120" style={{ width: 128, height: 128, flex: '0 0 auto' }}>
-        {arcos.map(a => <path key={a.label} d={a.d} fill={a.color}><title>{a.label}: {a.valor} ({(a.valor / tot * 100).toFixed(1)}%)</title></path>)}
-        {centro && <text x="60" y="58" textAnchor="middle" fontSize="19" fontWeight="700" fill="currentColor">{centro}</text>}
-        {titulo && <text x="60" y="72" textAnchor="middle" fontSize="9" fill="currentColor" opacity=".6">{titulo}</text>}
+      <svg viewBox="0 0 120 120" style={{ width: 132, height: 132, flex: '0 0 auto' }} onMouseLeave={() => setHover(null)}>
+        {arcos.map((a, i) => (
+          <path key={a.label} d={a.d} fill={a.color} onMouseEnter={() => setHover(i)}
+            transform={hover === i ? `translate(${a.dx} ${a.dy})` : undefined}
+            opacity={hover == null || hover === i ? 1 : .4}
+            style={{ cursor: 'default', transition: 'opacity .12s' }} />
+        ))}
+        {h ? (
+          <>
+            <text x="60" y="56" textAnchor="middle" fontSize="15" fontWeight="700" fill={h.color}>{fmt(h.valor)}</text>
+            <text x="60" y="68" textAnchor="middle" fontSize="8.5" fill="currentColor" opacity=".75">
+              {String(h.label).slice(0, 16)} · {(h.valor / tot * 100).toFixed(0)}%
+            </text>
+          </>
+        ) : (
+          <>
+            {centro && <text x="60" y="58" textAnchor="middle" fontSize="19" fontWeight="700" fill="currentColor">{centro}</text>}
+            {titulo && <text x="60" y="72" textAnchor="middle" fontSize="9" fill="currentColor" opacity=".6">{titulo}</text>}
+          </>
+        )}
       </svg>
       <div style={{ flex: '1 1 130px', fontSize: 12 }}>
-        {arcos.map(a => (
-          <div key={a.label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+        {arcos.map((a, i) => (
+          <div key={a.label} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, padding: '1px 4px',
+              borderRadius: 5, background: hover === i ? 'rgba(255,255,255,.08)' : 'transparent' }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: a.color, flex: '0 0 auto' }} />
             <span style={{ flex: 1 }}>{a.label}</span>
-            <b>{formato ? formato(a.valor) : a.valor}</b>
+            <b>{fmt(a.valor)}</b>
             <span className="muted" style={{ width: 44, textAlign: 'right' }}>{(a.valor / tot * 100).toFixed(0)}%</span>
           </div>
         ))}
@@ -151,17 +175,30 @@ export function Rosca({ partes, titulo, centro, formato }) {
 // ------------------------------------------------------- BARRAS HORIZONTALES
 // Comparar proyectos entre si (mora, cartera, lo que sea).
 export function BarrasH({ filas, formato = soles }) {
+  const [hover, setHover] = useState(null)
   if (!filas?.length) return <p className="muted small">Sin datos todavía.</p>
   const tope = Math.max(...filas.map(f => f.valor), 1)
+  const total = filas.reduce((s, f) => s + Number(f.valor || 0), 0)
   return (
-    <div style={{ fontSize: 12 }}>
-      {filas.map(f => (
-        <div key={f.label} style={{ marginBottom: 7 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-            <span>{f.label}</span><b style={{ color: f.color }}>{formato(f.valor)}</b>
+    <div style={{ fontSize: 12 }} onMouseLeave={() => setHover(null)}>
+      {filas.map((f, i) => (
+        <div key={f.label} onMouseEnter={() => setHover(i)}
+          style={{ marginBottom: 7, padding: '2px 4px', borderRadius: 6, transition: 'background .12s',
+            background: hover === i ? 'rgba(255,255,255,.07)' : 'transparent' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, gap: 8 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.label}</span>
+            <b style={{ color: f.color, flex: '0 0 auto' }}>
+              {formato(f.valor)}
+              {hover === i && total > 0 && (
+                <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>
+                  {(f.valor / total * 100).toFixed(0)}% del total
+                </span>
+              )}
+            </b>
           </div>
-          <div style={{ background: 'rgba(255,255,255,.09)', borderRadius: 4, height: 9 }}>
-            <div style={{ width: (f.valor / tope * 100) + '%', background: f.color || '#4bb96a', height: '100%', borderRadius: 4 }} />
+          <div style={{ background: 'rgba(255,255,255,.09)', borderRadius: 4, height: hover === i ? 12 : 9, transition: 'height .12s' }}>
+            <div style={{ width: (f.valor / tope * 100) + '%', background: f.color || '#4bb96a', height: '100%', borderRadius: 4,
+              opacity: hover == null || hover === i ? 1 : .5, transition: 'opacity .12s' }} />
           </div>
         </div>
       ))}
