@@ -3,12 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
-import { Reloj, BarrasMes, Rosca, BarrasH, corto } from '../components/Graficos'
+import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, corto } from '../components/Graficos'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 const mesLbl = ym => { const [y, m] = ym.split('-'); return MESES_L[Number(m) - 1] + ' ' + y }
 const estadoDe = o => { const x = (o || '').toUpperCase(); return x.includes('EXPROP') ? 'EXPROPIADO' : x.includes('PERDIDA') ? 'PERDIDA' : 'ACEPTADO' }
+
+// Supabase entrega COMO MAXIMO 1000 filas por consulta, y no avisa: devuelve mil
+// y se queda tan tranquila. Pucallpa tiene 2,271 pagos, asi que el dashboard
+// estaba mostrando menos de la mitad de lo cobrado con cara de dato exacto.
+// `hacer()` tiene que devolver una consulta NUEVA cada vez (con su .order(), que
+// sin orden explicito las paginas se pisan y se saltan filas).
+async function todas(hacer) {
+  const out = []
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await hacer().range(desde, desde + 999)
+    if (error || !data || !data.length) break
+    out.push(...data)
+    if (data.length < 1000) break
+  }
+  return out
+}
 
 export default function Dashboard() {
   const { role } = useAuth()
@@ -23,32 +39,37 @@ export default function Dashboard() {
     async function load() {
       const ids = pid === 'general' ? projects.map(p => p.id) : [pid]
       if (!ids.length) return
-      let expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, status, type, recipient, description').in('project_id', ids)
-      if (expensesRes.error) expensesRes = await supabase.from('expenses').select('project_id, amount, issue_date, reception_date, type, recipient, description').in('project_id', ids)
-      const [lots, income, salesR, venc, seps] = await Promise.all([
+      const COLS_GASTOS = 'id, project_id, amount, issue_date, reception_date, status, type, recipient, description'
+      let gastos = await todas(() => supabase.from('expenses').select(COLS_GASTOS).in('project_id', ids).order('id'))
+      if (!gastos.length) gastos = await todas(() => supabase.from('expenses').select(COLS_GASTOS.replace(', status', '')).in('project_id', ids).order('id'))
+
+      const hoy = new Date().toISOString().slice(0, 10)
+      const ym = hoy.slice(0, 7)
+      const en90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
+
+      const [lots, income, salesR, venc, seps, delMes, proximas] = await Promise.all([
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
-        supabase.from('lots').select('project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado'),
-        supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids),
-        supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
-        // con cliente y lote: sirve para el top de deudores, no solo para el total
-        supabase.from('installments').select('amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido'),
-        supabase.from('separations').select('amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)'),
+        todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
+        todas(() => supabase.from('daily_income').select('id, project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids).order('id')),
+        todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)').order('id')),
+        // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').order('id')),
+        todas(() => supabase.from('separations').select('id, amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)').order('id')),
+        // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').order('id')),
+        // lo que viene: 90 días hacia adelante, para planificar la caja
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en90).neq('status', 'pagado').order('id')),
       ])
-      // cuotas que VENCEN este mes: es contra esto que se mide la cobranza del mes
-      const ym = new Date().toISOString().slice(0, 7)
-      const { data: delMes } = await supabase.from('installments')
-        .select('amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))')
-        .gte('due_date', ym + '-01').lte('due_date', ym + '-31')
+      const mio = v => ids.includes(v.sales?.lot?.project_id) && v.sales?.status === 'en_proceso'
       setRaw({
-        ids,
-        lots: lots.data || [],
-        income: income.data || [],
-        expenses: expensesRes.data || [],
-        sales: (salesR.data || []).filter(s => ids.includes(s.lot?.project_id)),
-        venc: (venc.data || []).filter(v => v.sales?.status === 'en_proceso' && ids.includes(v.sales?.lot?.project_id)),
-        seps: (seps.data || []).filter(x => ids.includes(x.lot?.project_id)),
-        cuotasMes: (delMes || []).filter(v => v.sales?.status === 'en_proceso' && ids.includes(v.sales?.lot?.project_id)),
+        ids, hoy,
+        lots, income, expenses: gastos,
+        sales: salesR.filter(s => ids.includes(s.lot?.project_id)),
+        venc: venc.filter(mio),
+        seps: seps.filter(x => ids.includes(x.lot?.project_id)),
+        cuotasMes: delMes.filter(mio),
+        proximas: proximas.filter(mio),
       })
     }
     load()
@@ -154,6 +175,35 @@ export default function Dashboard() {
     }
     const top = Object.entries(deudas).sort((a, z) => z[1] - a[1]).slice(0, 6)
 
+    // ANTIGUEDAD DE LA MORA: no toda la deuda vale igual. 30 dias es un olvido y
+    // se cobra con una llamada; mas de 90 ya es negociacion o expropiacion.
+    const hoyD = new Date(raw.hoy + 'T00:00:00')
+    const tramos = [
+      { label: '1 a 30 días', valor: 0, color: '#e0c14c', n: 0 },
+      { label: '31 a 60 días', valor: 0, color: '#e0913f', n: 0 },
+      { label: '61 a 90 días', valor: 0, color: '#d9754f', n: 0 },
+      { label: 'Más de 90 días', valor: 0, color: '#d9534f', n: 0 },
+    ]
+    for (const v of raw.venc) {
+      const saldo = Number(v.amount) - Number(v.amount_paid)
+      if (saldo <= 0.05) continue
+      const dias = Math.floor((hoyD - new Date(v.due_date + 'T00:00:00')) / 86400000)
+      const i = dias <= 30 ? 0 : dias <= 60 ? 1 : dias <= 90 ? 2 : 3
+      tramos[i].valor += saldo; tramos[i].n++
+    }
+    tramos.forEach(t => { t.valor = Math.round(t.valor) })
+
+    // CALENDARIO: lo que viene, mes por mes. Para saber si la caja alcanza.
+    const futuro = {}
+    for (const q of (raw.proximas || [])) {
+      const ymq = String(q.due_date).slice(0, 7)
+      futuro[ymq] = (futuro[ymq] || 0) + (Number(q.amount) - Number(q.amount_paid))
+    }
+    const calendario = Object.entries(futuro).sort().map(([ymq, v]) => ({
+      label: MESES_L[Number(ymq.split('-')[1]) - 1] + " '" + ymq.slice(2, 4),
+      valor: Math.round(v), color: '#7ec8e3',
+    }))
+
     const gastosPorTipo = {}
     for (const g of raw.expenses.filter(x => x.status !== 'solicitado')) {
       const k = (g.type || 'OTRO').toUpperCase()
@@ -161,7 +211,7 @@ export default function Dashboard() {
     }
     const COL = ['#4f83c2', '#e0913f', '#9a6bc9', '#3fb6a8', '#c94f4f', '#6d6f74', '#4caf72']
     return {
-      porProy, esperado, cobradoMes, top,
+      porProy, esperado, cobradoMes, top, tramos, calendario,
       pctCobranza: esperado ? (cobradoMes / esperado * 100) : 0,
       gastosTipo: Object.entries(gastosPorTipo).sort((a, z) => z[1] - a[1])
         .map(([k, v], i) => ({ label: k, valor: Math.round(v), color: COL[i % COL.length] })),
@@ -182,12 +232,12 @@ export default function Dashboard() {
   if (!D) return <p className="muted">Cargando indicadores...</p>
 
   const cards = [
-    { label: 'COBRADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})`, to: '/pagos' },
-    { label: 'GASTOS', value: soles(D.gastosT), sub: `BALANCE: ${soles(D.recaudado - D.gastosT)}`, to: '/gastos' },
+    { label: 'COBRADO (ACEPTADO)', value: soles(D.recaudado), sub: `${D.pctCobrado.toFixed(1)}% del valor de ventas activas (${soles(D.valorVentasActivas)})`, to: '/pagos', chispa: serie.map(x => x.rec), chispaColor: '#4bb96a' },
+    { label: 'GASTOS', value: soles(D.gastosT), sub: `BALANCE: ${soles(D.recaudado - D.gastosT)}`, to: '/gastos', chispa: serie.map(x => x.gastos), chispaColor: '#d9754f' },
     { label: 'LOTES VENDIDOS', value: `${D.nv} (${D.pctVendido.toFixed(1)}%)`, sub: `de ${D.nLotes} lotes | ${D.ns} separados`, to: '/lotes?estado=vendido' },
     { label: 'POR VENDER', value: D.nd, sub: `cartera disponible: ${soles(D.carteraDisp)}`, to: '/lotes?estado=disponible' },
     { label: 'CUOTAS VENCIDAS', value: D.vencN, sub: `deuda vencida: ${soles(D.deudaVencida)}`, bad: D.vencN > 0, to: '/lotes?estado=vencidas' },
-    { label: 'VENTAS ACTIVAS', value: D.ventasActivasN, sub: 'en proceso de pago', to: '/ventas?estado=en_proceso' },
+    { label: 'VENTAS ACTIVAS', value: D.ventasActivasN, sub: 'en proceso de pago', to: '/ventas?estado=en_proceso', chispa: serie.map(x => x.ventasN), chispaColor: '#4f83c2' },
     { label: 'PAGADOS (100%)', value: D.pagadasN, sub: `cancelados: ${soles(D.pagadasS)}`, green: true, to: '/ventas?estado=pagado' },
     { label: 'EXPROPIADOS', value: D.exprN, sub: `pagos asociados: ${soles(D.exprS)}`, purple: true, to: '/ventas?estado=expropiado' },
     { label: 'PERDIDAS', value: D.perdidasN, sub: `separaciones perdidas: ${soles(D.perdidasS)}`, bad: D.perdidasN > 0, to: '/lotes' },
@@ -214,6 +264,7 @@ export default function Dashboard() {
             <p className="muted">{c.label}</p>
             <p className="kpi kpi-big" style={c.bad ? { color: 'var(--error)' } : c.purple ? { color: '#b58ad9' } : c.green ? { color: '#4bb96a' } : {}}>{c.value}</p>
             {c.sub && <p className="muted small">{c.sub}</p>}
+            {c.chispa?.length > 1 && <Chispa datos={c.chispa} color={c.chispaColor} />}
           </div>
         ))}
       </div>
@@ -258,6 +309,41 @@ export default function Dashboard() {
             {comp.top.length
               ? <BarrasH filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v), color: '#d9534f' }))} />
               : <p className="ok small">Nadie tiene cuotas vencidas. ✅</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ---- ANTIGUEDAD DE LA MORA + LO QUE VIENE ---- */}
+      {comp && (comp.tramos.some(t => t.valor > 0) || comp.calendario.length > 0) && (
+        <div className="graf-2">
+          <div className="glass form-card">
+            <h2 className="sub">ANTIGÜEDAD DE LA MORA</h2>
+            {comp.tramos.some(t => t.valor > 0) ? (
+              <>
+                <BarrasH filas={comp.tramos.filter(t => t.valor > 0)} />
+                <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                  Lo de <b>1 a 30 días</b> casi siempre se cobra con una llamada. Lo de <b>más de 90</b> ya es
+                  negociación o resolución de contrato — mientras más abajo esté la plata, más difícil vuelve.
+                </p>
+                {comp.tramos[3].valor > 0 && (
+                  <p className="bad small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                    ⚠️ {soles(comp.tramos[3].valor)} llevan más de 90 días vencidos, en {comp.tramos[3].n} cuotas.
+                  </p>
+                )}
+              </>
+            ) : <p className="ok small">Sin cuotas vencidas. ✅</p>}
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">LO QUE VIENE — PRÓXIMOS 90 DÍAS</h2>
+            {comp.calendario.length ? (
+              <>
+                <BarrasH filas={comp.calendario} />
+                <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                  Cuotas que <b>aún no vencen</b>. Es la plata que debería entrar si todos pagan a tiempo:
+                  sirve para saber si la caja alcanza y a quién hay que recordarle antes de la fecha.
+                </p>
+              </>
+            ) : <p className="muted small">No hay cuotas por vencer en los próximos 90 días.</p>}
           </div>
         </div>
       )}

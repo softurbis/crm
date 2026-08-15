@@ -205,3 +205,26 @@ export function BarrasH({ filas, formato = soles }) {
     </div>
   )
 }
+
+// ------------------------------------------------------------ CHISPA (sparkline)
+// Una rayita de tendencia para meter DENTRO de una tarjeta KPI. No lleva ejes ni
+// numeros: no es para leer cifras, es para ver la forma — si viene subiendo o
+// cayendo. La cifra exacta ya esta escrita arriba, en la tarjeta.
+export function Chispa({ datos, color = '#4bb96a', alto = 26 }) {
+  const v = (datos || []).map(Number).filter(n => Number.isFinite(n))
+  if (v.length < 2) return null
+  const W = 100, H = alto, max = Math.max(...v), min = Math.min(...v)
+  const rango = max - min || 1
+  const px = i => (i / (v.length - 1)) * W
+  const py = n => H - 2 - ((n - min) / rango) * (H - 4)
+  const pts = v.map((n, i) => `${px(i)},${py(n)}`).join(' ')
+  const ult = v[v.length - 1], ant = v[v.length - 2]
+  const sube = ult >= ant
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: alto, marginTop: 4, display: 'block' }}>
+      <polyline points={`0,${H} ${pts} ${W},${H}`} fill={color} opacity=".13" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+      <circle cx={W} cy={py(ult)} r="2.4" fill={sube ? color : '#d9534f'} />
+    </svg>
+  )
+}
