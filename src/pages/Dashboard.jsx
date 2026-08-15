@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import { Reloj, BarrasMes, Rosca, BarrasH } from '../components/Graficos'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
@@ -101,6 +102,34 @@ export default function Dashboard() {
     }
   }, [raw, fmes])
 
+  // ---- serie de los ultimos 12 meses, en orden (D.mesesOrden viene al reves) ----
+  const serie = useMemo(() => {
+    if (!D) return []
+    return [...D.mesesOrden].reverse().slice(-12).map(ym => ({
+      ym, lbl: MESES_L[Number(ym.split('-')[1]) - 1].slice(0, 3) + " '" + ym.slice(2, 4), ...D.meses[ym],
+    }))
+  }, [D])
+
+  // ---- composicion de los lotes, para la rosca ----
+  const compo = useMemo(() => {
+    if (!raw) return []
+    const c = {}
+    for (const l of raw.lots) c[l.status] = (c[l.status] || 0) + 1
+    const COL = { disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2', entregado: '#3fb6a8', invadido: '#c94f4f', expropiado: '#9a6bc9' }
+    return Object.entries(c).map(([k, v]) => ({ label: k.toUpperCase(), valor: v, color: COL[k] || '#6d6f74' }))
+  }, [raw])
+
+  // ---- LIMITES DEL SISTEMA (solo superusuario, sql/64) ----
+  // Nace del susto del 14 de agosto: Supabase avisó "Grace period is over" y
+  // hubo que ir a buscar a su panel cuál línea estaba al tope. Ahora se ve acá.
+  const [limites, setLimites] = useState(null)
+  useEffect(() => {
+    if (role !== 'superuser') return
+    supabase.rpc('limites_sistema').then(({ data, error }) => {
+      setLimites(error ? { error: error.message } : data)
+    })
+  }, [role])
+
   if (!D) return <p className="muted">Cargando indicadores...</p>
 
   const cards = [
@@ -139,6 +168,39 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* ---- GRAFICOS: la foto de un vistazo ---- */}
+      <div className="cards" style={{ alignItems: 'stretch' }}>
+        <div className="glass form-card" style={{ flex: '2 1 460px' }}>
+          <h2 className="sub" style={{ margin: '0 0 6px' }}>PLATA POR MES — ÚLTIMOS {serie.length} MESES</h2>
+          <BarrasMes meses={serie} />
+        </div>
+        <div className="glass form-card" style={{ flex: '1 1 280px' }}>
+          <h2 className="sub" style={{ margin: '0 0 6px' }}>EN QUÉ ESTÁN LOS LOTES</h2>
+          <Rosca partes={compo} centro={String(D.nLotes)} titulo="lotes" />
+        </div>
+      </div>
+
+      {serie.length > 1 && (() => {
+        // comparacion simple contra el mes anterior: lo que uno mira primero
+        const [ant, act] = [serie[serie.length - 2], serie[serie.length - 1]]
+        const dif = act.rec - ant.rec
+        const pct = ant.rec ? (dif / ant.rec * 100) : 0
+        return (
+          <div className="glass form-card">
+            <h2 className="sub" style={{ margin: '0 0 6px' }}>CÓMO VA {act.lbl} CONTRA {ant.lbl}</h2>
+            <BarrasH filas={[
+              { label: 'Cobrado ' + ant.lbl, valor: ant.rec, color: '#4bb96a99' },
+              { label: 'Cobrado ' + act.lbl, valor: act.rec, color: '#4bb96a' },
+              { label: 'Gastos ' + act.lbl, valor: act.gastos, color: '#d9754f' },
+            ]} />
+            <p className={dif >= 0 ? 'ok small' : 'bad small'} style={{ margin: '4px 0 0', textTransform: 'none' }}>
+              {dif >= 0 ? '▲' : '▼'} {soles(Math.abs(dif))} {dif >= 0 ? 'más' : 'menos'} que el mes pasado
+              {ant.rec ? ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(0) + '%)' : ''} · {act.pagos} pagos este mes
+            </p>
+          </div>
+        )
+      })()}
 
       {m && (
         <div className="glass form-card mes-box">
@@ -244,6 +306,57 @@ export default function Dashboard() {
         </table>
         <p className="muted small">Clic en un mes para ver su resumen arriba.</p>
       </div>
+
+      {/* ---- LIMITES DEL SISTEMA (solo superusuario) ---- */}
+      {role === 'superuser' && limites && (
+        <div className="glass form-card">
+          <h2 className="sub" style={{ margin: '0 0 2px' }}>LÍMITES DEL SISTEMA</h2>
+          {limites.error ? (
+            <p className="warn small" style={{ textTransform: 'none' }}>
+              No pude leerlos ({limites.error}). {/expolimites|does not exist|function/i.test(limites.error)
+                ? <>Falta correr <b>sql/64_limites_sistema.sql</b> en Supabase.</> : null}
+            </p>
+          ) : (() => {
+            const MB = b => Number(b || 0) / 1048576
+            const filas = Object.entries(limites.filas || {}).sort((a, b) => b[1] - a[1])
+            const pesadas = limites.tablas_pesadas || []
+            return (
+              <>
+                <p className="muted small" style={{ margin: '0 0 8px', textTransform: 'none' }}>
+                  Plan Free de Supabase. Cuando algo pasa del <b>75%</b> el reloj se pone ámbar, y del <b>90%</b> rojo.
+                  El <b>egress</b> y los <b>usuarios activos</b> no se pueden leer desde acá (piden un token de administración
+                  de la cuenta, que no puede vivir en el panel): esos se ven en Supabase → Settings → Usage.
+                </p>
+                <div className="cards" style={{ alignItems: 'flex-start' }}>
+                  <Reloj titulo="BASE DE DATOS" usado={limites.db_bytes} limite={limites.db_limite}
+                    detalle={MB(limites.db_bytes).toFixed(0) + ' MB de 500'} />
+                  <Reloj titulo="ARCHIVOS EN SUPABASE" usado={limites.storage_bytes} limite={limites.storage_limite}
+                    detalle={(limites.storage_archivos || 0) + ' archivos · el resto vive en R2'} />
+                  <div className="glass card" style={{ flex: '1 1 240px' }}>
+                    <p className="muted" style={{ margin: '0 0 5px' }}>FILAS POR TABLA</p>
+                    <div style={{ fontSize: 12, columns: 2, columnGap: 14 }}>
+                      {filas.map(([t, n]) => (
+                        <div key={t} style={{ display: 'flex', justifyContent: 'space-between', breakInside: 'avoid' }}>
+                          <span className="muted" style={{ textTransform: 'none' }}>{t}</span><b>{Number(n).toLocaleString('es-PE')}</b>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {pesadas.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <p className="muted small" style={{ margin: '0 0 5px' }}>LAS QUE MÁS PESAN</p>
+                    <BarrasH filas={pesadas.map((x, i) => ({
+                      label: x.tabla, valor: Number(x.bytes),
+                      color: ['#4f83c2', '#4bb96a', '#e0913f', '#9a6bc9', '#3fb6a8', '#6d6f74'][i] || '#6d6f74',
+                    }))} formato={b => (Number(b) / 1048576).toFixed(1) + ' MB'} />
+                  </div>
+                )}
+              </>
+            )
+          })()}
+        </div>
+      )}
     </>
   )
 }
