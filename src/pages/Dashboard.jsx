@@ -175,19 +175,21 @@ export default function Dashboard() {
     // quién debe más (cliente + lote juntos: el mismo cliente puede tener varios)
     const deudas = {}
     for (const v of raw.venc) {
-      const k = (v.sales?.client?.full_name || '—') + ' · ' + (v.sales?.lot?.mz || '?') + '-' + (v.sales?.lot?.lt || '?')
-      deudas[k] = (deudas[k] || 0) + Number(v.amount) - Number(v.amount_paid)
+      const lote = (v.sales?.lot?.mz || '?') + '-' + (v.sales?.lot?.lt || '?')
+      const k = (v.sales?.client?.full_name || '—') + ' · ' + lote
+      const d = (deudas[k] ||= { monto: 0, lote, n: 0 })
+      d.monto += Number(v.amount) - Number(v.amount_paid); d.n++
     }
-    const top = Object.entries(deudas).sort((a, z) => z[1] - a[1]).slice(0, 6)
+    const top = Object.entries(deudas).sort((a, z) => z[1].monto - a[1].monto).slice(0, 6)
 
     // ANTIGUEDAD DE LA MORA: no toda la deuda vale igual. 30 dias es un olvido y
     // se cobra con una llamada; mas de 90 ya es negociacion o expropiacion.
     const hoyD = new Date(raw.hoy + 'T00:00:00')
     const tramos = [
-      { label: '1 a 30 días', valor: 0, color: '#e0c14c', n: 0 },
-      { label: '31 a 60 días', valor: 0, color: '#e0913f', n: 0 },
-      { label: '61 a 90 días', valor: 0, color: '#d9754f', n: 0 },
-      { label: 'Más de 90 días', valor: 0, color: '#d9534f', n: 0 },
+      { label: '1 a 30 días', valor: 0, color: '#e0c14c', n: 0, items: [] },
+      { label: '31 a 60 días', valor: 0, color: '#e0913f', n: 0, items: [] },
+      { label: '61 a 90 días', valor: 0, color: '#d9754f', n: 0, items: [] },
+      { label: 'Más de 90 días', valor: 0, color: '#d9534f', n: 0, items: [] },
     ]
     for (const v of raw.venc) {
       const saldo = Number(v.amount) - Number(v.amount_paid)
@@ -195,6 +197,11 @@ export default function Dashboard() {
       const dias = Math.floor((hoyD - new Date(v.due_date + 'T00:00:00')) / 86400000)
       const i = dias <= 30 ? 0 : dias <= 60 ? 1 : dias <= 90 ? 2 : 3
       tramos[i].valor += saldo; tramos[i].n++
+      tramos[i].items.push({
+        quien: v.sales?.client?.full_name || '—',
+        lote: (v.sales?.lot?.mz || '?') + '-' + (v.sales?.lot?.lt || '?'),
+        monto: saldo, dias, vence: v.due_date,
+      })
     }
     tramos.forEach(t => { t.valor = Math.round(t.valor) })
 
@@ -314,6 +321,7 @@ export default function Dashboard() {
   // ---- LIMITES DEL SISTEMA (solo superusuario, sql/64) ----
   // Nace del susto del 14 de agosto: Supabase avisó "Grace period is over" y
   // hubo que ir a buscar a su panel cuál línea estaba al tope. Ahora se ve acá.
+  const [tramoSel, setTramoSel] = useState(null)
   const [limites, setLimites] = useState(null)
   useEffect(() => {
     if (role !== 'superuser') return
@@ -400,7 +408,12 @@ export default function Dashboard() {
           <div className="glass form-card">
             <h2 className="sub">QUIÉN DEBE MÁS</h2>
             {comp.top.length
-              ? <BarrasH filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v), color: '#d9534f' }))} />
+              ? <>
+                  <BarrasH
+                    filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v.monto), color: '#d9534f', lote: v.lote, n: v.n }))}
+                    onFila={f => navigate('/lotes?lote=' + encodeURIComponent(f.lote))} />
+                  <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Clic en cualquiera para abrir la ficha de su lote.</p>
+                </>
               : <p className="ok small">Nadie tiene cuotas vencidas. ✅</p>}
           </div>
         </div>
@@ -439,7 +452,35 @@ export default function Dashboard() {
             <h2 className="sub">ANTIGÜEDAD DE LA MORA</h2>
             {comp.tramos.some(t => t.valor > 0) ? (
               <>
-                <BarrasH filas={comp.tramos.filter(t => t.valor > 0)} />
+                <BarrasH filas={comp.tramos.filter(t => t.valor > 0)}
+                  onFila={f => setTramoSel(tramoSel === f.label ? null : f.label)} />
+                {(() => {
+                  const t = comp.tramos.find(x => x.label === tramoSel)
+                  if (!t) return <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Clic en un tramo para ver quiénes son.</p>
+                  return (
+                    <div style={{ marginTop: 8, border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, padding: '6px 8px' }}>
+                      <p className="muted small" style={{ margin: '0 0 4px' }}>
+                        {t.label.toUpperCase()} — {t.n} cuota(s) · {soles(t.valor)}
+                      </p>
+                      <div className="table-wrap" style={{ maxHeight: 210, overflowY: 'auto' }}>
+                        <table>
+                          <thead><tr><th>CLIENTE</th><th>LOTE</th><th>VENCIÓ</th><th>DÍAS</th><th>MONTO</th></tr></thead>
+                          <tbody>
+                            {t.items.slice().sort((a, z) => z.monto - a.monto).map((x, i) => (
+                              <tr key={i} style={{ cursor: 'pointer' }} onClick={() => navigate('/lotes?lote=' + encodeURIComponent(x.lote))}
+                                title="Abrir la ficha del lote">
+                                <td>{x.quien}</td><td><b>{x.lote}</b></td>
+                                <td>{String(x.vence).split('-').reverse().join('/')}</td>
+                                <td className={x.dias > 90 ? 'bad' : ''}>{x.dias}</td>
+                                <td>{soles(x.monto)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )
+                })()}
                 <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
                   Lo de <b>1 a 30 días</b> casi siempre se cobra con una llamada. Lo de <b>más de 90</b> ya es
                   negociación o resolución de contrato — mientras más abajo esté la plata, más difícil vuelve.

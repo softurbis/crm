@@ -77,6 +77,16 @@ export default function Lots() {
     const e = searchParams.get('estado')
     if (e) setFilter(e)
   }, [searchParams])
+  // ?lote=G-9 abre la ficha de ese lote directo (se llega asi desde el dashboard,
+  // haciendo clic en un deudor: el numero por si solo no sirve, hay que poder
+  // caer en la persona)
+  useEffect(() => {
+    const l = searchParams.get('lote')
+    if (!l || !lots.length) return
+    const [mz, lt] = String(l).split('-')
+    const encontrado = lots.find(x => String(x.mz).toUpperCase() === String(mz).toUpperCase() && String(x.lt) === String(lt))
+    if (encontrado) { setFilter('todos'); setSel(encontrado) }
+  }, [searchParams, lots])
   const [vista, setVista] = useState('plano')
   const [sel, setSel] = useState(null)
   const [detail, setDetail] = useState(null)

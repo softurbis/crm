@@ -174,7 +174,7 @@ export function Rosca({ partes, titulo, centro, formato }) {
 
 // ------------------------------------------------------- BARRAS HORIZONTALES
 // Comparar proyectos entre si (mora, cartera, lo que sea).
-export function BarrasH({ filas, formato = soles }) {
+export function BarrasH({ filas, formato = soles, onFila }) {
   const [hover, setHover] = useState(null)
   if (!filas?.length) return <p className="muted small">Sin datos todavía.</p>
   const tope = Math.max(...filas.map(f => f.valor), 1)
@@ -183,7 +183,10 @@ export function BarrasH({ filas, formato = soles }) {
     <div style={{ fontSize: 12 }} onMouseLeave={() => setHover(null)}>
       {filas.map((f, i) => (
         <div key={f.label} onMouseEnter={() => setHover(i)}
+          onClick={() => onFila && onFila(f, i)}
+          title={onFila ? 'Clic para ver el detalle' : undefined}
           style={{ marginBottom: 7, padding: '2px 4px', borderRadius: 6, transition: 'background .12s',
+            cursor: onFila ? 'pointer' : 'default',
             background: hover === i ? 'rgba(255,255,255,.07)' : 'transparent' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, gap: 8 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.label}</span>
