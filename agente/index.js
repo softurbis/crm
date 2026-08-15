@@ -14,6 +14,7 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 const crypto = require('crypto')
 const TG = require('./telegram')
+const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
@@ -1535,8 +1536,7 @@ async function correrFlujo(ses, jid, phone, lead, proy, flow, idx) {
     if (s.tipo === 'pregunta') {
       // una pregunta SIEMPRE espera la respuesta del lead (tenga opciones cerradas o sea abierta)
       if ((s.opciones || []).length) {
-        const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-        await enviar(jid, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id, ses })
+        await enviar(jid, bloqueOpciones(s.opciones), { tipo: 'lead_flujo', lead_id: lead.id, ses })
       }
       await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 }, ses)
       return
@@ -1593,8 +1593,7 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
   if (soloNum && n >= 1 && n <= ops.length) elegida = ops[n - 1]
   if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
   if (!elegida) {
-    const opsTxt = ops.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-    await enviar(jid, 'No te entendí bien 😅 Elige una opción:\n' + opsTxt + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id, ses })
+    await enviar(jid, bloqueNoEntendi(ops), { tipo: 'lead_flujo', lead_id: lead.id, ses })
     return
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })

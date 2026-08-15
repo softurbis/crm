@@ -25,6 +25,7 @@ const crypto = require('crypto')
 const { createClient } = require('@supabase/supabase-js')
 const { enviarTexto, enviarMedia, servidorWebhook, bajarMedia } = require('./cloudapi')
 const { subirAR2 } = require('./r2')
+const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
@@ -136,8 +137,7 @@ async function correrFlujo(phone, lead, proy, flow, idx) {
     if (s.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
     if (s.tipo === 'pregunta') {
       if ((s.opciones || []).length) {
-        const ops = s.opciones.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-        await enviar(phone, ops + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+        await enviar(phone, bloqueOpciones(s.opciones), { tipo: 'lead_flujo', lead_id: lead.id })
       }
       await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 })
       return
@@ -186,8 +186,7 @@ async function responderFlujo(phone, lead, conv, corto) {
   if (soloNum && n >= 1 && n <= ops.length) elegida = ops[n - 1]
   if (!elegida) { const t = corto.toLowerCase(); elegida = ops.find(o => String(o.claves || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean).some(k => t.includes(k))) }
   if (!elegida) {
-    const opsTxt = ops.map((o, i) => (i + 1) + '. ' + o.label).join('\n')
-    await enviar(phone, 'No te entendí bien 😅 Elige una opción:\n' + opsTxt + '\n\n_(responde con el número o en tus palabras)_', { tipo: 'lead_flujo', lead_id: lead.id })
+    await enviar(phone, bloqueNoEntendi(ops), { tipo: 'lead_flujo', lead_id: lead.id })
     return
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
