@@ -45,7 +45,7 @@ export default function Dashboard() {
 
       const hoy = new Date().toISOString().slice(0, 10)
       const ym = hoy.slice(0, 7)
-      const en90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
+      const en180 = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10)
 
       const [lots, income, salesR, venc, seps, delMes, proximas, crono, leads] = await Promise.all([
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
@@ -58,8 +58,8 @@ export default function Dashboard() {
         todas(() => supabase.from('separations').select('id, amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)').order('id')),
         // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
         todas(() => supabase.from('installments').select('id, amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').order('id')),
-        // lo que viene: 90 días hacia adelante, para planificar la caja
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en90).neq('status', 'pagado').order('id')),
+        // lo que viene: 6 meses hacia adelante, para planificar la caja
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').order('id')),
         // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
         todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').order('id')),
         todas(() => supabase.from('leads').select('id, status, project_id').order('id')),
@@ -209,6 +209,54 @@ export default function Dashboard() {
       valor: Math.round(v), color: '#7ec8e3',
     }))
 
+    // RITMO Y HORIZONTE, PROYECTO POR PROYECTO
+    // Dos preguntas distintas: cuando se termina de VENDER (depende del ritmo de
+    // ventas) y cuando se termina de COBRAR (depende de la cobranza mensual). Y
+    // para lo segundo el cronograma ya tiene una respuesta firmada: la fecha de
+    // la ultima cuota. Comparar esa fecha con la que sale del ritmo real es el
+    // dato que dice si el proyecto va atrasado.
+    const hoyMs = new Date(raw.hoy + 'T00:00:00').getTime()
+    const mesesAtras = (f, n) => f && (hoyMs - new Date(f + 'T00:00:00').getTime()) <= n * 30.44 * 86400000
+    const R = {}
+    const rb = id => (R[id] ||= { vend6: 0, vendTot: 0, primera: null, disp: 0, saldo: 0, cobr6: 0, ultimaCuota: null })
+    for (const l of raw.lots) if (l.status === 'disponible') rb(l.project_id).disp++
+    for (const v of raw.sales) {
+      const x = rb(v.lot?.project_id)
+      x.vendTot++
+      if (mesesAtras(v.sale_date, 6)) x.vend6++
+      if (v.sale_date && (!x.primera || v.sale_date < x.primera)) x.primera = v.sale_date
+    }
+    for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO' && mesesAtras(i.date, 6)) rb(i.project_id).cobr6 += Number(i.amount)
+    for (const q of (raw.crono || [])) {
+      const x = rb(q.sales?.lot?.project_id)
+      const falta = Number(q.amount) - Number(q.amount_paid)
+      if (falta > 0.05) x.saldo += falta
+      if (q.due_date && (!x.ultimaCuota || q.due_date > x.ultimaCuota)) x.ultimaCuota = q.due_date
+    }
+    const enMeses = n => { const d = new Date(); d.setMonth(d.getMonth() + n); return MESES_L[d.getMonth()].slice(0, 3).toLowerCase() + ' ' + d.getFullYear() }
+    const fechaCorta = f => { if (!f) return '—'; const [y, m] = f.split('-'); return MESES_L[Number(m) - 1].slice(0, 3).toLowerCase() + ' ' + y }
+    const ritmos = Object.entries(R).map(([id, x]) => {
+      const mesesVivo = x.primera ? Math.max(1, Math.round((hoyMs - new Date(x.primera + 'T00:00:00').getTime()) / (30.44 * 86400000))) : 1
+      const ritmo = x.vend6 / 6
+      const historico = x.vendTot / mesesVivo
+      const cobrMes = x.cobr6 / 6
+      const mesesVender = ritmo > 0 ? Math.ceil(x.disp / ritmo) : null
+      const mesesCobrar = cobrMes > 0 ? Math.ceil(x.saldo / cobrMes) : null
+      // referencia: el ritmo que haria falta para vender todo en 24 meses
+      const optimo = x.disp / 24
+      return {
+        id, nombre: nom(id), ...x, ritmo, historico, cobrMes, optimo,
+        mesesVender, mesesCobrar,
+        finVender: mesesVender ? enMeses(mesesVender) : null,
+        finCobrar: mesesCobrar ? enMeses(mesesCobrar) : null,
+        finCronograma: fechaCorta(x.ultimaCuota),
+        atrasoMeses: (mesesCobrar && x.ultimaCuota)
+          ? Math.round((new Date(new Date().setMonth(new Date().getMonth() + mesesCobrar)) - new Date(x.ultimaCuota + 'T00:00:00')) / (30.44 * 86400000))
+          : null,
+      }
+    }).filter(x => x.disp > 0 || x.saldo > 0).sort((a, z) => z.ritmo - a.ritmo)
+    const ritmoProm = ritmos.length ? ritmos.reduce((s2, x) => s2 + x.ritmo, 0) / ritmos.length : 0
+
     // ACUMULADO: lo que el cronograma decia que ya deberia estar cobrado, contra
     // lo que de verdad entro. La distancia entre las dos lineas ES la mora, y se
     // ve si se abre o se cierra con el tiempo.
@@ -256,7 +304,7 @@ export default function Dashboard() {
     }
     const COL = ['#4f83c2', '#e0913f', '#9a6bc9', '#3fb6a8', '#c94f4f', '#6d6f74', '#4caf72']
     return {
-      porProy, esperado, cobradoMes, top, tramos, calendario, curva, embudo, totLeads, ritmo, mesesRestantes, disponiblesTot, ventasUlt6,
+      porProy, esperado, cobradoMes, top, tramos, calendario, curva, embudo, totLeads, ritmo, mesesRestantes, disponiblesTot, ventasUlt6, ritmos, ritmoProm,
       pctCobranza: esperado ? (cobradoMes / esperado * 100) : 0,
       gastosTipo: Object.entries(gastosPorTipo).sort((a, z) => z[1] - a[1])
         .map(([k, v], i) => ({ label: k, valor: Math.round(v), color: COL[i % COL.length] })),
@@ -405,7 +453,7 @@ export default function Dashboard() {
             ) : <p className="ok small">Sin cuotas vencidas. ✅</p>}
           </div>
           <div className="glass form-card">
-            <h2 className="sub">LO QUE VIENE — PRÓXIMOS 90 DÍAS</h2>
+            <h2 className="sub">PROGRAMADO POR COBRAR — PRÓXIMOS 6 MESES</h2>
             {comp.calendario.length ? (
               <>
                 <BarrasH filas={comp.calendario} />
@@ -414,7 +462,7 @@ export default function Dashboard() {
                   sirve para saber si la caja alcanza y a quién hay que recordarle antes de la fecha.
                 </p>
               </>
-            ) : <p className="muted small">No hay cuotas por vencer en los próximos 90 días.</p>}
+            ) : <p className="muted small">No hay cuotas por vencer en los próximos 6 meses.</p>}
           </div>
         </div>
       )}
@@ -609,25 +657,72 @@ export default function Dashboard() {
             <>
               <p className="kpi" style={{ margin: 0 }}>{comp.ritmo.toFixed(1)} <span style={{ fontSize: '.9rem', fontWeight: 400 }}>lotes por mes</span></p>
               <p className="muted small" style={{ margin: '2px 0 8px', textTransform: 'none' }}>
-                promedio de los últimos 6 meses ({comp.ventasUlt6} ventas)
+                promedio de los últimos 6 meses ({comp.ventasUlt6} ventas) · quedan <b>{comp.disponiblesTot}</b> lotes
               </p>
-              <BarrasH formato={n => n + ' lotes'} filas={[
-                { label: 'Disponibles hoy', valor: comp.disponiblesTot, color: '#4caf72' },
-                { label: 'Se venden por mes', valor: Math.round(comp.ritmo * 10) / 10, color: '#4f83c2' },
-              ]} />
-              <p className={comp.mesesRestantes && comp.mesesRestantes < 12 ? 'warn' : 'ok'} style={{ margin: '6px 0 0', fontSize: 13, textTransform: 'none' }}>
-                A este ritmo quedan <b>{comp.mesesRestantes} meses</b> de inventario
-                {comp.mesesRestantes ? <> — se agotaría alrededor de <b>{(() => {
-                  const d = new Date(); d.setMonth(d.getMonth() + comp.mesesRestantes)
-                  return MESES_L[d.getMonth()].toLowerCase() + ' de ' + d.getFullYear()
-                })()}</b>.</> : '.'}
+              <p className={comp.mesesRestantes && comp.mesesRestantes < 12 ? 'warn' : 'ok'} style={{ margin: 0, fontSize: 13, textTransform: 'none' }}>
+                A este ritmo quedan <b>{comp.mesesRestantes} meses</b> de inventario.
               </p>
             </>
           ) : <p className="muted small">Sin ventas en los últimos 6 meses: no se puede estimar el ritmo.</p>}
         </div>
       </div>
 
-      {/* ---- ESTE AÑO CONTRA EL PASADO ---- */}
+      {/* ---- RITMO Y HORIZONTE, PROYECTO POR PROYECTO ---- */}
+      {comp?.ritmos?.length > 0 && (
+        <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+          <h2 className="sub">RITMO Y HORIZONTE POR PROYECTO</h2>
+          <p className="muted small" style={{ margin: '0 0 8px', textTransform: 'none' }}>
+            Son dos preguntas distintas: cuándo se termina de <b>vender</b> (depende del ritmo de ventas) y
+            cuándo se termina de <b>cobrar</b> (depende de cuánto entra por mes). El <b>cronograma</b> ya tiene
+            una respuesta firmada para lo segundo: la fecha de la última cuota. Si la fecha real cae después,
+            ese proyecto va atrasado.
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>PROYECTO</th><th>RITMO 6M</th><th>HISTÓRICO</th><th>ÓPTIMO*</th>
+                  <th>LOTES</th><th>TERMINA DE VENDER</th>
+                  <th>POR COBRAR</th><th>ENTRA POR MES</th><th>TERMINA DE COBRAR</th><th>CRONOGRAMA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comp.ritmos.map(r => (
+                  <tr key={r.id}>
+                    <td><b>{r.nombre}</b></td>
+                    <td className={r.ritmo >= r.optimo ? 'ok' : 'bad'}><b>{r.ritmo.toFixed(1)}</b>/mes</td>
+                    <td className="muted">{r.historico.toFixed(1)}/mes</td>
+                    <td className="muted">{r.optimo.toFixed(1)}/mes</td>
+                    <td>{r.disp}</td>
+                    <td>{r.finVender ? <>{r.finVender} <span className="muted">({r.mesesVender} m)</span></> : <span className="muted">sin ritmo</span>}</td>
+                    <td>{soles(r.saldo)}</td>
+                    <td>{soles(r.cobrMes)}</td>
+                    <td>{r.finCobrar ? <>{r.finCobrar} <span className="muted">({r.mesesCobrar} m)</span></> : <span className="muted">—</span>}</td>
+                    <td className={r.atrasoMeses > 3 ? 'bad' : r.atrasoMeses != null ? 'ok' : ''}>
+                      {r.finCronograma}
+                      {r.atrasoMeses != null && r.atrasoMeses > 0 && <><br /><span className="small">+{r.atrasoMeses} m tarde</span></>}
+                      {r.atrasoMeses != null && r.atrasoMeses <= 0 && <><br /><span className="small">al día</span></>}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '2px solid rgba(255,255,255,.18)' }}>
+                  <td><b>PROMEDIO</b></td>
+                  <td><b>{comp.ritmoProm.toFixed(1)}</b>/mes</td>
+                  <td colSpan="8" className="muted small" style={{ textTransform: 'none' }}>
+                    promedio simple entre proyectos activos
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+            * <b>Óptimo</b> = el ritmo que haría falta para vender todo el inventario en <b>24 meses</b>.
+            Es una referencia de planificación, no una meta de la empresa: si tú manejas otro horizonte, dímelo y lo cambio.
+          </p>
+        </div>
+      )}
+
+      {/* ---- ESTE AÑO CONTRA EL PASADO ---- */}      {/* ---- ESTE AÑO CONTRA EL PASADO ---- */}
       {(() => {
         const anios = [...new Set(Object.keys(D.meses).map(k => k.slice(0, 4)))].sort().slice(-2)
         if (anios.length < 2) return null
