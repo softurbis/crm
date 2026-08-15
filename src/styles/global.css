@@ -332,6 +332,13 @@ input, select, textarea { border-radius: 10px; transition: outline .1s, border-c
 
 /* ---- dashboard grande ---- */
 .cards-big { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+
+/* ---- graficos: NO usar .cards, que fuerza columnas de 200px y los aplasta ---- */
+.graf-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1rem; align-items: stretch; }
+.graf-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.graf-2 > *, .graf-3 > * { min-width: 0; }          /* si no, el SVG desborda la celda */
+.graf-2 .sub, .graf-3 .sub { margin: 0 0 .6rem; }
+@media (max-width: 900px) { .graf-2 { grid-template-columns: 1fr; } }
 .kpi-big { font-size: 2.2rem; line-height: 1.1; }
 .mes-box { border: 1px solid rgba(156,203,134,.45); }
 tr.row-sel td { background: rgba(156,203,134,.15); }

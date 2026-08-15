@@ -9,7 +9,7 @@
 // Por eso los numeros importantes van SIEMPRE escritos, no solo dibujados.
 // ============================================================================
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { maximumFractionDigits: 0 })
-const corto = n => {
+export const corto = n => {
   const v = Math.abs(Number(n) || 0)
   if (v >= 1000000) return (n / 1000000).toFixed(1).replace('.0', '') + 'M'
   if (v >= 1000) return Math.round(n / 1000) + 'k'
@@ -83,7 +83,7 @@ export function BarrasMes({ meses, alto = 210 }) {
 
 // --------------------------------------------------------------- ROSCA (donut)
 // Composicion: en qué estado están los lotes, o de dónde sale la plata.
-export function Rosca({ partes, titulo, centro }) {
+export function Rosca({ partes, titulo, centro, formato }) {
   const lista = (partes || []).filter(p => Number(p?.valor) > 0)
   const tot = lista.reduce((s, p) => s + Number(p.valor), 0)
   if (!tot) return <p className="muted small">Sin datos todavía.</p>
@@ -109,7 +109,7 @@ export function Rosca({ partes, titulo, centro }) {
           <div key={a.label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: a.color, flex: '0 0 auto' }} />
             <span style={{ flex: 1 }}>{a.label}</span>
-            <b>{a.valor}</b>
+            <b>{formato ? formato(a.valor) : a.valor}</b>
             <span className="muted" style={{ width: 44, textAlign: 'right' }}>{(a.valor / tot * 100).toFixed(0)}%</span>
           </div>
         ))}

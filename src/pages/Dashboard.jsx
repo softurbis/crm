@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
-import { Reloj, BarrasMes, Rosca, BarrasH } from '../components/Graficos'
+import { Reloj, BarrasMes, Rosca, BarrasH, corto } from '../components/Graficos'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
@@ -31,9 +31,15 @@ export default function Dashboard() {
         supabase.from('lots').select('project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado'),
         supabase.from('daily_income').select('project_id, amount, income_type, date, observation, operation_number, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), sale:sales(status)').in('project_id', ids),
         supabase.from('sales').select('id, sale_date, total_sale_price, status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt)'),
-        supabase.from('installments').select('amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').eq('status', 'vencido'),
+        // con cliente y lote: sirve para el top de deudores, no solo para el total
+        supabase.from('installments').select('amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido'),
         supabase.from('separations').select('amount, date, status, client:clients(full_name), lot:lots!inner(project_id, mz, lt)'),
       ])
+      // cuotas que VENCEN este mes: es contra esto que se mide la cobranza del mes
+      const ym = new Date().toISOString().slice(0, 7)
+      const { data: delMes } = await supabase.from('installments')
+        .select('amount, amount_paid, status, sales!inner(status, lot:lots!inner(project_id))')
+        .gte('due_date', ym + '-01').lte('due_date', ym + '-31')
       setRaw({
         ids,
         lots: lots.data || [],
@@ -42,6 +48,7 @@ export default function Dashboard() {
         sales: (salesR.data || []).filter(s => ids.includes(s.lot?.project_id)),
         venc: (venc.data || []).filter(v => v.sales?.status === 'en_proceso' && ids.includes(v.sales?.lot?.project_id)),
         seps: (seps.data || []).filter(x => ids.includes(x.lot?.project_id)),
+        cuotasMes: (delMes || []).filter(v => v.sales?.status === 'en_proceso' && ids.includes(v.sales?.lot?.project_id)),
       })
     }
     load()
@@ -119,6 +126,48 @@ export default function Dashboard() {
     return Object.entries(c).map(([k, v]) => ({ label: k.toUpperCase(), valor: v, color: COL[k] || '#6d6f74' }))
   }, [raw])
 
+  // ---- COMPARATIVOS: lo que de verdad se decide mirando ----
+  const comp = useMemo(() => {
+    if (!raw) return null
+    const nom = id => projects.find(p => p.id === id)?.name || '—'
+    const P = {}
+    const b = id => (P[id] ||= { cobrado: 0, mora: 0, disp: 0, vend: 0, lotes: 0 })
+    for (const l of raw.lots) {
+      const x = b(l.project_id); x.lotes++
+      if (l.status === 'disponible') x.disp++
+      if (['vendido', 'entregado'].includes(l.status)) x.vend++
+    }
+    for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO') b(i.project_id).cobrado += Number(i.amount)
+    for (const v of raw.venc) b(v.sales?.lot?.project_id).mora += Number(v.amount) - Number(v.amount_paid)
+    const porProy = Object.entries(P).map(([id, x]) => ({ id, nombre: nom(id), ...x }))
+
+    // cobranza del mes: lo que VENCÍA contra lo que entró. El indicador que dice
+    // si la cobranza va bien, mucho mejor que "cuánto entró" a secas.
+    const esperado = (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount), 0)
+    const cobradoMes = (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount_paid), 0)
+
+    // quién debe más (cliente + lote juntos: el mismo cliente puede tener varios)
+    const deudas = {}
+    for (const v of raw.venc) {
+      const k = (v.sales?.client?.full_name || '—') + ' · ' + (v.sales?.lot?.mz || '?') + '-' + (v.sales?.lot?.lt || '?')
+      deudas[k] = (deudas[k] || 0) + Number(v.amount) - Number(v.amount_paid)
+    }
+    const top = Object.entries(deudas).sort((a, z) => z[1] - a[1]).slice(0, 6)
+
+    const gastosPorTipo = {}
+    for (const g of raw.expenses.filter(x => x.status !== 'solicitado')) {
+      const k = (g.type || 'OTRO').toUpperCase()
+      gastosPorTipo[k] = (gastosPorTipo[k] || 0) + Number(g.amount || 0)
+    }
+    const COL = ['#4f83c2', '#e0913f', '#9a6bc9', '#3fb6a8', '#c94f4f', '#6d6f74', '#4caf72']
+    return {
+      porProy, esperado, cobradoMes, top,
+      pctCobranza: esperado ? (cobradoMes / esperado * 100) : 0,
+      gastosTipo: Object.entries(gastosPorTipo).sort((a, z) => z[1] - a[1])
+        .map(([k, v], i) => ({ label: k, valor: Math.round(v), color: COL[i % COL.length] })),
+    }
+  }, [raw, projects])
+
   // ---- LIMITES DEL SISTEMA (solo superusuario, sql/64) ----
   // Nace del susto del 14 de agosto: Supabase avisó "Grace period is over" y
   // hubo que ir a buscar a su panel cuál línea estaba al tope. Ahora se ve acá.
@@ -170,14 +219,82 @@ export default function Dashboard() {
       </div>
 
       {/* ---- GRAFICOS: la foto de un vistazo ---- */}
-      <div className="cards" style={{ alignItems: 'stretch' }}>
-        <div className="glass form-card" style={{ flex: '2 1 460px' }}>
-          <h2 className="sub" style={{ margin: '0 0 6px' }}>PLATA POR MES — ÚLTIMOS {serie.length} MESES</h2>
-          <BarrasMes meses={serie} />
+      <div className="graf-2">
+        <div className="glass form-card">
+          <h2 className="sub">PLATA POR MES — ÚLTIMOS {serie.length} MESES</h2>
+          <BarrasMes meses={serie} alto={300} />
         </div>
-        <div className="glass form-card" style={{ flex: '1 1 280px' }}>
-          <h2 className="sub" style={{ margin: '0 0 6px' }}>EN QUÉ ESTÁN LOS LOTES</h2>
+        <div className="glass form-card">
+          <h2 className="sub">EN QUÉ ESTÁN LOS LOTES</h2>
           <Rosca partes={compo} centro={String(D.nLotes)} titulo="lotes" />
+          <div style={{ borderTop: '1px solid rgba(255,255,255,.1)', marginTop: 10, paddingTop: 8 }}>
+            <p className="muted small" style={{ margin: '0 0 5px' }}>EMBUDO</p>
+            <BarrasH formato={n => String(n)} filas={[
+              { label: 'Disponibles', valor: D.nd, color: '#4caf72' },
+              { label: 'Separados', valor: D.ns, color: '#e0913f' },
+              { label: 'Vendidos', valor: D.nv, color: '#4f83c2' },
+              { label: 'Pagados 100%', valor: D.pagadasN, color: '#3fb6a8' },
+            ]} />
+          </div>
+        </div>
+      </div>
+
+      {/* ---- COBRANZA DEL MES: lo que vencia contra lo que entro ---- */}
+      {comp && comp.esperado > 0 && (
+        <div className="graf-2">
+          <div className="glass form-card">
+            <h2 className="sub">COBRANZA DE ESTE MES</h2>
+            <BarrasH filas={[
+              { label: 'Vencía este mes', valor: Math.round(comp.esperado), color: '#7ec8e3' },
+              { label: 'Cobrado', valor: Math.round(comp.cobradoMes), color: comp.pctCobranza >= 70 ? '#4bb96a' : comp.pctCobranza >= 40 ? '#e0a13f' : '#d9534f' },
+              { label: 'Falta cobrar', valor: Math.round(Math.max(0, comp.esperado - comp.cobradoMes)), color: '#d9754f' },
+            ]} />
+            <p className={comp.pctCobranza >= 70 ? 'ok' : 'bad'} style={{ margin: '6px 0 0', fontSize: 13, textTransform: 'none' }}>
+              <b>{comp.pctCobranza.toFixed(0)}%</b> de lo que vencía este mes ya está cobrado
+            </p>
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">QUIÉN DEBE MÁS</h2>
+            {comp.top.length
+              ? <BarrasH filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v), color: '#d9534f' }))} />
+              : <p className="ok small">Nadie tiene cuotas vencidas. ✅</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ---- COMPARATIVO ENTRE PROYECTOS (solo tiene sentido viendo varios) ---- */}
+      {comp && comp.porProy.length > 1 && (
+        <div className="graf-3">
+          <div className="glass form-card">
+            <h2 className="sub">COBRADO POR PROYECTO</h2>
+            <BarrasH filas={comp.porProy.slice().sort((a, z) => z.cobrado - a.cobrado)
+              .map(p => ({ label: p.nombre, valor: Math.round(p.cobrado), color: '#4bb96a' }))} />
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">MORA POR PROYECTO</h2>
+            <BarrasH filas={comp.porProy.slice().sort((a, z) => z.mora - a.mora)
+              .map(p => ({ label: p.nombre, valor: Math.round(p.mora), color: '#d9534f' }))} />
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">LOTES POR VENDER</h2>
+            <BarrasH formato={n => n + ' lotes'} filas={comp.porProy.slice().sort((a, z) => z.disp - a.disp)
+              .map(p => ({ label: p.nombre, valor: p.disp, color: '#4caf72' }))} />
+          </div>
+        </div>
+      )}
+
+      {/* ---- VENTAS NUEVAS POR MES + EN QUE SE GASTA ---- */}
+      <div className="graf-2">
+        <div className="glass form-card">
+          <h2 className="sub">VENTAS NUEVAS POR MES</h2>
+          <BarrasH formato={n => n + (n === 1 ? ' venta' : ' ventas')}
+            filas={serie.slice(-6).reverse().map(x => ({ label: x.lbl, valor: x.ventasN, color: '#4f83c2' }))} />
+        </div>
+        <div className="glass form-card">
+          <h2 className="sub">EN QUÉ SE GASTA</h2>
+          {comp?.gastosTipo?.length
+            ? <Rosca partes={comp.gastosTipo} centro={corto(D.gastosT)} titulo="gastado" formato={soles} />
+            : <p className="muted small">Sin gastos registrados.</p>}
         </div>
       </div>
 
