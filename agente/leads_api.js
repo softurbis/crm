@@ -24,6 +24,7 @@ require('dotenv').config()
 const crypto = require('crypto')
 const { createClient } = require('@supabase/supabase-js')
 const { enviarTexto, enviarMedia, servidorWebhook, bajarMedia } = require('./cloudapi')
+const { subirAR2 } = require('./r2')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
@@ -230,12 +231,22 @@ async function pasarAsesor(phone, lead, motivo) {
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
-// ---------- media entrante -> Storage con deduplicacion (wa-chat/_unicos) ----------
+// ---------- media entrante -> R2 con deduplicacion (wa-chat/_unicos) ----------
+// Antes esto guardaba DIRECTO en Supabase Storage, sin pasar por R2: era el unico
+// camino del sistema que lo hacia, y solo se noto cuando el bucket de Supabase
+// llego al 83% de su GB gratis. Ahora va a R2 como todo lo demas (ver r2.js).
+// Supabase queda como ULTIMO recurso: si R2 no responde, es preferible gastar
+// unos MB del bucket antes que perder la foto que mando un cliente.
 const extDeMime = m => (String(m || '').split('/')[1] || 'bin').split(';')[0].replace('jpeg', 'jpg').slice(0, 5)
 async function guardarMediaEntrante(mediaId, mime, nombre) {
   const { buffer, mime: mimeReal } = await bajarMedia(mediaId)
   const huella = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 32)
   const ruta = 'wa-chat/_unicos/' + huella + '.' + extDeMime(mime || mimeReal)
+
+  const enR2 = await subirAR2(ruta, buffer, mime || mimeReal, log)
+  if (enR2) return enR2
+
+  log('⚠ media entrante guardada en SUPABASE (respaldo, R2 no respondio):', ruta)
   const { data: ya } = await supabase.storage.from('urbis-files').list('wa-chat/_unicos', { search: huella, limit: 1 })
   if (!ya || !ya.length) {
     const { error } = await supabase.storage.from('urbis-files').upload(ruta, buffer, { contentType: mime || mimeReal, upsert: true })
