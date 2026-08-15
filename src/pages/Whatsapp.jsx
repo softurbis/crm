@@ -422,6 +422,20 @@ export default function Whatsapp() {
   const flowMediaMove = (i, mi, d) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => { if (j !== i) return s; const a = [...(s.media || [])]; const k = mi + d; if (k < 0 || k >= a.length) return s;[a[mi], a[k]] = [a[k], a[mi]]; return { ...s, media: a } }) }))
   const optSet = (i, oi, patch) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).map((o, k) => k === oi ? { ...o, ...patch } : o) } : s) }))
   const optAdd = i => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: [...(s.opciones || []), { label: '', claves: '', ir_a: '', pasar_asesor: false }] } : s) }))
+  // Una pregunta de UNA sola opción deja al cliente sin forma de decir que no:
+  // contesta "No", el bot no lo encuentra y repregunta. Este botón arma las dos
+  // opciones de una vez, con sus palabras ya puestas y editables.
+  const optAddSiNo = i => setProjFlow(f => ({
+    ...f,
+    steps: f.steps.map((s, j) => j === i ? {
+      ...s,
+      opciones: [
+        ...(s.opciones || []),
+        { label: 'Sí', claves: 'si, claro, ok, dale, ya, listo, por favor, obvio', ir_a: '', pasar_asesor: true },
+        { label: 'No', claves: 'no, ahorita no, más tarde, después, todavía no, gracias', ir_a: '', pasar_asesor: false },
+      ],
+    } : s),
+  }))
   const optDel = (i, oi) => setProjFlow(f => ({ ...f, steps: f.steps.map((s, j) => j === i ? { ...s, opciones: (s.opciones || []).filter((_, k) => k !== oi) } : s) }))
   // ---- biblioteca de material del flujo (subir imágenes/videos + links con descripción) ----
   const libAdd = it => setProjFlow(f => ({ ...f, media_lib: [...(f.media_lib || []), it] }))
@@ -1072,10 +1086,12 @@ export default function Whatsapp() {
                   emoji, "ya pues", "ahorita no"...). Acá se AGREGAN las de la casa;
                   no reemplazan a las de fábrica. Vale para todos los proyectos. */}
               <div style={{ border: '1px solid rgba(120,180,140,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(120,180,140,.06)' }}>
-                <b style={{ fontSize: 12, color: '#7fbf9a' }}>👍 Palabras que el bot lee como SÍ o como NO</b>
+                <b style={{ fontSize: 12, color: '#7fbf9a' }}>👍 Palabras de SÍ y NO para TODAS las preguntas</b>
                 <p className="muted" style={{ fontSize: 11, margin: '3px 0 6px' }}>
-                  Ya vienen las de siempre (<i>sí, claro, ok, dale, ya, listo, 👍 · no, ahorita no, más tarde, lo voy a pensar</i>) — con tilde o sin tilde, da igual.
-                  Acá <b>agregas las tuyas</b>, separadas por coma. Sirven en <b>todos los proyectos</b> y en cualquier pregunta de Sí/No.
+                  Las de cada pregunta se ponen <b>en su propio paso</b> (botón <b>+ Sí / No</b>, más abajo) — eso es lo normal.
+                  Esto de acá es el <b>respaldo general</b>: vale para todos los proyectos y todas las preguntas.
+                  El bot ya trae las de siempre (<i>sí, claro, ok, dale, ya, listo, 👍 · no, ahorita no, más tarde, lo voy a pensar</i>), con tilde o sin tilde.
+                  Agrega solo las que se digan en tu zona y no estén.
                 </p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <input value={clavesSi} placeholder="para SÍ: mándale, hagámoslo, ya pues" onChange={e => setClavesSi(e.target.value)} style={{ flex: '1 1 220px', textTransform: 'none' }} />
@@ -1187,6 +1203,16 @@ export default function Whatsapp() {
                         </div>
                       ))}
                       <button className="btn-ghost" onClick={() => optAdd(i)}>+ Opción</button>
+                      {' '}
+                      <button className="btn-ghost" onClick={() => optAddSiNo(i)} title="Agrega las dos opciones con sus palabras ya puestas (las puedes editar)">+ Sí / No</button>
+                      {(s.opciones || []).length === 1 && (
+                        <p className="warn small" style={{ margin: '5px 0 0', textTransform: 'none' }}>
+                          ⚠️ Con una sola opción el cliente no tiene cómo decir que <b>no</b>: si contesta "no", el bot no lo entiende y repregunta. Usa <b>+ Sí / No</b>.
+                        </p>
+                      )}
+                      <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                        Las palabras clave son <b>opcionales</b>: el bot ya entiende los sí y no de siempre (con tilde o sin, y 👍). Acá pones las de <b>esta</b> pregunta.
+                      </p>
                       <div style={{ marginTop: 8, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         ⏭️ Si no responde en
                         <input type="number" min="0" value={s.reask_min} placeholder={String(projFlow.reask_min || 0)} onChange={e => flowSet(i, { reask_min: e.target.value })} style={{ width: 50 }} />
