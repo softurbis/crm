@@ -8,6 +8,8 @@
 // Regla de la casa: un grafico que no se puede leer de un vistazo es un adorno.
 // Por eso los numeros importantes van SIEMPRE escritos, no solo dibujados.
 // ============================================================================
+import { useState } from 'react'
+
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { maximumFractionDigits: 0 })
 export const corto = n => {
   const v = Math.abs(Number(n) || 0)
@@ -43,41 +45,69 @@ export function Reloj({ titulo, usado, limite, detalle, unidad = 'MB' }) {
 // ------------------------------------------------- BARRAS POR MES (cobrado/gasto)
 // Dos barras por mes y una linea de balance encima. Es el grafico que contesta
 // "¿este mes entro mas de lo que salio?" sin tener que restar de cabeza.
-export function BarrasMes({ meses, alto = 210 }) {
+export function BarrasMes({ meses, alto = 210, onMes }) {
+  const [hover, setHover] = useState(null)
   if (!meses?.length) return <p className="muted small">Sin datos todavía.</p>
-  const W = 760, H = alto, padL = 44, padB = 34, padT = 14
+  const W = 760, H = alto, padL = 46, padB = 36, padT = 14
   const tope = Math.max(...meses.flatMap(m => [m.rec, m.gastos]), 1)
   const anchoCol = (W - padL - 10) / meses.length
-  const bw = Math.min(20, anchoCol / 3.2)
+  const bw = Math.min(22, anchoCol / 3.2)
   const y = v => padT + (H - padT - padB) * (1 - v / tope)
   const balance = meses.map((m, i) => [padL + anchoCol * i + anchoCol / 2, y(Math.max(0, m.rec - m.gastos))])
+  const h = hover != null ? meses[hover] : null
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
-      {[0, .25, .5, .75, 1].map(f => (
-        <g key={f}>
-          <line x1={padL} x2={W - 6} y1={y(tope * f)} y2={y(tope * f)} stroke="currentColor" opacity=".12" />
-          <text x={padL - 6} y={y(tope * f) + 3} textAnchor="end" fontSize="9" fill="currentColor" opacity=".5">{corto(tope * f)}</text>
-        </g>
-      ))}
-      {meses.map((m, i) => {
-        const x = padL + anchoCol * i + anchoCol / 2
-        return (
-          <g key={m.ym}>
-            <rect x={x - bw - 2} y={y(m.rec)} width={bw} height={Math.max(1, y(0) - y(m.rec))} rx="2" fill="#4bb96a" />
-            <rect x={x + 2} y={y(m.gastos)} width={bw} height={Math.max(1, y(0) - y(m.gastos))} rx="2" fill="#d9754f" />
-            <text x={x} y={H - padB + 13} textAnchor="middle" fontSize="9" fill="currentColor" opacity=".6">{m.lbl}</text>
-            <title>{m.lbl}: cobrado {soles(m.rec)} · gastos {soles(m.gastos)} · balance {soles(m.rec - m.gastos)}</title>
+    <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} onMouseLeave={() => setHover(null)}>
+        {[0, .25, .5, .75, 1].map(f => (
+          <g key={f}>
+            <line x1={padL} x2={W - 6} y1={y(tope * f)} y2={y(tope * f)} stroke="currentColor" opacity=".12" />
+            <text x={padL - 6} y={y(tope * f) + 3} textAnchor="end" fontSize="9.5" fill="currentColor" opacity=".55">{corto(tope * f)}</text>
           </g>
-        )
-      })}
-      <polyline points={balance.map(p => p.join(',')).join(' ')} fill="none" stroke="#7ec8e3" strokeWidth="1.8" opacity=".9" />
-      {balance.map(([x, yy], i) => <circle key={i} cx={x} cy={yy} r="2.6" fill="#7ec8e3" />)}
-      <g transform={`translate(${padL},${H - 6})`} fontSize="9" fill="currentColor">
-        <rect x="0" y="-7" width="9" height="9" rx="2" fill="#4bb96a" /><text x="13" y="1" opacity=".7">cobrado</text>
-        <rect x="70" y="-7" width="9" height="9" rx="2" fill="#d9754f" /><text x="83" y="1" opacity=".7">gastos</text>
-        <line x1="135" y1="-3" x2="150" y2="-3" stroke="#7ec8e3" strokeWidth="1.8" /><text x="154" y="1" opacity=".7">balance</text>
-      </g>
-    </svg>
+        ))}
+        {meses.map((m, i) => {
+          const x = padL + anchoCol * i + anchoCol / 2
+          return (
+            <g key={m.ym} onMouseEnter={() => setHover(i)} onClick={() => onMes && onMes(m.ym)}
+               style={{ cursor: onMes ? 'pointer' : 'default' }}>
+              {/* franja invisible: hace que el hover agarre en toda la columna, no solo en la barrita */}
+              <rect x={x - anchoCol / 2} y={padT} width={anchoCol} height={H - padT - padB}
+                fill={hover === i ? 'rgba(255,255,255,.07)' : 'transparent'} />
+              <rect x={x - bw - 2} y={y(m.rec)} width={bw} height={Math.max(1, y(0) - y(m.rec))} rx="2"
+                fill="#4bb96a" opacity={hover == null || hover === i ? 1 : .45} />
+              <rect x={x + 2} y={y(m.gastos)} width={bw} height={Math.max(1, y(0) - y(m.gastos))} rx="2"
+                fill="#d9754f" opacity={hover == null || hover === i ? 1 : .45} />
+              <text x={x} y={H - padB + 14} textAnchor="middle" fontSize="9.5" fill="currentColor"
+                opacity={hover === i ? 1 : .6} fontWeight={hover === i ? 700 : 400}>{m.lbl}</text>
+            </g>
+          )
+        })}
+        <polyline points={balance.map(p => p.join(',')).join(' ')} fill="none" stroke="#7ec8e3" strokeWidth="1.8" opacity=".9" />
+        {balance.map(([x, yy], i) => <circle key={i} cx={x} cy={yy} r={hover === i ? 4 : 2.6} fill="#7ec8e3" />)}
+        <g transform={`translate(${padL},${H - 6})`} fontSize="9.5" fill="currentColor">
+          <rect x="0" y="-7" width="9" height="9" rx="2" fill="#4bb96a" /><text x="13" y="1" opacity=".7">cobrado</text>
+          <rect x="72" y="-7" width="9" height="9" rx="2" fill="#d9754f" /><text x="85" y="1" opacity=".7">gastos</text>
+          <line x1="140" y1="-3" x2="155" y2="-3" stroke="#7ec8e3" strokeWidth="1.8" /><text x="159" y="1" opacity=".7">balance</text>
+          {onMes && <text x="235" y="1" opacity=".45">— clic en un mes para ver su detalle</text>}
+        </g>
+      </svg>
+      {h && (
+        <div style={{
+          position: 'absolute', top: 6, right: 6, background: 'var(--panel-2, rgba(20,26,22,.97))',
+          border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '7px 10px',
+          fontSize: 12, pointerEvents: 'none', minWidth: 168, boxShadow: '0 6px 18px rgba(0,0,0,.45)',
+        }}>
+          <b style={{ display: 'block', marginBottom: 3 }}>{h.lbl}</b>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ color: '#4bb96a' }}>cobrado</span><b>{soles(h.rec)}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ color: '#d9754f' }}>gastos</span><b>{soles(h.gastos)}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, borderTop: '1px solid rgba(255,255,255,.14)', marginTop: 3, paddingTop: 3 }}>
+            <span style={{ color: '#7ec8e3' }}>balance</span>
+            <b style={{ color: h.rec - h.gastos >= 0 ? '#4bb96a' : '#d9534f' }}>{soles(h.rec - h.gastos)}</b></div>
+          <div className="muted" style={{ marginTop: 3, fontSize: 11 }}>{h.pagos} pagos · {h.ventasN} ventas nuevas</div>
+        </div>
+      )}
+    </div>
   )
 }
 

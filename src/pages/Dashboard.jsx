@@ -222,7 +222,7 @@ export default function Dashboard() {
       <div className="graf-2">
         <div className="glass form-card">
           <h2 className="sub">PLATA POR MES — ÚLTIMOS {serie.length} MESES</h2>
-          <BarrasMes meses={serie} alto={300} />
+          <BarrasMes meses={serie} alto={300} onMes={ym => { setFmes(ym); setVerDetalle(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
         </div>
         <div className="glass form-card">
           <h2 className="sub">EN QUÉ ESTÁN LOS LOTES</h2>
