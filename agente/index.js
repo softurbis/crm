@@ -2609,7 +2609,7 @@ async function vigilarSinRespuesta() {
   const desde = new Date(ahora - 20 * 60000).toISOString()   // no se mira mas atras de 20 min
   const hasta = new Date(ahora - 2 * 60000).toISOString()    // tiene que llevar 2 min esperando
   const { data: entrantes } = await supabase.from('whatsapp_messages')
-    .select('created_at, body, conv:whatsapp_conversations!inner(phone, modo, flow_state, lead_id)')
+    .select('created_at, body, conv:whatsapp_conversations!inner(phone, modo, flow_state, lead_id, wa_jid)')
     .eq('direction', 'in').gte('created_at', desde).lte('created_at', hasta)
     .order('created_at', { ascending: false }).limit(60)
   if (!entrantes?.length) return
@@ -2624,11 +2624,21 @@ async function vigilarSinRespuesta() {
     if (ADMIN && tel.slice(-9) === ADMIN.slice(-9)) continue                      // pruebas del propio admin
     const tnum = await tipoNumero(tel)
     if (['secretaria', 'gerencia', 'desactivado', 'silencio'].includes(tnum || '')) continue
-    // ¿salio algo para ese numero DESPUES de que escribio?
-    const { count } = await supabase.from('scheduled_messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('recipient_phone', tel.replace(/\D/g, '')).eq('status', 'enviado').gt('sent_at', m.created_at)
-    if (count) continue
+    // ¿Salió algo para esa persona DESPUÉS de que escribió? Hay que mirar sus DOS
+    // identidades: si la conversación viene por LID, la respuesta queda guardada
+    // bajo ese identificador y no bajo el teléfono. Sin esto la alarma gritaría
+    // "no responde" en cada chat con LID, que es justo lo contrario de lo que pasa.
+    const suyos = new Set([tel.replace(/\D/g, '')])
+    const lid = String(m.conv?.wa_jid || '')
+    if (lid.endsWith('@lid')) suyos.add(lid.split('@')[0].replace(/\D/g, ''))
+    let contestado = false
+    for (const quien of suyos) {
+      const { count } = await supabase.from('scheduled_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_phone', quien).eq('status', 'enviado').gt('sent_at', m.created_at)
+      if (count) { contestado = true; break }
+    }
+    if (contestado) continue
     const avisado = yaAvise.get(tel) || 0
     if (ahora - avisado < 30 * 60000) continue   // ya se aviso hace poco por este chat
     yaAvise.set(tel, ahora)
