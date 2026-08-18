@@ -1941,7 +1941,30 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   // registrar SIEMPRE la conversacion y el mensaje entrante (incluido el ADMIN, para verlo en el panel)
   let conv = await estadoConv(phone, ses)
   if (!conv) { await setConv(phone, { wa_jid: jid }, ses); conv = await estadoConv(phone, ses) }
-  else await supabase.from('whatsapp_conversations').update({ wa_jid: jid, last_message_at: new Date().toISOString() }).eq('id', conv.id)
+  // wa_jid guarda el LID de la persona (su identidad nueva en WhatsApp). Es lo que
+  // permite reconocerla cuando escribe sin numero, asi que NO se pisa con el jid
+  // del telefono: eso borraria la pareja en el siguiente mensaje.
+  else {
+    const guardado = String(conv.wa_jid || '')
+    const campos = { last_message_at: new Date().toISOString() }
+    if (!guardado.endsWith('@lid')) campos.wa_jid = jidLid || jid
+    await supabase.from('whatsapp_conversations').update(campos).eq('id', conv.id)
+  }
+  // Si todavia no sabemos su LID, se lo preguntamos a WhatsApp con el numero. Asi
+  // la pareja queda armada desde el primer mensaje, sin esperar a que algun dia
+  // lleguen los dos identificadores juntos — que es lo que hacia que la misma
+  // persona entrara dos veces, una con numero y otra con identificador.
+  if (conv && !String(conv.wa_jid || '').endsWith('@lid') && !lidDig && ses?.sock && /^\d{9,15}$/.test(String(phone))) {
+    try {
+      const r = await ses.sock.onWhatsApp(phone + '@s.whatsapp.net')
+      const suLid = r && r[0] && r[0].lid
+      if (suLid) {
+        await supabase.from('whatsapp_conversations').update({ wa_jid: String(suLid) }).eq('id', conv.id).then(() => {}, () => {})
+        conv.wa_jid = String(suLid)
+        log('LID de', phone, 'averiguado:', suLid)
+      }
+    } catch (e) { log('no se pudo averiguar el LID de', phone, ':', String(e.message || e)) }
+  }
   // tráfico REAL de WhatsApp sobre una conversación que quedó marcada como PRUEBA
   // (la marcó la consola de pruebas): promoverla a real, si no el auto-avance del
   // flujo enviaría en modo simulacro y el lead nunca recibiría los mensajes.
