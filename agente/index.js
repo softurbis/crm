@@ -1616,7 +1616,9 @@ async function setConv(phone, campos, ses) {
 async function detectarProyecto(texto) {
   // solo proyectos HABILITADOS para el bot (projects.bot_enabled). Los deshabilitados
   // no se detectan ni se listan; si queda uno solo, pedirProyecto lo usa directo.
-  const { data: proys } = await supabase.from('projects').select('id, name').eq('bot_enabled', true).order('created_at')
+  // lead_notify_phone viene desde aca para poder avisarle al asesor del proyecto
+  // en cuanto entra el lead, sin tener que volver a consultar la tabla
+  const { data: proys } = await supabase.from('projects').select('id, name, lead_notify_phone').eq('bot_enabled', true).order('created_at')
   const txt = String(texto || '').toLowerCase()
   // palabras genéricas que NO identifican un proyecto (ciudad/relleno). "Pucallpa" NO va aquí:
   // es lo que distingue "Las Praderas de Pucallpa" de "Las Praderas de Cashibo".
@@ -1839,6 +1841,7 @@ async function finalizarLead(ses, jid, phone, lead) {
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   const destinos = new Set()
   if (ADMIN) destinos.add(ADMIN)
+  for (const x of AVISOS_EXTRA) destinos.add(x)           // numeros en copia (panel)
   if (asesor.length >= 9) destinos.add(asesor)            // asesor asignado del proyecto
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
@@ -2007,7 +2010,16 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
       optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
-    if (ADMIN) await enviar(ADMIN, `🤖 NUEVO LEAD: ${phone}${pr && pr.name ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`, { tipo: 'aviso_admin' })
+    // el lead nuevo le llega al admin, a los numeros en copia y al asesor del
+    // proyecto: el que va a atenderlo tiene que enterarse primero que nadie
+    {
+      const avisoLead = `🤖 NUEVO LEAD: ${phone}${pr && pr.name ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`
+      const aseLead = String(pr?.lead_notify_phone || '').replace(/\D/g, '')
+      const dests = new Set(); if (ADMIN) dests.add(ADMIN)
+      for (const x of AVISOS_EXTRA) dests.add(x)
+      if (aseLead.length >= 9) dests.add(aseLead)
+      for (const d of dests) await enviar(d, avisoLead, { tipo: 'aviso_admin' })
+    }
     if (pr) { await iniciarFlujoProyecto(ses, jid, phone, lead); return }   // proyecto identificado → directo al flujo del panel
     await pedirProyecto(ses, jid, phone, lead, proys)                       // no identificado → pedir cuál (solo corporativa)
     return
@@ -2485,7 +2497,7 @@ async function supervisarSesiones() {
 // Cada 30 min avisa que sigue vivo, con lo que hizo en ese rato. Un bot caido no
 // puede avisar de si mismo: por eso el SILENCIO es la alarma. Sale por Telegram
 // cuando esta vinculado (gratis y no gasta reputacion del chip).
-async function latido() {
+async function latido(titulo) {
   if (!ADMIN) return
   const desde = new Date(Date.now() - 30 * 60000).toISOString()
   const hoy0 = new Date().toISOString().slice(0, 10)
@@ -2499,7 +2511,7 @@ async function latido() {
   const caidas = (sesiones || []).filter(x => x.estado !== 'conectado')
   const reloj = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   const lineas = [
-    caidas.length ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*',
+    titulo || (caidas.length ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
     reloj,
     '',
     '📱 Números: *' + vivas.length + '* conectado(s)',
@@ -2644,6 +2656,19 @@ async function arrancar() {
   // mismo, asi que el silencio ES la alarma. Sale por Telegram cuando esta
   // vinculado (gratis y no gasta reputacion del chip).
   cron.schedule('*/30 * * * *', () => latido().catch(e => log('latido:', String(e.message || e))), { timezone: 'America/Lima' })
+  // Al ARRANCAR tambien avisa: es la confirmacion de que /actualizar salio bien.
+  // Espera 25 segundos a que las sesiones de WhatsApp reconecten, si no reportaria
+  // "0 conectados" con el bot perfectamente sano. Y se limita a 1 cada 10 minutos:
+  // si el proceso entrara en bucle de caidas, pm2 lo reiniciaria sin parar y esto
+  // se convertiria en una metralleta de mensajes.
+  setTimeout(async () => {
+    try {
+      const ultimo = await ajuste('ultimo_arranque', '')
+      if (ultimo && (Date.now() - new Date(ultimo).getTime()) < 10 * 60000) { log('arranque reciente: no repito el aviso'); return }
+      await setAjuste('ultimo_arranque', new Date().toISOString())
+      await latido('🔄 *REINICIADO Y EN SERVICIO*')
+    } catch (e) { log('aviso de arranque:', String(e.message || e)) }
+  }, 25000)
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   arrancarTelegram()
