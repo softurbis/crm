@@ -1724,7 +1724,25 @@ function textoFlujo(flow, key, def, proyName) {
 const pasoPorId = (flow, id) => (flow.steps || []).find(s => String(s.id) === String(id))
 const idxDePaso = (flow, id) => (flow.steps || []).findIndex(s => String(s.id) === String(id))
 // ejecuta pasos desde un índice; envía mensajes+adjuntos y se detiene en la 1ª pregunta (o al final)
+// CANDADO por persona. El flujo tarda ~30 segundos en correr (hay pausas entre
+// mensajes para que no parezca un robot), y en ese rato pueden llegar otros
+// mensajes del mismo cliente o dispararse un segundo flujo. Sin candado, los dos
+// avanzan a la vez y el cliente recibe todo por duplicado. Es la red de
+// seguridad: aunque falle la deteccion del LID, duplicado no va a haber.
+const flujosCorriendo = new Set()
+
 async function correrFlujo(ses, jid, phone, lead, proy, flow, idx) {
+  const llave = String(phone)
+  if (flujosCorriendo.has(llave)) { log('FLUJO YA EN CURSO para', phone, '- no se lanza otro'); return }
+  flujosCorriendo.add(llave)
+  try {
+    return await correrFlujoInterno(ses, jid, phone, lead, proy, flow, idx)
+  } finally {
+    flujosCorriendo.delete(llave)
+  }
+}
+
+async function correrFlujoInterno(ses, jid, phone, lead, proy, flow, idx) {
   const steps = flow.steps || []
   PAUSA_MS = Math.max(0, Math.round(Number(flow.pausa_seg ?? 3) * 1000))   // pausa entre mensajes de este flujo
   let guard = 0
@@ -1874,11 +1892,32 @@ async function finalizarLead(ses, jid, phone, lead) {
 
 async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   let phone = telDeJid(jidPN || jid)
+  const esLid = String(jid).endsWith('@lid')
   // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
-  if (!jidPN && String(jid).endsWith('@lid')) {
+  if (!jidPN && esLid) {
     const lidDig = telDeJid(jid)
     const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone').ilike('wa_jid', '%' + lidDig + '%').not('phone', 'ilike', lidDig).limit(1)
     if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID mapeado a', phone) }
+  }
+  // WhatsApp esta migrando a LID (un id largo que no es el telefono). Si el primer
+  // mensaje llega sin el numero real, se crea una conversacion con el LID como si
+  // fuera un telefono; cuando despues llega otro CON el numero, nace una SEGUNDA
+  // conversacion para la misma persona. Cada una con su propio paso del flujo: el
+  // cliente termina recibiendo TODO por duplicado (paso con Sara Montoya, 18/8).
+  // Al conocer el numero real, la conversacion fantasma del LID se calla.
+  if (jidPN && esLid) {
+    const lidDig = telDeJid(jid)
+    if (lidDig && lidDig !== phone) {
+      const { data: fantasma } = await supabase.from('whatsapp_conversations')
+        .select('id, flow_state').eq('phone', lidDig).limit(1)
+      if (fantasma && fantasma[0] && fantasma[0].flow_state !== 'completado') {
+        await supabase.from('whatsapp_conversations')
+          .update({ flow_state: 'completado', flow_step: null, modo: 'humano' })
+          .eq('id', fantasma[0].id).then(() => {}, () => {})
+        log('LID duplicado silenciado:', lidDig, '-> el bueno es', phone)
+      }
+    }
+    jid = jidDe(phone)   // responder SIEMPRE al numero real, no al LID
   }
   if (!texto && !media) return
   const corto = String(texto || '').trim().slice(0, 400)
