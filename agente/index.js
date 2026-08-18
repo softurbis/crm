@@ -2696,6 +2696,58 @@ async function vigilarSinRespuesta() {
   log('ALARMA: ' + mudos.length + ' chat(s) sin respuesta')
 }
 
+// ---------- UNIFICAR CONVERSACIONES PARTIDAS (/unificar) ----------
+// WhatsApp esta migrando de numeros a LID. Las conversaciones que se partieron
+// ANTES del arreglo siguen partidas: la misma persona figura dos veces, el chat
+// se corta en una y sigue en la otra, y para hacer seguimiento eso es inservible.
+// Esto las junta: le pregunta a WhatsApp el LID de cada numero, y si existe una
+// conversacion creada con ese LID como si fuera un telefono, se le pasan los
+// mensajes y el lead a la de verdad, y la fantasma se elimina.
+async function unificarConversaciones(avisar) {
+  const ses = [...SESSIONS.values()].find(x => x.sock)
+  if (!ses) { await avisar('⚠️ No hay ninguna sesión de WhatsApp conectada.'); return }
+  const { data: convs } = await supabase.from('whatsapp_conversations')
+    .select('id, phone, wa_jid, lead_id').order('last_message_at', { ascending: false })
+  const reales = (convs || []).filter(c => /^\d{9,12}$/.test(String(c.phone || '')))
+  const porLid = new Map()
+  for (const c of (convs || [])) if (/^\d{13,}$/.test(String(c.phone || ''))) porLid.set(String(c.phone), c)
+  await avisar('🔍 Revisando ' + reales.length + ' números contra ' + porLid.size + ' conversaciones con identificador…')
+
+  let unidas = 0, mensajes = 0, sinPar = 0
+  for (const c of reales) {
+    let lid = String(c.wa_jid || '').endsWith('@lid') ? telDeJid(c.wa_jid) : null
+    if (!lid) {
+      try {
+        const r = await ses.sock.onWhatsApp(c.phone + '@s.whatsapp.net')
+        lid = r && r[0] && r[0].lid ? telDeJid(r[0].lid) : null
+        if (lid) await supabase.from('whatsapp_conversations').update({ wa_jid: lid + '@lid' }).eq('id', c.id).then(() => {}, () => {})
+      } catch { sinPar++; continue }
+      await espera(250)   // sin apuro: consultar de golpe cientos de numeros irrita a WhatsApp
+    }
+    if (!lid) { sinPar++; continue }
+    const fantasma = porLid.get(lid)
+    if (!fantasma || fantasma.id === c.id) continue
+
+    // los mensajes del fantasma pasan a la conversacion buena
+    const { data: movidos } = await supabase.from('whatsapp_messages')
+      .update({ conversation_id: c.id }).eq('conversation_id', fantasma.id).select('id')
+    mensajes += (movidos || []).length
+    // el lead: si la buena no tiene, hereda el del fantasma; si tiene, el otro se marca perdido
+    if (fantasma.lead_id && !c.lead_id) {
+      await supabase.from('whatsapp_conversations').update({ lead_id: fantasma.lead_id }).eq('id', c.id).then(() => {}, () => {})
+    } else if (fantasma.lead_id) {
+      await supabase.from('leads').update({ status: 'perdido' }).eq('id', fantasma.lead_id).then(() => {}, () => {})
+      await supabase.from('lead_activities').insert({ lead_id: fantasma.lead_id, note: 'DUPLICADO POR IDENTIFICADOR DE WHATSAPP. EL BUENO ES +' + c.phone }).then(() => {}, () => {})
+    }
+    await supabase.from('whatsapp_conversations').delete().eq('id', fantasma.id)
+    unidas++
+    log('UNIFICADA:', fantasma.phone, '->', c.phone)
+  }
+  await avisar('✅ *LISTO*\n\nConversaciones unidas: *' + unidas + '*\nMensajes recuperados: *' + mensajes + '*'
+    + (sinPar ? '\nSin identificador conocido: ' + sinPar : '')
+    + '\n\nLas que se unieron ahora se ven como un solo chat.')
+}
+
 // ---------- SESION EN VIVO POR TELEGRAM (/vivo) ----------
 // Reenvia al admin cada cosa que pasa, segun pasa, por 15 minutos. Se apaga solo
 // para no convertirse en una lluvia de mensajes.
@@ -2739,7 +2791,7 @@ async function manejarTelegram(chatId, texto, info) {
   // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
   // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y
   // reinicio los hace pm2, que vuelve a levantar el proceso solo.
-  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar)$/i.test(t)) {
+  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar|unificar)$/i.test(t)) {
     const esAdmin = ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
     const cual = t.replace(/^\//, '').toLowerCase()
@@ -2755,6 +2807,10 @@ async function manejarTelegram(chatId, texto, info) {
     if (cual === 'apagar') {
       ESPEJO = null
       await TG.tgEnviar(chatId, '👁️ Sesión en vivo apagada.')
+      return
+    }
+    if (cual === 'unificar') {
+      await unificarConversaciones(txt => TG.tgEnviar(chatId, txt).catch(() => {}))
       return
     }
 
@@ -2793,6 +2849,7 @@ async function manejarTelegram(chatId, texto, info) {
         ? '\n\n🔧 *Mantenimiento (solo admin)*'
           + '\n*/estado* — cómo está el bot ahora'
           + '\n*/vivo* — ver toda la actividad en vivo, 15 min'
+          + '\n*/unificar* — juntar los chats partidos en dos'
           + '\n*/apagar* — cortar la sesión en vivo'
           + '\n*/actualizar* — baja los cambios y reinicia'
           + '\n*/reiniciar* — solo reinicia'
