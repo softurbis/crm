@@ -48,21 +48,30 @@ export default function Dashboard() {
       const ym = hoy.slice(0, 7)
       const en180 = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10)
 
+      // Las sumas del cronograma y de la caja las hace Postgres (sql/65): eso baja
+      // la pantalla de 2.11 MB a ~30 KB. Si las funciones no estan creadas, se cae
+      // al camino de antes y todo sigue igual, solo que pesado.
+      const [aggCuotas, aggPagos] = await Promise.all([
+        supabase.rpc('dash_cuotas', { proyectos: ids }).then(r => (r.error ? null : r.data), () => null),
+        supabase.rpc('dash_pagos', { proyectos: ids }).then(r => (r.error ? null : r.data), () => null),
+      ])
+      const liviano = !!(aggCuotas && aggPagos)
+
       const [lots, income, salesR, venc, seps, delMes, proximas, crono, leads] = await Promise.all([
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
-        todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation').in('project_id', ids).order('id')),
+        liviano ? [] : todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation').in('project_id', ids).order('id')),
         todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
         todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         todas(() => supabase.from('separations').select('id, amount, date, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         // lo que viene: 6 meses hacia adelante, para planificar la caja
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         todas(() => supabase.from('leads').select('id, status, project_id').in('project_id', ids).order('id')),
       ])
       const mio = v => ids.includes(v.sales?.lot?.project_id) && v.sales?.status === 'en_proceso'
@@ -75,6 +84,7 @@ export default function Dashboard() {
         cuotasMes: delMes.filter(mio),
         proximas: proximas.filter(mio),
         crono: crono.filter(mio),
+        agg: liviano ? { cuotas: aggCuotas, pagos: aggPagos } : null,
         _t: Date.now(),
         leads: leads.filter(l => !l.project_id || ids.includes(l.project_id)),
       })
@@ -112,7 +122,8 @@ export default function Dashboard() {
     const ventasExpr = sales.filter(s => s.status === 'expropiado')
     const ventasPagadas = sales.filter(s => s.status === 'pagado')
     const valorVentasActivas = ventasActivas.reduce((s, v) => s + Number(v.total_sale_price), 0)
-    const recaudadoActivo = acept.reduce((s, i) => s + Number(i.amount), 0)
+    const A = raw.agg   // sumas hechas en Postgres (sql/65); null = camino viejo
+    const recaudadoActivo = A ? Number(A.pagos.totales.aceptado || 0) : acept.reduce((s, i) => s + Number(i.amount), 0)
     const carteraDisp = lots.filter(l => l.status === 'disponible').reduce((s, l) => s + Number(l.total_price || 0), 0)
     const deudaVencida = venc.reduce((s, v) => s + Number(v.amount) - Number(v.amount_paid), 0)
     const gastosReales = expenses.filter(g => g.status !== 'solicitado')
@@ -121,7 +132,8 @@ export default function Dashboard() {
     // series mensuales
     const meses = {}
     const M = ym => (meses[ym] = meses[ym] || { rec: 0, pagos: 0, ventasN: 0, ventasS: 0, gastos: 0, seps: 0 })
-    for (const i of acept) { const ym = (i.date || '').slice(0, 7); if (ym) { M(ym).rec += Number(i.amount); M(ym).pagos++ } }
+    if (A) for (const x of (A.pagos.por_mes || [])) { M(x.ym).rec += Number(x.rec); M(x.ym).pagos += Number(x.n) }
+    else for (const i of acept) { const ym = (i.date || '').slice(0, 7); if (ym) { M(ym).rec += Number(i.amount); M(ym).pagos++ } }
     for (const v of sales) { const ym = (v.sale_date || '').slice(0, 7); if (ym) { M(ym).ventasN++; M(ym).ventasS += Number(v.total_sale_price) } }
     for (const g of gastosReales) { const ym = (g.issue_date || g.reception_date || '').slice(0, 7); if (ym) M(ym).gastos += Number(g.amount) }
     for (const x of seps) { const ym = (x.date || '').slice(0, 7); if (ym) M(ym).seps++ }
@@ -129,8 +141,10 @@ export default function Dashboard() {
 
     return {
       recaudado: recaudadoActivo, gastosT,
-      perdidasS: perd.reduce((s, i) => s + Number(i.amount), 0), perdidasN: perd.length,
-      exprS: expr.reduce((s, i) => s + Number(i.amount), 0), exprN: ventasExpr.length,
+      perdidasS: A ? Number(A.pagos.totales.perdida_s || 0) : perd.reduce((s, i) => s + Number(i.amount), 0),
+      perdidasN: A ? Number(A.pagos.totales.perdida_n || 0) : perd.length,
+      exprS: A ? Number(A.pagos.totales.exprop_s || 0) : expr.reduce((s, i) => s + Number(i.amount), 0),
+      exprN: ventasExpr.length,
       nLotes, nv, nd, ns,
       pctVendido: nLotes ? (nv / nLotes * 100) : 0,
       ventasActivasN: ventasActivas.length, valorVentasActivas,
@@ -200,14 +214,16 @@ export default function Dashboard() {
       if (l.status === 'disponible') x.disp++
       if (['vendido', 'entregado'].includes(l.status)) x.vend++
     }
-    for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO') b(i.project_id).cobrado += Number(i.amount)
+    if (A) for (const x of (A.pagos.por_proyecto || [])) b(x.project_id).cobrado += Number(x.cobrado || 0)
+    else for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO') b(i.project_id).cobrado += Number(i.amount)
     for (const v of raw.venc) b(v.sales?.lot?.project_id).mora += Number(v.amount) - Number(v.amount_paid)
     const porProy = Object.entries(P).map(([id, x]) => ({ id, nombre: nom(id), ...x }))
 
     // cobranza del mes: lo que VENCÍA contra lo que entró. El indicador que dice
     // si la cobranza va bien, mucho mejor que "cuánto entró" a secas.
-    const esperado = (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount), 0)
-    const cobradoMes = (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount_paid), 0)
+    const A = raw.agg
+    const esperado = A ? Number(A.cuotas.mes_actual?.esperado || 0) : (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount), 0)
+    const cobradoMes = A ? Number(A.cuotas.mes_actual?.cobrado || 0) : (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount_paid), 0)
 
     // quién debe más (cliente + lote juntos: el mismo cliente puede tener varios)
     const deudas = {}
@@ -244,7 +260,8 @@ export default function Dashboard() {
 
     // CALENDARIO: lo que viene, mes por mes. Para saber si la caja alcanza.
     const futuro = {}
-    for (const q of (raw.proximas || [])) {
+    if (A) for (const x of (A.cuotas.proximas || [])) futuro[x.ym] = Number(x.monto || 0)
+    else for (const q of (raw.proximas || [])) {
       const ymq = String(q.due_date).slice(0, 7)
       futuro[ymq] = (futuro[ymq] || 0) + (Number(q.amount) - Number(q.amount_paid))
     }
@@ -270,12 +287,21 @@ export default function Dashboard() {
       if (mesesAtras(v.sale_date, 6)) x.vend6++
       if (v.sale_date && (!x.primera || v.sale_date < x.primera)) x.primera = v.sale_date
     }
-    for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO' && mesesAtras(i.date, 6)) rb(i.project_id).cobr6 += Number(i.amount)
-    for (const q of (raw.crono || [])) {
-      const x = rb(q.sales?.lot?.project_id)
-      const falta = Number(q.amount) - Number(q.amount_paid)
-      if (falta > 0.05) x.saldo += falta
-      if (q.due_date && (!x.ultimaCuota || q.due_date > x.ultimaCuota)) x.ultimaCuota = q.due_date
+    if (A) {
+      for (const x of (A.pagos.por_proyecto || [])) rb(x.project_id).cobr6 += Number(x.cobrado6 || 0)
+      for (const x of (A.cuotas.por_proyecto || [])) {
+        const r = rb(x.project_id)
+        r.saldo = Number(x.saldo || 0)
+        r.ultimaCuota = x.ultima_cuota || null
+      }
+    } else {
+      for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO' && mesesAtras(i.date, 6)) rb(i.project_id).cobr6 += Number(i.amount)
+      for (const q of (raw.crono || [])) {
+        const x = rb(q.sales?.lot?.project_id)
+        const falta = Number(q.amount) - Number(q.amount_paid)
+        if (falta > 0.05) x.saldo += falta
+        if (q.due_date && (!x.ultimaCuota || q.due_date > x.ultimaCuota)) x.ultimaCuota = q.due_date
+      }
     }
     const enMeses = n => { const d = new Date(); d.setMonth(d.getMonth() + n); return MESES_L[d.getMonth()].slice(0, 3).toLowerCase() + ' ' + d.getFullYear() }
     const fechaCorta = f => { if (!f) return '—'; const [y, m] = f.split('-'); return MESES_L[Number(m) - 1].slice(0, 3).toLowerCase() + ' ' + y }
@@ -305,7 +331,8 @@ export default function Dashboard() {
     // lo que de verdad entro. La distancia entre las dos lineas ES la mora, y se
     // ve si se abre o se cierra con el tiempo.
     const porMes = {}
-    for (const q of (raw.crono || [])) {
+    if (A) for (const x of (A.cuotas.por_mes || [])) porMes[x.ym] = { debio: Number(x.debio || 0), real: Number(x.real || 0) }
+    else for (const q of (raw.crono || [])) {
       const k = String(q.due_date || '').slice(0, 7)
       if (!k) continue
       const b2 = (porMes[k] ||= { debio: 0, real: 0 })
