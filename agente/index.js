@@ -1673,10 +1673,13 @@ async function enviarMediaLib(ses, jid, lib, ids, lead, proy) {
   for (const id of ids) {
     const it = byId[String(id)]
     if (!it || !it.url) continue
-    if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', it.desc || '', ses)
-    else if (it.tipo === 'pdf') await enviarArchivo(jid, it.url, 'documento', it.desc || '', ses)
-    else if (it.tipo === 'link') await enviar(jid, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo', ses })
-    else await enviarArchivo(jid, it.url, 'foto', it.desc || '', ses)
+    // el pie de la foto tambien saluda por su nombre: sin esto la imagen salia
+    // con "{nombre}" tal cual, aunque el cliente acababa de presentarse
+    const pie = rellenar(it.desc || '', lead, proy)
+    if (it.tipo === 'video') await enviarArchivo(jid, it.url, 'video', pie, ses)
+    else if (it.tipo === 'pdf') await enviarArchivo(jid, it.url, 'documento', pie, ses)
+    else if (it.tipo === 'link') await enviar(jid, (pie ? '*' + pie + '*\n' : '') + it.url, { tipo: 'lead_flujo', ses })
+    else await enviarArchivo(jid, it.url, 'foto', pie, ses)
   }
 }
 function parseFlow(proy) {

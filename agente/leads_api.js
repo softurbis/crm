@@ -115,9 +115,11 @@ async function enviarMediaLib(phone, lib, ids, lead, proy) {
     if (!it || !it.url) continue
     await espera(PAUSA_MS)
     try {
-      if (it.tipo === 'link') { await enviar(phone, (it.desc ? '*' + it.desc + '*\n' : '') + it.url, { tipo: 'lead_flujo', lead_id: lead?.id }); continue }
+      // el pie tambien saluda por su nombre (ver index.js)
+      const pie = rellenar(it.desc || '', lead, proy)
+      if (it.tipo === 'link') { await enviar(phone, (pie ? '*' + pie + '*\n' : '') + it.url, { tipo: 'lead_flujo', lead_id: lead?.id }); continue }
       const tipo = it.tipo === 'video' ? 'video' : it.tipo === 'pdf' ? 'document' : 'image'
-      const r = await enviarMedia(String(phone).replace(/\D/g, ''), it.url, tipo, it.desc || '')
+      const r = await enviarMedia(String(phone).replace(/\D/g, ''), it.url, tipo, pie)
       await supabase.from('scheduled_messages').insert({
         recipient_phone: String(phone).replace(/\D/g, ''), body: pie || '[📎 adjunto del flujo]', tipo: 'lead_flujo',
         media_url: it.url, media_type: tipo, lead_id: lead?.id || null,
