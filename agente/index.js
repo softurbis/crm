@@ -952,7 +952,7 @@ async function enviar(phone, texto, meta = {}) {
       return ok
     }
   }
-  if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); return false }
+  if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); espejo('⛔ SIN SESIÓN de WhatsApp: no se pudo enviar a +' + phone); return false }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
   // ---- TOPE DIARIO ----
   // El tope existe para no quemar el chip mandando mensajes que NADIE pidio (una
@@ -965,6 +965,7 @@ async function enviar(phone, texto, meta = {}) {
   const cuentaParaTope = !CONVERSACION.includes(meta.tipo || '')
   if (cuentaParaTope && (S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') {
     log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone)
+    espejo('⛔ TOPE DIARIO alcanzado: no salió el mensaje a +' + phone)
     // que no vuelva a pasar en silencio: se avisa UNA vez al dia
     try {
       const hoyTope = new Date().toISOString().slice(0, 10)
@@ -986,6 +987,7 @@ async function enviar(phone, texto, meta = {}) {
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
   try {
     guardarMsg(await S.sock.sendMessage(destJid, { text: texto }))
+    espejo(['📤 *a +' + String(phone).replace(/\D/g, '') + '* [' + (meta.tipo || 'msj') + ']', String(texto).slice(0, 160)].join('\n'))
     // el contador solo sube con lo que cuenta para el tope: si sumara tambien las
     // respuestas del flujo, un par de leads volverian a dejar al chip sin cupo
     enviadosHoy++
@@ -1683,8 +1685,8 @@ async function detenerFlujoHumano(ses, jid, phone, lead) {
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '⏳ *LEAD SIN RESPUESTA — requiere contacto HUMANO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\n\nEl cliente dejó de responder al bot. El flujo se detuvo aquí; contáctalo tú. 🙌'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
+  // sin las copias: a esos números solo les llega el lead nuevo y el pedido de asesor
   const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
-  for (const x of AVISOS_EXTRA) destinos.add(x)
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
@@ -1866,7 +1868,6 @@ async function finalizarLead(ses, jid, phone, lead) {
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   const destinos = new Set()
   if (ADMIN) destinos.add(ADMIN)
-  for (const x of AVISOS_EXTRA) destinos.add(x)           // numeros en copia (panel)
   if (asesor.length >= 9) destinos.add(asesor)            // asesor asignado del proyecto
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
@@ -1901,6 +1902,7 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
     meta_message_id: waId ? String(waId) : null,   // id de WhatsApp: evita duplicar con el backup de historial
   }).then(() => {}).catch(() => {})
   _convSesCache.delete(phone)   // refrescar el cache de ruteo (la conv acaba de moverse/crearse)
+  espejo(['📥 *de +' + phone + '*', String(corto || '[archivo]').slice(0, 160)].join('\n'))
   // solo media sin texto: queda registrada para verla en el panel; no hay nada que responder
   if (!corto) return
 
@@ -2554,6 +2556,62 @@ async function latido(titulo) {
   await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
 }
 
+// ---------- VIGILANCIA: MENSAJES SIN RESPONDER ----------
+// El latido dice "sigo prendido", y eso tiene un punto ciego enorme: hoy el bot
+// estuvo vivo, conectado y con latido verde, pero mudo por el tope diario. Nadie
+// se entero hasta que un humano lo noto.
+// Esto vigila el SINTOMA, que es lo unico que importa: si a un cliente le
+// contestamos o no. Cada minuto busca mensajes de hace mas de 2 minutos que
+// quedaron sin respuesta y avisa AL ADMIN con el numero y el texto.
+const yaAvise = new Map()   // telefono -> cuando se aviso (para no repetir cada minuto)
+async function vigilarSinRespuesta() {
+  if (!ADMIN) return
+  const ahora = Date.now()
+  const desde = new Date(ahora - 20 * 60000).toISOString()   // no se mira mas atras de 20 min
+  const hasta = new Date(ahora - 2 * 60000).toISOString()    // tiene que llevar 2 min esperando
+  const { data: entrantes } = await supabase.from('whatsapp_messages')
+    .select('created_at, body, conv:whatsapp_conversations!inner(phone, modo, flow_state, lead_id)')
+    .eq('direction', 'in').gte('created_at', desde).lte('created_at', hasta)
+    .order('created_at', { ascending: false }).limit(60)
+  if (!entrantes?.length) return
+
+  const vistos = new Set()
+  const mudos = []
+  for (const m of entrantes) {
+    const tel = String(m.conv?.phone || '')
+    if (!tel || vistos.has(tel)) continue        // solo el ultimo mensaje de cada chat
+    vistos.add(tel)
+    if (m.conv?.modo === 'humano' || m.conv?.flow_state === 'humano') continue   // lo atiende una persona
+    if (ADMIN && tel.slice(-9) === ADMIN.slice(-9)) continue                      // pruebas del propio admin
+    const tnum = await tipoNumero(tel)
+    if (['secretaria', 'gerencia', 'desactivado', 'silencio'].includes(tnum || '')) continue
+    // ¿salio algo para ese numero DESPUES de que escribio?
+    const { count } = await supabase.from('scheduled_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('recipient_phone', tel.replace(/\D/g, '')).eq('status', 'enviado').gt('sent_at', m.created_at)
+    if (count) continue
+    const avisado = yaAvise.get(tel) || 0
+    if (ahora - avisado < 30 * 60000) continue   // ya se aviso hace poco por este chat
+    yaAvise.set(tel, ahora)
+    const min = Math.round((ahora - new Date(m.created_at).getTime()) / 60000)
+    mudos.push('• +' + tel + ' (hace ' + min + ' min): "' + String(m.body || '[archivo]').slice(0, 60) + '"')
+  }
+  if (!mudos.length) return
+  await enviar(ADMIN, ['🚨 *EL BOT NO ESTÁ RESPONDIENDO*', '',
+    'Escribieron y quedaron sin respuesta:', ...mudos, '',
+    'Revisa con */estado*. Si hace falta: */actualizar*.'].join('\n'), { tipo: 'reporte' })
+  log('ALARMA: ' + mudos.length + ' chat(s) sin respuesta')
+}
+
+// ---------- SESION EN VIVO POR TELEGRAM (/vivo) ----------
+// Reenvia al admin cada cosa que pasa, segun pasa, por 15 minutos. Se apaga solo
+// para no convertirse en una lluvia de mensajes.
+let ESPEJO = null   // { chatId, hasta }
+function espejo(linea) {
+  if (!ESPEJO || Date.now() > ESPEJO.hasta) { ESPEJO = null; return }
+  TG.tgEnviar(ESPEJO.chatId, linea).catch(() => {})
+}
+
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
 // consultas al sistema). Solo cambia por dónde llega el mensaje.
 async function manejarTelegram(chatId, texto, info) {
@@ -2588,12 +2646,24 @@ async function manejarTelegram(chatId, texto, info) {
   // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
   // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y
   // reinicio los hace pm2, que vuelve a levantar el proceso solo.
-  if (/^\/?(actualizar|reiniciar|estado)$/i.test(t)) {
+  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar)$/i.test(t)) {
     const esAdmin = ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
     const cual = t.replace(/^\//, '').toLowerCase()
 
     if (cual === 'estado') { await latido(); return }
+
+    // SESION EN VIVO: durante 15 minutos se ve pasar todo lo que hace el bot
+    if (cual === 'vivo') {
+      ESPEJO = { chatId, hasta: Date.now() + 15 * 60000 }
+      await TG.tgEnviar(chatId, '👁️ *SESIÓN EN VIVO ENCENDIDA — 15 minutos*\n\nVas a ver cada mensaje que entra (📥), cada uno que sale (📤) y lo que se bloquee (⛔), según pasa.\n\nEscribe */apagar* para cortarla antes.')
+      return
+    }
+    if (cual === 'apagar') {
+      ESPEJO = null
+      await TG.tgEnviar(chatId, '👁️ Sesión en vivo apagada.')
+      return
+    }
 
     await TG.tgEnviar(chatId, cual === 'actualizar'
       ? '⏳ Bajando los cambios y reiniciando… te aviso en unos segundos.'
@@ -2625,7 +2695,16 @@ async function manejarTelegram(chatId, texto, info) {
   if (/^\/?(ayuda|help|start|comandos|menu|men[uú]|opciones|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|qu[eé] tal)[!.\s]*$/i.test(t)) {
     const menu = await comandoDirecto('hola')
     await TG.tgEnviar(chatId, (menu || '🤖 *Asistente interno URBIS*') +
-      '\n\n📋 Del pase de lista: responde *LISTO* o los *números* de lo que ya hiciste.\n🔌 */desvincular* para dejar de recibir avisos aquí.')
+      '\n\n📋 Del pase de lista: responde *LISTO* o los *números* de lo que ya hiciste.'
+      + (ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
+        ? '\n\n🔧 *Mantenimiento (solo admin)*'
+          + '\n*/estado* — cómo está el bot ahora'
+          + '\n*/vivo* — ver toda la actividad en vivo, 15 min'
+          + '\n*/apagar* — cortar la sesión en vivo'
+          + '\n*/actualizar* — baja los cambios y reinicia'
+          + '\n*/reiniciar* — solo reinicia'
+        : '')
+      + '\n\n🔌 */desvincular* para dejar de recibir avisos aquí.')
     return
   }
 
@@ -2694,6 +2773,8 @@ async function arrancar() {
       await latido('🔄 *REINICIADO Y EN SERVICIO*')
     } catch (e) { log('aviso de arranque:', String(e.message || e)) }
   }, 25000)
+  // vigilancia del sintoma: cada minuto revisa si alguien quedo sin respuesta
+  cron.schedule('* * * * *', () => vigilarSinRespuesta().catch(e => log('vigilancia:', String(e.message || e))), { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   arrancarTelegram()
