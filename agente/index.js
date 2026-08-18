@@ -42,6 +42,18 @@ setInterval(refrescarAdmin, 60000)
 // Palabras que el operador agrega desde el panel para leer un SI o un NO
 // (bot_settings.claves_si / claves_no). SE SUMAN a las de fabrica, no las
 // reemplazan: asi nadie puede dejar al bot sin entender un "si" por error.
+// Numeros que reciben COPIA de cada lead y de cada pedido de asesor, ademas del
+// admin y del asesor del proyecto (bot_settings.avisos_extra, separados por coma).
+let AVISOS_EXTRA = []
+async function refrescarAvisos() {
+  try {
+    const { data } = await supabase.from('bot_settings').select('value').eq('key', 'avisos_extra').maybeSingle()
+    AVISOS_EXTRA = String(data?.value || '').split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9)
+  } catch {}
+}
+refrescarAvisos()
+setInterval(refrescarAvisos, 60000)
+
 let CLAVES_SN = { si: '', no: '' }
 async function refrescarClavesSN() {
   try {
@@ -1632,6 +1644,7 @@ async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
+  for (const x of AVISOS_EXTRA) destinos.add(x)
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })   // avisos internos: por su propio chat/corporativa
 }
 
@@ -1644,6 +1657,7 @@ async function detenerFlujoHumano(ses, jid, phone, lead) {
   const msj = '⏳ *LEAD SIN RESPUESTA — requiere contacto HUMANO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\n\nEl cliente dejó de responder al bot. El flujo se detuvo aquí; contáctalo tú. 🙌'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
+  for (const x of AVISOS_EXTRA) destinos.add(x)
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
@@ -2429,6 +2443,42 @@ async function supervisarSesiones() {
 
 // ============ CANAL INTERNO POR TELEGRAM (entrada) ============
 // Lo que el equipo escribe al bot entra por aquí y se atiende con los MISMOS
+// ---------- LATIDO DE VIDA ----------
+// Cada 30 min avisa que sigue vivo, con lo que hizo en ese rato. Un bot caido no
+// puede avisar de si mismo: por eso el SILENCIO es la alarma. Sale por Telegram
+// cuando esta vinculado (gratis y no gasta reputacion del chip).
+async function latido() {
+  if (!ADMIN) return
+  const desde = new Date(Date.now() - 30 * 60000).toISOString()
+  const hoy0 = new Date().toISOString().slice(0, 10)
+  const [{ count: recibidos }, { count: enviados }, { count: leadsHoy }, { data: sesiones }] = await Promise.all([
+    supabase.from('whatsapp_messages').select('id', { count: 'exact', head: true }).eq('direction', 'in').gte('created_at', desde),
+    supabase.from('scheduled_messages').select('id', { count: 'exact', head: true }).eq('status', 'enviado').gte('sent_at', desde),
+    supabase.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', hoy0),
+    supabase.from('wa_sessions').select('label, estado, phone'),
+  ])
+  const vivas = (sesiones || []).filter(x => x.estado === 'conectado')
+  const caidas = (sesiones || []).filter(x => x.estado !== 'conectado')
+  const reloj = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const lineas = [
+    caidas.length ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*',
+    reloj,
+    '',
+    '📱 Números: *' + vivas.length + '* conectado(s)',
+    ...(sesiones || []).map(x => '   ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
+      + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? '' : ' — ' + x.estado)),
+    '',
+    '📥 Recibidos (30 min): *' + (recibidos || 0) + '*',
+    '📤 Enviados (30 min): *' + (enviados || 0) + '*',
+    '🔥 Leads de hoy: *' + (leadsHoy || 0) + '*',
+    '',
+    caidas.length
+      ? '🔧 Para reintentar: */actualizar* (baja los cambios y reinicia) o */reiniciar* (solo reinicia).'
+      : '_Si este mensaje deja de llegar, el bot se cayó._',
+  ]
+  await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
+}
+
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
 // consultas al sistema). Solo cambia por dónde llega el mensaje.
 async function manejarTelegram(chatId, texto, info) {
@@ -2459,6 +2509,34 @@ async function manejarTelegram(chatId, texto, info) {
   }
 
   await supabase.from('telegram_links').update({ last_seen: new Date().toISOString() }).eq('chat_id', chatId).then(() => {}, () => {})
+  // ---- MANTENIMIENTO desde Telegram: SOLO el admin ----
+  // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
+  // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y
+  // reinicio los hace pm2, que vuelve a levantar el proceso solo.
+  if (/^\/?(actualizar|reiniciar|estado)$/i.test(t)) {
+    const esAdmin = ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
+    if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
+    const cual = t.replace(/^\//, '').toLowerCase()
+
+    if (cual === 'estado') { await latido(); return }
+
+    await TG.tgEnviar(chatId, cual === 'actualizar'
+      ? '⏳ Bajando los cambios y reiniciando… te aviso en unos segundos.'
+      : '⏳ Reiniciando el agente…')
+    const { exec } = require('node:child_process')
+    const cmd = cual === 'actualizar'
+      ? 'cd /root/crm && git pull --ff-only 2>&1 | tail -6'
+      : 'echo "solo reinicio"'
+    exec(cmd, { timeout: 120000 }, async (err, salida) => {
+      const detalle = String(salida || err?.message || '').trim().slice(0, 500)
+      await TG.tgEnviar(chatId, (err ? '⚠️ Terminó con aviso:' : '✅ Listo:') + '\n```\n' + (detalle || 'sin salida') + '\n```\n'
+        + 'Ahora reinicio. Si en 1 minuto no te llega el "EN LÍNEA", entra al droplet: el reinicio falló.')
+      // pm2 vuelve a levantar el proceso: salir es la forma limpia de reiniciarse
+      setTimeout(() => { log('REINICIO pedido por Telegram (' + cual + ')'); process.exit(0) }, 1500)
+    })
+    return
+  }
+
   if (/^\/?(desvincular|salir)$/i.test(t)) {
     await TGREG.desvincular(chatId)
     await TG.tgEnviar(chatId, '🔌 Listo, te desvinculé. Escribe */soy <tu número>* cuando quieras volver.')
@@ -2523,6 +2601,11 @@ async function arrancar() {
   // crons GLOBALES (una sola vez, no por sesión)
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
   cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
+  // LATIDO: cada 30 min avisa que sigue vivo, con lo que hizo en ese rato. Si el
+  // mensaje deja de llegar, el bot se cayo — un bot caido no puede avisar de si
+  // mismo, asi que el silencio ES la alarma. Sale por Telegram cuando esta
+  // vinculado (gratis y no gasta reputacion del chip).
+  cron.schedule('*/30 * * * *', () => latido().catch(e => log('latido:', String(e.message || e))), { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   arrancarTelegram()

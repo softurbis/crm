@@ -242,6 +242,7 @@ export default function Whatsapp() {
   const [edNum, setEdNum] = useState(null)
   const [adminPhone, setAdminPhone] = useState('')
   // palabras propias para leer un SI o un NO (se suman a las de fabrica del bot)
+  const [avisosExtra, setAvisosExtra] = useState('')
   const [clavesSi, setClavesSi] = useState('')
   const [clavesNo, setClavesNo] = useState('')
   const [waEstado, setWaEstado] = useState('')
@@ -284,6 +285,7 @@ export default function Whatsapp() {
       })
       setFlags(f)
       const kv = Object.fromEntries(data.map(r => [r.key, r.value]))
+      setAvisosExtra(kv.avisos_extra || '')
       setClavesSi(kv.claves_si || '')
       setClavesNo(kv.claves_no || '')
       let cks = ['11:00', '16:30']
@@ -332,6 +334,14 @@ export default function Whatsapp() {
     if (error) { setCfgMsg('ERROR: ' + error.message); return }
     savedFx()
     setCfgMsg('PALABRAS GUARDADAS — el bot las aplica en máx. 1 minuto')
+  }
+  // Numeros que reciben COPIA de cada lead y de cada pedido de asesor (ademas del
+  // admin y del asesor del proyecto). El bot los relee cada minuto.
+  const guardarAvisos = async () => {
+    const limpio = avisosExtra.split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9).join(',')
+    const { error } = await supabase.from('bot_settings').upsert({ key: 'avisos_extra', value: limpio, updated_at: new Date().toISOString() })
+    if (error) { setCfgMsg('ERROR: ' + error.message); return }
+    setAvisosExtra(limpio); savedFx(); setCfgMsg('LISTO — el bot lo aplica en máx. 1 minuto')
   }
   const setFlag = async (k, val) => {
     await supabase.from('bot_settings').upsert({ key: k, value: val ? '1' : '0', updated_at: new Date().toISOString() })
@@ -849,6 +859,12 @@ export default function Whatsapp() {
           {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp por proyecto: vincular, reiniciar, asignar proyecto">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
           {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR</button>}
           {role === 'superuser' && sesiones.length === 0 && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
+          {role === 'superuser' && <button className="btn-ghost" onClick={async () => {
+            const v = prompt('NÚMEROS QUE RECIBEN COPIA de cada lead nuevo y de cada pedido de asesor.\n\nAdemás del ADMIN y del asesor del proyecto.\nVarios, separados por coma. Formato 51 + número (ej. 51924947651,51987654321):', avisosExtra || '51')
+            if (v === null) return
+            setAvisosExtra(v)
+            setTimeout(guardarAvisos, 0)
+          }} title="Copia de leads y pedidos de asesor">📢 COPIA AVISOS{avisosExtra ? ' (' + avisosExtra.split(',').filter(Boolean).length + ')' : ''}</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           {esAdminW && <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 DIRECTORIO ({nums.length})</button>}
           {esAdminW && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('cobranza', b, p) } }}>🧠 CEREBROS</button>}
