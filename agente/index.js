@@ -132,7 +132,7 @@ process.on('SIGTERM', () => { persistMsgStore(); process.exit(0) })
 const HIST_DIAS = Number(process.env.HIST_DIAS || 90)   // backup: cuántos días de historial importar
 const DIAS_ANTES = Number(process.env.DIAS_ANTES || 3)
 const VENCIDAS_CADA = Number(process.env.VENCIDAS_CADA_DIAS || 4)
-const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 40)
+const MAX_DIA = Number(process.env.MAX_ENVIOS_DIA || 120)   // solo cuenta envios MASIVOS, no las respuestas
 
 // ===== SESIONES MULTI-NUMERO (wa_sessions) =====
 // SESSIONS: session_id -> { row, sock, enviados, iniciando }
@@ -954,7 +954,29 @@ async function enviar(phone, texto, meta = {}) {
   }
   if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); return false }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
-  if ((S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') { log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone); return false }
+  // ---- TOPE DIARIO ----
+  // El tope existe para no quemar el chip mandando mensajes que NADIE pidio (una
+  // cobranza masiva a 200 numeros es lo que hace que WhatsApp banee). Pero antes
+  // contaba TODO por igual, y un solo lead consume ~30 mensajes: con el tope en
+  // 40, el bot se quedaba mudo A MEDIA CONVERSACION despues del primer lead, sin
+  // avisar a nadie. Contestarle a alguien que TE ESCRIBIO no tiene ese riesgo, asi
+  // que esas respuestas ya no cuentan contra el tope.
+  const CONVERSACION = ['lead_flujo', 'ia', 'auto_cliente', 'manual', 'aviso_admin', 'reporte', 'secretaria', 'interno']
+  const cuentaParaTope = !CONVERSACION.includes(meta.tipo || '')
+  if (cuentaParaTope && (S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') {
+    log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone)
+    // que no vuelva a pasar en silencio: se avisa UNA vez al dia
+    try {
+      const hoyTope = new Date().toISOString().slice(0, 10)
+      if ((await ajuste('aviso_tope', '')) !== hoyTope) {
+        await setAjuste('aviso_tope', hoyTope)
+        if (ADMIN) enviar(ADMIN, '🛑 *TOPE DIARIO ALCANZADO* (' + MAX_DIA + ' envíos masivos) en ' + (S.row.label || 'PRINCIPAL')
+          + '.\n\nLas respuestas a quien escribe SIGUEN saliendo normal; lo que se frena son los envíos masivos (cobranza y recordatorios).'
+          + '\n\nPara subirlo: MAX_ENVIOS_DIA en el .env del droplet.', { tipo: 'reporte' })
+      }
+    } catch {}
+    return false
+  }
   const soloDig = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
   if (!ADMIN || soloDig !== String(ADMIN)) {
     const tnumEnv = await tipoNumero(soloDig)
@@ -964,7 +986,10 @@ async function enviar(phone, texto, meta = {}) {
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
   try {
     guardarMsg(await S.sock.sendMessage(destJid, { text: texto }))
-    enviadosHoy++; S.enviados = (S.enviados || 0) + 1
+    // el contador solo sube con lo que cuenta para el tope: si sumara tambien las
+    // respuestas del flujo, un par de leads volverian a dejar al chip sin cupo
+    enviadosHoy++
+    if (cuentaParaTope) S.enviados = (S.enviados || 0) + 1
     await supabase.from('scheduled_messages').insert({
       recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
       installment_id: meta.installment_id || null, client_id: meta.client_id || null,
