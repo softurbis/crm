@@ -547,6 +547,71 @@ export default function Lots() {
     setPagoExpBusy(false)
   }
 
+  // ---- GENERAR EL CRONOGRAMA DE UNA VENTA QUE NO LO TIENE ----
+  // De la migracion de Neshuya quedaron 10 ventas sin cronograma: el contrato era
+  // un escaneo con sellos notariales encima y no se pudo leer la tabla de cuotas.
+  // Esas ventas cobran mal porque el sistema no sabe que le toca pagar al cliente.
+  // Hasta ahora la unica salida era que el superusuario creara las cuotas UNA POR
+  // UNA (48 veces). Esto arma el cronograma completo de una sola vez, con la misma
+  // cuenta que usa la pantalla de Pagos al registrar una venta nueva.
+  function sumarMeses(fecha, n) {
+    const d = new Date(fecha + 'T12:00:00')
+    const dia = d.getDate()
+    d.setMonth(d.getMonth() + n)
+    if (d.getDate() < dia) d.setDate(0)   // 31 de enero + 1 mes = 28/29 de febrero
+    return d.toISOString().slice(0, 10)
+  }
+  async function generarCronograma() {
+    const sale = detail.sale
+    if (detail.inst.length) { alert('Esta venta YA tiene cronograma. Para corregirlo usa las columnas de cada cuota.'); return }
+    const precio = Number(sale.total_sale_price || 0)
+    const inicial = Number(sale.initial_amount_paid || 0)
+    const sepAmt = Number(detail.sep?.amount || 0)
+    const financiado = Math.round((precio - inicial - sepAmt) * 100) / 100
+    if (!(financiado > 0)) { alert('No hay saldo por financiar: precio S/ ' + precio + ' menos inicial S/ ' + inicial + (sepAmt ? ' y separacion S/ ' + sepAmt : '') + '.\n\nSi el lote se pago al contado, esta venta no lleva cronograma.'); return }
+    const mesesStr = prompt('GENERAR EL CRONOGRAMA DE ESTA VENTA\n\n'
+      + 'Precio:      S/ ' + precio.toLocaleString('es-PE') + '\n'
+      + 'Inicial:     S/ ' + inicial.toLocaleString('es-PE') + (sepAmt ? '\nSeparacion:  S/ ' + sepAmt.toLocaleString('es-PE') : '') + '\n'
+      + 'A financiar: S/ ' + financiado.toLocaleString('es-PE') + '\n\n'
+      + '¿En cuantas cuotas? (mira el contrato):', String(sale.installments_count || 48))
+    if (mesesStr === null) return
+    const meses = parseInt(mesesStr)
+    if (!meses || meses < 1 || meses > 120) { alert('Numero de cuotas invalido (1 a 120).'); return }
+    const cuotaAprox = Math.round(financiado / meses * 100) / 100
+    const fecha1 = prompt('Fecha de vencimiento de la CUOTA 1 (AAAA-MM-DD).\n\n'
+      + 'Las demas se generan mes a mes desde esa fecha.\n'
+      + 'Cada cuota saldria en S/ ' + cuotaAprox.toLocaleString('es-PE') + ':', '')
+    if (fecha1 === null) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha1)) { alert('Fecha invalida. Escribela asi: 2026-09-30'); return }
+    const motivo = prompt('¿De donde salen estos datos? (obligatorio, queda en bitacora)\nEj: contrato fisico MZ A LT 19 firmado el 12/05/2026');
+    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    if (!confirm('Se crearan ' + meses + ' cuotas de ~S/ ' + cuotaAprox.toLocaleString('es-PE')
+      + '\nDesde el ' + fecha1 + ' hasta el ' + sumarMeses(fecha1, meses - 1)
+      + '\n\nLos pagos ya registrados NO se tocan.\n\n¿Confirmar?')) return
+
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    const filas = []
+    let acumulado = 0
+    for (let n = 1; n <= meses; n++) {
+      // la ultima cuota absorbe los centavos para que el total cuadre exacto
+      const monto = n === meses ? Math.round((financiado - acumulado) * 100) / 100 : cuotaAprox
+      acumulado = Math.round((acumulado + monto) * 100) / 100
+      const vence = sumarMeses(fecha1, n - 1)
+      filas.push({ sale_id: sale.id, installment_number: n, amount: monto, amount_paid: 0, due_date: vence, status: vence < hoyStr ? 'vencido' : 'pendiente' })
+    }
+    const { error } = await supabase.from('installments').insert(filas)
+    if (error) { alert('ERROR: ' + error.message); return }
+    await supabase.from('sales').update({ installments_count: meses, monthly_amount: cuotaAprox, financed_amount: financiado }).eq('id', sale.id).then(() => {}, () => {})
+    await logCambio('installments', sale.id, {
+      cambio: 'generar_cronograma', lote: sel.mz + '-' + sel.lt,
+      cuotas: meses, financiado, cuota: cuotaAprox, desde: fecha1, hasta: sumarMeses(fecha1, meses - 1),
+      motivo: motivo.trim().toUpperCase(),
+    })
+    alert('✅ CRONOGRAMA CREADO: ' + meses + ' cuotas por S/ ' + financiado.toLocaleString('es-PE')
+      + '.\n\nRevisa que la cuota 1 y la ultima coincidan con el contrato.')
+    reload()
+  }
+
   // ---- INSERTAR CUOTA FALTANTE (superusuario) ----
   // Migración con hueco (ej. falta la 11). Crea solo esa cuota; NO toca las demás.
   async function insertarCuota() {
@@ -1531,6 +1596,10 @@ export default function Lots() {
             {desgVista === 'cuotas' && <>
             <h4 style={{ margin: '10px 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
               CRONOGRAMA DE CUOTAS ({detail.inst.length})
+              {detail.inst.length === 0 && detail.sale?.status === 'en_proceso' && ['admin', 'secretary', 'superuser'].includes(role) && (
+                <button className="btn" style={{ fontSize: 11 }} onClick={generarCronograma}
+                  title="Esta venta no tiene cuotas. Crea el cronograma completo desde el contrato.">&#128197; Generar cronograma</button>
+              )}
               {role === 'superuser' && (<>
                 <button className="btn-ghost" style={{ fontSize: 11 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
                   onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
