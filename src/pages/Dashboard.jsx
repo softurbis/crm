@@ -206,6 +206,7 @@ export default function Dashboard() {
   // ---- COMPARATIVOS: lo que de verdad se decide mirando ----
   const comp = useMemo(() => {
     if (!raw) return null
+    const A = raw.agg   // sumas hechas en Postgres (sql/65); null = camino viejo
     const nom = id => projects.find(p => p.id === id)?.name || '—'
     const P = {}
     const b = id => (P[id] ||= { cobrado: 0, mora: 0, disp: 0, vend: 0, lotes: 0 })
@@ -221,7 +222,6 @@ export default function Dashboard() {
 
     // cobranza del mes: lo que VENCÍA contra lo que entró. El indicador que dice
     // si la cobranza va bien, mucho mejor que "cuánto entró" a secas.
-    const A = raw.agg
     const esperado = A ? Number(A.cuotas.mes_actual?.esperado || 0) : (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount), 0)
     const cobradoMes = A ? Number(A.cuotas.mes_actual?.cobrado || 0) : (raw.cuotasMes || []).reduce((s, q) => s + Number(q.amount_paid), 0)
 
