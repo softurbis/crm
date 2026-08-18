@@ -1348,10 +1348,25 @@ async function secretariaTick() {
       }
       // resumen agrupado al administrador (se repite cada dia mientras haya vencidas sin resolver)
       if ((porVencer.length || vencidas.length) && ADMIN) {
-        let m = '📌 *SEPARACIONES — ' + fmtFechaEs(hoy) + '*\n'
-        if (vencidas.length) { m += '\n🔒 *VENCIDAS — lote bloqueado, decide extender o perdida (Mapa de lotes):*\n'; for (const it of vencidas) m += '• ' + it.lote + ' — ' + it.cli + ' (vencio ' + fmtFechaEs(it.lim) + ')\n' }
-        if (porVencer.length) { m += '\n⏳ *POR VENCER:*\n'; for (const it of porVencer) m += '• ' + it.lote + ' — ' + it.cli + ' (' + txtDias(it.dias) + ', ' + fmtFechaEs(it.lim) + ')\n' }
-        await enviar(ADMIN, m.trim(), { tipo: 'aviso_admin' })
+        // SOLO SI CAMBIO ALGO. Antes se repetia identico todos los dias mientras
+        // hubiera vencidas sin resolver: 28 separaciones viejas hicieron que el
+        // aviso llegara igual durante meses, y un mensaje que se repite sin
+        // cambios se deja de leer — justo el dia que traiga algo nuevo, nadie lo
+        // va a mirar. Se guarda la huella de lo avisado y se calla si es lo mismo.
+        const huella = [...vencidas, ...porVencer].map(it => it.sp.id).sort().join(',')
+        const previa = await ajuste('sep_huella', '')
+        if (huella && huella !== previa) {
+          await setAjuste('sep_huella', huella)
+          let m = '📌 *SEPARACIONES — ' + fmtFechaEs(hoy) + '*\n'
+          if (vencidas.length) { m += '\n🔒 *VENCIDAS — lote bloqueado, decide extender o perdida (Mapa de lotes):*\n'; for (const it of vencidas) m += '• ' + it.lote + ' — ' + it.cli + ' (vencio ' + fmtFechaEs(it.lim) + ')\n' }
+          if (porVencer.length) { m += '\n⏳ *POR VENCER:*\n'; for (const it of porVencer) m += '• ' + it.lote + ' — ' + it.cli + ' (' + txtDias(it.dias) + ', ' + fmtFechaEs(it.lim) + ')\n' }
+          m += '\n_Este aviso solo vuelve cuando cambie la lista._'
+          await enviar(ADMIN, m.trim(), { tipo: 'aviso_admin' })
+        } else {
+          log('separaciones: la lista no cambio, no se repite el aviso')
+        }
+      } else if (ADMIN) {
+        await setAjuste('sep_huella', '')   // no queda ninguna: la proxima que aparezca vuelve a avisar
       }
     }
 
