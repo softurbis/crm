@@ -1890,14 +1890,15 @@ async function finalizarLead(ses, jid, phone, lead) {
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
 }
 
-async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
+async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, jidLid) {
   let phone = telDeJid(jidPN || jid)
-  const esLid = String(jid).endsWith('@lid')
-  // LID sin numero real: recuperar el telefono verdadero desde la conversacion ya registrada
-  if (!jidPN && esLid) {
-    const lidDig = telDeJid(jid)
-    const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone').ilike('wa_jid', '%' + lidDig + '%').not('phone', 'ilike', lidDig).limit(1)
-    if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID mapeado a', phone) }
+  const lidDig = jidLid ? telDeJid(jidLid) : (String(jid).endsWith('@lid') ? telDeJid(jid) : '')
+  const esLid = !!lidDig
+  // LID sin numero real: recuperar el telefono verdadero de la pareja ya guardada
+  if (!jidPN && lidDig) {
+    const { data: cLid } = await supabase.from('whatsapp_conversations').select('phone')
+      .ilike('wa_jid', '%' + lidDig + '%').not('phone', 'ilike', lidDig).limit(1)
+    if (cLid && cLid[0] && cLid[0].phone) { phone = String(cLid[0].phone); log('LID', lidDig, 'resuelto a', phone) }
   }
   // WhatsApp esta migrando a LID (un id largo que no es el telefono). Si el primer
   // mensaje llega sin el numero real, se crea una conversacion con el LID como si
@@ -1905,17 +1906,32 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId) {
   // conversacion para la misma persona. Cada una con su propio paso del flujo: el
   // cliente termina recibiendo TODO por duplicado (paso con Sara Montoya, 18/8).
   // Al conocer el numero real, la conversacion fantasma del LID se calla.
-  if (jidPN && esLid) {
-    const lidDig = telDeJid(jid)
-    if (lidDig && lidDig !== phone) {
-      const { data: fantasma } = await supabase.from('whatsapp_conversations')
-        .select('id, flow_state').eq('phone', lidDig).limit(1)
-      if (fantasma && fantasma[0] && fantasma[0].flow_state !== 'completado') {
-        await supabase.from('whatsapp_conversations')
-          .update({ flow_state: 'completado', flow_step: null, modo: 'humano' })
-          .eq('id', fantasma[0].id).then(() => {}, () => {})
-        log('LID duplicado silenciado:', lidDig, '-> el bueno es', phone)
+  if (jidPN && lidDig && lidDig !== phone) {
+    // 1) GUARDAR LA PAREJA: es lo que permite resolver un LID suelto mañana
+    const { data: mia } = await supabase.from('whatsapp_conversations').select('id, wa_jid').eq('phone', phone).limit(1)
+    if (mia && mia[0] && !String(mia[0].wa_jid || '').includes(lidDig)) {
+      await supabase.from('whatsapp_conversations').update({ wa_jid: jidLid || jid }).eq('id', mia[0].id).then(() => {}, () => {})
+      log('LID', lidDig, 'emparejado con', phone)
+    }
+    // 2) SILENCIAR EL FANTASMA: la conversacion que se creo con el LID como si
+    //    fuera un telefono. Si tenia lead propio, se marca perdido para que no
+    //    quede contado dos veces en el kanban.
+    const { data: fantasma } = await supabase.from('whatsapp_conversations')
+      .select('id, flow_state, lead_id').eq('phone', lidDig).limit(1)
+    if (fantasma && fantasma[0] && fantasma[0].flow_state !== 'completado') {
+      await supabase.from('whatsapp_conversations')
+        .update({ flow_state: 'completado', flow_step: null, modo: 'humano' })
+        .eq('id', fantasma[0].id).then(() => {}, () => {})
+      if (fantasma[0].lead_id) {
+        // leads no tiene columna de notas: el motivo va al historial del lead,
+        // que es donde el asesor lo va a leer
+        await supabase.from('leads').update({ status: 'perdido' }).eq('id', fantasma[0].lead_id).then(() => {}, () => {})
+        await supabase.from('lead_activities').insert({
+          lead_id: fantasma[0].lead_id,
+          note: 'DUPLICADO POR IDENTIFICADOR DE WHATSAPP (LID ' + lidDig + '). EL BUENO ES +' + phone,
+        }).then(() => {}, () => {})
       }
+      log('LID duplicado silenciado:', lidDig, '-> el bueno es', phone)
     }
     jid = jidDe(phone)   // responder SIEMPRE al numero real, no al LID
   }
@@ -2503,8 +2519,13 @@ async function iniciarSesion(row) {
           let alt = String(k.remoteJidAlt || k.participantAlt || k.senderPn || k.participantPn || '')
           if (alt && !alt.includes('@')) alt = alt + '@s.whatsapp.net'
           const jidPN = jid.endsWith('@s.whatsapp.net') ? jid : (alt.endsWith('@s.whatsapp.net') ? alt : null)
-          if (!jidPN) log('AVISO LID sin numero real. key=', JSON.stringify(k))
-          try { await manejarEntrante(S, jid, jidPN, texto, m.pushName, media, m.key?.id) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
+          // El LID (identidad nueva de WhatsApp) viaja al lado del telefono en casi
+          // todos los mensajes, y hasta ahora se tiraba. Es la unica pista para saber
+          // que "51915965814" y "227548021665821" son la MISMA persona: se guarda para
+          // que el dia que llegue un mensaje SOLO con el LID, se pueda resolver.
+          const jidLid = jid.endsWith('@lid') ? jid : (alt.endsWith('@lid') ? alt : null)
+          if (!jidPN && !jidLid) log('AVISO: mensaje sin numero real ni LID. key=', JSON.stringify(k))
+          try { await manejarEntrante(S, jid, jidPN, texto, m.pushName, media, m.key?.id, jidLid) } catch (e) { log('ERROR FLUJO:', e.message); log(e.stack || '') }
         } catch (e) { log('error procesando entrante:', e.message) }
       }
     })
