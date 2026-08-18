@@ -1765,11 +1765,27 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
       const relleno = /^(si|s[ií]|no|ok|oka|okey|hola|buenas|buenos|dias|tardes|noches|gracias|listo|dale|ya|claro|porfa|por|favor|soy|me|llamo|mi|nombre|es)$/i
       const sirve = limpio.length >= 2 && limpio.length <= 60 && palabras.length <= 5 &&
         palabras.some(w => !relleno.test(w))
-      if (sirve) {
+      // el cliente puede zafar de dar su nombre: eso NO es motivo para insistir
+      const zafa = /^(info|informacion|informaci[oó]n|precio|precios|no|luego|despues|despu[eé]s)$/i.test(limpio)
+      if (zafa) {
+        log('LEAD', phone, 'prefirio no dar su nombre (' + limpio + ')')
+      } else if (sirve) {
         const nombre = limpio.toUpperCase()
         await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id).then(() => {}, () => {})
         lead.full_name = nombre   // el flujo sigue en esta misma vuelta: sin esto, el paso de al lado seguiria sin nombre
         log('LEAD', phone, 'se presento como', nombre)
+      } else {
+        // Si contesto "si", "ok" o cualquier cosa que no es un nombre, se vuelve a
+        // preguntar UNA vez. Antes se seguia de largo y todos los {nombre} de los
+        // pasos siguientes quedaban vacios: el cliente veia "Un gusto ," y ya no
+        // habia forma de recuperar su nombre en toda la conversacion.
+        const intentos = Number(conv?.flow_reasks || 0) + 1
+        if (intentos <= 1) {
+          await setConv(phone, { flow_reasks: intentos }, ses)
+          await enviar(jid, 'Perdón, no me quedó claro 😅 ¿Cómo te llamas? (o escribe *info* si prefieres saltarlo)', { tipo: 'lead_flujo', lead_id: lead.id, ses })
+          return
+        }
+        log('LEAD', phone, 'no quiso dar su nombre, sigue el flujo sin el')
       }
     }
     if (step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }

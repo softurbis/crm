@@ -192,11 +192,22 @@ async function responderFlujo(phone, lead, conv, corto) {
       const limpio = String(corto || '').replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim()
       const palabras = limpio.split(' ').filter(Boolean)
       const relleno = /^(si|s[ií]|no|ok|oka|okey|hola|buenas|buenos|dias|tardes|noches|gracias|listo|dale|ya|claro|porfa|por|favor|soy|me|llamo|mi|nombre|es)$/i
-      if (limpio.length >= 2 && limpio.length <= 60 && palabras.length <= 5 && palabras.some(w => !relleno.test(w))) {
+      const zafa = /^(info|informacion|informaci[oó]n|precio|precios|no|luego|despues|despu[eé]s)$/i.test(limpio)
+      if (zafa) {
+        log('LEAD', phone, 'prefirio no dar su nombre')
+      } else if (limpio.length >= 2 && limpio.length <= 60 && palabras.length <= 5 && palabras.some(w => !relleno.test(w))) {
         const nombre = limpio.toUpperCase()
         await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id).then(() => {}, () => {})
         lead.full_name = nombre
         log('LEAD', phone, 'se presento como', nombre)
+      } else {
+        // se vuelve a preguntar UNA vez; si no, todos los {nombre} siguientes van vacios
+        const intentos = Number(conv?.flow_reasks || 0) + 1
+        if (intentos <= 1) {
+          await setConv(phone, { flow_reasks: intentos })
+          await enviar(phone, 'Perdón, no me quedó claro 😅 ¿Cómo te llamas? (o escribe *info* si prefieres saltarlo)', { tipo: 'lead_flujo', lead_id: lead.id })
+          return
+        }
       }
     }
     if (step.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
