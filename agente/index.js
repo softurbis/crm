@@ -14,7 +14,7 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 const crypto = require('crypto')
 const TG = require('./telegram')
-const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
+const { bloqueOpciones, bloqueNoEntendi, rellenar } = require('./textos')
 const { elegirOpcion } = require('./opciones')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
@@ -1623,11 +1623,11 @@ async function detectarProyecto(texto) {
 }
 
 // Deriva el lead a un asesor humano y corta la conversación automática.
-async function pasarAsesor(ses, jid, phone, lead, motivo) {
+async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
   await setConv(phone, { flow_state: 'humano' }, ses)
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}).catch(() => {})
   const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
-  await enviar(jid, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id, ses })
+  if (!sinSaludo) await enviar(jid, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id, ses })
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
@@ -1653,7 +1653,7 @@ async function detenerFlujoHumano(ses, jid, phone, lead) {
 //            opciones[{label, claves, ir_a, pasar_asesor}] }
 // Biblioteca de material del flujo: media_lib=[{id,tipo:'imagen'|'video'|'link',url,desc}]; los pasos
 // y el bombardeo referencian por id. Envía cada item según su tipo.
-async function enviarMediaLib(ses, jid, lib, ids) {
+async function enviarMediaLib(ses, jid, lib, ids, lead, proy) {
   if (!Array.isArray(ids) || !ids.length) return
   const byId = {}; for (const it of (lib || [])) byId[String(it.id)] = it
   for (const id of ids) {
@@ -1685,11 +1685,9 @@ async function correrFlujo(ses, jid, phone, lead, proy, flow, idx) {
   while (idx >= 0 && idx < steps.length && guard++ < 50) {
     const s = steps[idx]
     if (s.texto) {
-      const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
-      const txt = String(s.texto).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
-      await enviar(jid, txt, { tipo: 'lead_flujo', lead_id: lead.id, ses })
+      await enviar(jid, rellenar(s.texto, lead, proy), { tipo: 'lead_flujo', lead_id: lead.id, ses })
     }
-    await enviarMediaLib(ses, jid, flow.media_lib || [], s.media)
+    await enviarMediaLib(ses, jid, flow.media_lib || [], s.media, lead, proy)
     if (s.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
     if (s.tipo === 'pregunta') {
       // una pregunta SIEMPRE espera la respuesta del lead (tenga opciones cerradas o sea abierta)
@@ -1765,12 +1763,11 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
   // respuesta propia de la opcion: lo que el bot contesta SEGUN lo que eligio el
   // cliente ("¿te comunico con un asesor?" → No → "Sin problema, aqui estare").
   // Antes habia que inventar un paso entero para cada rama.
-  if ((elegida.respuesta || '').trim()) {
-    const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
-    const rta = String(elegida.respuesta).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
-    await enviar(jid, rta, { tipo: 'lead_flujo', lead_id: lead.id, ses })
-  }
-  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
+  const rtaPropia = (elegida.respuesta || '').trim()
+  if (rtaPropia) await enviar(jid, rellenar(rtaPropia, lead, proy), { tipo: 'lead_flujo', lead_id: lead.id, ses })
+  // Si la opcion ya trae su propia respuesta, esa MANDA: pasarAsesor no vuelve a
+  // saludar. Antes el cliente recibia dos veces casi el mismo mensaje.
+  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo', !!rtaPropia); return }
   let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
   if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1
   await correrFlujo(ses, jid, phone, lead, proy, flow, nextIdx)

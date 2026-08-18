@@ -23,4 +23,20 @@ function bloqueNoEntendi(opciones) {
   return 'No te entendí bien 😅 Elige una opción:\n' + bloqueOpciones(ops)
 }
 
-module.exports = { bloqueOpciones, bloqueNoEntendi }
+// Reemplaza los comodines de CUALQUIER texto del flujo. Estaba escrito suelto en
+// el texto del paso, pero NO en la descripcion de las fotos: por eso las imagenes
+// salian con "{nombre}" tal cual, aunque el nombre ya se habia preguntado.
+function rellenar(texto, lead, proy) {
+  const primero = (lead?.full_name && lead.full_name !== 'POR CONFIRMAR') ? String(lead.full_name).split(' ')[0] : ''
+  return String(texto || '')
+    .split('{proyecto}').join(proy?.name || 'nuestro proyecto')
+    .split('{nombre}').join(primero)
+    // Si el nombre todavia no se sabe, "Un gusto {nombre}, ..." quedaria como
+    // "Un gusto , ...". Se limpia SOLO espacios: ojo con \s, que se come los
+    // saltos de linea y aplastaria los mensajes de varios parrafos.
+    .replace(/[ 	]+([,.!?])/g, '$1')
+    .replace(/[ 	]{2,}/g, ' ')
+    .trim()
+}
+
+module.exports = { bloqueOpciones, bloqueNoEntendi, rellenar }

@@ -25,7 +25,7 @@ const crypto = require('crypto')
 const { createClient } = require('@supabase/supabase-js')
 const { enviarTexto, enviarMedia, servidorWebhook, bajarMedia } = require('./cloudapi')
 const { subirAR2 } = require('./r2')
-const { bloqueOpciones, bloqueNoEntendi } = require('./textos')
+const { bloqueOpciones, bloqueNoEntendi, rellenar } = require('./textos')
 const { elegirOpcion } = require('./opciones')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
@@ -107,7 +107,7 @@ async function enviar(phone, texto, meta = {}) {
   }
 }
 // material del flujo (media_lib): imagen/video/pdf por URL publica; link como texto
-async function enviarMediaLib(phone, lib, ids, lead) {
+async function enviarMediaLib(phone, lib, ids, lead, proy) {
   if (!Array.isArray(ids) || !ids.length) return
   const byId = {}; for (const it of (lib || [])) byId[String(it.id)] = it
   for (const id of ids) {
@@ -119,7 +119,7 @@ async function enviarMediaLib(phone, lib, ids, lead) {
       const tipo = it.tipo === 'video' ? 'video' : it.tipo === 'pdf' ? 'document' : 'image'
       const r = await enviarMedia(String(phone).replace(/\D/g, ''), it.url, tipo, it.desc || '')
       await supabase.from('scheduled_messages').insert({
-        recipient_phone: String(phone).replace(/\D/g, ''), body: it.desc || '[📎 adjunto del flujo]', tipo: 'lead_flujo',
+        recipient_phone: String(phone).replace(/\D/g, ''), body: pie || '[📎 adjunto del flujo]', tipo: 'lead_flujo',
         media_url: it.url, media_type: tipo, lead_id: lead?.id || null,
         scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString(),
         wa_msg_id: r.messages?.[0]?.id || null,
@@ -142,11 +142,9 @@ async function correrFlujo(phone, lead, proy, flow, idx) {
   while (idx >= 0 && idx < steps.length && guard++ < 50) {
     const s = steps[idx]
     if (s.texto) {
-      const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
-      const txt = String(s.texto).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
-      await enviar(phone, txt, { tipo: 'lead_flujo', lead_id: lead.id })
+      await enviar(phone, rellenar(s.texto, lead, proy), { tipo: 'lead_flujo', lead_id: lead.id })
     }
-    await enviarMediaLib(phone, flow.media_lib || [], s.media, lead)
+    await enviarMediaLib(phone, flow.media_lib || [], s.media, lead, proy)
     if (s.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
     if (s.tipo === 'pregunta') {
       if ((s.opciones || []).length) {
@@ -209,12 +207,10 @@ async function responderFlujo(phone, lead, conv, corto) {
   }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + elegida.label).slice(0, 500) })
   // respuesta propia de la opcion (ver index.js): contesta segun lo que eligio
-  if ((elegida.respuesta || '').trim()) {
-    const primerNom = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? lead.full_name.split(' ')[0] : ''
-    const rta = String(elegida.respuesta).split('{proyecto}').join(proy?.name || 'nuestro proyecto').split('{nombre}').join(primerNom)
-    await enviar(phone, rta, { tipo: 'lead_flujo', lead_id: lead.id })
-  }
-  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
+  const rtaPropia = (elegida.respuesta || '').trim()
+  if (rtaPropia) await enviar(phone, rellenar(rtaPropia, lead, proy), { tipo: 'lead_flujo', lead_id: lead.id })
+  // la respuesta escrita por el operador manda: pasarAsesor no vuelve a saludar
+  if (elegida.pasar_asesor || step.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo', !!rtaPropia); return }
   let nextIdx = elegida.ir_a ? idxDePaso(flow, elegida.ir_a) : (idxDePaso(flow, step.id) + 1)
   if (nextIdx < 0) nextIdx = idxDePaso(flow, step.id) + 1
   await correrFlujo(phone, lead, proy, flow, nextIdx)
@@ -242,11 +238,11 @@ async function detectarProyecto(texto) {
   else if (scored.length >= 2 && scored[0].hits > scored[1].hits) pr = scored[0].p
   return { proys: proys || [], pr }
 }
-async function pasarAsesor(phone, lead, motivo) {
+async function pasarAsesor(phone, lead, motivo, sinSaludo) {
   await setConv(phone, { flow_state: 'humano' })
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}, () => {})
   const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
-  await enviar(phone, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
+  if (!sinSaludo) await enviar(phone, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id })
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
