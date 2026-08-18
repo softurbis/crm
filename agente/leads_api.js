@@ -187,6 +187,18 @@ async function responderFlujo(phone, lead, conv, corto) {
   const ops = step.opciones || []
   if (!ops.length) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + corto).slice(0, 500) })
+    // si la pregunta era por el NOMBRE, guardarlo en el lead (ver index.js)
+    if (step.guardar_nombre || /nombre|c[oó]mo te llamas|con qui[eé]n tengo/i.test(String(step.texto || ''))) {
+      const limpio = String(corto || '').replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim()
+      const palabras = limpio.split(' ').filter(Boolean)
+      const relleno = /^(si|s[ií]|no|ok|oka|okey|hola|buenas|buenos|dias|tardes|noches|gracias|listo|dale|ya|claro|porfa|por|favor|soy|me|llamo|mi|nombre|es)$/i
+      if (limpio.length >= 2 && limpio.length <= 60 && palabras.length <= 5 && palabras.some(w => !relleno.test(w))) {
+        const nombre = limpio.toUpperCase()
+        await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id).then(() => {}, () => {})
+        lead.full_name = nombre
+        log('LEAD', phone, 'se presento como', nombre)
+      }
+    }
     if (step.pasar_asesor) { await pasarAsesor(phone, lead, 'flujo'); return }
     await correrFlujo(phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
     return

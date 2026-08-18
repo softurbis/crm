@@ -1753,6 +1753,25 @@ async function responderFlujo(ses, jid, phone, lead, conv, corto) {
   // pregunta ABIERTA (sin opciones): acepta cualquier respuesta, la guarda y avanza al siguiente paso
   if (!ops.length) {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('P: ' + (step.texto || '') + ' → R: ' + corto).slice(0, 500) })
+    // Si la pregunta era POR EL NOMBRE, hay que guardarlo en el lead. Antes la
+    // respuesta solo quedaba como nota del historial: el lead seguia llamandose
+    // como su perfil de WhatsApp (o "POR CONFIRMAR"), y por eso los {nombre} de
+    // los pasos siguientes salian vacios aunque el cliente ya se habia
+    // presentado. Se detecta por la casilla del panel o por la propia pregunta.
+    if (step.guardar_nombre || /nombre|c[oó]mo te llamas|con qui[eé]n tengo/i.test(String(step.texto || ''))) {
+      const limpio = String(corto || '').replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim()
+      const palabras = limpio.split(' ').filter(Boolean)
+      // se rechaza si TODAS las palabras son de cortesia: "ok gracias" no es un nombre
+      const relleno = /^(si|s[ií]|no|ok|oka|okey|hola|buenas|buenos|dias|tardes|noches|gracias|listo|dale|ya|claro|porfa|por|favor|soy|me|llamo|mi|nombre|es)$/i
+      const sirve = limpio.length >= 2 && limpio.length <= 60 && palabras.length <= 5 &&
+        palabras.some(w => !relleno.test(w))
+      if (sirve) {
+        const nombre = limpio.toUpperCase()
+        await supabase.from('leads').update({ full_name: nombre }).eq('id', lead.id).then(() => {}, () => {})
+        lead.full_name = nombre   // el flujo sigue en esta misma vuelta: sin esto, el paso de al lado seguiria sin nombre
+        log('LEAD', phone, 'se presento como', nombre)
+      }
+    }
     if (step.pasar_asesor) { await pasarAsesor(ses, jid, phone, lead, 'flujo'); return }
     await correrFlujo(ses, jid, phone, lead, proy, flow, idxDePaso(flow, step.id) + 1)
     return

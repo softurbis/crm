@@ -243,6 +243,8 @@ export default function Whatsapp() {
   const [adminPhone, setAdminPhone] = useState('')
   // palabras propias para leer un SI o un NO (se suman a las de fabrica del bot)
   const [avisosExtra, setAvisosExtra] = useState('')
+  const [verAvisos, setVerAvisos] = useState(false)
+  const [avisoNuevo, setAvisoNuevo] = useState('')
   const [clavesSi, setClavesSi] = useState('')
   const [clavesNo, setClavesNo] = useState('')
   const [waEstado, setWaEstado] = useState('')
@@ -337,8 +339,18 @@ export default function Whatsapp() {
   }
   // Numeros que reciben COPIA de cada lead y de cada pedido de asesor (ademas del
   // admin y del asesor del proyecto). El bot los relee cada minuto.
-  const guardarAvisos = async () => {
-    const limpio = avisosExtra.split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9).join(',')
+  const listaAvisos = String(avisosExtra || '').split(',').map(x => x.trim()).filter(Boolean)
+  const agregarAviso = () => {
+    const d = avisoNuevo.replace(/\D/g, '')
+    if (d.length < 9) { setCfgMsg('NÚMERO INVÁLIDO: debe incluir el 51 (ej. 51924947651)'); return }
+    if (listaAvisos.includes(d)) { setCfgMsg('ESE NÚMERO YA ESTÁ EN LA LISTA'); return }
+    setAvisoNuevo('')
+    guardarAvisos([...listaAvisos, d].join(','))
+  }
+  const guardarAvisos = async (valor) => {
+    // OJO: recibe el valor por parametro. Antes leia el estado y guardaba el
+    // ANTERIOR, porque React todavia no habia re-renderizado cuando se llamaba.
+    const limpio = String(valor ?? avisosExtra).split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9).join(',')
     const { error } = await supabase.from('bot_settings').upsert({ key: 'avisos_extra', value: limpio, updated_at: new Date().toISOString() })
     if (error) { setCfgMsg('ERROR: ' + error.message); return }
     setAvisosExtra(limpio); savedFx(); setCfgMsg('LISTO — el bot lo aplica en máx. 1 minuto')
@@ -859,17 +871,45 @@ export default function Whatsapp() {
           {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp por proyecto: vincular, reiniciar, asignar proyecto">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
           {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR</button>}
           {role === 'superuser' && sesiones.length === 0 && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
-          {role === 'superuser' && <button className="btn-ghost" onClick={async () => {
-            const v = prompt('NÚMEROS QUE RECIBEN COPIA de cada lead nuevo y de cada pedido de asesor.\n\nAdemás del ADMIN y del asesor del proyecto.\nVarios, separados por coma. Formato 51 + número (ej. 51924947651,51987654321):', avisosExtra || '51')
-            if (v === null) return
-            setAvisosExtra(v)
-            setTimeout(guardarAvisos, 0)
-          }} title="Copia de leads y pedidos de asesor">📢 COPIA AVISOS{avisosExtra ? ' (' + avisosExtra.split(',').filter(Boolean).length + ')' : ''}</button>}
+          {role === 'superuser' && <button className="btn-ghost" onClick={() => setVerAvisos(v => !v)}
+            title="Números que reciben copia de cada lead y pedido de asesor">📢 COPIA AVISOS{listaAvisos.length ? ' (' + listaAvisos.length + ')' : ''}</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           {esAdminW && <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 DIRECTORIO ({nums.length})</button>}
           {esAdminW && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('cobranza', b, p) } }}>🧠 CEREBROS</button>}
         </div>
       </div>
+
+      {/* ---- COPIA DE AVISOS: quiénes reciben cada lead y cada pedido de asesor ---- */}
+      {verAvisos && role === 'superuser' && (
+        <div className="glass" style={{ padding: '12px 14px', marginBottom: 12, border: '1px solid rgba(120,180,140,.45)' }}>
+          <b style={{ fontSize: 13, color: '#7fbf9a' }}>📢 COPIA DE AVISOS</b>
+          <p className="muted small" style={{ margin: '3px 0 8px', textTransform: 'none' }}>
+            Estos números reciben <b>cada lead nuevo</b> y <b>cada pedido de asesor</b>, además del ADMIN
+            (+{adminPhone || '—'}) y del asesor de cada proyecto. También les llega el <b>latido</b> que confirma
+            que el bot sigue vivo. El bot los relee en máximo 1 minuto.
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+            <input value={avisoNuevo} placeholder="51924947651" style={{ flex: '0 1 190px', textTransform: 'none' }}
+              onChange={e => setAvisoNuevo(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregarAviso() } }} />
+            <button className="btn-ghost" onClick={agregarAviso}>+ Agregar número</button>
+          </div>
+          {listaAvisos.length === 0
+            ? <p className="muted small" style={{ margin: 0, textTransform: 'none' }}>Todavía no hay números en copia. El ADMIN igual recibe todo.</p>
+            : (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {listaAvisos.map(n => (
+                  <span key={n} className="tok" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '.25rem .55rem' }}>
+                    📱 +{n}
+                    <button className="btn-ghost" style={{ padding: '0 4px', fontSize: 12 }} title="Quitar de la copia"
+                      onClick={() => guardarAvisos(listaAvisos.filter(x => x !== n).join(','))}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          {cfgMsg && <p className="ok small" style={{ margin: '6px 0 0' }}>{cfgMsg}</p>}
+        </div>
+      )}
 
       {/* Los QR de vinculación se muestran en la ficha de cada proyecto (menú Proyectos) */}
       {sesiones.some(s => s.estado === 'esperando_qr') && (
