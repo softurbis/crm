@@ -2635,21 +2635,36 @@ async function latido(titulo) {
   const vivas = (sesiones || []).filter(x => x.estado === 'conectado')
   const caidas = (sesiones || []).filter(x => x.estado !== 'conectado')
   const reloj = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  // ESTADO DE LA OREJA. "EN LÍNEA" solo decia que el proceso seguia prendido, no
+  // que estuviera escuchando: el 20 ago 2026 estuvo 23 horas mandando este mismo
+  // mensaje sin recibir nada. Si no escucha, este aviso tiene que gritarlo.
+  const tg = TG.activo() ? TG.estadoEscucha() : null
+  const minSinOir = tg && tg.ultimoOk ? Math.round((Date.now() - tg.ultimoOk) / 60000) : null
+  const sordo = !!tg && (!tg.arrancada || minSinOir === null || minSinOir > 3)
+  const lineaTG = !tg ? null
+    : sordo
+      ? '   ⛔ Telegram: *NO ESTÁ RECIBIENDO*' + (minSinOir !== null ? ' (hace ' + minSinOir + ' min)' : '')
+        + (tg.ultimoError ? '\n      ' + tg.ultimoError.slice(0, 120) : '')
+      : '   🟢 Telegram: escuchando'
   const lineas = [
-    titulo || (caidas.length ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
+    titulo || (caidas.length || sordo ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
     reloj,
     '',
     '📱 Números: *' + vivas.length + '* conectado(s)',
     ...(sesiones || []).map(x => '   ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
       + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? '' : ' — ' + x.estado)),
+    ...(lineaTG ? [lineaTG] : []),
     '',
     '📥 Recibidos (30 min): *' + (recibidos || 0) + '*',
     '📤 Enviados (30 min): *' + (enviados || 0) + '*',
     '🔥 Leads de hoy: *' + (leadsHoy || 0) + '*',
     '',
-    caidas.length
-      ? '🔧 Para reintentar: */actualizar* (baja los cambios y reinicia) o */reiniciar* (solo reinicia).'
-      : '_Si este mensaje deja de llegar, el bot se cayó._',
+    // si está sordo, mandarle escribir */reiniciar* sería cruel: no puede leerlo
+    sordo
+      ? '🔧 No te va a leer los comandos. Reinícialo desde el panel: *WhatsApp → Reiniciar bot*.'
+      : caidas.length
+        ? '🔧 Para reintentar: */actualizar* (baja los cambios y reinicia) o */reiniciar* (solo reinicia).'
+        : '_Si este mensaje deja de llegar, el bot se cayó._',
   ]
   await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
 }
@@ -2898,9 +2913,20 @@ async function manejarTelegram(chatId, texto, info) {
 
 function arrancarTelegram() {
   if (!TG.activo()) { log('TELEGRAM: sin TELEGRAM_BOT_TOKEN — el seguimiento sigue por WhatsApp'); return }
-  TGREG.cargar().then(() => {
-    TG.escuchar((chatId, texto, info) => manejarTelegram(chatId, texto, info).catch(e => log('TG:', String(e.message || e))), (...a) => log(...a))
-  })
+  // La carga de vinculos NO puede condicionar la escucha: antes iba dentro de un
+  // .then() sin .catch(), asi que un fallo suelto de red al arrancar dejaba al bot
+  // mandando latidos y sordo para siempre. Primero se escucha; los vinculos se
+  // cargan aparte y se reintentan.
+  const escuchando = () => TG.escuchar(
+    (chatId, texto, info) => manejarTelegram(chatId, texto, info).catch(e => log('TG:', String(e.message || e))),
+    (...a) => log(...a))
+  escuchando()
+  TGREG.cargar().catch(e => log('TG links (reintenta solo):', String(e.message || e)))
+  // vigilante: si el bucle de escucha se murio, se vuelve a levantar
+  setInterval(() => {
+    const e = TG.estadoEscucha()
+    if (!e.arrancada) { log('TELEGRAM: la escucha estaba caida, la levanto de nuevo'); escuchando() }
+  }, 60000)
 }
 
 async function arrancar() {

@@ -80,18 +80,49 @@ function crearRegistro(supabase, log = () => {}) {
 }
 
 // ---- recepcion: long polling (no necesita dominio ni webhook) ----
+// Estado de la escucha. Existe porque el bot puede quedar SORDO sin caerse: sigue
+// mandando el latido "EN LINEA" mientras getUpdates falla en bucle. Paso el
+// 20 ago 2026 y nadie se entero por 23 horas. Ahora el latido lo delata.
+const escucha = { arrancada: false, ultimoOk: 0, ultimoError: '', fallos: 0 }
+function estadoEscucha() { return { ...escucha } }
+
 // onMensaje(chatId, texto, { nombre, usuario })
 function escuchar(onMensaje, log = () => {}) {
   if (!activo()) { log('TELEGRAM: sin TELEGRAM_BOT_TOKEN, canal interno desactivado'); return }
+  if (escucha.arrancada) { log('TELEGRAM: ya habia una escucha corriendo, no arranco otra'); return }
+  escucha.arrancada = true
   let offset = 0, vivo = true
   ;(async () => {
+    // Un webhook registrado hace que getUpdates devuelva 409 PARA SIEMPRE. Es la
+    // causa mas comun de "manda pero no recibe" y no se arregla reiniciando, asi
+    // que se limpia en cada arranque. Si no hay webhook, no hace nada.
+    const wh = await tgApi('getWebhookInfo')
+    if (wh && wh.url) {
+      log('TELEGRAM: habia un webhook puesto (' + wh.url + ') — lo quito para poder recibir')
+      await tgApi('deleteWebhook', { drop_pending_updates: false })
+    }
     // descartar la cola vieja para no reprocesar mensajes de cuando estaba caido
     const previos = await tgApi('getUpdates', { offset: -1, timeout: 0 })
     if (Array.isArray(previos) && previos.length) offset = previos[previos.length - 1].update_id + 1
     log('TELEGRAM: canal interno escuchando')
+    escucha.ultimoOk = Date.now()
     while (vivo) {
       const ups = await tgApi('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] })
-      if (!Array.isArray(ups)) { await new Promise(r => setTimeout(r, 5000)); continue }
+      if (!Array.isArray(ups)) {
+        // antes esto se tragaba el error en silencio y el bucle giraba solo
+        escucha.fallos++
+        escucha.ultimoError = String(ups?.error || 'sin respuesta de Telegram')
+        if (escucha.fallos === 1 || escucha.fallos % 12 === 0) log('TELEGRAM getUpdates falla (' + escucha.fallos + '):', escucha.ultimoError)
+        // 409 = otro proceso esta haciendo getUpdates con el mismo token, o volvio
+        // a aparecer un webhook. Reintentar mas seguido no ayuda: hay que avisar.
+        if (/conflict/i.test(escucha.ultimoError)) {
+          const wh2 = await tgApi('getWebhookInfo')
+          if (wh2 && wh2.url) { log('TELEGRAM: reapareció un webhook, lo quito'); await tgApi('deleteWebhook', { drop_pending_updates: false }) }
+        }
+        await new Promise(r => setTimeout(r, Math.min(5000 * Math.min(escucha.fallos, 6), 30000)))
+        continue
+      }
+      escucha.ultimoOk = Date.now(); escucha.fallos = 0; escucha.ultimoError = ''
       for (const u of ups) {
         offset = u.update_id + 1
         const m = u.message
@@ -103,8 +134,14 @@ function escuchar(onMensaje, log = () => {}) {
         catch (e) { log('TG onMensaje:', String(e.message || e)) }
       }
     }
-  })()
+    escucha.arrancada = false
+  })().catch(e => {
+    // si el bucle se cae entero, que quede registrado y se pueda volver a arrancar
+    escucha.arrancada = false
+    escucha.ultimoError = 'el bucle de escucha murio: ' + String(e.message || e)
+    log('TELEGRAM:', escucha.ultimoError)
+  })
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, escuchar, crearRegistro, aHtml }
+module.exports = { activo, tgEnviar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi }
