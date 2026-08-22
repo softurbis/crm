@@ -2706,6 +2706,68 @@ async function latido(titulo) {
   await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
 }
 
+// ---------- VIGIA: cada minuto, y avisa EN EL ACTO ----------
+// El latido de 30 minutos informa; no vigila. El 19 de agosto el numero se cayo
+// a las 10:26 de la manana y el silencio duro dos dias. Esto comprueba el estado
+// real cada minuto y escribe por Telegram apenas CAMBIA: no repite mientras siga
+// igual (eso seria ruido que se aprende a ignorar) pero recuerda cada 30 min
+// mientras el problema siga vivo, y avisa tambien cuando se recupera.
+let VIGIA = { mal: false, desde: 0, avisado: 0, ultimoTexto: '' }
+const ARRANQUE = Date.now()
+async function vigia() {
+  if (!ADMIN) return
+  // recien arrancado todavia se esta conectando: alarmar aqui seria dar un susto
+  // en cada reinicio, y a los sustos falsos se les deja de hacer caso
+  if (Date.now() - ARRANQUE < 3 * 60000) return
+  const fallas = []
+
+  // 1) sesiones de WhatsApp que dejaron de estar conectadas
+  const { data: ses } = await supabase.from('wa_sessions').select('label, phone, estado').eq('activo', true)
+  for (const s of (ses || [])) {
+    if (s.estado !== 'conectado') fallas.push('🔴 *' + (s.label || 'PRINCIPAL') + '* +' + s.phone + ' — ' + s.estado + '\n   Hay que re-vincular: panel → WhatsApp → 🔄 VINCULAR')
+  }
+  // 2) el propio canal de Telegram, sordo
+  const tg = TG.activo() ? TG.estadoEscucha() : null
+  if (tg && (!tg.arrancada || !tg.ultimoOk || Date.now() - tg.ultimoOk > 5 * 60000)) {
+    fallas.push('⛔ *Telegram dejó de recibir*' + (tg.ultimoError ? '\n   ' + tg.ultimoError.slice(0, 90) : ''))
+  }
+  // 3) silencio raro: en horario de trabajo, sin un mensaje entrante en 3 horas
+  const horaLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
+  if (horaLima >= 9 && horaLima < 21) {
+    const { data: ult } = await supabase.from('whatsapp_messages').select('created_at')
+      .eq('direction', 'in').order('created_at', { ascending: false }).limit(1)
+    const ts = ult && ult[0] ? new Date(ult[0].created_at).getTime() : null
+    const h = ts ? Math.floor((Date.now() - ts) / 3600000) : null
+    if (h !== null && h >= 3) fallas.push('🔇 *' + h + ' h sin un solo mensaje entrante* (en horario de trabajo)')
+  }
+
+  const mal = fallas.length > 0
+  const texto = fallas.join('\n\n')
+  const ahora = Date.now()
+
+  if (mal && !VIGIA.mal) {                          // acaba de romperse
+    VIGIA = { mal: true, desde: ahora, avisado: ahora, ultimoTexto: texto }
+    await enviar(ADMIN, '🚨 *ALGO SE CAYÓ*\n\n' + texto + '\n\n_Te aviso apenas vuelva._', { tipo: 'reporte' })
+    return
+  }
+  if (mal && texto !== VIGIA.ultimoTexto) {          // cambio lo que estaba mal
+    VIGIA.ultimoTexto = texto; VIGIA.avisado = ahora
+    await enviar(ADMIN, '🚨 *SIGUE CAÍDO — cambió el motivo*\n\n' + texto, { tipo: 'reporte' })
+    return
+  }
+  if (mal && ahora - VIGIA.avisado > 30 * 60000) {   // recordatorio mientras siga
+    VIGIA.avisado = ahora
+    const min = Math.round((ahora - VIGIA.desde) / 60000)
+    await enviar(ADMIN, '🚨 *SIGUE CAÍDO* (' + (min >= 60 ? Math.round(min / 60) + ' h' : min + ' min') + ')\n\n' + texto, { tipo: 'reporte' })
+    return
+  }
+  if (!mal && VIGIA.mal) {                           // se recupero
+    const min = Math.round((ahora - VIGIA.desde) / 60000)
+    VIGIA = { mal: false, desde: 0, avisado: 0, ultimoTexto: '' }
+    await enviar(ADMIN, '✅ *YA VOLVIÓ* — estuvo caído ' + (min >= 60 ? Math.round(min / 60) + ' h' : min + ' min') + '.', { tipo: 'reporte' })
+  }
+}
+
 // Aviso de RE-VINCULACION: sale por Telegram, que sigue vivo aunque WhatsApp no.
 // Se repite cada 6 h porque es una accion humana — nadie la va a hacer si el
 // sistema no la pide, y callarse cuesta dias de silencio.
@@ -3033,6 +3095,8 @@ async function arrancar() {
   }, 25000)
   // vigilancia del sintoma: cada minuto revisa si alguien quedo sin respuesta
   cron.schedule('* * * * *', () => vigilarSinRespuesta().catch(e => log('vigilancia:', String(e.message || e))), { timezone: 'America/Lima' })
+  // VIGIA del canal: cada minuto, y avisa en el acto si algo se cayo o volvio
+  cron.schedule('* * * * *', () => vigia().catch(e => log('vigia:', String(e.message || e))), { timezone: 'America/Lima' })
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   arrancarTelegram()
