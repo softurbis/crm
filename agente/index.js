@@ -2262,7 +2262,17 @@ async function extraerMedia(sock, m, msg) {
   const mtipo = msg.imageMessage ? 'image' : msg.videoMessage ? 'video' : msg.documentMessage ? 'document' : msg.audioMessage ? 'audio' : 'sticker'
   const media = { tipo: mtipo, name: msg.documentMessage?.fileName || null, caption: mm.caption || '' }
   try {
-    if (Number(mm.fileLength || 0) <= 50 * 1024 * 1024) {   // tope de subida de Supabase Storage
+    // TOPE DE DESCARGA. Estaba en 50 MB, que era el limite de subida de Supabase
+    // Storage — un numero heredado de cuando los archivos vivian ahi; hoy van a R2
+    // y ya no pinta nada. Lo que si pinta es la memoria: el archivo se baja ENTERO
+    // a un buffer y se vuelve a copiar para subirlo, asi que uno de 40 MB son ~80 MB
+    // de pico en una maquina de 961 MB. El 18 y el 20 de julio de 2026 el kernel
+    // mato al bot con 744 MB en las manos, y un proceso muerto a media escritura
+    // corrompe el estado de cifrado de Baileys: de ahi salen los "Bad MAC" y, al
+    // final, los dos dias de agosto sin recibir un solo lead.
+    // Con 16 MB pasan las 828 imagenes y los documentos normales; lo que no pasa
+    // deja su aviso en el chat (mas abajo), asi que no se pierde el rastro.
+    if (Number(mm.fileLength || 0) <= 16 * 1024 * 1024) {
       const buff = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
       // DEDUPLICACION por huella del contenido: el mismo archivo (la imagen del
       // flujo que el bot manda a cada lead, una foto reenviada, etc.) se guarda
