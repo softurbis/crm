@@ -935,9 +935,14 @@ async function enviar(phone, texto, meta = {}) {
   // sus avisos salen por ahí: gratis, sin gastar reputación del número y sin depender
   // de que WhatsApp esté conectado. Los clientes y leads NO pasan por aquí (no están
   // vinculados), así que su experiencia no cambia.
+  // ...pero SOLO los avisos que el sistema INICIA (pases de lista, recordatorios,
+  // reportes). Una respuesta a algo que la persona acaba de escribir por WhatsApp
+  // vuelve por WhatsApp: contestar por otro canal desconcierta, y probando el bot
+  // desde un número del equipo parece que no respondió.
   {
-    const digTg = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
-    const chat = TGREG ? await TGREG.chatDe(digTg) : null
+    const conversacional = meta.canal === 'whatsapp' || ['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')
+    const digTg = conversacional ? '' : (String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, ''))
+    const chat = (TGREG && digTg) ? await TGREG.chatDe(digTg) : null
     if (chat) {
       const ok = await TG.tgEnviar(chat, texto)
       await supabase.from('scheduled_messages').insert({
@@ -2027,7 +2032,9 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
       await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
       await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
     }
-    await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte' })
+    // por WhatsApp: es la respuesta a algo que se escribio por WhatsApp, y ademas
+    // quien prueba necesita verla en el mismo chat que acaba de reiniciar
+    await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte', canal: 'whatsapp' })
     log('RESET iniciourbis2026 para', phone)
     return
   }
