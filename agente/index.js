@@ -30,40 +30,42 @@ const TGREG = TG.activo() ? TG.crearRegistro(supabase, (...a) => log(...a)) : nu
 let TEST_ACTIVE = null
 const TEST_PROFILES = new Map()   // últimos 9 dígitos -> tipoNumero ('cliente'|'secretaria'|'gerencia'|null)
 // el numero admin se puede cambiar desde el panel (bot_settings.admin_phone); el .env queda de fallback
-async function refrescarAdmin() {
-  try {
-    const { data } = await supabase.from('bot_settings').select('value').eq('key', 'admin_phone').maybeSingle()
-    if (data && data.value) { const d = String(data.value).replace(/\D/g, ''); if (d.length >= 9 && d !== ADMIN) { ADMIN = d; log('ADMIN actualizado a', d) } }
-  } catch {}
-}
-refrescarAdmin()
-setInterval(refrescarAdmin, 60000)
-
-// Palabras que el operador agrega desde el panel para leer un SI o un NO
-// (bot_settings.claves_si / claves_no). SE SUMAN a las de fabrica, no las
-// reemplazan: asi nadie puede dejar al bot sin entender un "si" por error.
-// Numeros que reciben COPIA de cada lead y de cada pedido de asesor, ademas del
-// admin y del asesor del proyecto (bot_settings.avisos_extra, separados por coma).
+// ============================================================================
+// AJUSTES DEL PANEL — UNA sola consulta para todo
+// ----------------------------------------------------------------------------
+// Antes eran tres consultas cada minuto (admin, avisos_extra, claves si/no) mas
+// otras dos cada 15 y 20 segundos (reiniciar, re-vincular). Cinco viajes a la
+// base para leer cinco filas de la MISMA tabla, 14.400 veces al dia, casi
+// siempre para enterarse de que no cambio nada.
+//
+// Eso no era gratis: el 22 de agosto de 2026 el proyecto iba al 84% del egress
+// del plan gratuito a 11 dias de que cerrara el ciclo, y al llegar al tope
+// Supabase deja de responder — bot y panel caidos hasta el mes siguiente.
+// Ahora es UNA consulta cada 30 segundos que trae las cinco claves juntas.
+// ============================================================================
 let AVISOS_EXTRA = []
-async function refrescarAvisos() {
-  try {
-    const { data } = await supabase.from('bot_settings').select('value').eq('key', 'avisos_extra').maybeSingle()
-    AVISOS_EXTRA = String(data?.value || '').split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9)
-  } catch {}
-}
-refrescarAvisos()
-setInterval(refrescarAvisos, 60000)
-
 let CLAVES_SN = { si: '', no: '' }
-async function refrescarClavesSN() {
+const CLAVES_PANEL = ['admin_phone', 'avisos_extra', 'claves_si', 'claves_no', 'wa_restart', 'wa_relink']
+
+async function refrescarAjustes() {
   try {
-    const { data } = await supabase.from('bot_settings').select('key, value').in('key', ['claves_si', 'claves_no'])
+    const { data } = await supabase.from('bot_settings').select('key, value').in('key', CLAVES_PANEL)
     const kv = Object.fromEntries((data || []).map(r => [r.key, r.value || '']))
+
+    const d = String(kv.admin_phone || '').replace(/\D/g, '')
+    if (d.length >= 9 && d !== ADMIN) { ADMIN = d; log('ADMIN actualizado a', d) }
+
+    AVISOS_EXTRA = String(kv.avisos_extra || '').split(',').map(x => x.replace(/\D/g, '')).filter(x => x.length >= 9)
     CLAVES_SN = { si: kv.claves_si || '', no: kv.claves_no || '' }
-  } catch {}
+
+    // los dos botones del panel viajaban en su propia consulta cada 15 y 20 seg;
+    // ahora vienen de arriba y se atienden aqui, sin un viaje extra
+    if (kv.wa_relink === '1') await chequearRelink()
+    if (kv.wa_restart === '1') await chequearRestart()
+  } catch (e) { log('ajustes:', String(e.message || e)) }
 }
-refrescarClavesSN()
-setInterval(refrescarClavesSN, 60000)
+refrescarAjustes()
+setInterval(refrescarAjustes, 30000)
 
 // re-vinculacion pedida desde el panel VIEJO (bot_settings.wa_relink): aplica a la
 // sesion CORPORATIVA. El panel nuevo pide relink por sesion (wa_sessions.relink).
@@ -81,7 +83,7 @@ async function chequearRelink() {
     process.exit(0)
   } catch (e) { log('relink:', e.message) }
 }
-setInterval(chequearRelink, 20000)
+// ya no lleva su propio setInterval: lo dispara refrescarAjustes() cuando ve el flag
 
 // latido POR SESION: el panel muestra "EN LINEA" mientras el timestamp este fresco
 setInterval(() => {
@@ -97,7 +99,7 @@ async function chequearRestart() {
     process.exit(0)
   } catch (e) { log('restart:', e.message) }
 }
-setInterval(chequearRestart, 15000)
+// idem: viaja en la consulta de ajustes, no en una propia cada 15 segundos
 
 // store minimo de mensajes enviados: permite reintentos de cifrado ("Esperando el mensaje").
 // Se persiste en disco para que los reintentos sobrevivan a los reinicios del bot.
@@ -3106,7 +3108,7 @@ async function arrancar() {
     rows = [{ id: 'legacy', is_corporate: true, label: 'PRINCIPAL', project_id: null, activo: true }]
   }
   for (const r of rows) iniciarSesion(r).catch(e => log('init', r.label || r.id, ':', String(e.message || e)))
-  setInterval(() => { supervisarSesiones().catch(() => {}) }, 20000)
+  setInterval(() => { supervisarSesiones().catch(() => {}) }, 60000)
 
   // crons GLOBALES (una sola vez, no por sesión)
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
@@ -3239,7 +3241,9 @@ async function procesarSalientesPanel() {
     }
   }
 }
-setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 5000)
+// cada 20 s, no cada 5: un mensaje mandado desde el panel sale igual, y son
+// 13.000 consultas menos al dia (ver el comentario de refrescarAjustes)
+setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 20000)
 
 // ---------- AUTO-AVANZAR dentro del flujo: si el lead no responde en N seg/min, pasa al siguiente paso ----------
 // (No hay re-insistencia; solo se espera el tiempo del paso y se ejecuta su acción: siguiente / mensaje / asesor.)
@@ -3285,7 +3289,9 @@ async function avanzarFlujo() {
     }
   } finally { _procPruebasBusy = false }
 }
-setInterval(() => { avanzarFlujo().catch(() => {}) }, 8000)
+// 15 s en vez de 8: el paso siguiente del flujo se dispara por tiempo de espera
+// (minutos), asi que mirar cada 8 segundos no lo hacia mas rapido
+setInterval(() => { avanzarFlujo().catch(() => {}) }, 15000)
 
 // ---------- CONSOLA DE PRUEBAS (chat virtual, sin WhatsApp real) ----------
 async function purgarPruebas() {
@@ -3399,4 +3405,4 @@ async function procesarPruebas() {
     }
   }
 }
-setInterval(async () => { if (_procPruebasBusy) return; _procPruebasBusy = true; try { await procesarPruebas() } catch (e) {} finally { _procPruebasBusy = false } }, 3000)
+setInterval(async () => { if (_procPruebasBusy) return; _procPruebasBusy = true; try { await procesarPruebas() } catch (e) {} finally { _procPruebasBusy = false } }, 20000)
