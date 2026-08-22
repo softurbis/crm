@@ -21,22 +21,41 @@ function aHtml(texto) {
     .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?]|$)/g, '$1<i>$2</i>')
 }
 
-async function tgApi(metodo, body) {
+// el log de la app (lo pone escuchar()); sin el, este modulo era mudo
+let _log = () => {}
+function setLog(fn) { if (typeof fn === 'function') _log = fn }
+
+// `ms`: sin tope, un fetch colgado deja al bot esperando para siempre. El long
+// polling pide mas margen que el resto porque el propio getUpdates espera 50 s.
+async function tgApi(metodo, body, ms = 30000) {
   if (!activo()) return null
   try {
     const r = await fetch(API(metodo), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(ms) : undefined,
     })
     const j = await r.json()
-    if (!j.ok) return { error: j.description || 'error de Telegram' }
+    if (!j.ok) return { error: j.description || ('error ' + r.status + ' de Telegram') }
     return j.result
   } catch (e) { return { error: String(e.message || e) } }
 }
 
+// Un envio que falla NO puede ser silencioso: se perdia el mensaje entero sin
+// dejar rastro, y como nadie mira el valor de retorno, el bot quedaba mudo.
+// Si lo que falla es el formato, va en texto plano antes que no llegar nada.
 async function tgEnviar(chatId, texto) {
-  const r = await tgApi('sendMessage', {
+  let r = await tgApi('sendMessage', {
     chat_id: chatId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true,
   })
+  if (r && r.error) {
+    _log('TELEGRAM: sendMessage a ' + chatId + ' fallo — ' + r.error)
+    if (/parse|entit|tag|markup/i.test(r.error)) {
+      r = await tgApi('sendMessage', { chat_id: chatId, text: String(texto || ''), disable_web_page_preview: true })
+      _log(r && !r.error
+        ? 'TELEGRAM: reenviado a ' + chatId + ' en texto plano (el formato era invalido)'
+        : 'TELEGRAM: tampoco salio en texto plano — ' + (r && r.error))
+    }
+  }
   return !!(r && !r.error)
 }
 
@@ -90,6 +109,7 @@ function estadoEscucha() { return { ...escucha } }
 function escuchar(onMensaje, log = () => {}) {
   if (!activo()) { log('TELEGRAM: sin TELEGRAM_BOT_TOKEN, canal interno desactivado'); return }
   if (escucha.arrancada) { log('TELEGRAM: ya habia una escucha corriendo, no arranco otra'); return }
+  setLog(log)
   escucha.arrancada = true
   let offset = 0, vivo = true
   ;(async () => {
@@ -107,7 +127,7 @@ function escuchar(onMensaje, log = () => {}) {
     log('TELEGRAM: canal interno escuchando')
     escucha.ultimoOk = Date.now()
     while (vivo) {
-      const ups = await tgApi('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] })
+      const ups = await tgApi('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] }, 70000)
       if (!Array.isArray(ups)) {
         // antes esto se tragaba el error en silencio y el bucle giraba solo
         escucha.fallos++
@@ -150,4 +170,4 @@ function escuchar(onMensaje, log = () => {}) {
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi }
+module.exports = { activo, tgEnviar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
