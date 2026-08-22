@@ -2532,8 +2532,23 @@ async function iniciarSesion(row) {
         const code = u.lastDisconnect?.error?.output?.statusCode
         log('[' + (row.label || 'PRINCIPAL') + '] conexion cerrada, codigo', code)
         S.sock = null
-        if (code !== DisconnectReason.loggedOut) { log('reconectando', row.label || 'PRINCIPAL', '...'); setTimeout(() => iniciarSesion(S.row).catch(() => {}), 5000) }
-        else { setSes(row, { estado: 'cerrado', qr: '' }).catch(() => {}); log('SESION CERRADA DESDE EL TELEFONO. Usa VINCULAR en el panel para re-escanear.') }
+        // Hay cierres que NO se arreglan reintentando: la credencial dejo de
+        // servir y hace falta volver a escanear el QR. Antes solo se paraba con
+        // loggedOut (401) y cualquier otro codigo entraba en bucle infinito.
+        // Del 19 al 21 ago 2026 el numero de Cashibo se reconecto cada 50
+        // minutos con codigo 500 (badSession) y estuvo DOS DIAS sin recibir ni
+        // enviar nada, mientras el panel y el latido decian "conectado".
+        const SIN_VUELTA = {
+          [DisconnectReason.loggedOut]: 'la sesion se cerro desde el telefono',
+          [DisconnectReason.badSession]: 'la credencial de la sesion ya no sirve (badSession)',
+          [DisconnectReason.forbidden]: 'WhatsApp bloqueo el numero',
+          [DisconnectReason.multideviceMismatch]: 'el telefono cambio de version multidispositivo',
+        }
+        const motivo = SIN_VUELTA[code]
+        if (!motivo) { log('reconectando', row.label || 'PRINCIPAL', '...'); setTimeout(() => iniciarSesion(S.row).catch(() => {}), 5000); return }
+        setSes(row, { estado: 'cerrado', qr: '' }).catch(() => {})
+        log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo.toUpperCase() + ' (codigo ' + code + '). NO reintento: hay que RE-VINCULAR escaneando el QR desde el panel.')
+        avisarRevinculacion(row, code, motivo)
       }
     })
 
@@ -2626,11 +2641,16 @@ async function latido(titulo) {
   if (!ADMIN) return
   const desde = new Date(Date.now() - 30 * 60000).toISOString()
   const hoy0 = new Date().toISOString().slice(0, 10)
-  const [{ count: recibidos }, { count: enviados }, { count: leadsHoy }, { data: sesiones }] = await Promise.all([
+  const [{ count: recibidos }, { count: enviados }, { count: leadsHoy }, { data: sesiones }, { data: ultimoIn }] = await Promise.all([
     supabase.from('whatsapp_messages').select('id', { count: 'exact', head: true }).eq('direction', 'in').gte('created_at', desde),
     supabase.from('scheduled_messages').select('id', { count: 'exact', head: true }).eq('status', 'enviado').gte('sent_at', desde),
     supabase.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', hoy0),
     supabase.from('wa_sessions').select('label, estado, phone'),
+    // cuando entro el ULTIMO mensaje de WhatsApp: es lo que de verdad dice si el
+    // numero esta atendiendo. Sin esto, el latido cantaba "EN LINEA" con dos
+    // dias sin un solo mensaje.
+    supabase.from('whatsapp_messages').select('created_at').eq('direction', 'in')
+      .order('created_at', { ascending: false }).limit(1),
   ])
   const vivas = (sesiones || []).filter(x => x.estado === 'conectado')
   const caidas = (sesiones || []).filter(x => x.estado !== 'conectado')
@@ -2638,6 +2658,9 @@ async function latido(titulo) {
   // ESTADO DE LA OREJA. "EN LÍNEA" solo decia que el proceso seguia prendido, no
   // que estuviera escuchando: el 20 ago 2026 estuvo 23 horas mandando este mismo
   // mensaje sin recibir nada. Si no escucha, este aviso tiene que gritarlo.
+  // horas desde el ultimo mensaje entrante de WhatsApp (null si nunca hubo)
+  const tsIn = ultimoIn && ultimoIn[0] ? new Date(ultimoIn[0].created_at).getTime() : null
+  const hMudo = tsIn ? Math.floor((Date.now() - tsIn) / 3600000) : null
   const tg = TG.activo() ? TG.estadoEscucha() : null
   const minSinOir = tg && tg.ultimoOk ? Math.round((Date.now() - tg.ultimoOk) / 60000) : null
   const sordo = !!tg && (!tg.arrancada || minSinOir === null || minSinOir > 3)
@@ -2647,7 +2670,7 @@ async function latido(titulo) {
         + (tg.ultimoError ? '\n      ' + tg.ultimoError.slice(0, 120) : '')
       : '   🟢 Telegram: escuchando'
   const lineas = [
-    titulo || (caidas.length || sordo ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
+    titulo || (caidas.length || sordo || hMudo >= 6 ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
     reloj,
     '',
     '📱 Números: *' + vivas.length + '* conectado(s)',
@@ -2655,7 +2678,9 @@ async function latido(titulo) {
       + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? '' : ' — ' + x.estado)),
     ...(lineaTG ? [lineaTG] : []),
     '',
-    '📥 Recibidos (30 min): *' + (recibidos || 0) + '*',
+    '📥 Recibidos (30 min): *' + (recibidos || 0) + '*' + (hMudo === null ? ''
+      : hMudo >= 6 ? '   ⛔ *' + hMudo + ' h sin un solo mensaje entrante*'
+      : hMudo >= 2 ? '   (último hace ' + hMudo + ' h)' : ''),
     '📤 Enviados (30 min): *' + (enviados || 0) + '*',
     '🔥 Leads de hoy: *' + (leadsHoy || 0) + '*',
     '',
@@ -2667,6 +2692,28 @@ async function latido(titulo) {
         : '_Si este mensaje deja de llegar, el bot se cayó._',
   ]
   await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
+}
+
+// Aviso de RE-VINCULACION: sale por Telegram, que sigue vivo aunque WhatsApp no.
+// Se repite cada 6 h porque es una accion humana — nadie la va a hacer si el
+// sistema no la pide, y callarse cuesta dias de silencio.
+const _avisoRelink = new Map()   // sesion -> cuando se aviso
+async function avisarRevinculacion(row, code, motivo) {
+  try {
+    if (!ADMIN) return
+    const k = String(row.id || row.label || 'principal')
+    if (Date.now() - (_avisoRelink.get(k) || 0) < 6 * 3600 * 1000) return
+    _avisoRelink.set(k, Date.now())
+    await enviar(ADMIN, [
+      '🔴 *WHATSAPP CAÍDO — HAY QUE RE-VINCULAR*',
+      (row.label || 'PRINCIPAL') + (row.phone ? ' +' + row.phone : ''),
+      '',
+      'Motivo: ' + motivo + ' (código ' + code + ').',
+      '',
+      'Este número *no recibe ni envía nada* hasta que alguien vuelva a escanear el QR.',
+      'Panel → *Proyectos* → la ficha del proyecto → *Vincular WhatsApp*, y escanea con ese celular.',
+    ].join('\n'), { tipo: 'reporte' })
+  } catch (e) { log('aviso re-vinculacion:', String(e.message || e)) }
 }
 
 // ---------- VIGILANCIA: MENSAJES SIN RESPONDER ----------
