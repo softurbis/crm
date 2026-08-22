@@ -2668,6 +2668,11 @@ async function latido(titulo) {
   // horas desde el ultimo mensaje entrante de WhatsApp (null si nunca hubo)
   const tsIn = ultimoIn && ultimoIn[0] ? new Date(ultimoIn[0].created_at).getTime() : null
   const hMudo = tsIn ? Math.floor((Date.now() - tsIn) / 3600000) : null
+  // ...pero de madrugada NADIE escribe: alarmar a las 4 a.m. porque no entran
+  // leads es el camino seguro a que nadie vuelva a mirar el aviso. Solo se
+  // considera raro el silencio en horario de trabajo.
+  const horaLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
+  const mudoRaro = hMudo !== null && hMudo >= 6 && horaLima >= 9 && horaLima < 21
   const tg = TG.activo() ? TG.estadoEscucha() : null
   const minSinOir = tg && tg.ultimoOk ? Math.round((Date.now() - tg.ultimoOk) / 60000) : null
   const sordo = !!tg && (!tg.arrancada || minSinOir === null || minSinOir > 3)
@@ -2677,7 +2682,7 @@ async function latido(titulo) {
         + (tg.ultimoError ? '\n      ' + tg.ultimoError.slice(0, 120) : '')
       : '   🟢 Telegram: escuchando'
   const lineas = [
-    titulo || (caidas.length || sordo || hMudo >= 6 ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
+    titulo || (caidas.length || sordo || mudoRaro ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'),
     reloj,
     '',
     '📱 Números: *' + vivas.length + '* conectado(s)',
@@ -2686,8 +2691,8 @@ async function latido(titulo) {
     ...(lineaTG ? [lineaTG] : []),
     '',
     '📥 Recibidos (30 min): *' + (recibidos || 0) + '*' + (hMudo === null ? ''
-      : hMudo >= 6 ? '   ⛔ *' + hMudo + ' h sin un solo mensaje entrante*'
-      : hMudo >= 2 ? '   (último hace ' + hMudo + ' h)' : ''),
+      : mudoRaro ? '\n   ⛔ *' + hMudo + ' h sin un solo mensaje entrante* — revisa que el número siga vinculado'
+      : hMudo >= 2 ? '   (el último entró hace ' + hMudo + ' h)' : ''),
     '📤 Enviados (30 min): *' + (enviados || 0) + '*',
     '🔥 Leads de hoy: *' + (leadsHoy || 0) + '*',
     '',
