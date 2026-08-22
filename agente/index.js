@@ -2712,6 +2712,25 @@ async function latido(titulo) {
 // real cada minuto y escribe por Telegram apenas CAMBIA: no repite mientras siga
 // igual (eso seria ruido que se aprende a ignorar) pero recuerda cada 30 min
 // mientras el problema siga vivo, y avisa tambien cuando se recupera.
+// Reinicio automatico: UN intento por hora, tres al dia. El contador vive en la
+// base y NO en memoria — si viviera en memoria, cada reinicio lo pondria a cero
+// y el tope no existiria: seria un bucle de reinicios disfrazado de limite.
+async function intentarReinicio(motivo) {
+  const dia = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  let e = { dia, n: 0, ultima: 0 }
+  try { e = { ...e, ...JSON.parse(await ajuste('vigia_reinicios', '{}')) } } catch {}
+  if (e.dia !== dia) e = { dia, n: 0, ultima: 0 }
+  if (Date.now() - (e.ultima || 0) < 60 * 60000) return false      // uno por hora
+  if ((e.n || 0) >= 3) return false                                 // tres al dia
+  e.n = (e.n || 0) + 1; e.ultima = Date.now()
+  await setAjuste('vigia_reinicios', JSON.stringify(e))
+  log('VIGIA: reinicio automatico (' + e.n + '/3 hoy) —', motivo.replace(/\n+/g, ' '))
+  await enviar(ADMIN, '🔧 *ME REINICIO SOLO* — intento ' + e.n + ' de 3 de hoy\n\n' + motivo
+    + '\n\n_Si en 2 minutos no te llega el "REINICIADO Y EN SERVICIO", el reinicio falló y hay que entrar al droplet._', { tipo: 'reporte' })
+  setTimeout(() => process.exit(0), 2000)   // pm2 lo vuelve a levantar
+  return true
+}
+
 let VIGIA = { mal: false, desde: 0, avisado: 0, ultimoTexto: '' }
 const ARRANQUE = Date.now()
 async function vigia() {
@@ -2719,35 +2738,52 @@ async function vigia() {
   // recien arrancado todavia se esta conectando: alarmar aqui seria dar un susto
   // en cada reinicio, y a los sustos falsos se les deja de hacer caso
   if (Date.now() - ARRANQUE < 3 * 60000) return
+  // Cada falla dice si un REINICIO puede arreglarla. Es la distincion que importa:
+  // el 19 de agosto se reinicio el bot varias veces y el numero siguio muerto,
+  // porque la credencial rota (badSession) sigue rota al otro lado. Eso necesita
+  // una persona con el celular y el QR; reintentar solo gasta el tiempo de todos.
   const fallas = []
 
-  // 1) sesiones de WhatsApp que dejaron de estar conectadas
+  // 1) sesiones de WhatsApp que dejaron de estar conectadas -> NECESITA HUMANO
   const { data: ses } = await supabase.from('wa_sessions').select('label, phone, estado').eq('activo', true)
   for (const s of (ses || [])) {
-    if (s.estado !== 'conectado') fallas.push('🔴 *' + (s.label || 'PRINCIPAL') + '* +' + s.phone + ' — ' + s.estado + '\n   Hay que re-vincular: panel → WhatsApp → 🔄 VINCULAR')
+    if (s.estado !== 'conectado') fallas.push({ humano: true, texto: '🔴 *' + (s.label || 'PRINCIPAL') + '* +' + s.phone + ' — ' + s.estado + '\n   Hay que re-vincular: panel → WhatsApp → 🔄 VINCULAR' })
   }
-  // 2) el propio canal de Telegram, sordo
+  // 2) el propio canal de Telegram, sordo -> un reinicio suele arreglarlo
   const tg = TG.activo() ? TG.estadoEscucha() : null
   if (tg && (!tg.arrancada || !tg.ultimoOk || Date.now() - tg.ultimoOk > 5 * 60000)) {
-    fallas.push('⛔ *Telegram dejó de recibir*' + (tg.ultimoError ? '\n   ' + tg.ultimoError.slice(0, 90) : ''))
+    fallas.push({ humano: false, texto: '⛔ *Telegram dejó de recibir*' + (tg.ultimoError ? '\n   ' + tg.ultimoError.slice(0, 90) : '') })
   }
-  // 3) silencio raro: en horario de trabajo, sin un mensaje entrante en 3 horas
+  // 3) silencio raro: en horario de trabajo, sin un mensaje entrante en 3 horas.
+  //    Con la sesion diciendo "conectado" es la firma del socket zombi, y ahi un
+  //    reinicio es el primer intento barato.
   const horaLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
   if (horaLima >= 9 && horaLima < 21) {
     const { data: ult } = await supabase.from('whatsapp_messages').select('created_at')
       .eq('direction', 'in').order('created_at', { ascending: false }).limit(1)
     const ts = ult && ult[0] ? new Date(ult[0].created_at).getTime() : null
     const h = ts ? Math.floor((Date.now() - ts) / 3600000) : null
-    if (h !== null && h >= 3) fallas.push('🔇 *' + h + ' h sin un solo mensaje entrante* (en horario de trabajo)')
+    if (h !== null && h >= 3) fallas.push({ humano: false, texto: '🔇 *' + h + ' h sin un solo mensaje entrante* (en horario de trabajo)' })
   }
 
   const mal = fallas.length > 0
-  const texto = fallas.join('\n\n')
+  const texto = fallas.map(f => f.texto).join('\n\n')
   const ahora = Date.now()
+
+  // ¿puede intentar salvarse solo? Solo si NINGUNA falla necesita una persona:
+  // si el numero pide QR, reiniciar no lo va a arreglar y encima corta lo que
+  // este en curso.
+  if (mal && fallas.every(f => !f.humano) && await intentarReinicio(texto)) return
+
+  // si llegamos aqui con todo "reiniciable", es que el tope del dia ya se gasto
+  const topeGastado = fallas.length > 0 && fallas.every(f => !f.humano)
+  const cola = topeGastado
+    ? '\n\n_Ya me reinicié las 3 veces de hoy y no se arregló: esto necesita que alguien lo mire._'
+    : '\n\n_Te aviso apenas vuelva._'
 
   if (mal && !VIGIA.mal) {                          // acaba de romperse
     VIGIA = { mal: true, desde: ahora, avisado: ahora, ultimoTexto: texto }
-    await enviar(ADMIN, '🚨 *ALGO SE CAYÓ*\n\n' + texto + '\n\n_Te aviso apenas vuelva._', { tipo: 'reporte' })
+    await enviar(ADMIN, '🚨 *ALGO SE CAYÓ*\n\n' + texto + cola, { tipo: 'reporte' })
     return
   }
   if (mal && texto !== VIGIA.ultimoTexto) {          // cambio lo que estaba mal
