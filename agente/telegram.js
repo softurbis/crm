@@ -126,9 +126,15 @@ function escuchar(onMensaje, log = () => {}) {
       for (const u of ups) {
         offset = u.update_id + 1
         const m = u.message
-        if (!m || !m.chat || m.chat.type !== 'private') continue
+        // Se registra TODO lo que llega. El bot anotaba lo que mandaba pero no lo
+        // que recibia, y por eso un mensaje que entraba y se descartaba no dejaba
+        // rastro en ningun lado.
+        if (!m) { log('TELEGRAM <- update sin message (' + Object.keys(u).filter(k => k !== 'update_id').join(',') + '), descartado'); continue }
+        if (!m.chat) { log('TELEGRAM <- message sin chat, descartado'); continue }
+        if (m.chat.type !== 'private') { log('TELEGRAM <- chat ' + m.chat.id + ' es de tipo "' + m.chat.type + '", descartado'); continue }
         const texto = String(m.text || m.caption || '').trim()
-        if (!texto) continue
+        if (!texto) { log('TELEGRAM <- chat ' + m.chat.id + ' sin texto (' + Object.keys(m).filter(k => !['message_id', 'from', 'chat', 'date'].includes(k)).join(',') + '), descartado'); continue }
+        log('TELEGRAM <- chat ' + m.chat.id + ': ' + texto.slice(0, 60))
         const nombre = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(' ')
         try { await onMensaje(m.chat.id, texto, { nombre, usuario: m.from?.username || null }) }
         catch (e) { log('TG onMensaje:', String(e.message || e)) }

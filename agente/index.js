@@ -2790,9 +2790,14 @@ function espejo(linea) {
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
 // consultas al sistema). Solo cambia por dónde llega el mensaje.
 async function manejarTelegram(chatId, texto, info) {
-  if (!TGREG) return
+  // ninguna de estas salidas puede ser muda: si el mensaje entra y no pasa nada,
+  // tiene que quedar escrito POR QUE no paso nada
+  if (!TGREG) { log('TG: llego un mensaje pero TGREG es null (sin TELEGRAM_BOT_TOKEN al arrancar)'); return }
   const t = texto.trim()
-  let phone = await TGREG.telDe(chatId)
+  let phone = null
+  try { phone = await TGREG.telDe(chatId) }
+  catch (e) { log('TG: no pude leer los vinculos:', String(e.message || e)); return }
+  log('TG: chat ' + chatId + ' -> ' + (phone ? 'telefono ' + phone : 'SIN VINCULAR'))
 
   // ---- vinculación: la persona se identifica con su número del sistema ----
   if (!phone) {
@@ -2908,6 +2913,9 @@ async function manejarTelegram(chatId, texto, info) {
       if (await atenderInterno(phone, phone, t, 'GERENCIA')) return
     }
   }
+  // ultima parada: si manejarSecretaria tampoco reconoce el mensaje, no contesta
+  // nada. Queda escrito para que "no responde" tenga una linea que lo explique.
+  log('TG: ' + phone + ' cae en manejarSecretaria (' + (esGerencia ? 'gerencia' : tnum || 'sin tipo') + ')')
   await manejarSecretaria(phone, phone, t).catch(e => log('TG sec:', String(e.message || e)))
 }
 
