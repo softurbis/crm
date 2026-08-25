@@ -2603,6 +2603,10 @@ async function iniciarSesion(row) {
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return
+      // PRUEBA DE VIDA: si llegan mensajes de verdad, la sesion funciona — los
+      // golpes de badSession se perdonan. El zombi de julio "conectaba" pero no
+      // recibia NADA entre caida y caida: ese nunca se perdona y cae al 3er golpe.
+      if (messages.some(m => !m.key?.fromMe)) _golpesSesion.delete(String(row.id || row.label || 'principal'))
       for (const m of messages) {
         try {
           const jid = m.key.remoteJid || ''
