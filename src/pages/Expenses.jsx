@@ -232,6 +232,26 @@ export default function Expenses() {
     load()
   }
 
+  // quitar un documento ya subido (superusuario): la casilla vuelve a "subir".
+  // El archivo en si no se borra del almacenamiento — solo se desliga del gasto —
+  // asi que un error aqui no destruye evidencia.
+  async function quitarDocGasto(g, campo) {
+    if (!confirm('¿Quitar ' + LBL_DOC[campo] + ' de este gasto?\n\nLa casilla volvera a pedir el documento y podras subir otro. El archivo anterior queda en el almacenamiento.')) return
+    const { error } = await supabase.from('expenses')
+      .update({ [campo]: null, [campo.replace('_url', '_note')]: null }).eq('id', g.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'expenses', entity_id: g.id, user_email: profile?.email || null,
+      details: {
+        cambio: 'documento_quitado', documento: LBL_DOC[campo], url_anterior: g[campo],
+        solicitud: g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : null,
+        monto: Number(g.amount), receptor: g.recipient, project_id: pidOp,
+      },
+    })
+    setMsg({ ok: true, t: 'DOCUMENTO QUITADO — YA PUEDES SUBIR OTRO. QUEDA EN BITÁCORA.' })
+    load()
+  }
+
   const UpBtn = ({ g, campo, carpeta, label, alerta }) => {
     const nota = g[campo.replace('_url', '_note')]
     if (g[campo]) return (
@@ -241,6 +261,13 @@ export default function Expenses() {
         <button className="link-btn" onClick={() => setVerDoc({ url: g[campo], titulo: label })}>VER</button>
         {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
         {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
+        {role === 'superuser' && <>
+          {' '}<label className="link-btn" title="Reemplazar el documento por otro archivo" style={{ cursor: 'pointer' }}>&#128260;
+            <input type="file" accept="image/*,.pdf,.docx" hidden
+              onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
+          </label>
+          {' '}<button className="link-btn" title="Quitar el documento (queda en bitácora)" onClick={() => quitarDocGasto(g, campo)}>&#128465;</button>
+        </>}
         {nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}
       </>
     )
