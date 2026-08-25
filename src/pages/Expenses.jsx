@@ -159,10 +159,14 @@ export default function Expenses() {
       if (nota === null) return   // cancelo: no se sube nada
       const url = await upload(`gastos/${carpeta}/${g.id}`, file)
       // si el documento aparecio, la marca de "no aplica" sobra: se limpia sola
-      await supabase.from('expenses').update({
+      const { error } = await supabase.from('expenses').update({
         [campo]: url, [campo.replace('_url', '_note')]: nota.trim() || null,
         [naDe(campo)]: false, [naMotivo(campo)]: null,
       }).eq('id', g.id)
+      // el update NO lanza: devuelve el error. Ignorarlo costo dias de "DOCUMENTO
+      // SUBIDO" con el archivo en R2 pero la URL sin guardar (faltaba receipt_note,
+      // sql/68) — y nadie vio nada raro hasta que un gasto salio sin su RH.
+      if (error) throw new Error(error.message)
       setMsg({ ok: true, t: 'DOCUMENTO SUBIDO' }); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
   }
