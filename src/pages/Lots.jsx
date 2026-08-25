@@ -565,8 +565,10 @@ export default function Lots() {
     const sale = detail.sale
     if (detail.inst.length) { alert('Esta venta YA tiene cronograma. Para corregirlo usa las columnas de cada cuota.'); return }
     const precio = Number(sale.total_sale_price || 0)
-    const inicial = Number(sale.initial_amount_paid || 0)
-    const sepAmt = Number(detail.sep?.amount || 0)
+    // mismos respaldos que editarMontoCuotasDesde: si el campo contractual vino
+    // en 0 de la migracion, vale lo realmente pagado en caja (cuadres incluidos)
+    const inicial = Number(sale.initial_amount_paid || 0) || Number(detail.iniPagado || 0)
+    const sepAmt = Number(detail.sep?.amount || 0) || Number(detail.sepPagado || 0)
     const financiado = Math.round((precio - inicial - sepAmt) * 100) / 100
     if (!(financiado > 0)) { alert('No hay saldo por financiar: precio S/ ' + precio + ' menos inicial S/ ' + inicial + (sepAmt ? ' y separacion S/ ' + sepAmt : '') + '.\n\nSi el lote se pago al contado, esta venta no lleva cronograma.'); return }
     const mesesStr = prompt('GENERAR EL CRONOGRAMA DE ESTA VENTA\n\n'
@@ -681,7 +683,19 @@ export default function Lots() {
     }
 
     const antes = inst.slice(0, inicio).reduce((s, i) => s + Number(i.amount), 0)
-    const montoFinal = Math.round((Number(detail.sale.financed_amount) - antes - monto * fijos.length) * 100) / 100
+    // La ultima cuota se calcula contra el PRECIO DEL CONTRATO restando TODO lo
+    // que no es cuota: la inicial y la separacion. Antes se usaba
+    // sales.financed_amount a secas, y en las ventas migradas de Excel ese campo
+    // vino mal (habia ventas con financed_amount = precio, sin restar la
+    // inicial): la ultima cuota salia inflada y el cliente "debia" de mas.
+    // Si el campo contractual quedo en 0 por la migracion, se usa lo realmente
+    // pagado en caja (iniPagado/sepPagado incluyen los cuadres del superusuario).
+    const precio = Number(detail.sale.total_sale_price || 0)
+    const inicial = Number(detail.sale.initial_amount_paid || 0) || Number(detail.iniPagado || 0)
+    const separacion = Number(detail.sep?.amount || 0) || Number(detail.sepPagado || 0)
+    const objetivo = Math.round((precio - inicial - separacion) * 100) / 100
+    const finViejo = Math.round(Number(detail.sale.financed_amount || 0) * 100) / 100
+    const montoFinal = Math.round((objetivo - antes - monto * fijos.length) * 100) / 100
     const cuotaFinal = inst[ultima]
     if (montoFinal <= 0) {
       alert('ESE MONTO DEJA LA ULTIMA CUOTA EN S/ ' + montoFinal.toFixed(2) + '. Usa un monto menor para que el cronograma cuadre.')
@@ -697,19 +711,29 @@ export default function Lots() {
     if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
     const resumen = 'Cuotas ' + q.installment_number + ' a ' + fijos[fijos.length - 1].installment_number + ': S/ ' + monto.toFixed(2) +
       ' cada una. Cuota ' + cuotaFinal.installment_number + ': S/ ' + montoFinal.toFixed(2) + '.'
-    if (!confirm('CAMBIAR CRONOGRAMA\n\n' + resumen + '\n\nNo se modifican pagos registrados.\nMotivo: ' + motivo.trim().toUpperCase() + '\n\nConfirmar?')) return
+    const cuadre = 'EL CUADRE COMPLETO:\n'
+      + '  Precio del contrato:  S/ ' + precio.toFixed(2) + '\n'
+      + '  − Inicial:            S/ ' + inicial.toFixed(2) + '\n'
+      + (separacion ? '  − Separacion:         S/ ' + separacion.toFixed(2) + '\n' : '')
+      + '  = Va en cuotas:       S/ ' + objetivo.toFixed(2)
+      + (Math.abs(objetivo - finViejo) > 0.01 ? '\n  ⚠ El campo "financiado" decia S/ ' + finViejo.toFixed(2) + ' (venia mal de la migracion): se corrige tambien.' : '')
+    if (!confirm('CAMBIAR CRONOGRAMA\n\n' + resumen + '\n\n' + cuadre + '\n\nNo se modifican pagos registrados.\nMotivo: ' + motivo.trim().toUpperCase() + '\n\nConfirmar?')) return
 
     const idsFijos = fijos.map(i => i.id)
     const { error: e1 } = await supabase.from('installments').update({ amount: monto }).in('id', idsFijos)
     if (e1) { alert('ERROR: ' + e1.message); return }
     const { error: e2 } = await supabase.from('installments').update({ amount: montoFinal }).eq('id', cuotaFinal.id)
     if (e2) { alert('ERROR: ' + e2.message); return }
-    const { error: e3 } = await supabase.from('sales').update({ monthly_amount: monto }).eq('id', detail.sale.id)
+    // financed_amount se alinea con el contrato (precio − inicial − separacion):
+    // el resto del panel suma contra ese campo y debe contar la misma historia.
+    const { error: e3 } = await supabase.from('sales').update({ monthly_amount: monto, financed_amount: objetivo }).eq('id', detail.sale.id)
     if (e3) { alert('ERROR: ' + e3.message); return }
     await logCambio('installments', detail.sale.id, {
       cambio: 'monto_cuotas_desde', lote: sel.mz + '-' + sel.lt,
       desde_cuota: q.installment_number, hasta_cuota: fijos[fijos.length - 1].installment_number,
       monto_fijo: monto, cuota_ajuste: cuotaFinal.installment_number, monto_cuota_ajuste: montoFinal,
+      precio, inicial, separacion, financiado: objetivo,
+      financiado_antes: finViejo !== objetivo ? finViejo : undefined,
       motivo: motivo.trim().toUpperCase(),
     })
     alert('CRONOGRAMA ACTUALIZADO. ' + resumen + ' MOTIVO REGISTRADO EN BITACORA.')

@@ -8,7 +8,14 @@ import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, Lineas, corto } from '../comp
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 const mesLbl = ym => { const [y, m] = ym.split('-'); return MESES_L[Number(m) - 1] + ' ' + y }
-const estadoDe = o => { const x = (o || '').toUpperCase(); return x.includes('EXPROP') ? 'EXPROPIADO' : x.includes('PERDIDA') ? 'PERDIDA' : 'ACEPTADO' }
+// El estado sale PRIMERO de la venta (sale.status): los pagos de expropiaciones
+// migradas de Excel no llevan la marca en la observacion y salian como ACEPTADO.
+// El texto queda de respaldo para pagos sin venta (separaciones perdidas).
+const estadoDe = i => {
+  if (i.sale?.status === 'expropiado') return 'EXPROPIADO'
+  const x = (i.observation || '').toUpperCase()
+  return x.includes('EXPROP') ? 'EXPROPIADO' : x.includes('PERDIDA') ? 'PERDIDA' : 'ACEPTADO'
+}
 
 // Supabase entrega COMO MAXIMO 1000 filas por consulta, y no avisa: devuelve mil
 // y se queda tan tranquila. Pucallpa tiene 2,271 pagos, asi que el dashboard
@@ -61,7 +68,7 @@ export default function Dashboard() {
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
-        liviano ? [] : todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation').in('project_id', ids).order('id')),
+        liviano ? [] : todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation, sale:sales(status)').in('project_id', ids).order('id')),
         todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
         todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
@@ -110,9 +117,9 @@ export default function Dashboard() {
   const D = useMemo(() => {
     if (!raw) return null
     const { lots, income, expenses, sales, venc, seps } = raw
-    const acept = income.filter(i => estadoDe(i.observation) === 'ACEPTADO')
-    const perd = income.filter(i => estadoDe(i.observation) === 'PERDIDA')
-    const expr = income.filter(i => estadoDe(i.observation) === 'EXPROPIADO')
+    const acept = income.filter(i => estadoDe(i) === 'ACEPTADO')
+    const perd = income.filter(i => estadoDe(i) === 'PERDIDA')
+    const expr = income.filter(i => estadoDe(i) === 'EXPROPIADO')
     const nLotes = lots.length
     const nv = lots.filter(l => l.status === 'vendido' || l.status === 'entregado').length
     const nEntregados = lots.filter(l => l.status === 'entregado').length
@@ -216,7 +223,7 @@ export default function Dashboard() {
       if (['vendido', 'entregado'].includes(l.status)) x.vend++
     }
     if (A) for (const x of (A.pagos.por_proyecto || [])) b(x.project_id).cobrado += Number(x.cobrado || 0)
-    else for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO') b(i.project_id).cobrado += Number(i.amount)
+    else for (const i of raw.income) if (estadoDe(i) === 'ACEPTADO') b(i.project_id).cobrado += Number(i.amount)
     for (const v of raw.venc) b(v.sales?.lot?.project_id).mora += Number(v.amount) - Number(v.amount_paid)
     const porProy = Object.entries(P).map(([id, x]) => ({ id, nombre: nom(id), ...x }))
 
@@ -295,7 +302,7 @@ export default function Dashboard() {
         r.ultimaCuota = x.ultima_cuota || null
       }
     } else {
-      for (const i of raw.income) if (estadoDe(i.observation) === 'ACEPTADO' && mesesAtras(i.date, 6)) rb(i.project_id).cobr6 += Number(i.amount)
+      for (const i of raw.income) if (estadoDe(i) === 'ACEPTADO' && mesesAtras(i.date, 6)) rb(i.project_id).cobr6 += Number(i.amount)
       for (const q of (raw.crono || [])) {
         const x = rb(q.sales?.lot?.project_id)
         const falta = Number(q.amount) - Number(q.amount_paid)

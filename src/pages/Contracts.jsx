@@ -82,7 +82,7 @@ Leido el presente contrato por las partes y encontrandolo conforme a su voluntad
 {{ANEXO_FICHA}}`
 
 export default function Contracts() {
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
   const { pidOp } = useProject()
   const [proyecto, setProyecto] = useState(null)
   const [ventas, setVentas] = useState([])
@@ -146,6 +146,32 @@ export default function Contracts() {
     catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }); return }
     await supabase.from('sales').update({ signed_contract_url: url, contract_note: nota.trim() || null }).eq('id', v.id)
     setMsg({ ok: true, t: 'CONTRATO FIRMADO SUBIDO' }); load()
+  }
+
+  // corregir la fecha de venta (superusuario): la misma correccion que ya existe
+  // en la ficha del lote, pero aqui — donde se revisan los contratos — que es
+  // donde de verdad se descubre que la fecha no coincide con el papel firmado.
+  async function editarFechaVenta(v) {
+    const nueva = prompt('NUEVA FECHA DE VENTA de ' + (v.client?.full_name || 'esta venta') + ' (AAAA-MM-DD).\n\nOJO: no mueve las cuotas del cronograma; solo corrige la fecha del contrato.', v.sale_date || '')
+    if (nueva === null) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato invalido. Ej: 2026-05-12'); return }
+    if (nueva === v.sale_date) return
+    const motivo = prompt('Motivo de la correccion (obligatorio, queda en bitacora):')
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const { error } = await supabase.from('sales').update({ sale_date: nueva }).eq('id', v.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await supabase.from('activity_log').insert({
+      user_id: profile?.id, user_email: profile?.email,
+      action: 'UPDATE', entity_type: 'sales', entity_id: v.id,
+      details: {
+        cambio: 'fecha_venta', lote: (v.lot?.mz || '?') + '-' + (v.lot?.lt || '?'),
+        cliente: v.client?.full_name || null, antes: v.sale_date, despues: nueva,
+        motivo: motivo.trim().toUpperCase(), project_id: pidOp,
+      },
+    })
+    setMsg({ ok: true, t: 'FECHA DE VENTA CORREGIDA: ' + (v.sale_date || '?') + ' → ' + nueva + '. MOTIVO EN BITACORA.' })
+    load()
   }
 
   // quitar el contrato firmado (superusuario): la venta vuelve a figurar SIN CONTRATO
@@ -256,7 +282,9 @@ export default function Contracts() {
                 <td>{v.lot?.mz}-{v.lot?.lt}</td>
                 <td>{v.client?.full_name}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
                 <td>{soles(v.total_sale_price)}</td>
-                <td>{v.sale_date}</td>
+                <td>{v.sale_date}
+                  {role === 'superuser' && <button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
+                </td>
                 <td>
                   {v.signed_contract_url
                     ? <>

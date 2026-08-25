@@ -11,7 +11,14 @@ import VisorDoc from '../components/VisorDoc'
 import Buscador from '../components/Buscador'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
+// El estado del pago sale PRIMERO de la venta a la que pertenece: un pago de una
+// venta expropiada ES expropiado aunque nadie lo haya escrito en la observacion.
+// El texto queda de respaldo por los pagos sin venta (separaciones perdidas) y
+// por los que el panel sello a mano. Sin esto, los pagos de las expropiaciones
+// MIGRADAS de Excel (16 lotes, ~S/ 40.000) salian como ACEPTADO mezclados con
+// los pagos activos del lote — descubierto el 25 ago 2026.
 const estadoDe = r => {
+  if (r.sale?.status === 'expropiado') return 'EXPROPIADO'
   const o = (r.observation || '').toUpperCase()
   if (o.includes('EXPROP')) return 'EXPROPIADO'
   if (o.includes('PERDIDA')) return 'PERDIDA'
@@ -71,7 +78,7 @@ function agruparPagos(pagos) {
   })
 }
 
-const COLS = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
+const COLS = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, sale:sales(status), lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
 const COLS_NA = ', voucher_na, voucher_na_reason, receipt_na, receipt_na_reason'   // sql/49
 
 // voucher_url -> voucher_na / voucher_na_reason (idem receipt_url)
@@ -1163,6 +1170,7 @@ export default function Payments() {
                     <button className="btn-ghost" style={{ fontSize: 12 }} onClick={editarFecha}>📅 CORREGIR FECHA</button>
                     {view.voucher_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('voucher_url')}>🗑 QUITAR VOUCHER</button>}
                     {view.receipt_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('receipt_url')}>🗑 QUITAR COMPROBANTE</button>}
+                    {view.extra_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('extra_url')}>🗑 QUITAR ANEXO</button>}
                     <button className="btn-ghost" style={{ fontSize: 12, color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarPago}>🗑 ELIMINAR PAGO</button>
                   </div>
                   <p className="muted" style={{ fontSize: 10 }}>El N° de operación se corrige arriba. Al eliminar un pago de cuota, la cuota vuelve a deber ese monto.</p>
