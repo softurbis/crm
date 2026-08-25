@@ -2536,6 +2536,9 @@ async function iniciarSesion(row) {
         const num = String(sock.user?.id || '').split(':')[0].replace(/\D/g, '')
         log('✅ [' + (row.label || 'PRINCIPAL') + '] CONECTADO A WHATSAPP' + (num ? ' (+' + num + ')' : ''))
         setSes(row, { estado: 'conectado', qr: '', latido: new Date().toISOString(), ...(num ? { phone: num } : {}) }).catch(() => {})
+        // si habia un aviso de caida en Telegram, ese MISMO mensaje pasa a verde
+        avisoResuelto('wa:' + String(row.id || row.label || 'principal'),
+          '🟢 *WHATSAPP RECONECTADO* — ' + (row.label || 'PRINCIPAL') + (num ? ' +' + num : '') + ' · ' + horaLima()).catch(() => {})
         // aviso al admin como MÁXIMO 1 vez por hora y solo por la corporativa (evita spam)
         if (ADMIN && row.is_corporate) {
           try {
@@ -2565,6 +2568,33 @@ async function iniciarSesion(row) {
         }
         const motivo = SIN_VUELTA[code]
         if (!motivo) { log('reconectando', row.label || 'PRINCIPAL', '...'); setTimeout(() => iniciarSesion(S.row).catch(() => {}), 5000); return }
+        // El arreglo de agosto se paso de frenada: paraba A LA PRIMERA con 500,
+        // y un badSession transitorio (pasa) dejaba el bot parado esperando a un
+        // humano — "cada hora tengo que entrar a actualizar" (25 ago 2026).
+        // Punto medio: 401 (cerrada desde el telefono) y 403 (bloqueo) paran ya,
+        // porque re-intentar no las arregla nunca; 500 y 411 reintentan con la
+        // misma credencial hasta 3 veces en 6 horas, y SOLO al tercer golpe se
+        // declara muerta y se pide el QR. El zombi de julio (500 cada ~50 min)
+        // igual queda atrapado: 3 golpes en ~2.5 h.
+        const paraYa = code === DisconnectReason.loggedOut || code === DisconnectReason.forbidden
+        const k = String(row.id || row.label || 'principal')
+        if (!paraYa) {
+          const golpes = (_golpesSesion.get(k) || []).filter(t => Date.now() - t < 6 * 3600 * 1000)
+          golpes.push(Date.now())
+          _golpesSesion.set(k, golpes)
+          if (golpes.length < 3) {
+            log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo + ' (codigo ' + code + ') — reintento ' + golpes.length + '/3 en 60 s. Al tercero en 6 h pido re-vincular.')
+            avisoDinamico('wa:' + k, [
+              '🟠 *WHATSAPP SE CAYÓ — REINTENTANDO SOLO*',
+              (row.label || 'PRINCIPAL') + (row.phone ? ' +' + row.phone : ''),
+              '',
+              motivo + ' (código ' + code + ') · intento ' + golpes.length + '/3 · ' + horaLima() + '.',
+              'Si reconecta, este mensaje se pone 🟢 solo. Al 3er golpe en 6 h pido el QR.',
+            ].join('\n'), [[{ t: '🔄 Reintentar ahora', d: 'wa_retry:' + k }]])
+            setTimeout(() => iniciarSesion(S.row).catch(() => {}), 60000)
+            return
+          }
+        }
         setSes(row, { estado: 'cerrado', qr: '' }).catch(() => {})
         log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo.toUpperCase() + ' (codigo ' + code + '). NO reintento: hay que RE-VINCULAR escaneando el QR desde el panel.')
         avisarRevinculacion(row, code, motivo)
@@ -2819,22 +2849,50 @@ async function vigia() {
 // Aviso de RE-VINCULACION: sale por Telegram, que sigue vivo aunque WhatsApp no.
 // Se repite cada 6 h porque es una accion humana — nadie la va a hacer si el
 // sistema no la pide, y callarse cuesta dias de silencio.
-const _avisoRelink = new Map()   // sesion -> cuando se aviso
+// ---------- AVISOS DINAMICOS EN TELEGRAM ----------
+// Un aviso que cambia de estado (WhatsApp caido, chats sin respuesta) es UN
+// mensaje que se EDITA con el estado actual, no una lluvia de mensajes nuevos.
+// El primer envio suena en el celular; las ediciones son silenciosas. Cuando el
+// problema se resuelve, el MISMO mensaje pasa a verde y la proxima incidencia
+// estrena mensaje (y vuelve a sonar). Sin Telegram vinculado cae a WhatsApp.
+const _avisosTg = new Map()      // clave -> { chatId, msgId }
+// golpes badSession/multidevice por sesion (ventana 6 h). OJO: no se limpia al
+// conectar — el zombi de julio CONECTABA bien entre caida y caida, y limpiarlo
+// ahi lo dejaria reintentando para siempre. La ventana deslizante lo decanta.
+const _golpesSesion = new Map()  // sesion -> [timestamps]
+const horaLima = () => new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' })
+async function avisoDinamico(clave, texto, botones) {
+  try {
+    if (!ADMIN) return
+    const chat = TGREG ? await TGREG.chatDe(ADMIN) : null
+    if (!chat) { await enviar(ADMIN, texto, { tipo: 'reporte' }); return }
+    const prev = _avisosTg.get(clave)
+    if (prev && prev.chatId === chat && await TG.tgEditar(chat, prev.msgId, texto, botones)) return
+    const msgId = await TG.tgEnviarBotones(chat, texto, botones)
+    if (msgId) _avisosTg.set(clave, { chatId: chat, msgId })
+  } catch (e) { log('aviso dinamico:', String(e.message || e)) }
+}
+// el aviso pasa a verde y se suelta la clave: la proxima caida vuelve a sonar
+async function avisoResuelto(clave, texto) {
+  const prev = _avisosTg.get(clave)
+  if (!prev) return
+  _avisosTg.delete(clave)
+  try { await TG.tgEditar(prev.chatId, prev.msgId, texto, null) } catch {}
+}
+
 async function avisarRevinculacion(row, code, motivo) {
   try {
     if (!ADMIN) return
     const k = String(row.id || row.label || 'principal')
-    if (Date.now() - (_avisoRelink.get(k) || 0) < 6 * 3600 * 1000) return
-    _avisoRelink.set(k, Date.now())
-    await enviar(ADMIN, [
+    await avisoDinamico('wa:' + k, [
       '🔴 *WHATSAPP CAÍDO — HAY QUE RE-VINCULAR*',
       (row.label || 'PRINCIPAL') + (row.phone ? ' +' + row.phone : ''),
       '',
-      'Motivo: ' + motivo + ' (código ' + code + ').',
+      'Motivo: ' + motivo + ' (código ' + code + ') · ' + horaLima() + '.',
       '',
-      'Este número *no recibe ni envía nada* hasta que alguien vuelva a escanear el QR.',
-      'Panel → *Proyectos* → la ficha del proyecto → *Vincular WhatsApp*, y escanea con ese celular.',
-    ].join('\n'), { tipo: 'reporte' })
+      'Este número *no recibe ni envía nada* hasta re-vincular.',
+      'Panel → *Proyectos* → ficha del proyecto → *VINCULAR*, y escanea el QR con ese celular.',
+    ].join('\n'), [[{ t: '🔄 Reintentar sin QR', d: 'wa_retry:' + k }]])
   } catch (e) { log('aviso re-vinculacion:', String(e.message || e)) }
 }
 
@@ -2845,7 +2903,6 @@ async function avisarRevinculacion(row, code, motivo) {
 // Esto vigila el SINTOMA, que es lo unico que importa: si a un cliente le
 // contestamos o no. Cada minuto busca mensajes de hace mas de 2 minutos que
 // quedaron sin respuesta y avisa AL ADMIN con el numero y el texto.
-const yaAvise = new Map()   // telefono -> cuando se aviso (para no repetir cada minuto)
 async function vigilarSinRespuesta() {
   if (!ADMIN) return
   const ahora = Date.now()
@@ -2855,7 +2912,11 @@ async function vigilarSinRespuesta() {
     .select('created_at, body, conv:whatsapp_conversations!inner(phone, modo, flow_state, lead_id, wa_jid)')
     .eq('direction', 'in').gte('created_at', desde).lte('created_at', hasta)
     .order('created_at', { ascending: false }).limit(60)
-  if (!entrantes?.length) return
+  if (!entrantes?.length) {
+    // no hay nada esperando: si habia alarma abierta, ese mismo mensaje pasa a verde
+    await avisoResuelto('sin_respuesta', '🟢 *TODOS LOS CHATS ATENDIDOS* · ' + horaLima())
+    return
+  }
 
   const vistos = new Set()
   const mudos = []
@@ -2882,16 +2943,21 @@ async function vigilarSinRespuesta() {
       if (count) { contestado = true; break }
     }
     if (contestado) continue
-    const avisado = yaAvise.get(tel) || 0
-    if (ahora - avisado < 30 * 60000) continue   // ya se aviso hace poco por este chat
-    yaAvise.set(tel, ahora)
     const min = Math.round((ahora - new Date(m.created_at).getTime()) / 60000)
     mudos.push('• +' + tel + ' (hace ' + min + ' min): "' + String(m.body || '[archivo]').slice(0, 60) + '"')
   }
-  if (!mudos.length) return
-  await enviar(ADMIN, ['🚨 *EL BOT NO ESTÁ RESPONDIENDO*', '',
-    'Escribieron y quedaron sin respuesta:', ...mudos, '',
-    'Revisa con */estado*. Si hace falta: */actualizar*.'].join('\n'), { tipo: 'reporte' })
+  if (!mudos.length) {
+    await avisoResuelto('sin_respuesta', '🟢 *TODOS LOS CHATS ATENDIDOS* · ' + horaLima())
+    return
+  }
+  // UN solo mensaje que se edita con la foto actual. Antes era un mensaje nuevo
+  // cada 30 min por chat: en una caida larga, el Telegram se llenaba de copias.
+  // El primer aviso suena; las actualizaciones son silenciosas; al resolverse,
+  // el mismo mensaje pasa a verde.
+  await avisoDinamico('sin_respuesta', ['🚨 *EL BOT NO ESTÁ RESPONDIENDO*', '',
+    'Escribieron y siguen sin respuesta:', ...mudos, '',
+    'Actualizado ' + horaLima() + ' (se actualiza solo cada minuto).'].join('\n'),
+    [[{ t: '🔄 Revisar ahora', d: 'sr_check' }]])
   log('ALARMA: ' + mudos.length + ' chat(s) sin respuesta')
 }
 
@@ -2954,6 +3020,44 @@ let ESPEJO = null   // { chatId, hasta }
 function espejo(linea) {
   if (!ESPEJO || Date.now() > ESPEJO.hasta) { ESPEJO = null; return }
   TG.tgEnviar(ESPEJO.chatId, linea).catch(() => {})
+}
+
+// ---- BOTONES pulsados en los avisos dinamicos ----
+// El boton evita el viaje al panel: "reintentar conexion" hace desde Telegram
+// lo mismo que entrar y darle a actualizar, y el propio mensaje cuenta como va.
+async function manejarBotonTg(chatId, dato, msgId) {
+  if (!TGREG) return
+  const phone = await TGREG.telDe(chatId).catch(() => null)
+  if (!phone) { await TG.tgEnviar(chatId, '🔒 Primero vincúlate con */soy <tu número>*.'); return }
+  const esAdmin = ADMIN && phone.slice(-9) === ADMIN.slice(-9)
+
+  if (dato === 'sr_check') {
+    // re-mira los chats sin respuesta AHORA y edita la alarma con la foto fresca
+    await vigilarSinRespuesta().catch(e => log('sr_check:', String(e.message || e)))
+    return
+  }
+  const mRetry = dato.match(/^wa_retry:(.+)$/)
+  if (mRetry) {
+    if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese botón es solo para gerencia.'); return }
+    const k = mRetry[1]
+    const S = SESSIONS.get(k) || [...SESSIONS.values()].find(x => String(x.row?.id || x.row?.label || 'principal') === k)
+    if (S?.sock) {
+      _avisosTg.delete('wa:' + k)
+      await TG.tgEditar(chatId, msgId, '🟢 *YA ESTABA CONECTADO* — no hacía falta reintentar · ' + horaLima(), null)
+      return
+    }
+    await TG.tgEditar(chatId, msgId, '⏳ *REINTENTANDO LA CONEXIÓN…* · ' + horaLima() + '\nSi conecta, este mensaje se pone 🟢 solo. Si vuelve a caer, aviso.', null)
+    let row = S?.row
+    if (!row && k !== 'legacy') {
+      const r = await supabase.from('wa_sessions').select('*').eq('id', k).maybeSingle().then(x => x.data, () => null)
+      row = r || null
+    }
+    if (!row && k === 'legacy') row = { id: 'legacy', is_corporate: true, label: 'PRINCIPAL', project_id: null, activo: true }
+    if (row) iniciarSesion(row).catch(e => log('wa_retry:', String(e.message || e)))
+    else await TG.tgEnviar(chatId, '⚠️ No encontré esa sesión. Revísala desde el panel.')
+    return
+  }
+  log('TG: boton desconocido "' + dato + '" de ' + chatId)
 }
 
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
@@ -3096,7 +3200,8 @@ function arrancarTelegram() {
   // cargan aparte y se reintentan.
   const escuchando = () => TG.escuchar(
     (chatId, texto, info) => manejarTelegram(chatId, texto, info).catch(e => log('TG:', String(e.message || e))),
-    (...a) => log(...a))
+    (...a) => log(...a),
+    (chatId, dato, msgId) => manejarBotonTg(chatId, dato, msgId).catch(e => log('TG boton:', String(e.message || e))))
   escuchando()
   TGREG.cargar().catch(e => log('TG links (reintenta solo):', String(e.message || e)))
   // vigilante: si el bucle de escucha se murio, se vuelve a levantar

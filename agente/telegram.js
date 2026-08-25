@@ -59,6 +59,41 @@ async function tgEnviar(chatId, texto) {
   return !!(r && !r.error)
 }
 
+// ---- MENSAJES CON BOTONES QUE CAMBIAN DE ESTADO ----
+// Un aviso que se repite (la alarma de "sin respuesta", el WhatsApp caido) no
+// debe ser una lluvia de mensajes nuevos: es UN mensaje que se EDITA con el
+// estado actual, y sus botones disparan acciones sin salir de Telegram.
+//
+// botones = [[{t:'texto', d:'dato'}, ...], ...]  (filas de la botonera)
+const markup = botones => (botones && botones.length)
+  ? { inline_keyboard: botones.map(fila => fila.map(b => ({ text: b.t, callback_data: String(b.d).slice(0, 64) }))) }
+  : undefined
+
+// devuelve el message_id (para poder editarlo despues) o null si fallo
+async function tgEnviarBotones(chatId, texto, botones) {
+  const r = await tgApi('sendMessage', {
+    chat_id: chatId, text: aHtml(texto), parse_mode: 'HTML',
+    disable_web_page_preview: true, reply_markup: markup(botones),
+  })
+  if (r && r.error) { _log('TELEGRAM: sendMessage(botones) a ' + chatId + ' fallo — ' + r.error); return null }
+  return r?.message_id || null
+}
+
+// edita un mensaje ya mandado (texto y/o botonera). "message is not modified"
+// no es un error: significa que el estado no cambio, y eso esta bien.
+async function tgEditar(chatId, messageId, texto, botones) {
+  const r = await tgApi('editMessageText', {
+    chat_id: chatId, message_id: messageId, text: aHtml(texto), parse_mode: 'HTML',
+    disable_web_page_preview: true, reply_markup: markup(botones),
+  })
+  if (r && r.error) {
+    if (/not modified/i.test(r.error)) return true
+    _log('TELEGRAM: editMessageText ' + chatId + '/' + messageId + ' fallo — ' + r.error)
+    return false
+  }
+  return true
+}
+
 // ---- vinculos telefono <-> chat (cache en memoria, refresco cada 60 s) ----
 function crearRegistro(supabase, log = () => {}) {
   let porTel = new Map(), porChat = new Map(), cargado = 0
@@ -106,7 +141,8 @@ const escucha = { arrancada: false, ultimoOk: 0, ultimoError: '', fallos: 0 }
 function estadoEscucha() { return { ...escucha } }
 
 // onMensaje(chatId, texto, { nombre, usuario })
-function escuchar(onMensaje, log = () => {}) {
+// onBoton(chatId, dato, messageId, { nombre })  ← pulsaron un boton inline
+function escuchar(onMensaje, log = () => {}, onBoton = null) {
   if (!activo()) { log('TELEGRAM: sin TELEGRAM_BOT_TOKEN, canal interno desactivado'); return }
   if (escucha.arrancada) { log('TELEGRAM: ya habia una escucha corriendo, no arranco otra'); return }
   setLog(log)
@@ -127,7 +163,7 @@ function escuchar(onMensaje, log = () => {}) {
     log('TELEGRAM: canal interno escuchando')
     escucha.ultimoOk = Date.now()
     while (vivo) {
-      const ups = await tgApi('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] }, 70000)
+      const ups = await tgApi('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] }, 70000)
       if (!Array.isArray(ups)) {
         // antes esto se tragaba el error en silencio y el bucle giraba solo
         escucha.fallos++
@@ -145,6 +181,18 @@ function escuchar(onMensaje, log = () => {}) {
       escucha.ultimoOk = Date.now(); escucha.fallos = 0; escucha.ultimoError = ''
       for (const u of ups) {
         offset = u.update_id + 1
+        // boton pulsado: se confirma a Telegram (quita el relojito del cliente)
+        // y se despacha aparte — un boton NO es un mensaje de texto
+        if (u.callback_query) {
+          const q = u.callback_query
+          tgApi('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
+          if (!onBoton) { log('TELEGRAM <- boton "' + (q.data || '') + '" pero no hay manejador'); continue }
+          const nombre = [q.from?.first_name, q.from?.last_name].filter(Boolean).join(' ')
+          log('TELEGRAM <- boton de ' + (q.message?.chat?.id || '?') + ': ' + (q.data || ''))
+          try { await onBoton(q.message?.chat?.id, String(q.data || ''), q.message?.message_id, { nombre }) }
+          catch (e) { log('TG onBoton:', String(e.message || e)) }
+          continue
+        }
         const m = u.message
         // Se registra TODO lo que llega. El bot anotaba lo que mandaba pero no lo
         // que recibia, y por eso un mensaje que entraba y se descartaba no dejaba
@@ -170,4 +218,4 @@ function escuchar(onMensaje, log = () => {}) {
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
+module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
