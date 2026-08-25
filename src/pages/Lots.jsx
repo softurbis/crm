@@ -1600,11 +1600,24 @@ export default function Lots() {
               const pagado = Math.round((pagCuotas + iniReal + sepReal) * 100) / 100
               const saldo = Math.round((Number(sale.total_sale_price) - pagado) * 100) / 100
               const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-              return (
+              // EL CUADRE DEL CRONOGRAMA, con sumas de verdad: inicial + separacion
+              // + todas las cuotas (sumadas una a una, no el campo "financiado")
+              // tiene que dar exactamente el precio. La migracion dejo 53 ventas
+              // donde no da — sin esta linea, nadie lo veia hasta la ultima cuota.
+              const sumaCuotas = Math.round(detail.inst.reduce((x, i) => x + Number(i.amount), 0) * 100) / 100
+              const totalPlan = Math.round((iniReal + sepReal + sumaCuotas) * 100) / 100
+              const dif = Math.round((totalPlan - Number(sale.total_sale_price)) * 100) / 100
+              return (<>
                 <p>
                   <span className="muted">Precio:</span> <b>{f(sale.total_sale_price)}</b> · <span className="muted">Separación:</span> {f(sepReal)} · <span className="muted">Inicial:</span> {f(iniReal)} · <span className="muted">Cuotas pagadas:</span> {f(pagCuotas)} · <span className="muted">TOTAL PAGADO:</span> <b style={{ color: '#7ec8a0' }}>{f(pagado)}</b> · <span className="muted">SALDO:</span> <b className={saldo > 0 ? 'warn' : 'ok'}>{f(saldo)}</b>
                 </p>
-              )
+                {detail.inst.length > 0 && (Math.abs(dif) <= 0.05
+                  ? <p className="ok" style={{ fontSize: 12, margin: '2px 0 0' }}>✓ EL CRONOGRAMA CUADRA: inicial {f(iniReal)}{sepReal > 0 ? ' + separación ' + f(sepReal) : ''} + {detail.inst.length} cuotas {f(sumaCuotas)} = {f(totalPlan)}, igual al precio.</p>
+                  : <p className="warn" style={{ fontSize: 12, margin: '2px 0 0' }}>
+                      ⚠ <b>EL CRONOGRAMA NO CUADRA:</b> inicial {f(iniReal)}{sepReal > 0 ? ' + separación ' + f(sepReal) : ''} + {detail.inst.length} cuotas {f(sumaCuotas)} = <b>{f(totalPlan)}</b>, y el precio es {f(sale.total_sale_price)} → <b>{f(Math.abs(dif))} {dif > 0 ? 'DE MÁS (el cliente pagaría encima del precio)' : 'DE MENOS (faltaría cobrar)'}</b>.
+                      {role === 'superuser' ? ' Revisa el contrato y corrige con MONTO en la primera cuota impaga: la última se recalcula sola.' : ' Avisa al superusuario.'}
+                    </p>)}
+              </>)
             })()}
 
             {/* dos vistas separadas: el cronograma no se mezcla con el historial */}
@@ -1679,6 +1692,21 @@ export default function Lots() {
                     </tr>
                   )
                 })}
+                {/* TOTAL de verdad: las columnas sumadas una a una, a la vista.
+                    Contra este total se compara el precio en el aviso de arriba. */}
+                {detail.inst.length > 0 && (() => {
+                  const f = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+                  const tMonto = detail.inst.reduce((x, i) => x + Number(i.amount), 0)
+                  const tPagado = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
+                  return (
+                    <tr style={{ borderTop: '2px solid rgba(255,255,255,.2)', fontWeight: 700 }}>
+                      <td colSpan="2">TOTAL EN CUOTAS ({detail.inst.length})</td>
+                      <td>{f(tMonto)}</td>
+                      <td>{f(tPagado)}</td>
+                      <td colSpan="2" className="muted" style={{ fontWeight: 400, fontSize: 11 }}>+ inicial y separación = lo que paga el cliente</td>
+                    </tr>
+                  )
+                })()}
               </tbody>
             </table>
             </>}
