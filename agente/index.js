@@ -2930,15 +2930,26 @@ async function tableroLeads(phone, datos, fallback) {
   if (_leadsHoy.dia !== dia) { _leadsHoy.dia = dia; _leadsHoy.items.clear(); _avisosTg.delete('leads') }
   const prev = _leadsHoy.items.get(phone) || {}
   _leadsHoy.items.set(phone, { ...prev, ...datos, hora: horaLima() })
-  const filas = [..._leadsHoy.items.entries()].reverse().map(([tel, x]) =>
-    (ICONO_LEAD[x.estado] || '•') + ' +' + tel
-    + (x.nombre && x.nombre !== 'POR CONFIRMAR' ? ' · ' + x.nombre : '')
-    + (x.proyecto ? ' · ' + x.proyecto : '') + ' · ' + x.hora
-    + (x.estado === 'asesor' ? ' — *PIDE ASESOR*' : x.estado === 'sin_respuesta' ? ' — dejó de responder' : ''))
-  const texto = '📋 *LEADS DE HOY* (' + _leadsHoy.items.size + ')\n\n'
-    + filas.slice(0, 15).join('\n')
-    + (filas.length > 15 ? '\n… y ' + (filas.length - 15) + ' más' : '')
-    + '\n\n🆕 con el bot · 🙋 y ⏳ esperan HUMANO (ya están en el Kanban) · ' + horaLima()
+  // la lista del dia entera, con lo URGENTE arriba: primero los que esperan a
+  // una persona (eso es lo que hay que ver de un vistazo), debajo los que van
+  // bien con el bot. Dentro de cada grupo, el mas reciente primero.
+  const fila = ([tel, x]) =>
+    (ICONO_LEAD[x.estado] || '•') + ' '
+    + (x.nombre && x.nombre !== 'POR CONFIRMAR' ? '*' + x.nombre + '* · ' : '')
+    + '+' + tel + (x.proyecto ? ' · ' + x.proyecto : '') + ' · ' + x.hora
+    + (x.estado === 'asesor' ? ' — *PIDE ASESOR*' : x.estado === 'sin_respuesta' ? ' — dejó de responder' : '')
+  const todos = [..._leadsHoy.items.entries()].reverse()
+  const urgentes = todos.filter(([, x]) => x.estado !== 'nuevo').map(fila)
+  const conBot = todos.filter(([, x]) => x.estado === 'nuevo').map(fila)
+  const diaBonito = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', timeZone: 'America/Lima' })
+  const partes = ['📋 *LEADS DE HOY* — ' + diaBonito + ' · ' + _leadsHoy.items.size + (_leadsHoy.items.size === 1 ? ' lead' : ' leads')]
+  if (urgentes.length) partes.push('', '🚨 *ESPERAN A UNA PERSONA*', ...urgentes.slice(0, 10))
+  if (conBot.length) {
+    partes.push('', '🤖 *CON EL BOT*', ...conBot.slice(0, 10))
+    if (conBot.length > 10) partes.push('… y ' + (conBot.length - 10) + ' más')
+  }
+  partes.push('', 'Actualizado ' + horaLima() + ' — este mensaje se actualiza solo.')
+  const texto = partes.join('\n')
   const botones = [[{ t: '📊 Abrir el Kanban de leads', url: 'https://softurbis.github.io/crm/leads' }]]
   // leads nuevos: el MISMO mensaje se edita en silencio. Alguien pide humano:
   // el tablero re-suena (y la copia anterior se borra — un solo tablero siempre).
