@@ -1694,9 +1694,12 @@ async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
-  const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
+  const destinos = new Set(); if (asesor.length >= 9) destinos.add(asesor)
   for (const x of AVISOS_EXTRA) destinos.add(x)
+  if (ADMIN) destinos.delete(ADMIN)
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })   // avisos internos: por su propio chat/corporativa
+  // al admin: el tablero se RE-PUBLICA para que suene — hay un cliente esperando humano
+  await tableroLeads(phone, { estado: 'asesor', nombre: l2?.full_name || '', proyecto: l2?.project?.name || '' }, msj)
 }
 
 // DETIENE el flujo cuando el cliente no responde: NO avanza, NO le escribe nada
@@ -1708,8 +1711,10 @@ async function detenerFlujoHumano(ses, jid, phone, lead) {
   const msj = '⏳ *LEAD SIN RESPUESTA — requiere contacto HUMANO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\n\nEl cliente dejó de responder al bot. El flujo se detuvo aquí; contáctalo tú. 🙌'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
   // sin las copias: a esos números solo les llega el lead nuevo y el pedido de asesor
-  const destinos = new Set(); if (ADMIN) destinos.add(ADMIN); if (asesor.length >= 9) destinos.add(asesor)
+  const destinos = new Set(); if (asesor.length >= 9) destinos.add(asesor)
+  if (ADMIN) destinos.delete(ADMIN)
   for (const d of destinos) await enviar(d, msj, { tipo: 'aviso_admin' })
+  await tableroLeads(phone, { estado: 'sin_respuesta', nombre: l2?.full_name || '', proyecto: l2?.project?.name || '' }, msj)
 }
 
 
@@ -2144,10 +2149,14 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     {
       const avisoLead = `🤖 NUEVO LEAD: ${phone}${pr && pr.name ? ' · interesado en ' + pr.name : ''} ("${corto.slice(0, 50)}").`
       const aseLead = String(pr?.lead_notify_phone || '').replace(/\D/g, '')
-      const dests = new Set(); if (ADMIN) dests.add(ADMIN)
+      // el ADMIN lo ve en el tablero del dia (un mensaje que se edita, sin ruido);
+      // el asesor y las copias siguen con su aviso individual: solo ven lo suyo
+      const dests = new Set()
       for (const x of AVISOS_EXTRA) dests.add(x)
       if (aseLead.length >= 9) dests.add(aseLead)
+      if (ADMIN) dests.delete(ADMIN)
       for (const d of dests) await enviar(d, avisoLead, { tipo: 'aviso_admin' })
+      await tableroLeads(phone, { estado: 'nuevo', nombre: pushName || '', proyecto: pr?.name || '' }, avisoLead)
     }
     if (pr) { await iniciarFlujoProyecto(ses, jid, phone, lead); return }   // proyecto identificado → directo al flujo del panel
     await pedirProyecto(ses, jid, phone, lead, proys)                       // no identificado → pedir cuál (solo corporativa)
@@ -2892,6 +2901,38 @@ async function avisoResuelto(clave, texto) {
   if (!prev) return
   _avisosTg.delete(clave)
   try { await TG.tgEditar(prev.chatId, prev.msgId, texto, null) } catch {}
+}
+
+// ---------- TABLERO DE LEADS DEL DIA ----------
+// Antes cada lead nuevo, cada "pide asesor" y cada "dejo de responder" era un
+// mensaje mas al admin: un dia movido enterraba el Telegram. Ahora es UN solo
+// mensaje que se edita con la lista del dia. Los leads nuevos se acumulan en
+// silencio; cuando alguien PIDE HUMANO el tablero se re-publica para que SUENE
+// (hay un cliente esperando). El asesor del proyecto y las copias siguen
+// recibiendo su aviso individual: ellos solo ven lo suyo.
+const _leadsHoy = { dia: '', items: new Map() }   // phone -> { nombre, proyecto, estado, hora }
+const ICONO_LEAD = { nuevo: '🆕', asesor: '🙋', sin_respuesta: '⏳' }
+async function tableroLeads(phone, datos, fallback) {
+  if (!ADMIN) return
+  const chat = TGREG ? await TGREG.chatDe(ADMIN).catch(() => null) : null
+  // sin Telegram vinculado no hay tablero editable: va el aviso clasico y punto
+  if (!chat) { if (fallback) await enviar(ADMIN, fallback, { tipo: 'aviso_admin' }); return }
+  const dia = new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima' })
+  if (_leadsHoy.dia !== dia) { _leadsHoy.dia = dia; _leadsHoy.items.clear(); _avisosTg.delete('leads') }
+  const prev = _leadsHoy.items.get(phone) || {}
+  _leadsHoy.items.set(phone, { ...prev, ...datos, hora: horaLima() })
+  if (datos.estado === 'asesor' || datos.estado === 'sin_respuesta') _avisosTg.delete('leads')
+  const filas = [..._leadsHoy.items.entries()].reverse().map(([tel, x]) =>
+    (ICONO_LEAD[x.estado] || '•') + ' +' + tel
+    + (x.nombre && x.nombre !== 'POR CONFIRMAR' ? ' · ' + x.nombre : '')
+    + (x.proyecto ? ' · ' + x.proyecto : '') + ' · ' + x.hora
+    + (x.estado === 'asesor' ? ' — *PIDE ASESOR*' : x.estado === 'sin_respuesta' ? ' — dejó de responder' : ''))
+  await avisoDinamico('leads',
+    '📋 *LEADS DE HOY* (' + _leadsHoy.items.size + ')\n\n'
+    + filas.slice(0, 15).join('\n')
+    + (filas.length > 15 ? '\n… y ' + (filas.length - 15) + ' más' : '')
+    + '\n\n🆕 con el bot · 🙋 y ⏳ esperan HUMANO (ya están en el Kanban) · ' + horaLima(),
+    [[{ t: '📊 Abrir el Kanban de leads', url: 'https://softurbis.github.io/crm/leads' }]])
 }
 
 async function avisarRevinculacion(row, code, motivo) {

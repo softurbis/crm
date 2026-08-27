@@ -64,9 +64,12 @@ async function tgEnviar(chatId, texto) {
 // debe ser una lluvia de mensajes nuevos: es UN mensaje que se EDITA con el
 // estado actual, y sus botones disparan acciones sin salir de Telegram.
 //
-// botones = [[{t:'texto', d:'dato'}, ...], ...]  (filas de la botonera)
+// botones = [[{t:'texto', d:'dato'} | {t:'texto', url:'https://...'}, ...], ...]
+// d = accion que vuelve al bot (callback) · url = abre el enlace directamente
 const markup = botones => (botones && botones.length)
-  ? { inline_keyboard: botones.map(fila => fila.map(b => ({ text: b.t, callback_data: String(b.d).slice(0, 64) }))) }
+  ? { inline_keyboard: botones.map(fila => fila.map(b => b.url
+      ? { text: b.t, url: b.url }
+      : { text: b.t, callback_data: String(b.d).slice(0, 64) })) }
   : undefined
 
 // devuelve el message_id (para poder editarlo despues) o null si fallo
