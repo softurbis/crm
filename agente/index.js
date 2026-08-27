@@ -2596,8 +2596,17 @@ async function iniciarSesion(row) {
           }
         }
         setSes(row, { estado: 'cerrado', qr: '' }).catch(() => {})
-        log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo.toUpperCase() + ' (codigo ' + code + '). NO reintento: hay que RE-VINCULAR escaneando el QR desde el panel.')
+        S.ultimoCierre = code; S.ultimoMotivo = motivo
+        log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo.toUpperCase() + ' (codigo ' + code + '). Sesion CERRADA; aviso fuerte al admin.')
+        // La escalada a ROJO tiene que SONAR: si se edita el mensaje naranja, la
+        // notificacion es silenciosa y nadie se entera — paso el 25 ago: el bot
+        // quedo sordo de madrugada y el aviso murio como edicion muda.
+        _avisosTg.delete('wa:' + k)
         avisarRevinculacion(row, code, motivo)
+        // Parar DEL TODO ya costo dos veces dias de sordera. Salvo 401/403 (ahi
+        // reintentar no arregla nada), se sigue probando en silencio cada 30 min:
+        // si WhatsApp acepta la credencial otra vez, el aviso se pone verde solo.
+        if (!paraYa) setTimeout(() => iniciarSesion(S.row).catch(() => {}), 30 * 60000)
       }
     })
 
@@ -2864,6 +2873,7 @@ const _avisosTg = new Map()      // clave -> { chatId, msgId }
 // conectar — el zombi de julio CONECTABA bien entre caida y caida, y limpiarlo
 // ahi lo dejaria reintentando para siempre. La ventana deslizante lo decanta.
 const _golpesSesion = new Map()  // sesion -> [timestamps]
+const _avisoRelink = new Map()   // sesion -> cuando fue el ultimo aviso FUERTE (para repetirlo cada 6 h)
 const horaLima = () => new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' })
 async function avisoDinamico(clave, texto, botones) {
   try {
@@ -2888,6 +2898,7 @@ async function avisarRevinculacion(row, code, motivo) {
   try {
     if (!ADMIN) return
     const k = String(row.id || row.label || 'principal')
+    _avisoRelink.set(k, Date.now())
     await avisoDinamico('wa:' + k, [
       '🔴 *WHATSAPP CAÍDO — HAY QUE RE-VINCULAR*',
       (row.label || 'PRINCIPAL') + (row.phone ? ' +' + row.phone : ''),
@@ -2896,7 +2907,9 @@ async function avisarRevinculacion(row, code, motivo) {
       '',
       'Este número *no recibe ni envía nada* hasta re-vincular.',
       'Panel → *Proyectos* → ficha del proyecto → *VINCULAR*, y escanea el QR con ese celular.',
-    ].join('\n'), [[{ t: '🔄 Reintentar sin QR', d: 'wa_retry:' + k }]])
+      '',
+      'Mientras siga caído lo repito cada 6 h. Sigo probando solo cada 30 min.',
+    ].join('\n'), [[{ t: '🔄 Reintentar sin QR', d: 'wa_retry:' + k }, { t: '🔕 Silenciar 12 h', d: 'wa_mute:' + k }]])
   } catch (e) { log('aviso re-vinculacion:', String(e.message || e)) }
 }
 
@@ -3059,6 +3072,15 @@ async function manejarBotonTg(chatId, dato, msgId) {
     if (!row && k === 'legacy') row = { id: 'legacy', is_corporate: true, label: 'PRINCIPAL', project_id: null, activo: true }
     if (row) iniciarSesion(row).catch(e => log('wa_retry:', String(e.message || e)))
     else await TG.tgEnviar(chatId, '⚠️ No encontré esa sesión. Revísala desde el panel.')
+    return
+  }
+  const mMute = dato.match(/^wa_mute:(.+)$/)
+  if (mMute) {
+    if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese botón es solo para gerencia.'); return }
+    // corre el reloj del aviso fuerte 12 h hacia adelante; los reintentos
+    // silenciosos de cada 30 min siguen — solo se calla la bocina
+    _avisoRelink.set(mMute[1], Date.now() + 12 * 3600 * 1000)
+    await TG.tgEditar(chatId, msgId, '🔕 *AVISOS SILENCIADOS 12 HORAS* · ' + horaLima() + '\nSigo reintentando cada 30 min; si conecta aviso en verde. Para re-vincular: panel → Proyectos → VINCULAR.', null)
     return
   }
   log('TG: boton desconocido "' + dato + '" de ' + chatId)
@@ -3228,6 +3250,26 @@ async function arrancar() {
   }
   for (const r of rows) iniciarSesion(r).catch(e => log('init', r.label || r.id, ':', String(e.message || e)))
   setInterval(() => { supervisarSesiones().catch(() => {}) }, 60000)
+
+  // VIGIA DE SESIONES CAIDAS: cada 30 min, lo que este caido se vuelve a
+  // intentar (salvo 401/403, que solo se arreglan con QR o quitando el bloqueo)
+  // y, si sigue caido, el aviso fuerte se REPITE cada 6 h como mensaje nuevo —
+  // que suene. Un solo aviso editado en silencio ya costo un dia y medio sordo.
+  setInterval(() => {
+    for (const S of SESSIONS.values()) {
+      if (S.sock || S.iniciando || S.row?.activo === false) continue
+      const k = String(S.row?.id || S.row?.label || 'principal')
+      const sinArreglo = S.ultimoCierre === DisconnectReason.loggedOut || S.ultimoCierre === DisconnectReason.forbidden
+      if (!sinArreglo) {
+        log('[vigia] reintento silencioso de', S.row?.label || k)
+        iniciarSesion(S.row).catch(() => {})
+      }
+      if (Date.now() - (_avisoRelink.get(k) || 0) > 6 * 3600 * 1000) {
+        _avisosTg.delete('wa:' + k)
+        avisarRevinculacion(S.row, S.ultimoCierre || '?', S.ultimoMotivo || 'la sesion sigue caida').catch(() => {})
+      }
+    }
+  }, 30 * 60000)
 
   // crons GLOBALES (una sola vez, no por sesión)
   const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
