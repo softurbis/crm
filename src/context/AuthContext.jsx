@@ -13,7 +13,22 @@ export function AuthProvider({ children }) {
       setSession(data.session)
       setLoading(false)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((ev, s) => {
+      // El token se renueva solo cada ~55 minutos, y ese evento NO es un cambio
+      // de usuario. Antes se pasaba tal cual: el arbol entero recargaba perfil y
+      // proyectos cada hora, y si la renovacion tropezaba un instante la sesion
+      // quedaba nula un momento -> App mandaba a /login y de vuelta -> el
+      // formulario a medio llenar moria en el viaje (pasaba registrando cuotas).
+      if (ev === 'SIGNED_OUT') {
+        // ¿cierre de verdad o tropiezo de la renovacion? Se confirma antes de
+        // expulsar: si getSession aun tiene sesion, no ha pasado nada.
+        supabase.auth.getSession().then(({ data }) => setSession(data.session || null))
+        return
+      }
+      // mismo usuario = misma sesion para React (la libreria ya guarda el token
+      // nuevo por dentro); asi la renovacion no dispara ninguna recarga
+      setSession(prev => (prev && s && prev.user?.id === s.user?.id) ? prev : s)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
