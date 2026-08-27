@@ -232,6 +232,39 @@ export default function Expenses() {
     load()
   }
 
+  // ---- RH MULTIPLES (sql/70) ----
+  // Un pago real junta a veces 3, 5 y hasta 6 recibos por honorarios. El
+  // principal sigue en receipt_url (los contadores de "falta RH" no cambian);
+  // los demas viven en receipt_docs = [{url, note}].
+  const rhExtras = g => (Array.isArray(g.receipt_docs) ? g.receipt_docs : [])
+
+  async function agregarRhExtra(g, file) {
+    try {
+      const nota = prompt('Nota de este RH adicional (de quién es, opcional):')
+      if (nota === null) return
+      const url = await upload(`gastos/rh/${g.id}`, file)
+      const { error } = await supabase.from('expenses')
+        .update({ receipt_docs: [...rhExtras(g), { url, note: nota.trim() || null }] }).eq('id', g.id)
+      if (error) throw new Error(/receipt_docs/.test(error.message) ? 'Falta correr sql/70 en la base (columna receipt_docs).' : error.message)
+      setMsg({ ok: true, t: 'RH ADICIONAL SUBIDO (' + (rhExtras(g).length + 2) + ' en total en este gasto)' })
+      load()
+    } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
+  }
+
+  async function quitarRhExtra(g, i) {
+    const d = rhExtras(g)[i]
+    if (!d || !confirm('¿Quitar este RH adicional' + (d.note ? ' (' + d.note + ')' : '') + '?\n\nEl archivo queda en el almacenamiento; solo se desliga del gasto.')) return
+    const { error } = await supabase.from('expenses')
+      .update({ receipt_docs: rhExtras(g).filter((_, j) => j !== i) }).eq('id', g.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await supabase.from('activity_log').insert({
+      action: 'UPDATE', entity_type: 'expenses', entity_id: g.id, user_email: profile?.email || null,
+      details: { cambio: 'rh_extra_quitado', url_anterior: d.url, nota: d.note || null, receptor: g.recipient, project_id: pidOp },
+    })
+    setMsg({ ok: true, t: 'RH ADICIONAL QUITADO. QUEDA EN BITÁCORA.' })
+    load()
+  }
+
   // quitar un documento ya subido (superusuario): la casilla vuelve a "subir".
   // El archivo en si no se borra del almacenamiento — solo se desliga del gasto —
   // asi que un error aqui no destruye evidencia.
@@ -269,6 +302,24 @@ export default function Expenses() {
           {' '}<button className="link-btn" title="Quitar el documento (queda en bitácora)" onClick={() => quitarDocGasto(g, campo)}>&#128465;</button>
         </>}
         {nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}
+        {campo === 'receipt_url' && <>
+          {rhExtras(g).map((d, i) => (
+            <div key={i} className="small" style={{ textTransform: 'none' }}>
+              <button className="link-btn" onClick={() => setVerDoc({ url: d.url, titulo: 'RH ' + (i + 2) + ' de este gasto' })}>VER RH {i + 2}</button>
+              {' '}<a href={d.url} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
+              {d.note && <span className="muted"> · {d.note}</span>}
+              {role === 'superuser' && <> <button className="link-btn" title="Quitar este RH adicional" onClick={() => quitarRhExtra(g, i)}>&#128465;</button></>}
+            </div>
+          ))}
+          {!readOnly && rhExtras(g).length < 7 && (
+            <label className="link-btn small" style={{ cursor: 'pointer' }}
+              title="Un pago puede juntar varios RH (3, 5, hasta 6): agrégalos aquí, cada uno con su nota">
+              &#10133; otro RH
+              <input type="file" accept="image/*,.pdf,.docx" hidden
+                onChange={e => e.target.files[0] && agregarRhExtra(g, e.target.files[0])} />
+            </label>
+          )}
+        </>}
       </>
     )
     // marcado como que nunca va a llegar: se ve el motivo, y se puede revertir
