@@ -2610,7 +2610,6 @@ async function iniciarSesion(row) {
         // La escalada a ROJO tiene que SONAR: si se edita el mensaje naranja, la
         // notificacion es silenciosa y nadie se entera — paso el 25 ago: el bot
         // quedo sordo de madrugada y el aviso murio como edicion muda.
-        _avisosTg.delete('wa:' + k)
         avisarRevinculacion(row, code, motivo)
         // Parar DEL TODO ya costo dos veces dias de sordera. Salvo 401/403 (ahi
         // reintentar no arregla nada), se sigue probando en silencio cada 30 min:
@@ -2903,6 +2902,16 @@ async function avisoResuelto(clave, texto) {
   try { await TG.tgEditar(prev.chatId, prev.msgId, texto, null) } catch {}
 }
 
+// re-SONAR un aviso: mensaje nuevo (Telegram notifica) y el anterior SE BORRA.
+// En el chat siempre vive una sola copia de cada tablero — con campana cuando
+// hace falta, sin cementerio de versiones viejas arriba.
+async function avisoSonoro(clave, texto, botones) {
+  const prev = _avisosTg.get(clave)
+  _avisosTg.delete(clave)
+  await avisoDinamico(clave, texto, botones)
+  if (prev) TG.tgBorrar(prev.chatId, prev.msgId).catch(() => {})
+}
+
 // ---------- TABLERO DE LEADS DEL DIA ----------
 // Antes cada lead nuevo, cada "pide asesor" y cada "dejo de responder" era un
 // mensaje mas al admin: un dia movido enterraba el Telegram. Ahora es UN solo
@@ -2921,18 +2930,20 @@ async function tableroLeads(phone, datos, fallback) {
   if (_leadsHoy.dia !== dia) { _leadsHoy.dia = dia; _leadsHoy.items.clear(); _avisosTg.delete('leads') }
   const prev = _leadsHoy.items.get(phone) || {}
   _leadsHoy.items.set(phone, { ...prev, ...datos, hora: horaLima() })
-  if (datos.estado === 'asesor' || datos.estado === 'sin_respuesta') _avisosTg.delete('leads')
   const filas = [..._leadsHoy.items.entries()].reverse().map(([tel, x]) =>
     (ICONO_LEAD[x.estado] || '•') + ' +' + tel
     + (x.nombre && x.nombre !== 'POR CONFIRMAR' ? ' · ' + x.nombre : '')
     + (x.proyecto ? ' · ' + x.proyecto : '') + ' · ' + x.hora
     + (x.estado === 'asesor' ? ' — *PIDE ASESOR*' : x.estado === 'sin_respuesta' ? ' — dejó de responder' : ''))
-  await avisoDinamico('leads',
-    '📋 *LEADS DE HOY* (' + _leadsHoy.items.size + ')\n\n'
+  const texto = '📋 *LEADS DE HOY* (' + _leadsHoy.items.size + ')\n\n'
     + filas.slice(0, 15).join('\n')
     + (filas.length > 15 ? '\n… y ' + (filas.length - 15) + ' más' : '')
-    + '\n\n🆕 con el bot · 🙋 y ⏳ esperan HUMANO (ya están en el Kanban) · ' + horaLima(),
-    [[{ t: '📊 Abrir el Kanban de leads', url: 'https://softurbis.github.io/crm/leads' }]])
+    + '\n\n🆕 con el bot · 🙋 y ⏳ esperan HUMANO (ya están en el Kanban) · ' + horaLima()
+  const botones = [[{ t: '📊 Abrir el Kanban de leads', url: 'https://softurbis.github.io/crm/leads' }]]
+  // leads nuevos: el MISMO mensaje se edita en silencio. Alguien pide humano:
+  // el tablero re-suena (y la copia anterior se borra — un solo tablero siempre).
+  if (datos.estado === 'asesor' || datos.estado === 'sin_respuesta') await avisoSonoro('leads', texto, botones)
+  else await avisoDinamico('leads', texto, botones)
 }
 
 async function avisarRevinculacion(row, code, motivo) {
@@ -2940,7 +2951,7 @@ async function avisarRevinculacion(row, code, motivo) {
     if (!ADMIN) return
     const k = String(row.id || row.label || 'principal')
     _avisoRelink.set(k, Date.now())
-    await avisoDinamico('wa:' + k, [
+    await avisoSonoro('wa:' + k, [
       '🔴 *WHATSAPP CAÍDO — HAY QUE RE-VINCULAR*',
       (row.label || 'PRINCIPAL') + (row.phone ? ' +' + row.phone : ''),
       '',
@@ -3306,7 +3317,6 @@ async function arrancar() {
         iniciarSesion(S.row).catch(() => {})
       }
       if (Date.now() - (_avisoRelink.get(k) || 0) > 6 * 3600 * 1000) {
-        _avisosTg.delete('wa:' + k)
         avisarRevinculacion(S.row, S.ultimoCierre || '?', S.ultimoMotivo || 'la sesion sigue caida').catch(() => {})
       }
     }

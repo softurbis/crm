@@ -82,6 +82,14 @@ async function tgEnviarBotones(chatId, texto, botones) {
   return r?.message_id || null
 }
 
+// borra un mensaje del propio bot (Telegram lo permite hasta 48 h despues).
+// Se usa al "re-sonar" un aviso: sale el nuevo y el viejo desaparece — en el
+// chat solo vive UNA copia de cada tablero.
+async function tgBorrar(chatId, messageId) {
+  const r = await tgApi('deleteMessage', { chat_id: chatId, message_id: messageId })
+  return !(r && r.error)
+}
+
 // edita un mensaje ya mandado (texto y/o botonera). "message is not modified"
 // no es un error: significa que el estado no cambio, y eso esta bien.
 async function tgEditar(chatId, messageId, texto, botones) {
@@ -221,4 +229,4 @@ function escuchar(onMensaje, log = () => {}, onBoton = null) {
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
+module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, tgBorrar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
