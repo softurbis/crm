@@ -2985,6 +2985,10 @@ async function avisarRevinculacion(row, code, motivo) {
 // quedaron sin respuesta y avisa AL ADMIN con el numero y el texto.
 async function vigilarSinRespuesta() {
   if (!ADMIN) return
+  // bot APAGADO A PROPOSITO (interruptores del panel): los chats sin respuesta
+  // son lo esperado — los atiende una persona. Gritar "no responde" seria
+  // regañar al dueño por su propia decision.
+  if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
   const ahora = Date.now()
   const desde = new Date(ahora - 20 * 60000).toISOString()   // no se mira mas atras de 20 min
   const hasta = new Date(ahora - 2 * 60000).toISOString()    // tiene que llevar 2 min esperando
