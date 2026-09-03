@@ -2591,7 +2591,7 @@ async function iniciarSesion(row) {
           const golpes = (_golpesSesion.get(k) || []).filter(t => Date.now() - t < 6 * 3600 * 1000)
           golpes.push(Date.now())
           _golpesSesion.set(k, golpes)
-          if (golpes.length < 3) {
+          if (golpes.length < 3 && await reintentosOn()) {
             log('[' + (row.label || 'PRINCIPAL') + '] ' + motivo + ' (codigo ' + code + ') — reintento ' + golpes.length + '/3 en 60 s. Al tercero en 6 h pido re-vincular.')
             avisoDinamico('wa:' + k, [
               '🟠 *WHATSAPP SE CAYÓ — REINTENTANDO SOLO*',
@@ -2614,7 +2614,8 @@ async function iniciarSesion(row) {
         // Parar DEL TODO ya costo dos veces dias de sordera. Salvo 401/403 (ahi
         // reintentar no arregla nada), se sigue probando en silencio cada 30 min:
         // si WhatsApp acepta la credencial otra vez, el aviso se pone verde solo.
-        if (!paraYa) setTimeout(() => iniciarSesion(S.row).catch(() => {}), 30 * 60000)
+        // (el vigia de 30 min ya lo cubre; respeta el interruptor de /control)
+        if (!paraYa) setTimeout(async () => { if (await reintentosOn()) iniciarSesion(S.row).catch(() => {}) }, 30 * 60000)
       }
     })
 
@@ -2876,6 +2877,17 @@ async function vigia() {
 // El primer envio suena en el celular; las ediciones son silenciosas. Cuando el
 // problema se resuelve, el MISMO mensaje pasa a verde y la proxima incidencia
 // estrena mensaje (y vuelve a sonar). Sin Telegram vinculado cae a WhatsApp.
+// ---------- INTERRUPTORES DESDE TELEGRAM (/control) ----------
+// Tres llaves en bot_settings (todas "encendidas" si no existen, por flag()):
+//   ia_activa          ya existia: el bot atiende leads (0 = pausa: se guardan
+//                      en el Kanban en silencio, sin responder)
+//   avisos_activos     latido de 30 min, alarmas y tableros por Telegram
+//   reintentos_activos insistir cuando WhatsApp se cae (60 s y vigia de 30 min)
+// La PAUSA es ia_activa=0 + avisos_activos=0: el bot deja de hablar y de
+// mandar "EN LINEA" a cada rato; se reanuda con un boton.
+const avisosOn = () => flag('avisos_activos')
+const reintentosOn = () => flag('reintentos_activos')
+
 const _avisosTg = new Map()      // clave -> { chatId, msgId }
 // golpes badSession/multidevice por sesion (ventana 6 h). OJO: no se limpia al
 // conectar — el zombi de julio CONECTABA bien entre caida y caida, y limpiarlo
@@ -2886,6 +2898,7 @@ const horaLima = () => new Date().toLocaleTimeString('es-PE', { hour: '2-digit',
 async function avisoDinamico(clave, texto, botones) {
   try {
     if (!ADMIN) return
+    if (!(await avisosOn())) return      // avisos apagados desde /control
     const chat = TGREG ? await TGREG.chatDe(ADMIN) : null
     if (!chat) { await enviar(ADMIN, texto, { tipo: 'reporte' }); return }
     const prev = _avisosTg.get(clave)
@@ -2910,6 +2923,50 @@ async function avisoSonoro(clave, texto, botones) {
   _avisosTg.delete(clave)
   await avisoDinamico(clave, texto, botones)
   if (prev) TG.tgBorrar(prev.chatId, prev.msgId).catch(() => {})
+}
+
+// ---------- PANEL DE CONTROL (/control) ----------
+// Un mensaje con los interruptores del bot, que muestra el estado y cambia al
+// tocarlo. NO pasa por avisoDinamico: el dueño lo pidio, se muestra siempre —
+// hasta con los avisos apagados (es justo como se vuelven a prender).
+async function panelControl(chatId, msgId) {
+  const [leads, avisos, reint, { data: ses }] = await Promise.all([
+    flag('ia_activa'), avisosOn(), reintentosOn(),
+    supabase.from('wa_sessions').select('label, estado, phone').eq('activo', true),
+  ])
+  const enPausa = !leads
+  const lineas = [
+    '⚙️ *CONTROL DEL BOT* · ' + horaLima(),
+    '',
+    enPausa
+      ? '⏸ *Bot: EN PAUSA* — no responde a leads; los que escriban se guardan en el Kanban en silencio.'
+      : '▶️ *Bot: ATENDIENDO* — responde a los leads con el flujo del panel.',
+    avisos
+      ? '🔔 *Avisos: ENCENDIDOS* — "EN LÍNEA" cada 30 min, alarmas y tablero de leads.'
+      : '🔕 *Avisos: APAGADOS* — Telegram en silencio. Ojo: si el bot se cae, no te vas a enterar.',
+    reint
+      ? '🔄 *Reintentos: ENCENDIDOS* — si WhatsApp se cae, insiste solo (60 s y cada 30 min).'
+      : '⏹ *Reintentos: APAGADOS* — si WhatsApp se cae, se queda caído hasta que los prendas.',
+    '',
+    ...(ses || []).map(x => '📱 ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
+      + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? ' conectado' : ' — ' + x.estado)),
+    '',
+    '_Toca un botón para cambiarlo. Este mensaje se actualiza solo._',
+  ]
+  const botones = [
+    [enPausa ? { t: '▶️ Reanudar el bot', d: 'ctl:reanudar' } : { t: '⏸ Pausar el bot', d: 'ctl:pausar' }],
+    [avisos ? { t: '🔕 Apagar avisos', d: 'ctl:avisos_off' } : { t: '🔔 Prender avisos', d: 'ctl:avisos_on' },
+     reint ? { t: '⏹ Apagar reintentos', d: 'ctl:reint_off' } : { t: '🔄 Prender reintentos', d: 'ctl:reint_on' }],
+    [{ t: '📊 Estado ahora', d: 'ctl:estado' }],
+  ]
+  const texto = lineas.join('\n')
+  if (msgId && await TG.tgEditar(chatId, msgId, texto, botones)) return
+  const prev = _avisosTg.get('control')
+  const nuevo = await TG.tgEnviarBotones(chatId, texto, botones)
+  if (nuevo) {
+    _avisosTg.set('control', { chatId, msgId: nuevo })
+    if (prev && prev.chatId === chatId) TG.tgBorrar(prev.chatId, prev.msgId).catch(() => {})
+  }
 }
 
 // ---------- TABLERO DE LEADS DEL DIA ----------
@@ -3141,6 +3198,21 @@ async function manejarBotonTg(chatId, dato, msgId) {
     else await TG.tgEnviar(chatId, '⚠️ No encontré esa sesión. Revísala desde el panel.')
     return
   }
+  // ---- interruptores del panel /control ----
+  const mCtl = dato.match(/^ctl:(\w+)$/)
+  if (mCtl) {
+    if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 El control del bot es solo para gerencia.'); return }
+    const accion = mCtl[1]
+    if (accion === 'pausar')      { await setAjuste('ia_activa', '0'); await setAjuste('avisos_activos', '0'); log('CONTROL: bot EN PAUSA (desde Telegram)') }
+    if (accion === 'reanudar')    { await setAjuste('ia_activa', '1'); await setAjuste('avisos_activos', '1'); log('CONTROL: bot REANUDADO (desde Telegram)') }
+    if (accion === 'avisos_on')   await setAjuste('avisos_activos', '1')
+    if (accion === 'avisos_off')  await setAjuste('avisos_activos', '0')
+    if (accion === 'reint_on')    await setAjuste('reintentos_activos', '1')
+    if (accion === 'reint_off')   await setAjuste('reintentos_activos', '0')
+    if (accion === 'estado')      { await latido(); return }
+    await panelControl(chatId, msgId)      // el mismo mensaje muestra el estado nuevo
+    return
+  }
   const mMute = dato.match(/^wa_mute:(.+)$/)
   if (mMute) {
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese botón es solo para gerencia.'); return }
@@ -3192,12 +3264,14 @@ async function manejarTelegram(chatId, texto, info) {
   // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
   // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y
   // reinicio los hace pm2, que vuelve a levantar el proceso solo.
-  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar|unificar)$/i.test(t)) {
+  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar|unificar|control|bot|pausa)$/i.test(t)) {
     const esAdmin = ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
     const cual = t.replace(/^\//, '').toLowerCase()
 
     if (cual === 'estado') { await latido(); return }
+    // /control (o /bot, /pausa): los interruptores con botones
+    if (cual === 'control' || cual === 'bot' || cual === 'pausa') { await panelControl(chatId); return }
 
     // SESION EN VIVO: durante 15 minutos se ve pasar todo lo que hace el bot
     if (cual === 'vivo') {
@@ -3322,12 +3396,13 @@ async function arrancar() {
   // intentar (salvo 401/403, que solo se arreglan con QR o quitando el bloqueo)
   // y, si sigue caido, el aviso fuerte se REPITE cada 6 h como mensaje nuevo —
   // que suene. Un solo aviso editado en silencio ya costo un dia y medio sordo.
-  setInterval(() => {
+  setInterval(async () => {
+    const insistir = await reintentosOn().catch(() => true)
     for (const S of SESSIONS.values()) {
       if (S.sock || S.iniciando || S.row?.activo === false) continue
       const k = String(S.row?.id || S.row?.label || 'principal')
       const sinArreglo = S.ultimoCierre === DisconnectReason.loggedOut || S.ultimoCierre === DisconnectReason.forbidden
-      if (!sinArreglo) {
+      if (!sinArreglo && insistir) {
         log('[vigia] reintento silencioso de', S.row?.label || k)
         iniciarSesion(S.row).catch(() => {})
       }
@@ -3344,7 +3419,9 @@ async function arrancar() {
   // mensaje deja de llegar, el bot se cayo — un bot caido no puede avisar de si
   // mismo, asi que el silencio ES la alarma. Sale por Telegram cuando esta
   // vinculado (gratis y no gasta reputacion del chip).
-  cron.schedule('*/30 * * * *', () => latido().catch(e => log('latido:', String(e.message || e))), { timezone: 'America/Lima' })
+  // ...salvo que los avisos esten apagados desde /control (bot en pausa): ahi el
+  // silencio es voluntario, no una alarma.
+  cron.schedule('*/30 * * * *', async () => { if (await avisosOn()) latido().catch(e => log('latido:', String(e.message || e))) }, { timezone: 'America/Lima' })
   // Al ARRANCAR tambien avisa: es la confirmacion de que /actualizar salio bien.
   // Espera 25 segundos a que las sesiones de WhatsApp reconecten, si no reportaria
   // "0 conectados" con el bot perfectamente sano. Y se limita a 1 cada 10 minutos:
@@ -3355,7 +3432,7 @@ async function arrancar() {
       const ultimo = await ajuste('ultimo_arranque', '')
       if (ultimo && (Date.now() - new Date(ultimo).getTime()) < 10 * 60000) { log('arranque reciente: no repito el aviso'); return }
       await setAjuste('ultimo_arranque', new Date().toISOString())
-      await latido('🔄 *REINICIADO Y EN SERVICIO*')
+      if (await avisosOn()) await latido('🔄 *REINICIADO Y EN SERVICIO*')
     } catch (e) { log('aviso de arranque:', String(e.message || e)) }
   }, 25000)
   // vigilancia del sintoma: cada minuto revisa si alguien quedo sin respuesta
