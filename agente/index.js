@@ -2789,8 +2789,9 @@ async function intentarReinicio(motivo) {
   e.n = (e.n || 0) + 1; e.ultima = Date.now()
   await setAjuste('vigia_reinicios', JSON.stringify(e))
   log('VIGIA: reinicio automatico (' + e.n + '/3 hoy) —', motivo.replace(/\n+/g, ' '))
-  await enviar(ADMIN, '🔧 *ME REINICIO SOLO* — intento ' + e.n + ' de 3 de hoy\n\n' + motivo
-    + '\n\n_Si en 2 minutos no te llega el "REINICIADO Y EN SERVICIO", el reinicio falló y hay que entrar al droplet._', { tipo: 'reporte' })
+  // mismo mensaje del vigia, editado (respeta el interruptor de avisos)
+  await avisoDinamico('vigia', '🔧 *ME REINICIO SOLO* — intento ' + e.n + ' de 3 de hoy · ' + horaLima() + '\n\n' + motivo
+    + '\n\n_Si en 2 minutos no te llega el "REINICIADO Y EN SERVICIO", el reinicio falló y hay que entrar al droplet._')
   setTimeout(() => process.exit(0), 2000)   // pm2 lo vuelve a levantar
   return true
 }
@@ -2806,65 +2807,68 @@ async function vigia() {
   // el 19 de agosto se reinicio el bot varias veces y el numero siguio muerto,
   // porque la credencial rota (badSession) sigue rota al otro lado. Eso necesita
   // una persona con el celular y el QR; reintentar solo gasta el tiempo de todos.
+  // Los interruptores de /control mandan. Con los avisos apagados el vigia
+  // calla (el 3-4 sep siguio mandando "ALGO SE CAYO" con todo apagado); con los
+  // reintentos apagados no se reinicia solo.
+  if (!(await avisosOn())) return
+  const puedeReiniciar = await reintentosOn()
   const fallas = []
 
-  // 1) sesiones de WhatsApp que dejaron de estar conectadas -> NECESITA HUMANO
-  const { data: ses } = await supabase.from('wa_sessions').select('label, phone, estado').eq('activo', true)
-  for (const s of (ses || [])) {
-    if (s.estado !== 'conectado') fallas.push({ humano: true, texto: '🔴 *' + (s.label || 'PRINCIPAL') + '* +' + s.phone + ' — ' + s.estado + '\n   Hay que re-vincular: panel → WhatsApp → 🔄 VINCULAR' })
-  }
+  // 1) (quitado) las sesiones caidas ya las vigila la reconexion con sus propios
+  //    avisos y botones (🟠→🟢/🔴): repetirlo aqui era el mismo susto dos veces.
   // 2) el propio canal de Telegram, sordo -> un reinicio suele arreglarlo
   const tg = TG.activo() ? TG.estadoEscucha() : null
   if (tg && (!tg.arrancada || !tg.ultimoOk || Date.now() - tg.ultimoOk > 5 * 60000)) {
     fallas.push({ humano: false, texto: '⛔ *Telegram dejó de recibir*' + (tg.ultimoError ? '\n   ' + tg.ultimoError.slice(0, 90) : '') })
   }
-  // 3) silencio raro: en horario de trabajo, sin un mensaje entrante en 3 horas.
-  //    Con la sesion diciendo "conectado" es la firma del socket zombi, y ahi un
-  //    reinicio es el primer intento barato.
-  const horaLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
-  if (horaLima >= 9 && horaLima < 21) {
+  // 3) silencio raro: en horario de trabajo, 3 horas sin un mensaje entrante.
+  //    Solo si el bot ESTA ATENDIENDO (apagado a proposito, el silencio es
+  //    normal). Y las horas se cuentan desde las 9:00 de HOY, no desde anoche:
+  //    a las 9:00 en punto el vigia veia "14 h sin mensajes" (el ultimo era de
+  //    las 18:32 de la vispera) y reiniciaba el bot cada manana sin motivo.
+  const hLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
+  if (hLima >= 9 && hLima < 21 && await flag('bot_activo') && await flag('ia_activa')) {
     const { data: ult } = await supabase.from('whatsapp_messages').select('created_at')
       .eq('direction', 'in').order('created_at', { ascending: false }).limit(1)
-    const ts = ult && ult[0] ? new Date(ult[0].created_at).getTime() : null
-    const h = ts ? Math.floor((Date.now() - ts) / 3600000) : null
-    if (h !== null && h >= 3) fallas.push({ humano: false, texto: '🔇 *' + h + ' h sin un solo mensaje entrante* (en horario de trabajo)' })
+    const tsUlt = ult && ult[0] ? new Date(ult[0].created_at).getTime() : 0
+    const hoy9 = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }) + 'T09:00:00-05:00').getTime()
+    const desde = Math.max(tsUlt, hoy9)
+    const h = Math.floor((Date.now() - desde) / 3600000)
+    if (h >= 3) fallas.push({ humano: false, texto: '🔇 *' + h + ' h sin un solo mensaje entrante* en horario de trabajo (contando desde las 9:00)' })
   }
 
   const mal = fallas.length > 0
   const texto = fallas.map(f => f.texto).join('\n\n')
   const ahora = Date.now()
 
-  // ¿puede intentar salvarse solo? Solo si NINGUNA falla necesita una persona:
-  // si el numero pide QR, reiniciar no lo va a arreglar y encima corta lo que
-  // este en curso.
-  if (mal && fallas.every(f => !f.humano) && await intentarReinicio(texto)) return
+  // ¿puede intentar salvarse solo? Solo si NINGUNA falla necesita una persona
+  // y los reintentos estan encendidos.
+  if (mal && puedeReiniciar && fallas.every(f => !f.humano) && await intentarReinicio(texto)) return
 
-  // si llegamos aqui con todo "reiniciable", es que el tope del dia ya se gasto
-  const topeGastado = fallas.length > 0 && fallas.every(f => !f.humano)
-  const cola = topeGastado
-    ? '\n\n_Ya me reinicié las 3 veces de hoy y no se arregló: esto necesita que alguien lo mire._'
-    : '\n\n_Te aviso apenas vuelva._'
+  const topeGastado = puedeReiniciar && fallas.length > 0 && fallas.every(f => !f.humano)
+  const cola = !puedeReiniciar
+    ? '\n\n_Reintentos apagados desde /control: no me reinicio solo._'
+    : topeGastado
+      ? '\n\n_Ya me reinicié las 3 veces de hoy y no se arregló: esto necesita que alguien lo mire._'
+      : '\n\n_Te aviso apenas vuelva._'
+  const dur = () => { const min = Math.round((ahora - VIGIA.desde) / 60000); return min >= 60 ? Math.round(min / 60) + ' h' : min + ' min' }
 
+  // UN solo mensaje del vigia: suena al romperse, se edita mientras siga (motivo
+  // o duracion), y pasa a verde al volver. Antes cada paso era un mensaje nuevo.
   if (mal && !VIGIA.mal) {                          // acaba de romperse
     VIGIA = { mal: true, desde: ahora, avisado: ahora, ultimoTexto: texto }
-    await enviar(ADMIN, '🚨 *ALGO SE CAYÓ*\n\n' + texto + cola, { tipo: 'reporte' })
+    await avisoSonoro('vigia', '🚨 *ALGO SE CAYÓ* · ' + horaLima() + '\n\n' + texto + cola)
     return
   }
-  if (mal && texto !== VIGIA.ultimoTexto) {          // cambio lo que estaba mal
+  if (mal && (texto !== VIGIA.ultimoTexto || ahora - VIGIA.avisado > 30 * 60000)) {   // sigue: se actualiza
     VIGIA.ultimoTexto = texto; VIGIA.avisado = ahora
-    await enviar(ADMIN, '🚨 *SIGUE CAÍDO — cambió el motivo*\n\n' + texto, { tipo: 'reporte' })
-    return
-  }
-  if (mal && ahora - VIGIA.avisado > 30 * 60000) {   // recordatorio mientras siga
-    VIGIA.avisado = ahora
-    const min = Math.round((ahora - VIGIA.desde) / 60000)
-    await enviar(ADMIN, '🚨 *SIGUE CAÍDO* (' + (min >= 60 ? Math.round(min / 60) + ' h' : min + ' min') + ')\n\n' + texto, { tipo: 'reporte' })
+    await avisoDinamico('vigia', '🚨 *SIGUE CAÍDO* (' + dur() + ') · ' + horaLima() + '\n\n' + texto + cola)
     return
   }
   if (!mal && VIGIA.mal) {                           // se recupero
-    const min = Math.round((ahora - VIGIA.desde) / 60000)
+    const d = dur()
     VIGIA = { mal: false, desde: 0, avisado: 0, ultimoTexto: '' }
-    await enviar(ADMIN, '✅ *YA VOLVIÓ* — estuvo caído ' + (min >= 60 ? Math.round(min / 60) + ' h' : min + ' min') + '.', { tipo: 'reporte' })
+    await avisoResuelto('vigia', '✅ *YA VOLVIÓ* — estuvo caído ' + d + ' · ' + horaLima())
   }
 }
 
@@ -2930,17 +2934,19 @@ async function avisoSonoro(clave, texto, botones) {
 // tocarlo. NO pasa por avisoDinamico: el dueño lo pidio, se muestra siempre —
 // hasta con los avisos apagados (es justo como se vuelven a prender).
 async function panelControl(chatId, msgId) {
-  const [leads, avisos, reint, { data: ses }] = await Promise.all([
-    flag('ia_activa'), avisosOn(), reintentosOn(),
+  const [leads, botOn, avisos, reint, { data: ses }] = await Promise.all([
+    flag('ia_activa'), flag('bot_activo'), avisosOn(), reintentosOn(),
     supabase.from('wa_sessions').select('label, estado, phone').eq('activo', true),
   ])
-  const enPausa = !leads
+  const enPausa = !leads || !botOn
   const lineas = [
     '⚙️ *CONTROL DEL BOT* · ' + horaLima(),
     '',
-    enPausa
-      ? '⏸ *Bot: EN PAUSA* — no responde a leads; los que escriban se guardan en el Kanban en silencio.'
-      : '▶️ *Bot: ATENDIENDO* — responde a los leads con el flujo del panel.',
+    !botOn
+      ? '⏸ *Bot: APAGADO desde el panel web* (interruptor BOT) — ignora todo lo que entra. Se prende desde el panel o con el botón de abajo.'
+      : enPausa
+        ? '⏸ *Bot: EN PAUSA* — no responde a leads; los que escriban se guardan en el Kanban en silencio.'
+        : '▶️ *Bot: ATENDIENDO* — responde a los leads con el flujo del panel.',
     avisos
       ? '🔔 *Avisos: ENCENDIDOS* — "EN LÍNEA" cada 30 min, alarmas y tablero de leads.'
       : '🔕 *Avisos: APAGADOS* — Telegram en silencio. Ojo: si el bot se cae, no te vas a enterar.',
@@ -3204,7 +3210,7 @@ async function manejarBotonTg(chatId, dato, msgId) {
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 El control del bot es solo para gerencia.'); return }
     const accion = mCtl[1]
     if (accion === 'pausar')      { await setAjuste('ia_activa', '0'); await setAjuste('avisos_activos', '0'); log('CONTROL: bot EN PAUSA (desde Telegram)') }
-    if (accion === 'reanudar')    { await setAjuste('ia_activa', '1'); await setAjuste('avisos_activos', '1'); log('CONTROL: bot REANUDADO (desde Telegram)') }
+    if (accion === 'reanudar')    { await setAjuste('bot_activo', '1'); await setAjuste('ia_activa', '1'); await setAjuste('avisos_activos', '1'); log('CONTROL: bot REANUDADO (desde Telegram)') }
     if (accion === 'avisos_on')   await setAjuste('avisos_activos', '1')
     if (accion === 'avisos_off')  await setAjuste('avisos_activos', '0')
     if (accion === 'reint_on')    await setAjuste('reintentos_activos', '1')
