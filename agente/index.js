@@ -1785,7 +1785,13 @@ async function correrFlujoInterno(ses, jid, phone, lead, proy, flow, idx) {
       if ((s.opciones || []).length) {
         await enviar(jid, bloqueOpciones(s.opciones), { tipo: 'lead_flujo', lead_id: lead.id, ses })
       }
-      await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0 }, ses)
+      // last_message_at se pone AQUI, en la misma fila donde se arma la pregunta:
+      // el temporizador de "sin respuesta" lo lee de esta fila. Cuando un numero
+      // tiene dos conversaciones (la del telefono y la del LID), los mensajes
+      // entrantes refrescaban UNA y el flujo se armaba en la OTRA, con una fecha
+      // vieja: el bot preguntaba el nombre y 15 s despues seguia solo como si
+      // hubieran pasado los 5 minutos (7 sep 2026, "Un gusto CESAR" sin esperar).
+      await setConv(phone, { flow_state: 'flow', flow_step: String(s.id), flow_reasks: 0, last_message_at: new Date().toISOString() }, ses)
       return
     }
     idx++
@@ -2028,14 +2034,17 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   }
   // PALABRA DE SEGURIDAD: "iniciourbis2026" reinicia el bot para este chat (modo prueba)
   if (corto.toLowerCase() === 'iniciourbis2026') {
-    const { data: convR } = await supabase.from('whatsapp_conversations').select('id, lead_id').eq('phone', phone).maybeSingle()
+    // TODAS las conversaciones del numero (puede haber dos: la del telefono y la
+    // del LID). Antes usaba maybeSingle(): con dos filas devolvia error y no
+    // borraba ninguna — el "reinicio" dejaba el chat viejo con su estado viejo.
+    const { data: convsR } = await supabase.from('whatsapp_conversations').select('id, lead_id').ilike('phone', `%${phone.slice(-9)}%`)
     const { data: leadsR } = await supabase.from('leads').select('id').ilike('phone', `%${phone.slice(-9)}%`)
     for (const L of (leadsR || [])) {
       await supabase.from('lead_activities').delete().eq('lead_id', L.id)
       await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', L.id)
       await supabase.from('leads').delete().eq('id', L.id)
     }
-    if (convR) {
+    for (const convR of (convsR || [])) {
       await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
       await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
     }
@@ -3582,7 +3591,10 @@ async function avanzarFlujo() {
         if (!num || num <= 0) continue
         const unit = step.reask_unit ?? flow.reask_unit ?? 'min'
         const reMs = num * (unit === 'seg' ? 1000 : 60000)
-        if (Date.now() - new Date(c.last_message_at).getTime() < reMs) continue   // aún no vence el tiempo
+        // sin fecha = recien armado: NO se da por vencido (new Date(null) es 1970
+        // y hacia avanzar el flujo en el primer tick)
+        const desde = c.last_message_at ? new Date(c.last_message_at).getTime() : Date.now()
+        if (Date.now() - desde < reMs) continue   // aún no vence el tiempo
         const jid = c.wa_jid || jidDe(c.phone)
         // acción cuando no responde: la del paso, o la global del flujo, o 'detener' (no seguir) por defecto
         const acc = step.sin_respuesta || flow.sin_respuesta_global || 'detener'
