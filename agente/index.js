@@ -2733,7 +2733,14 @@ async function supervisarSesiones() {
 // Cada 30 min avisa que sigue vivo, con lo que hizo en ese rato. Un bot caido no
 // puede avisar de si mismo: por eso el SILENCIO es la alarma. Sale por Telegram
 // cuando esta vinculado (gratis y no gasta reputacion del chip).
-async function latido(titulo) {
+// Desde el 8 sep 2026 el latido ya no es un mensaje nuevo cada media hora:
+// es UN mensaje por BLOQUE DE 4 HORAS que se va editando — cada media hora
+// suma su renglon (recibidos/enviados) al mismo mensaje, y al cambiar de bloque
+// arranca otro. El silencio sigue siendo la alarma: si el mensaje deja de
+// ACTUALIZARSE, el bot se cayo. /estado y el boton "Estado ahora" mandan un
+// reporte suelto (modo directo), fuera del bloque.
+const _latidoTicks = new Map()   // clave del bloque -> [{ hora, in, out, nota, alerta }]
+async function latido(titulo, opts = {}) {
   if (!ADMIN) return
   const desde = new Date(Date.now() - 30 * 60000).toISOString()
   const hoy0 = new Date().toISOString().slice(0, 10)
@@ -2792,8 +2799,44 @@ async function latido(titulo) {
         ? '🔧 Para reintentar: */actualizar* (baja los cambios y reinicia) o */reiniciar* (solo reinicia).'
         : '_Si este mensaje deja de llegar, el bot se cayó._',
   ]
-  await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' })
+  // ---- modo DIRECTO (/estado, boton "Estado ahora"): reporte suelto, como siempre
+  if (opts.directo) { await enviar(ADMIN, lineas.join('\n'), { tipo: 'reporte' }); return }
+
+  // ---- modo BLOQUE: un mensaje por 4 horas que acumula sus medias horas
+  const alerta = !!(caidas.length || sordo || mudoRaro)
+  const diaLima = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  const bloque = Math.floor(horaLima / 4)                       // 0-3, 4-7, 8-11, 12-15, 16-19, 20-23
+  const clave = 'latido:' + diaLima + ':' + bloque
+  if (!_latidoTicks.has(clave)) { _latidoTicks.clear(); _latidoTicks.set(clave, []) }   // bloque nuevo: mensaje nuevo
+  const ticks = _latidoTicks.get(clave)
+  const anterior = ticks[ticks.length - 1]
+  ticks.push({ hora: horaLima_(), in: recibidos || 0, out: enviados || 0, nota: titulo ? titulo.replace(/\*/g, '') : null, alerta })
+  const rango = String(bloque * 4).padStart(2, '0') + ':00–' + String(bloque * 4 + 4).padStart(2, '0') + ':00'
+  const estadoLinea = alerta ? '⚠️ *AGENTE URBIS — ATENCIÓN*' : '✅ *AGENTE URBIS EN LÍNEA*'
+  const historial = ticks.map(t =>
+    (t.alerta ? '⚠️' : '✓') + ' ' + t.hora + '  📥 ' + t.in + ' · 📤 ' + t.out + (t.nota ? '  — ' + t.nota : ''))
+  const texto = [
+    estadoLinea + ' · bloque ' + rango + ' (' + reloj.slice(0, 5) + ')',
+    '',
+    '📱 Números: *' + vivas.length + '* conectado(s)',
+    ...(sesiones || []).map(x => '   ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
+      + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? '' : ' — ' + x.estado)),
+    ...(lineaTG ? [lineaTG] : []),
+    '🔥 Leads de hoy: *' + (leadsHoy || 0) + '*'
+      + (hMudo === null ? '' : mudoRaro ? '\n⛔ *' + hMudo + ' h sin un solo mensaje entrante* — revisa que el número siga vinculado' : hMudo >= 2 ? ' · último entrante hace ' + hMudo + ' h' : ''),
+    '',
+    '*Cada media hora* (recibidos · enviados):',
+    ...historial,
+    '',
+    sordo ? '🔧 No te va a leer los comandos. Reinícialo desde el panel: *WhatsApp → Reiniciar bot*.'
+      : caidas.length ? '🔧 Para reintentar: */actualizar* o */reiniciar*.'
+      : '_Se actualiza cada 30 min. Si deja de actualizarse, el bot se cayó._',
+  ].join('\n')
+  // el bloque se edita en silencio; si el estado pasa de bien a ALERTA, suena
+  if (alerta && !(anterior && anterior.alerta)) await avisoSonoro(clave, texto)
+  else await avisoDinamico(clave, texto)
 }
+const horaLima_ = () => new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' })
 
 // ---------- VIGIA: cada minuto, y avisa EN EL ACTO ----------
 // El latido de 30 minutos informa; no vigila. El 19 de agosto el numero se cayo
@@ -3320,7 +3363,7 @@ async function manejarBotonTg(chatId, dato, msgId) {
     if (accion === 'avisos_off')  await setAjuste('avisos_activos', '0')
     if (accion === 'reint_on')    await setAjuste('reintentos_activos', '1')
     if (accion === 'reint_off')   await setAjuste('reintentos_activos', '0')
-    if (accion === 'estado')      { await latido(); return }
+    if (accion === 'estado')      { await latido(undefined, { directo: true }); return }
     await panelControl(chatId, msgId)      // el mismo mensaje muestra el estado nuevo
     return
   }
@@ -3380,7 +3423,7 @@ async function manejarTelegram(chatId, texto, info) {
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
     const cual = t.replace(/^\//, '').toLowerCase()
 
-    if (cual === 'estado') { await latido(); return }
+    if (cual === 'estado') { await latido(undefined, { directo: true }); return }
     // /control (o /bot, /pausa): los interruptores con botones
     if (cual === 'control' || cual === 'bot' || cual === 'pausa') { await panelControl(chatId); return }
 
