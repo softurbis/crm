@@ -158,10 +158,14 @@ export default function Lots() {
     // "vencida" se calcula EN VIVO (fecha ya pasada + no pagada + con saldo), no por el
     // estado guardado, para que el mapa nunca quede desactualizado si nadie tocó la cuota.
     const hoyVenc = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)   // fecha Perú (UTC-5)
+    // Filtra POR PROYECTO y por venta activa EN EL SERVIDOR. Antes bajaba las
+    // cuotas vencidas de TODOS los proyectos y las filtraba aqui: miles de filas
+    // de mas en cada apertura del mapa, en un servidor de 1 CPU.
     supabase.from('installments').select('amount, amount_paid, sales!inner(lot_id, status, lot:lots!inner(project_id))')
       .neq('status', 'pagado').lt('due_date', hoyVenc)
+      .eq('sales.status', 'en_proceso').eq('sales.lot.project_id', pidOp)
       .then(({ data }) => setVencidos(new Set((data || [])
-        .filter(r => r.sales.status === 'en_proceso' && r.sales.lot?.project_id === pidOp && (Number(r.amount) - Number(r.amount_paid)) > 2)
+        .filter(r => (Number(r.amount) - Number(r.amount_paid)) > 2)
         .map(r => r.sales.lot_id))))
     // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)

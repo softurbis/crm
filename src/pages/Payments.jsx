@@ -156,9 +156,29 @@ export default function Payments() {
   // por request, asi que sin esto en proyectos grandes (Pucallpa ~2200) el
   // historial salia incompleto: los mas antiguos (iniciales, lotes entregados)
   // se perdian y los filtros parecian rotos.
-  async function traerPagos() {
+  // Pinta en cuanto llega la PRIMERA pagina y sigue trayendo el resto por
+  // detras. Antes esperaba las 2.288 filas de Pucallpa (12 s con el servidor
+  // solo, 62 s con cuatro secretarias a la vez) antes de mostrar nada — eso era
+  // "la pantalla se queda sin cargar". `alPintar` recibe lo acumulado tras cada
+  // pagina; el que llama decide que hacer con ello.
+  async function traerPagos(alPintar) {
     const paso = 1000
-    let desde = 0, todo = [], cols = COLS + COLS_NA
+    let desde = 0, todo = []
+    // 1) camino rapido: una sola consulta en Postgres con los joins ya hechos
+    //    (sql/71). Si la funcion no existe todavia, cae al camino de siempre.
+    let rapido = true
+    for (let guard = 0; guard < 60 && rapido; guard++) {
+      const { data, error } = await supabase.rpc('pagos_proyecto', { pid: pidOp, lim: paso, offs: desde })
+      if (error) { rapido = false; break }
+      const filas = Array.isArray(data) ? data : []
+      todo = todo.concat(filas)
+      if (alPintar) alPintar(todo)
+      if (filas.length < paso) return todo
+      desde += paso
+    }
+    // 2) camino de siempre (PostgREST con las 5 tablas enlazadas)
+    desde = 0; todo = []
+    let cols = COLS + COLS_NA
     for (let guard = 0; guard < 60; guard++) {
       const { data, error } = await supabase.from('daily_income').select(cols)
         .eq('project_id', pidOp).order('date', { ascending: false }).order('created_at', { ascending: false })
@@ -168,6 +188,7 @@ export default function Payments() {
       if (error && cols !== COLS) { cols = COLS; setNaOk(false); continue }
       if (error || !data?.length) break
       todo = todo.concat(data)
+      if (alPintar) alPintar(todo)
       if (data.length < paso) break
       desde += paso
     }
@@ -175,15 +196,17 @@ export default function Payments() {
   }
 
   async function loadBase() {
-    const [l, c, a, adv, r, pagosTodos] = await Promise.all([
+    // las listas cortas van en paralelo con los pagos; los pagos se pintan
+    // pagina a pagina (la primera aparece en ~1 s aunque el resto siga bajando)
+    const [l, c, a, adv, r] = await Promise.all([
       supabase.from('lots').select('id, mz, lt, status, total_price, initial_payment_default').eq('project_id', pidOp).order('mz').order('lt'),
       supabase.from('clients').select('id, full_name, doc_number').order('full_name'),
       supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp),
       supabase.from('advisors').select('id, code, full_name').eq('active', true).order('code'),
       supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name'),
-      traerPagos(),
+      traerPagos(parcial => setPagos(parcial)),
     ])
-    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || []); setPagos(pagosTodos || [])
+    setLots(l.data || []); setClients(c.data || []); setAccounts(a.data || []); setAdvisors(adv.data || []); setSecs(r.data || [])
   }
   useEffect(() => { if (pidOp) loadBase() }, [pidOp])
 
