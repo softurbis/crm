@@ -12,6 +12,7 @@ import Bitacora from './pages/Bitacora'
 import Users from './pages/Users'
 import Projects from './pages/Projects'
 import Contracts from './pages/Contracts'
+import Campanas from './pages/Campanas'
 import Whatsapp from './pages/Whatsapp'
 import TestBot from './pages/TestBot'
 import Secretarias from './pages/Secretarias'
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="probar-bot" element={<TestBot />} />
         <Route path="corretaje" element={<Corretaje />} />
+        <Route path="campanas" element={<Campanas />} />
         <Route path="secretarias" element={<Secretarias />} />
         <Route path="visitas" element={<Visitas />} />
         <Route path="lotes" element={<Lots />} />

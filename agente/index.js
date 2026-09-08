@@ -2075,7 +2075,13 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   // CHAT EN MODO HUMANO: alguien del panel atiende este chat — el bot se calla
   // por completo aquí (leads y clientes). Vuelve con el botón "Devolver al bot".
   if (conv && conv.modo === 'humano') {
-    if (conv.lead_id) await supabase.from('lead_activities').insert({ lead_id: conv.lead_id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}).catch(() => {})
+    if (conv.lead_id) {
+      await supabase.from('lead_activities').insert({ lead_id: conv.lead_id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}).catch(() => {})
+      // ¿respuesta a un seguimiento automatico de campaña? (el chat esta en
+      // manos de una persona, pero igual hay que cortar la secuencia y avisar)
+      const { data: lc } = await supabase.from('leads').select('id, campaign_id, followup_step, replied_followup_at').eq('id', conv.lead_id).maybeSingle()
+      if (lc) await respondioSeguimiento(ses, phone, lc, corto)
+    }
     log('MODO HUMANO: sin respuesta automatica a', phone)
     return
   }
@@ -2110,7 +2116,7 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   }
 
   // ¿lead existente o nuevo? — flujo guiado
-  const { data: leadsEx } = await supabase.from('leads').select('id, full_name, status, project_id').ilike('phone', `%${p9}%`).limit(1)
+  const { data: leadsEx } = await supabase.from('leads').select('id, full_name, status, project_id, campaign_id, followup_step, replied_followup_at').ilike('phone', `%${p9}%`).limit(1)
   let lead = (leadsEx || [])[0]
   const estado = conv?.flow_state || null
 
@@ -2147,12 +2153,19 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     let pr = null, proys = []
     if (proyDeSesion) pr = { id: proyDeSesion, name: ses?.row?.label || '' }
     else { const d = await detectarProyecto(corto); pr = d.pr; proys = d.proys }
+    // ATRIBUCION DE CAMPAÑA: si el primer mensaje trae la frase de una campaña
+    // activa del proyecto (el texto prellenado del anuncio), el lead queda
+    // etiquetado con ella. Sin esto todos entraban como 'whatsapp' a secas y
+    // era imposible saber que anuncio trajo a quien.
+    const camp = await campanaPorMensaje(pr?.id || null, corto)
     const { data: nuevoLead } = await supabase.from('leads').insert({
       full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
-      source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
+      source: camp ? 'campaña:' + camp.keyword : 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
+      campaign_id: camp ? camp.id : null,
       optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()
     lead = nuevoLead
+    if (camp) log('LEAD', phone, 'atribuido a la campaña', camp.name)
     // el lead nuevo le llega al admin, a los numeros en copia y al asesor del
     // proyecto: el que va a atenderlo tiene que enterarse primero que nadie
     {
@@ -2213,6 +2226,9 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   // 6) COMPLETADO / HUMANO (sin IA)
   if (estado === 'humano') {
     if (lead?.id) await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) })
+    // si venia de un seguimiento automatico de campaña, esto es una RESPUESTA:
+    // se corta la secuencia y sube al tablero como urgente
+    await respondioSeguimiento(ses, phone, lead, corto)
     return
   }
   if (lead?.id) {
@@ -2982,6 +2998,86 @@ async function panelControl(chatId, msgId) {
     _avisosTg.set('control', { chatId, msgId: nuevo })
     if (prev && prev.chatId === chatId) TG.tgBorrar(prev.chatId, prev.msgId).catch(() => {})
   }
+}
+
+// ---------- CAMPAÑAS (sql/72): atribucion + seguimiento automatico ----------
+// La campaña se configura en el panel (Campañas). Aqui viven las dos piezas
+// que corren solas:
+//  · campanaPorMensaje: ¿el primer mensaje del lead trae la frase clave de una
+//    campaña ACTIVA del proyecto? -> el lead nace etiquetado con ella.
+//  · seguirCampanas: cada 10 min, a los leads de campañas activas que siguen
+//    en 'nuevo' (nadie los trabajo) les manda el mensaje del dia que toque,
+//    dentro del horario de la campaña. Un mensaje por ventana, nunca dos
+//    seguidos sin respuesta; si el lead contesta, se detiene (ver
+//    respondioSeguimiento) y pasa al tablero como "espera a una persona".
+async function campanaPorMensaje(projectId, texto) {
+  try {
+    const t = String(texto || '').toLowerCase()
+    if (!t) return null
+    let q = supabase.from('campaigns').select('id, name, keyword, project_id').eq('status', 'activa')
+    if (projectId) q = q.eq('project_id', projectId)
+    const { data, error } = await q
+    if (error || !data?.length) return null
+    return data.find(c => c.keyword && t.includes(String(c.keyword).toLowerCase())) || null
+  } catch { return null }
+}
+
+async function seguirCampanas() {
+  if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
+  const { data: camps, error } = await supabase.from('campaigns').select('*').eq('status', 'activa')
+  if (error || !camps?.length) return      // sin tabla (sql/72 sin correr) o sin campañas: nada que hacer
+  const ahoraLima = new Date(Date.now() - 5 * 3600 * 1000)
+  const hhmm = ahoraLima.toISOString().slice(11, 16)
+  for (const c of camps) {
+    const seq = Array.isArray(c.sequence) ? c.sequence.filter(s => s && s.texto).sort((a, b) => Number(a.dia) - Number(b.dia)) : []
+    if (!seq.length) continue
+    if (hhmm < (c.attend_from || '08:00') || hhmm >= (c.attend_to || '20:00')) continue   // fuera de horario
+    const { data: leads } = await supabase.from('leads')
+      .select('id, phone, full_name, status, created_at, followup_step, followup_at, replied_followup_at, project_id')
+      .eq('campaign_id', c.id).eq('status', 'nuevo').is('replied_followup_at', null).lt('followup_step', seq.length).limit(50)
+    if (!leads?.length) continue
+    const { data: proy } = await supabase.from('projects').select('*').eq('id', c.project_id).maybeSingle()
+    for (const l of leads) {
+      try {
+        const paso = seq[l.followup_step]
+        const desdeMs = new Date(l.followup_at || l.created_at).getTime()
+        const diasDesde = (Date.now() - new Date(l.created_at).getTime()) / 86400000
+        // el paso toca cuando el lead lleva >= 'dia' dias creado Y han pasado al
+        // menos 20 h desde el seguimiento anterior (nunca dos en el mismo dia)
+        if (diasDesde < Number(paso.dia)) continue
+        if (l.followup_step > 0 && Date.now() - desdeMs < 20 * 3600 * 1000) continue
+        // ¿lo esta atendiendo una persona? entonces el bot no se mete
+        const { data: conv } = await supabase.from('whatsapp_conversations').select('modo, wa_jid').ilike('phone', '%' + String(l.phone).slice(-9) + '%').limit(1)
+        if (conv?.[0]?.modo === 'humano') continue
+        const ses = [...SESSIONS.values()].find(x => x.sock && x.row?.project_id === c.project_id) || sesCorporativa()
+        if (!ses?.sock) continue
+        const texto = rellenar(String(paso.texto).replace(/\{proyecto\}/gi, proy?.name || ''), l, proy)
+        const jid = conv?.[0]?.wa_jid || jidDe(l.phone)
+        const ok = await enviar(jid, texto, { tipo: 'lead_flujo', lead_id: l.id, ses })
+        if (!ok) continue
+        await supabase.from('leads').update({ followup_step: l.followup_step + 1, followup_at: new Date().toISOString() }).eq('id', l.id)
+        await supabase.from('lead_activities').insert({ lead_id: l.id, note: ('SEGUIMIENTO AUTOMÁTICO ' + (l.followup_step + 1) + ' (' + c.name + ', día ' + paso.dia + '): ' + texto).slice(0, 500) }).then(() => {}, () => {})
+        log('CAMPAÑA', c.name, '→ seguimiento', l.followup_step + 1, 'a', l.phone)
+      } catch (e) { log('seguimiento campaña:', String(e.message || e)) }
+    }
+  }
+}
+setInterval(() => { seguirCampanas().catch(e => log('seguirCampanas:', String(e.message || e))) }, 10 * 60000)
+
+// El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
+// se marca la respuesta, se avisa al asesor y sube al tablero como urgente.
+async function respondioSeguimiento(ses, phone, lead, corto) {
+  try {
+    if (!lead || !lead.campaign_id || !(lead.followup_step > 0) || lead.replied_followup_at) return false
+    await supabase.from('leads').update({ replied_followup_at: new Date().toISOString(), status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id)
+    const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
+    const msj = '🔁 *RESPONDIÓ AL SEGUIMIENTO*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nDijo: "' + String(corto || '').slice(0, 120) + '"\n\n→ Está en el KANBAN, escríbele ahora.'
+    const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
+    if (asesor.length >= 9 && (!ADMIN || asesor.slice(-9) !== ADMIN.slice(-9))) await enviar(asesor, msj, { tipo: 'aviso_admin' })
+    await tableroLeads(phone, { estado: 'asesor', nombre: l2?.full_name || '', proyecto: l2?.project?.name || '' }, msj)
+    log('CAMPAÑA: lead', phone, 'respondió al seguimiento')
+    return true
+  } catch (e) { log('respondioSeguimiento:', String(e.message || e)); return false }
 }
 
 // ---------- TABLERO DE LEADS DEL DIA ----------

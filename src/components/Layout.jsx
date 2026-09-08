@@ -44,6 +44,7 @@ const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482', grupo: 'Comunicación' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Comunicación' },
+  { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
   { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
