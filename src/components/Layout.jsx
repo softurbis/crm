@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import Avatar from './Avatar'
 import SaveFx from './SaveFx'
+import { useNavigate as usarNavegacion } from 'react-router-dom'
 
 // Boton flotante "volver arriba": aparece al bajar y desaparece arriba del todo.
 // En listas largas (clientes, cuotas, contratos) evita tener que scrollear a mano.
@@ -76,6 +77,27 @@ export default function Layout() {
   const [expandido, setExpandido] = useState(null)   // proyecto con su menu desplegado
   const [gruposCerrados, setGruposCerrados] = useState({})   // mega-grupos plegados (por defecto todos abiertos)
   const [conectados, setConectados] = useState([])
+  // SOCIO: solicitudes de gasto que esperan su firma, por proyecto. Se ve en
+  // cualquier pantalla: el objetivo es que no tenga que acordarse de revisar.
+  const [porFirmar, setPorFirmar] = useState([])
+  const irA = usarNavegacion()
+  useEffect(() => {
+    if (role !== 'socio') return
+    let vivo = true
+    const contar = async () => {
+      const { data, error } = await supabase.from('expenses')
+        .select('project_id, project:projects!inner(name, expense_approval)')
+        .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null)
+        .eq('project.expense_approval', true).limit(200)
+      if (!vivo || error) return
+      const m = {}
+      for (const r of (data || [])) { m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++ }
+      setPorFirmar(Object.values(m))
+    }
+    contar()
+    const t = setInterval(contar, 60000)
+    return () => { vivo = false; clearInterval(t) }
+  }, [role])
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
@@ -216,7 +238,7 @@ export default function Layout() {
             <div style={{ minWidth: 0, flex: 1 }}>
               <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={profile?.full_name}>{profile?.full_name}</p>
-              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
             </div>
           </div>
           <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 5 }} onClick={logout}>Cerrar sesión</button>
@@ -229,6 +251,15 @@ export default function Layout() {
           '--accent-strong': `color-mix(in srgb, ${colorActivo} 62%, #ffffff)`,
         } : {}),
       }}>
+        {role === 'socio' && porFirmar.length > 0 && (
+          <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
+            <b>✍ Esperan tu firma:</b>
+            {porFirmar.map(p => (
+              <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n}</button>
+            ))}
+          </div>
+        )}
         <Outlet />
       </main>
       <VolverArriba />

@@ -3107,6 +3107,74 @@ async function seguirCampanas() {
 }
 setInterval(() => { seguirCampanas().catch(e => log('seguirCampanas:', String(e.message || e))) }, 10 * 60000)
 
+// ---------- APROBACION DE GASTOS (sql/73): avisos ----------
+// La solicitud y la firma viven en el panel. Aqui solo se AVISA, para que
+// nadie tenga que acordarse de revisar:
+//  · a los socios asignados al proyecto, cuando entra una solicitud que exige
+//    su firma (projects.expense_approval)
+//  · a quien la pidio, cuando el socio la aprueba o la rechaza
+// enviar() la manda por Telegram si la persona lo tiene vinculado, si no por
+// WhatsApp. El numero del socio esta registrado como 'desactivado': recibe
+// avisos internos pero si escribe no se le responde como a un lead.
+async function avisarAprobaciones() {
+  const panel = 'https://softurbis.github.io/crm/gastos'
+  const sol = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : ''
+  const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+  const dig = t => String(t || '').replace(/\D/g, '')
+
+  // 1) solicitudes nuevas -> a los socios del proyecto
+  const { data: pend, error } = await supabase.from('expenses')
+    .select('id, request_number, amount, recipient, description, project_id, project:projects!inner(name, expense_approval)')
+    .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).is('approval_notified_at', null)
+    .eq('project.expense_approval', true).limit(20)
+  if (error) return      // sql/73 sin correr: nada que hacer
+  for (const g of (pend || [])) {
+    const { data: asig } = await supabase.from('project_assignments').select('user_id').eq('project_id', g.project_id)
+    const ids = (asig || []).map(a => a.user_id)
+    const { data: socios } = ids.length
+      ? await supabase.from('profiles').select('full_name, phone').in('id', ids).eq('role', 'socio').neq('active', false)
+      : { data: [] }
+    let avisados = 0
+    for (const s of (socios || [])) {
+      if (dig(s.phone).length < 11) continue
+      const ok = await enviar(dig(s.phone), '✍ *SOLICITUD DE GASTO POR APROBAR*\n' + g.project.name + ' · ' + sol(g)
+        + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + '\n' + (g.description || '')
+        + '\n\nRevísala y fírmala aquí: ' + panel, { tipo: 'aviso_admin' })
+      if (ok) avisados++
+    }
+    // se marca aunque no haya socio con telefono: el aviso del panel (banner)
+    // igual la muestra, y no tiene sentido reintentar cada minuto
+    await supabase.from('expenses').update({ approval_notified_at: new Date().toISOString() }).eq('id', g.id)
+    log('GASTO', sol(g), 'por aprobar: avisado a', avisados, 'socio(s)')
+  }
+
+  // 2) decisiones -> a quien pidio el gasto (su Telegram/WhatsApp de seguimiento)
+  const { data: dec } = await supabase.from('expenses')
+    .select('id, request_number, amount, recipient, registered_by, approved_at, approved_name, approval_code, rejected_at, rejected_reason, project:projects(name)')
+    .or('approved_at.not.is.null,rejected_at.not.is.null').is('decision_notified_at', null).limit(20)
+  for (const g of (dec || [])) {
+    let tel = ''
+    if (g.registered_by) {
+      const { data: sec } = await supabase.from('secretaries').select('phone').eq('user_id', g.registered_by).limit(1)
+      tel = dig(sec?.[0]?.phone)
+      if (!tel) {
+        const { data: pr } = await supabase.from('profiles').select('phone').eq('id', g.registered_by).maybeSingle()
+        tel = dig(pr?.phone)
+      }
+    }
+    const cab = (g.project?.name || '') + ' · ' + sol(g) + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-')
+    const txt = g.approved_at
+      ? '✅ *GASTO APROBADO*\n' + cab + '\nFirmó: ' + (g.approved_name || '-') + ' · código ' + (g.approval_code || '-')
+        + '\n\nYa se puede entregar el dinero y confirmar el pago.'
+      : '✖ *GASTO RECHAZADO*\n' + cab + '\nMotivo: ' + (g.rejected_reason || '-')
+        + '\n\nCorrígelo con "editar" en el panel: al guardarlo vuelve al socio. ' + panel
+    if (tel.length >= 11) await enviar(tel, txt, { tipo: 'aviso_admin' })
+    else if (ADMIN) await enviar(ADMIN, txt, { tipo: 'aviso_admin' })
+    await supabase.from('expenses').update({ decision_notified_at: new Date().toISOString() }).eq('id', g.id)
+  }
+}
+setInterval(() => { avisarAprobaciones().catch(e => log('avisarAprobaciones:', String(e.message || e))) }, 60000)
+
 // El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
 // se marca la respuesta, se avisa al asesor y sube al tablero como urgente.
 async function respondioSeguimiento(ses, phone, lead, corto) {

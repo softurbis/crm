@@ -21,7 +21,7 @@ const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFract
 export default function Clients() {
   const { role } = useAuth()
   const { projects } = useProject()
-  const readOnly = role === 'manager'
+  const readOnly = ['manager', 'socio'].includes(role)
   const allowed = useMemo(() => new Set(projects.map(p => p.id)), [projects])
   const nombreProy = id => projects.find(p => p.id === id)?.name || 'OTRO PROYECTO'
   const [allProjects, setAllProjects] = useState([])

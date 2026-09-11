@@ -27,7 +27,10 @@ export function ProjectProvider({ children }) {
         const { data } = await supabase.from('project_assignments')
           .select('project:projects(id, name, color)').eq('user_id', profile.id)
         let list = (data || []).map(x => x.project).filter(Boolean)
-        if (!list.length) { // sin asignaciones: ve todos (compatibilidad)
+        // sin asignaciones: ve todos (compatibilidad con el equipo de siempre)...
+        // salvo el SOCIO: un socio sin proyectos asignados no ve NADA. Si heredara
+        // "todos", un socio de un consorcio veria las cuentas de otro (sql/73).
+        if (!list.length && role !== 'socio') {
           const { data: all } = await supabase.from('projects').select('id, name, color').order('created_at')
           list = all || []
         }

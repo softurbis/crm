@@ -150,7 +150,7 @@ export default function Payments() {
   const [repartoEdit, setRepartoEdit] = useState(null)
   const [repartoBusy, setRepartoBusy] = useState(false)
   const [naOk, setNaOk] = useState(true)   // false = sql/49 sin correr: sin "no aplica"
-  const readOnly = role === 'manager'
+  const readOnly = ['manager', 'socio'].includes(role)
 
   // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
   // por request, asi que sin esto en proyectos grandes (Pucallpa ~2200) el

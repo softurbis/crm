@@ -40,7 +40,12 @@ const ROLES = [
   ['secretary', 'SECRETARIA (opera)'],
   ['manager', 'GERENCIA (solo ver)'],
   ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
+  ['socio', 'SOCIO (ve SOLO sus proyectos · aprueba gastos con firma)'],   // sql/73: sin proyectos asignados NO ve nada
 ]
+
+// menu con el que nace un socio: ver, no operar. El superusuario lo ajusta en
+// "Paneles visibles". WhatsApp y Seguimiento quedan fuera: son del equipo.
+const SOCIO_PANELS = ['/lotes', '/ventas', '/pagos', '/gastos', '/contratos', '/comisiones', '/clientes']
 
 export default function Users() {
   const { role, profile } = useAuth()
@@ -135,16 +140,33 @@ export default function Users() {
       })
       if (error) throw new Error(error.message)
       if (data.user) {
-        await supabase.from('profiles').update({ role: nu.role, full_name: (nu.name || '').toUpperCase() }).eq('id', data.user.id)
+        await supabase.from('profiles').update({ role: nu.role, full_name: (nu.name || '').toUpperCase(), ...(nu.role === 'socio' ? { panels: SOCIO_PANELS } : {}) }).eq('id', data.user.id)
       }
-      setMsg({ ok: true, t: 'USUARIO CREADO: ' + nu.email + '. Ya puede iniciar sesion.' })
+      setMsg({ ok: true, t: 'USUARIO CREADO: ' + nu.email + (nu.role === 'socio'
+        ? '. AHORA, en su fila: marca sus PROYECTOS (sin proyectos no ve nada) y pon su WhatsApp para avisarle las solicitudes.'
+        : '. Ya puede iniciar sesion.') })
       setNu({ role: 'secretary' }); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
     setBusy(false)
   }
 
+  // WhatsApp del socio: por ahi le avisa el bot cuando entra una solicitud por
+  // aprobar. Su numero se registra como ADMINISTRATIVO: si le escribe al bot,
+  // no la trata como lead ni le abre el menu de consultas de gerencia (que no
+  // filtra por proyecto).
+  async function guardarTelSocio(u, tel) {
+    const dig = String(tel || '').replace(/\D/g, '')
+    if (dig === String(u.phone || '')) return
+    if (dig && dig.length < 11) { setMsg({ ok: false, t: 'EL NÚMERO DEBE LLEVAR EL 51 ADELANTE (ej. 51961234567)' }); return }
+    const { error } = await supabase.from('profiles').update({ phone: dig || null }).eq('id', u.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    if (dig) await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'desactivado', note: 'SOCIO: ' + (u.full_name || u.email).toUpperCase() })
+    setMsg({ ok: true, t: dig ? 'WHATSAPP DEL SOCIO GUARDADO: +' + dig : 'WHATSAPP DEL SOCIO QUITADO' })
+    load()
+  }
+
   async function cambiarRol(u, r) {
-    const { error } = await supabase.from('profiles').update({ role: r }).eq('id', u.id)
+    const { error } = await supabase.from('profiles').update(r === 'socio' ? { role: r, panels: SOCIO_PANELS } : { role: r }).eq('id', u.id)
     setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `ROL DE ${u.email} ACTUALIZADO` })
     load()
   }
@@ -280,6 +302,13 @@ export default function Users() {
                     onChange={e => cambiarRol(u, e.target.value)}>
                     {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
+                  {u.role === 'socio' && (
+                    <div style={{ marginTop: 6, fontSize: 11 }}>
+                      <input placeholder="WhatsApp 51…" defaultValue={u.phone || ''} style={{ width: 140, fontSize: 11 }}
+                        onBlur={e => guardarTelSocio(u, e.target.value)} title="Por aquí le avisa el bot cuando hay una solicitud por firmar" />
+                      {!asig.some(a => a.user_id === u.id) && <div className="bad" style={{ fontSize: 10, marginTop: 3 }}>⚠ Sin proyectos asignados: no ve nada.</div>}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {u.id === profile?.id
