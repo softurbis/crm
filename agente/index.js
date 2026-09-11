@@ -3107,11 +3107,14 @@ async function seguirCampanas() {
 }
 setInterval(() => { seguirCampanas().catch(e => log('seguirCampanas:', String(e.message || e))) }, 10 * 60000)
 
-// ---------- APROBACION DE GASTOS (sql/73): avisos ----------
-// La solicitud y la firma viven en el panel. Aqui solo se AVISA, para que
-// nadie tenga que acordarse de revisar:
-//  · a los socios asignados al proyecto, cuando entra una solicitud que exige
-//    su firma (projects.expense_approval)
+// ---------- APROBACION DE GASTOS (sql/73 + sql/74): avisos ----------
+// La solicitud y las firmas viven en el panel. Aqui solo se AVISA, para que
+// nadie tenga que acordarse de revisar. El orden de los avisos es el orden de
+// las firmas — avisarle al socio antes de tiempo seria pedirle que apruebe algo
+// que todavia no firmo quien lo pidio:
+//  · a quien tiene que firmar la solicitud, cuando la secretaria la registra
+//  · a los socios asignados al proyecto, cuando esa primera firma ya esta y el
+//    proyecto exige la suya (projects.expense_approval)
 //  · a quien la pidio, cuando el socio la aprueba o la rechaza
 // enviar() la manda por Telegram si la persona lo tiene vinculado, si no por
 // WhatsApp. El numero del socio esta registrado como 'desactivado': recibe
@@ -3122,12 +3125,35 @@ async function avisarAprobaciones() {
   const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
   const dig = t => String(t || '').replace(/\D/g, '')
 
-  // 1) solicitudes nuevas -> a los socios del proyecto
+  // 0) solicitudes nuevas -> a quien le toca firmarlas como solicitante (sql/74)
+  const { data: firmar, error: e0 } = await supabase.from('expenses')
+    .select('id, request_number, amount, recipient, description, requester_id, registered_by, project:projects(name)')
+    .eq('status', 'solicitado').is('requester_signed_at', null).is('rejected_at', null)
+    .is('requester_notified_at', null).not('requester_id', 'is', null).limit(20)
+  if (!e0) for (const g of (firmar || [])) {
+    const { data: quien } = await supabase.from('profiles').select('full_name, phone').eq('id', g.requester_id).maybeSingle()
+    const { data: sec } = g.registered_by
+      ? await supabase.from('profiles').select('full_name').eq('id', g.registered_by).maybeSingle()
+      : { data: null }
+    const tel = dig(quien?.phone)
+    if (tel.length >= 11) {
+      await enviar(tel, '✍ *SOLICITUD DE GASTO PARA TU FIRMA*\n' + (g.project?.name || '') + ' · ' + sol(g)
+        + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + '\n' + (g.description || '')
+        + (sec?.full_name ? '\nLa registró ' + sec.full_name : '')
+        + '\n\nRevísala y fírmala aquí: ' + panel, { tipo: 'aviso_admin' })
+    }
+    // se marca aunque no tenga telefono: el banner del panel igual se la muestra
+    await supabase.from('expenses').update({ requester_notified_at: new Date().toISOString() }).eq('id', g.id)
+    log('GASTO', sol(g), 'por firmar: avisado a', quien?.full_name || g.requester_id)
+  }
+
+  // 1) solicitudes YA FIRMADAS por el solicitante -> a los socios del proyecto
   const { data: pend, error } = await supabase.from('expenses')
-    .select('id, request_number, amount, recipient, description, project_id, project:projects!inner(name, expense_approval)')
+    .select('id, request_number, amount, recipient, description, requester_name, project_id, project:projects!inner(name, expense_approval)')
     .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).is('approval_notified_at', null)
+    .or('requester_id.is.null,requester_signed_at.not.is.null')
     .eq('project.expense_approval', true).limit(20)
-  if (error) return      // sql/73 sin correr: nada que hacer
+  if (error) return      // sql/73 o sql/74 sin correr: nada que hacer
   for (const g of (pend || [])) {
     const { data: asig } = await supabase.from('project_assignments').select('user_id').eq('project_id', g.project_id)
     const ids = (asig || []).map(a => a.user_id)
@@ -3139,6 +3165,7 @@ async function avisarAprobaciones() {
       if (dig(s.phone).length < 11) continue
       const ok = await enviar(dig(s.phone), '✍ *SOLICITUD DE GASTO POR APROBAR*\n' + g.project.name + ' · ' + sol(g)
         + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + '\n' + (g.description || '')
+        + (g.requester_name ? '\nYa la firmó ' + g.requester_name : '')
         + '\n\nRevísala y fírmala aquí: ' + panel, { tipo: 'aviso_admin' })
       if (ok) avisados++
     }

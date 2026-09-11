@@ -5,16 +5,20 @@ const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFract
 const numSol = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : String(g.id).slice(0, 8).toUpperCase()
 
 // ============================================================
-// REVISAR Y FIRMAR una solicitud de gasto (socio o superusuario)
+// REVISAR Y FIRMAR una solicitud de gasto
 // ------------------------------------------------------------
+// La misma pantalla sirve para las DOS firmas de la constancia, porque lo que
+// hay que revisar antes de firmar es exactamente lo mismo:
+//   modo="solicitar" → la firma de quien pide el gasto (firmar_solicitud, sql/74)
+//   modo="aprobar"   → la firma del socio que lo autoriza (aprobar_gasto, sql/73)
 // Firmar = la firma registrada + la contraseña escrita AHORA. El servidor
-// (aprobar_gasto, sql/73) rechaza la aprobacion si la sesion no se autentico
-// con contraseña en los ultimos 5 minutos: una sesion abierta y olvidada en
-// otra PC no puede aprobar nada.
-// Rechazar no pide contraseña (no compromete dinero), pero si el motivo: la
-// secretaria lo recibe para corregir.
+// rechaza la firma si la sesion no se autentico con contraseña en los ultimos
+// 5 minutos: una sesion abierta y olvidada en otra PC no firma nada.
+// Rechazar es solo del socio y no pide contraseña (no compromete dinero), pero
+// si el motivo: la secretaria lo recibe para corregir.
 // ============================================================
-export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, onCerrar, onHecho, onPedirFirma }) {
+export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, modo = 'aprobar', onCerrar, onHecho, onPedirFirma }) {
+  const pidiendo = modo === 'solicitar'
   const [pass, setPass] = useState('')
   const [rechazo, setRechazo] = useState(null)   // null = aprobando; texto = escribiendo el motivo
   const [busy, setBusy] = useState(false)
@@ -33,11 +37,14 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, on
     //    mal, el gasto no se llega a tocar.
     const { error: e1 } = await supabase.auth.signInWithPassword({ email: profile?.email, password: pass })
     if (e1) { setBusy(false); setErr('Contraseña incorrecta.'); return }
-    // 2) la aprobacion, en el servidor: rol, proyecto, estado y contraseña reciente
-    const { data, error } = await supabase.rpc('aprobar_gasto', { eid: g.id })
+    // 2) la firma, en el servidor: rol, proyecto, estado y contraseña reciente
+    const { data, error } = await supabase.rpc(pidiendo ? 'firmar_solicitud' : 'aprobar_gasto', { eid: g.id })
     setBusy(false); setPass('')
-    if (error) { setErr(error.message); return }
-    onHecho?.('✍ SOLICITUD ' + numSol(g) + ' APROBADA Y FIRMADA · código de verificación ' + (data?.code || ''))
+    if (error) { setErr(/firmar_solicitud/.test(error.message) ? 'Falta correr sql/74 en la base.' : error.message); return }
+    onHecho?.(pidiendo
+      ? '✍ SOLICITUD ' + numSol(g) + ' FIRMADA · código ' + (data?.code || '')
+        + (proyecto?.expense_approval ? '. Ahora pasa al socio para su aprobación.' : '')
+      : '✍ SOLICITUD ' + numSol(g) + ' APROBADA Y FIRMADA · código de verificación ' + (data?.code || ''))
   }
 
   async function rechazar() {
@@ -55,7 +62,7 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, on
       <div className="glass modal" onClick={e => e.stopPropagation()}
         style={{ maxWidth: 600, width: '96%', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="modal-head">
-          <b>✍ REVISAR Y FIRMAR · {numSol(g)}</b>
+          <b>✍ {pidiendo ? 'FIRMAR LA SOLICITUD' : 'REVISAR Y FIRMAR'} · {numSol(g)}</b>
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
 
@@ -72,6 +79,9 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, on
           {fila('Solicitante', g.sender)}
           {fila('Pago', (g.payment_method || '—') + ' · se descuenta de ' + (g.discount_from || 'URBIS GROUP'))}
           {fila('Comprobante', g.document_type)}
+          {/* al socio le importa ver que la primera firma ya esta puesta */}
+          {!pidiendo && g.requester_signed_at && fila('Ya firmó',
+            <span className="ok">✍ {g.requester_name} · código {g.requester_code}</span>)}
         </tbody></table>
 
         {items.length > 0 && (
@@ -107,12 +117,15 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, on
             </label>
             {err && <p className="error">{err}</p>}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <button className="btn-primary" disabled={busy || !firmaUrl}>{busy ? 'Firmando…' : '✍ Aprobar y firmar'}</button>
-              <button type="button" className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }}
-                onClick={() => { setRechazo(''); setErr('') }}>Rechazar…</button>
+              <button className="btn-primary" disabled={busy || !firmaUrl}>{busy ? 'Firmando…' : (pidiendo ? '✍ Firmar la solicitud' : '✍ Aprobar y firmar')}</button>
+              {!pidiendo && (
+                <button type="button" className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }}
+                  onClick={() => { setRechazo(''); setErr('') }}>Rechazar…</button>
+              )}
             </div>
             <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
-              Al firmar queda registrado quién aprobó, cuándo, y una huella del gasto. Si alguien lo modifica después, la constancia lo va a señalar.
+              Al firmar queda registrado quién {pidiendo ? 'pidió el gasto' : 'aprobó'}, cuándo, y una huella del gasto. Si alguien lo modifica después,
+              {pidiendo ? ' tu firma se anula y hay que volver a firmarla.' : ' la constancia lo va a señalar.'}
             </p>
           </form>
         ) : (

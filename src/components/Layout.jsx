@@ -77,27 +77,37 @@ export default function Layout() {
   const [expandido, setExpandido] = useState(null)   // proyecto con su menu desplegado
   const [gruposCerrados, setGruposCerrados] = useState({})   // mega-grupos plegados (por defecto todos abiertos)
   const [conectados, setConectados] = useState([])
-  // SOCIO: solicitudes de gasto que esperan su firma, por proyecto. Se ve en
-  // cualquier pantalla: el objetivo es que no tenga que acordarse de revisar.
+  // Solicitudes de gasto que esperan MI firma, por proyecto. Se ve en cualquier
+  // pantalla: el objetivo es que nadie tenga que acordarse de revisar.
+  //   · socio  → las que le toca aprobar (sql/73)
+  //   · quien pidio el gasto → las que le toca firmar como solicitante (sql/74)
   const [porFirmar, setPorFirmar] = useState([])
   const irA = usarNavegacion()
   useEffect(() => {
-    if (role !== 'socio') return
+    if (!profile?.id) return
+    const esSocio = role === 'socio'
     let vivo = true
     const contar = async () => {
-      const { data, error } = await supabase.from('expenses')
-        .select('project_id, project:projects!inner(name, expense_approval)')
-        .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null)
-        .eq('project.expense_approval', true).limit(200)
-      if (!vivo || error) return
+      const base = supabase.from('expenses')
+        .select('project_id, requester_id, requester_signed_at, project:projects!inner(name, expense_approval)')
+        .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).limit(200)
+      const { data, error } = esSocio
+        ? await base.eq('project.expense_approval', true)
+        : await base.eq('requester_id', profile.id).is('requester_signed_at', null)
+      if (!vivo || error) return       // sql/74 sin correr: el aviso no aparece y ya
       const m = {}
-      for (const r of (data || [])) { m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++ }
+      for (const r of (data || [])) {
+        // al socio no se le cuenta lo que todavia no firmo el solicitante: no es
+        // su turno, y un contador que no puede bajar deja de significar algo
+        if (esSocio && r.requester_id && !r.requester_signed_at) continue
+        m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++
+      }
       setPorFirmar(Object.values(m))
     }
     contar()
     const t = setInterval(contar, 60000)
     return () => { vivo = false; clearInterval(t) }
-  }, [role])
+  }, [role, profile?.id])
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
@@ -251,7 +261,7 @@ export default function Layout() {
           '--accent-strong': `color-mix(in srgb, ${colorActivo} 62%, #ffffff)`,
         } : {}),
       }}>
-        {role === 'socio' && porFirmar.length > 0 && (
+        {porFirmar.length > 0 && (
           <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
             <b>✍ Esperan tu firma:</b>
             {porFirmar.map(p => (

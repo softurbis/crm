@@ -46,9 +46,12 @@ Pucallpa, {{FECHA_LETRAS}}.
 
 
 // Estado REAL de una solicitud. La columna status solo guarda solicitado /
-// confirmado; la decision del socio vive en sus propias columnas (sql/73).
+// confirmado; las dos firmas viven en sus propias columnas (sql/73 y sql/74).
+// El orden importa: primero firma quien pide el gasto, despues el socio. Una
+// solicitud sin la primera firma NO esta "por aprobar", esta por firmar.
 const estadoGasto = g => g.status === 'confirmado' ? 'confirmado'
-  : g.rejected_at ? 'rechazado' : g.approved_at ? 'aprobado' : 'solicitado'
+  : g.rejected_at ? 'rechazado' : g.approved_at ? 'aprobado'
+  : (g.requester_id && !g.requester_signed_at) ? 'por_firmar' : 'solicitado'
 const fechaHora = s => new Date(s).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function Expenses() {
@@ -57,11 +60,12 @@ export default function Expenses() {
   const readOnly = ['manager', 'socio'].includes(role)
   const esSocio = role === 'socio'
   const puedeAprobar = ['socio', 'superuser'].includes(role)
-  const [aprobar, setAprobar] = useState(null)          // solicitud abierta para firmar
+  const [aprobar, setAprobar] = useState(null)          // { g, modo } solicitud abierta para firmar
   const [miFirma, setMiFirma] = useState(null)          // firma recien registrada (el perfil del contexto no se recarga solo)
   const [cambiarFirma, setCambiarFirma] = useState(false)
   const [firmaBusy, setFirmaBusy] = useState(false)
-  const [verif, setVerif] = useState(null)              // huella de la firma: true intacta / false alterada / null sin dato
+  const [verif, setVerif] = useState(null)              // huellas de las dos firmas (verificar_gasto)
+  const [firmantes, setFirmantes] = useState([])        // a quien se le puede pedir la firma en este proyecto
   const [proyecto, setProyecto] = useState(null)
   const [list, setList] = useState([])
   const [msg, setMsg] = useMsg(null)
@@ -89,10 +93,17 @@ export default function Expenses() {
     setTplText((p.data?.expense_template) || DEFAULT_GASTO_TEMPLATE)
   }
   useEffect(() => { load() }, [pidOp])
+  // a quien se le puede pedir la firma de solicitante en este proyecto (sql/74).
+  // Va por RPC y no por consulta a profiles: la secretaria no puede leer la
+  // tabla de usuarios entera, y para elegir solo necesita los nombres.
+  useEffect(() => {
+    if (!pidOp || readOnly) return
+    supabase.rpc('firmantes_gasto', { pid: pidOp }).then(({ data }) => setFirmantes(data || []), () => setFirmantes([]))
+  }, [pidOp, readOnly])
   useEffect(() => {
     setVerif(null)
-    if (!prt?.approved_at) return
-    supabase.rpc('verificar_gasto', { eid: prt.id }).then(({ data }) => setVerif(data ? !!data.valido : null), () => {})
+    if (!prt?.approved_at && !prt?.requester_signed_at) return
+    supabase.rpc('verificar_gasto', { eid: prt.id }).then(({ data }) => setVerif(data || null), () => {})
   }, [prt])
 
   // años que existen de verdad en los gastos del proyecto (no una lista fija)
@@ -110,6 +121,7 @@ export default function Expenses() {
       if (fest === 'solicitado' && g.status !== 'solicitado') return false
       if (fest === 'confirmado' && g.status !== 'confirmado') return false
       if (fest === 'por_aprobar' && estadoGasto(g) !== 'solicitado') return false
+      if (fest === 'por_firmar' && estadoGasto(g) !== 'por_firmar') return false
       if (fest === 'aprobado' && estadoGasto(g) !== 'aprobado') return false
       if (fest === 'rechazado' && estadoGasto(g) !== 'rechazado') return false
       // un gasto marcado NO APLICA no es un faltante: no tiene que aparecer aqui
@@ -123,6 +135,15 @@ export default function Expenses() {
   const total = filtrada.reduce((s, g) => s + Number(g.amount), 0)
   const pendConfirmar = list.filter(g => g.status === 'solicitado').length
   const porAprobar = list.filter(g => estadoGasto(g) === 'solicitado').length
+  const porFirmar = list.filter(g => estadoGasto(g) === 'por_firmar').length
+  // las que me tocan a MI: mientras existan, la pantalla me ofrece registrar mi firma
+  const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && (g.requester_id === profile?.id || role === 'superuser')
+  const miasPorFirmar = list.filter(miPuedeFirmar).length
+  const tengoFirma = miFirma || profile?.signature_url
+  const hay74 = firmantes.length > 0      // la RPC de sql/74 respondio: la segunda firma existe
+  // el socio registra su firma apenas entra, aunque no haya nada pendiente:
+  // cuando llegue la primera solicitud no tiene que aprender dos cosas a la vez
+  const meToca = esSocio || miasPorFirmar > 0
   const faltaRH = list.filter(g => g.status === 'confirmado' && !g.receipt_url && !g.receipt_na).length
   const noAplican = list.filter(g => g.request_doc_na || g.receipt_na || g.voucher_na).length
 
@@ -130,6 +151,7 @@ export default function Expenses() {
     setF({
       type: g.type, issue_date: g.issue_date, amount: g.amount,
       recipient: g.recipient, recipient_dni: g.recipient_dni, sender: g.sender,
+      requester_id: g.requester_id || '',
       discount_from: g.discount_from, payment_method: g.payment_method,
       document_type: g.document_type, description: g.description, detail: g.detail,
     })
@@ -142,24 +164,41 @@ export default function Expenses() {
     setBusy(true); setMsg(null)
     try {
       const up = x => (x || '').toUpperCase().trim() || null
+      // el solicitante elegido manda sobre el texto: su nombre es el que sale en
+      // la constancia y el que tiene que coincidir con la firma. Si no se eligio
+      // a nadie (gasto viejo, o proyecto sin el circuito) se respeta el texto.
+      const firm = firmantes.find(p => p.id === f.requester_id)
       const campos = {
         type: f.type || 'OTROS', issue_date: f.issue_date || hoy(),
         recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
-        sender: up(f.sender), amount: Number(f.amount),
+        sender: firm ? up(firm.full_name) : up(f.sender), amount: Number(f.amount),
+        // la columna solo se manda si sql/74 esta corrido (si no, firmantes_gasto
+        // no responde y la lista queda vacia). Sin esto, un panel desplegado
+        // antes que la migracion dejaria a la secretaria sin poder registrar
+        // gastos: el insert entero se cae por una columna que todavia no existe.
+        ...(hay74 ? { requester_id: f.requester_id || null } : {}),
         document_type: up(f.document_type), payment_method: up(f.payment_method) || 'EFECTIVO',
         description: up(f.description), discount_from: f.discount_from || 'URBIS GROUP',
         detail: (f.detail || '').trim() || null,
       }
       if (editId) {
         // corrige la MISMA solicitud: conserva el correlativo (request_number).
-        // Si ya estaba aprobada, la firma era sobre OTROS datos: se anula y la
-        // solicitud vuelve a pedir la firma del socio. Si estaba rechazada,
-        // corregirla la reenvia.
+        // Las firmas eran sobre OTROS datos: se anulan las dos y la solicitud
+        // vuelve a recorrer el camino (solicitante -> socio). Si estaba
+        // rechazada, corregirla la reenvia.
         const antes = list.find(x => x.id === editId)
-        if (antes?.approved_at && !confirm('Esta solicitud ya estaba APROBADA por ' + (antes.approved_name || 'el socio') + '.\n\nSi la corriges, la aprobación se ANULA y vuelve a pedir su firma.\n\n¿Corregir igual?')) { setBusy(false); return }
+        const firmadas = [
+          antes?.requester_signed_at && 'la FIRMA de ' + (antes.requester_name || 'quien la pidió'),
+          antes?.approved_at && 'la APROBACIÓN de ' + (antes.approved_name || 'el socio'),
+        ].filter(Boolean)
+        if (firmadas.length && !confirm('Esta solicitud ya tiene ' + firmadas.join(' y ') + '.\n\nSi la corriges se ANULA' + (firmadas.length > 1 ? 'n' : '') + ' y hay que volver a firmarla desde el principio.\n\n¿Corregir igual?')) { setBusy(false); return }
         const reinicio = antes && 'approved_at' in antes ? {
           approved_by: null, approved_at: null, approved_name: null, approval_signature_url: null, approval_hash: null, approval_code: null,
           rejected_by: null, rejected_at: null, rejected_reason: null, approval_notified_at: null, decision_notified_at: null,
+          ...(antes && 'requester_signed_at' in antes ? {
+            requester_signed_at: null, requester_name: null, requester_signature_url: null,
+            requester_hash: null, requester_code: null, requester_notified_at: null,
+          } : {}),
         } : {}
         const { error } = await supabase.from('expenses').update({ ...campos, ...reinicio }).eq('id', editId)
         if (error) throw new Error(error.message)
@@ -169,7 +208,12 @@ export default function Expenses() {
           .insert({ project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id, ...campos })
           .select('request_number').single()
         if (error) throw new Error(error.message)
-        setMsg({ ok: true, t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. Imprime la constancia y hazla firmar.' })
+        setMsg({
+          ok: true,
+          t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. '
+            + (firm ? (firm.id === profile?.id ? 'F\u00CDRMALA T\u00DA CON "\u270D FIRMAR" Y PASA AL SOCIO.' : 'SE LE AVISA A ' + (firm.full_name || '').split(' ')[0] + ' PARA QUE LA FIRME.')
+                    : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.'),
+        })
       }
       setF({}); setEditId(null); setShow(false); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
@@ -183,7 +227,7 @@ export default function Expenses() {
       const { error } = await supabase.rpc('guardar_mi_firma', { url })
       if (error) throw new Error(/guardar_mi_firma/.test(error.message) ? 'Falta correr sql/73 en la base.' : error.message)
       setMiFirma(url); setCambiarFirma(false)
-      setMsg({ ok: true, t: 'FIRMA REGISTRADA. Ya puedes aprobar solicitudes.' })
+      setMsg({ ok: true, t: 'FIRMA REGISTRADA. Ya puedes firmar solicitudes.' })
     } catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }) }
     setFirmaBusy(false)
   }
@@ -197,6 +241,13 @@ export default function Expenses() {
 
   async function confirmar(g) {
     if (g.rejected_at) { alert('Esta solicitud fue RECHAZADA por ' + (g.rejected_reason ? 'este motivo:\n\n' + g.rejected_reason : 'el socio') + '\n\nCorrígela con "editar" para reenviarla.'); return }
+    // si se eligio un solicitante, se espera su firma — exija o no el proyecto la
+    // del socio. Elegirlo ES pedirle la firma; si no, el selector se deja vacio.
+    if (g.requester_id && !g.requester_signed_at) {
+      alert('Falta la firma de ' + (g.sender || 'quien pidió el gasto') + '.'
+        + (proyecto?.expense_approval ? '\n\nEste proyecto exige las DOS firmas: primero la de quien pide el gasto, después la del socio.' : '\n\nEsta solicitud espera su firma en el panel.'))
+      return
+    }
     if (proyecto?.expense_approval && !g.approved_at) { alert('Falta la aprobación del socio.\n\nEste proyecto exige que un socio revise y firme la solicitud antes de entregar el dinero.'); return }
     if (!confirm(`Confirmar que el dinero de "${g.description || g.type}" (${soles(g.amount)}) ya se entrego?`)) return
     await supabase.from('expenses').update({
@@ -449,6 +500,7 @@ export default function Expenses() {
           <option value="todos">TODOS LOS ESTADOS</option>
           <option value="solicitado">SOLICITADOS</option>
           <option value="confirmado">CONFIRMADOS</option>
+          <option value="por_firmar">POR FIRMAR (solicitante)</option>
           <option value="por_aprobar">POR APROBAR (socio)</option>
           <option value="aprobado">APROBADOS, SIN PAGAR</option>
           <option value="rechazado">RECHAZADOS</option>
@@ -460,6 +512,7 @@ export default function Expenses() {
 
       <p className="hint">
         {filtrada.length} gastos | TOTAL: <b>{soles(total)}</b>
+        {porFirmar > 0 && <span className="warn"> | ✍ ESPERAN LA FIRMA DEL SOLICITANTE: {porFirmar}</span>}
         {proyecto?.expense_approval && porAprobar > 0 && <span className="warn"> | ✍ POR APROBAR: {porAprobar}</span>}
         {!readOnly && pendConfirmar > 0 && <span className="warn"> | POR CONFIRMAR: {pendConfirmar}</span>}
         {!readOnly && faltaRH > 0 && <span className="bad"> | FALTA RH/FACTURA: {faltaRH}</span>}
@@ -473,22 +526,25 @@ export default function Expenses() {
           {' '}Este proyecto exige la <b>aprobación firmada de un socio</b> antes de confirmar el pago
         </label>
       )}
-      {puedeAprobar && ((esSocio && !(miFirma || profile?.signature_url)) || cambiarFirma) && (
+      {/* La firma se dibuja UNA vez y sirve para las dos firmas de la constancia:
+          la del socio que aprueba y la de quien pide el gasto (sql/74). Se ofrece
+          sola a quien le toca firmar algo y todavia no la registro. */}
+      {((meToca && !tengoFirma) || cambiarFirma) && (
         <div className="glass form-card">
-          <p><b>✍ {(miFirma || profile?.signature_url) ? 'CAMBIAR' : 'REGISTRA'} TU FIRMA</b></p>
-          <p className="muted small" style={{ textTransform: 'none' }}>Dibújala con el dedo o el mouse, como firmas en papel. Se usa en cada aprobación, junto con tu contraseña.</p>
+          <p><b>✍ {tengoFirma ? 'CAMBIAR' : 'REGISTRA'} TU FIRMA</b></p>
+          <p className="muted small" style={{ textTransform: 'none' }}>Dibújala con el dedo o el mouse, como firmas en papel. Se usa cada vez que firmes, junto con tu contraseña.</p>
           <FirmaPad busy={firmaBusy} onGuardar={guardarFirma} />
           {cambiarFirma && <button className="btn-ghost" style={{ marginTop: 8 }} onClick={() => setCambiarFirma(false)}>Cancelar</button>}
         </div>
       )}
-      {puedeAprobar && !cambiarFirma && (miFirma || profile?.signature_url) && (esSocio || proyecto?.expense_approval) && (
+      {!cambiarFirma && tengoFirma && (meToca || proyecto?.expense_approval) && (
         <p className="hint">
           <img src={miFirma || profile.signature_url} alt="Tu firma" style={{ height: 30, background: '#fff', borderRadius: 4, verticalAlign: 'middle', padding: 2 }} />
           {' '}Tu firma registrada · <button className="link-btn" onClick={() => setCambiarFirma(true)}>cambiarla</button>
         </p>
       )}
-      {role === 'superuser' && proyecto?.expense_approval && !(miFirma || profile?.signature_url) && !cambiarFirma && (
-        <p className="hint muted">Tú también puedes aprobar como respaldo: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
+      {role === 'superuser' && proyecto?.expense_approval && !tengoFirma && !cambiarFirma && (
+        <p className="hint muted">Tú también puedes firmar como respaldo: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
       )}
 
       {show && !readOnly && (
@@ -505,7 +561,23 @@ export default function Expenses() {
             {IN('amount', 'Monto S/', 'number', true)}
             {IN('recipient', 'Receptor (quien recibe el dinero)', 'text', true)}
             {IN('recipient_dni', 'DNI del receptor', 'text', true)}
-            {IN('sender', 'Solicitante')}
+            {/* El solicitante deja de ser un texto suelto: es la persona que
+                despues FIRMA la solicitud en el panel (sql/74). Si el proyecto
+                exige la aprobacion del socio, elegirlo es obligatorio — sin
+                solicitante no hay primera firma y el pago no se destraba. */}
+            <label>Solicitante — quien firma la solicitud
+              {firmantes.length > 0 ? (
+                <select value={f.requester_id || ''} required={!!proyecto?.expense_approval}
+                  onChange={e => setF(x => ({ ...x, requester_id: e.target.value }))}>
+                  <option value="">{proyecto?.expense_approval ? '- elegir -' : '- nadie / se firma en papel -'}</option>
+                  {firmantes.map(p => (
+                    <option key={p.id} value={p.id}>{p.full_name}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
+                  ))}
+                </select>
+              ) : (
+                <input value={f.sender || ''} onChange={e => setF(x => ({ ...x, sender: e.target.value }))} />
+              )}
+            </label>
             <label>Se descuenta de
               <select value={f.discount_from || 'URBIS GROUP'} onChange={e => setF(x => ({ ...x, discount_from: e.target.value }))}>
                 <option>URBIS GROUP</option>
@@ -546,6 +618,7 @@ export default function Expenses() {
                   if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
                   if (e === 'aprobado') return <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
                   if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
+                  if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + (g.sender || 'quien la pidió')}>&#9203; POR FIRMAR<br /><span className="muted small">{(g.sender || '').split(' ')[0]}</span></span>
                   return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
                 })()}</td>
                 <td>{g.type}</td>
@@ -558,8 +631,13 @@ export default function Expenses() {
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
                 <td><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" /></td>
                 <td>
-                  {puedeAprobar && g.status === 'solicitado' && !g.approved_at && !g.rejected_at && (esSocio || proyecto?.expense_approval) && (
-                    <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar(g)}>✍ Revisar y firmar</button>{' '}</>
+                  {/* primero firma quien pidio el gasto... */}
+                  {miPuedeFirmar(g) && (
+                    <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar solicitud</button>{' '}</>
+                  )}
+                  {/* ...y recien entonces aparece la firma del socio */}
+                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
+                    <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>{' '}</>
                   )}
                   {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
                     <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
@@ -638,8 +716,19 @@ export default function Expenses() {
                 {prt.rejected_at && <p style={{ textAlign: 'center', border: '2px solid #c0392b', color: '#c0392b', padding: 6 }}><b>SOLICITUD RECHAZADA</b> · {prt.rejected_reason}</p>}
                 {cuerpo}
                 <table className="ctable firmas"><tbody><tr>
-                  <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
-                    ______________________________<br /><b>SOLICITANTE</b>{prt.sender ? <><br />{prt.sender}</> : null}
+                  {/* las DOS firmas de la constancia. Cada una sale con su
+                      codigo: quien reciba el papel puede pedir que se verifique
+                      contra el panel, y si el gasto cambio despues lo dice aqui. */}
+                  <td style={{ textAlign: 'center', paddingTop: prt.requester_signed_at && prt.requester_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
+                    {prt.requester_signed_at && prt.requester_signature_url
+                      ? <>
+                          <img src={prt.requester_signature_url} alt="Firma del solicitante" style={{ height: 70, display: 'block', margin: '0 auto' }} />
+                          ______________________________<br /><b>SOLICITANTE</b><br />{prt.requester_name}<br />
+                          <span className="small">Firmado electrónicamente el {fechaHora(prt.requester_signed_at)}<br />Código de verificación: <b>{prt.requester_code}</b>
+                            {verif?.solicitud_valida === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
+                            {verif?.solicitud_valida === true && ' · verificado'}</span>
+                        </>
+                      : <>______________________________<br /><b>SOLICITANTE</b>{prt.sender ? <><br />{prt.sender}</> : null}</>}
                   </td>
                   <td style={{ textAlign: 'center', paddingTop: prt.approved_at && prt.approval_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
                     {prt.approved_at && prt.approval_signature_url
@@ -647,8 +736,8 @@ export default function Expenses() {
                           <img src={prt.approval_signature_url} alt="Firma de quien aprueba" style={{ height: 70, display: 'block', margin: '0 auto' }} />
                           ______________________________<br /><b>APRUEBA</b><br />{prt.approved_name}<br />
                           <span className="small">Firmado electrónicamente el {fechaHora(prt.approved_at)}<br />Código de verificación: <b>{prt.approval_code}</b>
-                            {verif === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
-                            {verif === true && ' · verificado'}</span>
+                            {verif?.valido === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
+                            {verif?.valido === true && ' · verificado'}</span>
                         </>
                       : <>______________________________<br /><b>APRUEBA</b><br />ADMINISTRACION — URBIS GROUP</>}
                   </td>
@@ -660,7 +749,7 @@ export default function Expenses() {
       })()}
 
       {aprobar && (
-        <AprobarGasto gasto={aprobar} proyecto={proyecto} profile={profile} firmaUrl={miFirma || profile?.signature_url}
+        <AprobarGasto gasto={aprobar.g} modo={aprobar.modo} proyecto={proyecto} profile={profile} firmaUrl={tengoFirma}
           onCerrar={() => setAprobar(null)}
           onHecho={t => { setAprobar(null); setMsg({ ok: true, t }); load() }}
           onPedirFirma={() => { setAprobar(null); setCambiarFirma(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
