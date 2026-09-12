@@ -138,9 +138,25 @@ export default function Users() {
         email: nu.email, password: nu.pass,
         options: { data: { full_name: (nu.name || '').toUpperCase() } },
       })
+      // el correo ya tiene cuenta: no se crea de nuevo, se arregla desde su fila
+      if (error && /already registered|already been registered/i.test(error.message)) {
+        throw new Error('ESE CORREO YA TIENE CUENTA. No hay que crearla de nuevo: búscala en la lista de abajo y cámbiale ahí el ROL, los PROYECTOS y su WhatsApp.')
+      }
       if (error) throw new Error(error.message)
       if (data.user) {
-        await supabase.from('profiles').update({ role: nu.role, full_name: (nu.name || '').toUpperCase(), ...(nu.role === 'socio' ? { panels: SOCIO_PANELS } : {}) }).eq('id', data.user.id)
+        // el perfil lo crea un disparador de la base con rol por defecto; esto le
+        // pone el que se eligio. Si ESTO falla (por ejemplo, el rol 'socio' no
+        // existe todavia porque falta correr sql/73), el usuario igual quedo
+        // creado en auth: callarlo dejaba una cuenta con el rol equivocado y el
+        // segundo intento solo decia "ya registrado", sin explicar nada.
+        const { error: e2 } = await supabase.from('profiles')
+          .update({ role: nu.role, full_name: (nu.name || '').toUpperCase(), ...(nu.role === 'socio' ? { panels: SOCIO_PANELS } : {}) })
+          .eq('id', data.user.id)
+        if (e2) {
+          throw new Error('LA CUENTA SE CREÓ, PERO NO SE LE PUDO PONER EL ROL ' + String(nu.role).toUpperCase() + ': ' + e2.message
+            + (nu.role === 'socio' ? ' — si dice que el valor no existe, falta correr sql/73 en la base.' : '')
+            + ' Corrígelo desde su fila en la lista de abajo.')
+        }
       }
       setMsg({ ok: true, t: 'USUARIO CREADO: ' + nu.email + (nu.role === 'socio'
         ? '. AHORA, en su fila: marca sus PROYECTOS (sin proyectos no ve nada) y pon su WhatsApp para avisarle las solicitudes.'
@@ -167,7 +183,12 @@ export default function Users() {
 
   async function cambiarRol(u, r) {
     const { error } = await supabase.from('profiles').update(r === 'socio' ? { role: r, panels: SOCIO_PANELS } : { role: r }).eq('id', u.id)
-    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `ROL DE ${u.email} ACTUALIZADO` })
+    // "invalid input value for enum" no le dice nada a nadie: el rol existe en el
+    // panel pero todavia no en la base
+    const falta = error && /invalid input value for enum/i.test(error.message)
+    setMsg(error
+      ? { ok: false, t: falta ? `EL ROL ${String(r).toUpperCase()} TODAVÍA NO EXISTE EN LA BASE: falta correr sql/73.` : error.message }
+      : { ok: true, t: `ROL DE ${u.email} ACTUALIZADO` + (r === 'socio' ? '. AHORA márcale sus PROYECTOS (sin proyectos no ve nada) y su WhatsApp.' : '') })
     load()
   }
 
