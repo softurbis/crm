@@ -31,24 +31,23 @@
 No necesita nada de Meta: sirve para probar el agente con datos reales desde el
 panel, sin que salga ningún mensaje.
 
-1. Crear las tablas del agente en la base:
+1. Las tablas del agente y el arreglo de permisos, **en ese orden**. Son una
+   sola vez:
 
 ```bash
-scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql'
+scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -h 127.0.0.1 -U postgres -d postgres -f /root/77_rol_real.sql'
 ```
 
-   Tiene que terminar en `tablas 7 · funciones 5 · agente y avisos apagados`.
-
-2. Instalar y arrancar el proceso. Esto recién funciona **después** de que Claude
-   publique el código en GitHub:
+2. Instalar o actualizar los dos procesos del servidor. **Este es el comando de
+   siempre** cada vez que Claude publique cambios:
 
 ```bash
-ssh root@157.245.8.78 "cd /root/crm && git pull && cd agente && npm install && pm2 start cobranza.js --name cobranza-agente && pm2 save && sleep 6 && pm2 logs cobranza-agente --lines 8 --nostream"
+scp "C:\Claude\Projects\Sistema CRM\migracion\07_actualizar_agente.sh" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 'bash /root/07_actualizar_agente.sh'
 ```
 
-   Tiene que decir `AGENTE DE COBRANZA corriendo · ... WhatsApp SIN TOKEN (solo pruebas)`.
-   Mientras no exista la clave propia, dice que usa la clave GENERAL de Claude: para
-   probar está bien.
+   Al final tiene que decir `AGENTE DE COBRANZA corriendo`, con WhatsApp "SIN TOKEN
+   (solo pruebas)". Mientras no exista la clave propia usa la clave GENERAL de
+   Claude: para probar está bien.
 
 3. Panel → **Usuarios** → en tu fila o en la de la secretaria, marca
    **🤝 Responsable de cobranza**. Esa persona tiene que cerrar sesión y volver a entrar.

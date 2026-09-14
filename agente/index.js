@@ -968,7 +968,7 @@ async function enviar(phone, texto, meta = {}) {
   // 40, el bot se quedaba mudo A MEDIA CONVERSACION despues del primer lead, sin
   // avisar a nadie. Contestarle a alguien que TE ESCRIBIO no tiene ese riesgo, asi
   // que esas respuestas ya no cuentan contra el tope.
-  const CONVERSACION = ['lead_flujo', 'ia', 'auto_cliente', 'manual', 'aviso_admin', 'reporte', 'secretaria', 'interno']
+  const CONVERSACION = ['lead_flujo', 'ia', 'auto_cliente', 'redirige_cobranza', 'manual', 'aviso_admin', 'reporte', 'secretaria', 'interno']
   const cuentaParaTope = !CONVERSACION.includes(meta.tipo || '')
   if (cuentaParaTope && (S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') {
     log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone)
@@ -1546,6 +1546,12 @@ async function cobranzaVentaCfg(v, cfg, hoyISO) {
 }
 
 async function cobranza() {
+  // Sep 2026: la cobranza ya NO sale por este bot. La atiende el agente con IA
+  // por el numero oficial de Meta (cobranza.js, sql/76). Queda inerte A
+  // PROPOSITO: si alguien volviera a prender cobranza_activa, cada cliente
+  // recibiria el aviso dos veces, por dos numeros distintos.
+  log('COBRANZA: ya no la hace este bot (ver cobranza.js)')
+  if (true) return
   if (!(await flag('bot_activo')) || !(await flag('cobranza_activa'))) { log('COBRANZA DESACTIVADA desde el panel'); return }
   log('=== BARRIDO DE COBRANZA ===')
   CEREBRO_COB = await brain('cobranza')
@@ -2092,25 +2098,20 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   const cliente = (clientes || [])[0]
   if (tnum === 'cliente' && !cliente) return
   if (cliente) {
-    // COBRANZA por número: si la cobranza de esta sesión está apagada, no se
-    // auto-responde al cliente (el mensaje queda registrado para atención humana).
-    if (ses?.row && ses.row.cobranza_activo === false) { log('COBRANZA DEL NUMERO APAGADA (' + (ses.row.label || 'PRINCIPAL') + '): sin auto-respuesta a cliente', phone); return }
+    // Este numero es de LEADS. La cobranza vive en el numero oficial, con el
+    // agente de IA (cobranza.js): al cliente que escribe aca se le pasa ese
+    // numero UNA vez por dia — si manda tres mensajes seguidos no recibe tres
+    // veces lo mismo. Su mensaje igual queda en el chat para quien lo atienda.
     const primer = (cliente.full_name || '').split(' ')[0]
-    // Flujo de respuesta configurable (bot_brains 'cobranza_flow' = JSON):
-    // [{ claves:"ya pague, voucher", accion:"responder"|"asesor", respuesta:"..." }]
-    const reglas = parseJSON(await brain('cobranza_flow'))
-    if (Array.isArray(reglas) && reglas.length) {
-      const r = reglas.find(x => matchClaves(x.claves, corto))
-      if (r) {
-        await enviar(jid, String(r.respuesta || '').trim() || (r.accion === 'asesor' ? 'Con gusto, un asesor se comunicará contigo en breve. 🙌' : '¡Gracias! 🙌 Recibido.'), { tipo: 'auto_cliente', client_id: cliente.id, ses })
-        if (ADMIN) await enviar(ADMIN, (r.accion === 'asesor' ? '📞 CLIENTE PIDE AYUDA/ASESOR' : '🤖 CLIENTE') + ` *${cliente.full_name}* (${phone}):\n"${corto}"`, { tipo: 'aviso_admin' })
-        return
-      }
-    }
-    // por defecto: reconocer "ya pagué"
-    if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto)) {
-      await enviar(jid, `¡Gracias ${primer}! 🙌 Hemos recibido su mensaje. Nuestro equipo verificará el pago y le confirmaremos en breve.`, { tipo: 'auto_cliente', client_id: cliente.id, ses })
-      if (ADMIN) await enviar(ADMIN, `🤖 CLIENTE *${cliente.full_name}* (${phone}) escribió:\n"${corto}"\n\n→ Posible pago por verificar en CUOTAS.`, { tipo: 'aviso_admin' })
+    const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
+    const { data: ya } = await supabase.from('scheduled_messages').select('id')
+      .eq('tipo', 'redirige_cobranza').eq('client_id', cliente.id).gte('sent_at', desde).limit(1)
+    if (!ya || !ya.length) {
+      const { data: cc } = await supabase.from('cobranza_config').select('numero_cobranza').eq('id', 1).maybeSingle()
+      const num = String(cc?.numero_cobranza || '51986598614').replace(/\D/g, '')
+      const bonito = num.length === 11 && num.startsWith('51') ? '+51 ' + num.slice(2, 5) + ' ' + num.slice(5, 8) + ' ' + num.slice(8) : '+' + num
+      await enviar(jid, `Hola ${primer} 👋 Para pagos, vouchers y consultas sobre sus cuotas, escríbanos a nuestro WhatsApp de *Cobranzas*: ${bonito} (wa.me/${num}). Ahí le atendemos. 🙌`,
+        { tipo: 'redirige_cobranza', canal: 'whatsapp', client_id: cliente.id, ses })
     }
     return // clientes: no aplicar flujo de leads
   }
@@ -3661,9 +3662,8 @@ async function arrancar() {
     }
   }, 30 * 60000)
 
-  // crons GLOBALES (una sola vez, no por sesión)
-  const [hh, mm] = (process.env.HORA_COBRANZA || '09:00').split(':')
-  cron.schedule(`${Number(mm)} ${Number(hh)} * * *`, cobranza, { timezone: 'America/Lima' })
+  // crons GLOBALES (una sola vez, no por sesión). La cobranza diaria ya no se
+  // programa aqui: la hace el agente con IA (cobranza.js).
   // LATIDO: cada 30 min avisa que sigue vivo, con lo que hizo en ese rato. Si el
   // mensaje deja de llegar, el bot se cayo — un bot caido no puede avisar de si
   // mismo, asi que el silencio ES la alarma. Sale por Telegram cuando esta
@@ -3691,7 +3691,7 @@ async function arrancar() {
   cron.schedule('* * * * *', secretariaTick, { timezone: 'America/Lima' })
   cron.schedule('* * * * *', visitasTick, { timezone: 'America/Lima' })
   arrancarTelegram()
-  log(`Agente iniciado (${rows.length} sesion(es)). Cobranza diaria a las ${hh}:${mm} (hora Lima).`)
+  log(`Agente iniciado (${rows.length} sesion(es)). La cobranza la atiende cobranza.js.`)
 
   if (process.env.RUN_NOW === '1') { await espera(8000); cobranza() }
 }
@@ -3871,6 +3871,9 @@ async function purgarPruebas() {
 // Cobranza SCOPED a un solo cliente (para el botón "simular cobranza"): misma lógica
 // de 4 niveles que la real, pero sin dedup (siempre muestra el mensaje que enviaría).
 async function cobranzaTest(clientId, sessionPhone) {
+  // la cobranza se mudo al agente con IA: se prueba en Cobranza IA → Probar agente
+  await enviar(sessionPhone, '(prueba) La cobranza ya no la hace este bot. Pruébala en el panel: Cobranza IA → Probar agente.', { tipo: 'test' })
+  if (true) return
   if (!clientId) { await enviar(sessionPhone, '(prueba) Elige un cliente para simular su cobranza.', { tipo: 'test' }); return }
   CEREBRO_COB = await brain('cobranza')
   const hoyISO = new Date().toISOString().slice(0, 10)

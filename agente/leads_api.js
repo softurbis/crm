@@ -342,13 +342,22 @@ async function manejarEntrante(m) {
     return
   }
 
-  // ¿cliente con lote? este numero no es de cobranza: registrar y avisar si parece pago
+  // ¿cliente con lote? este numero es de LEADS: se le pasa el numero de cobranzas
+  // una vez por dia, igual que en index.js (la cobranza la atiende cobranza.js)
   const p9 = phone.slice(-9)
   const { data: clientes } = await supabase.from('clients').select('id, full_name').ilike('phone', `%${p9}%`).limit(1)
   const cliente = (clientes || [])[0]
   if (cliente) {
-    if (/pag(ue|ué|ado)|voucher|deposit|transferi|constancia/i.test(corto) && ADMIN)
-      await enviar(ADMIN, `🤖 CLIENTE *${cliente.full_name}* (${phone}) escribió al número de leads:\n"${corto}"\n\n→ Posible pago por verificar en CUOTAS.`, { tipo: 'aviso_admin' })
+    const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
+    const { data: ya } = await supabase.from('scheduled_messages').select('id')
+      .eq('tipo', 'redirige_cobranza').eq('client_id', cliente.id).gte('sent_at', desde).limit(1)
+    if (!ya || !ya.length) {
+      const { data: cc } = await supabase.from('cobranza_config').select('numero_cobranza').eq('id', 1).maybeSingle()
+      const num = String(cc?.numero_cobranza || '51986598614').replace(/\D/g, '')
+      const primer = (cliente.full_name || '').split(' ')[0]
+      await enviar(phone, `Hola ${primer} 👋 Para pagos, vouchers y consultas sobre sus cuotas, escríbanos a nuestro WhatsApp de *Cobranzas*: +${num} (wa.me/${num}). Ahí le atendemos. 🙌`,
+        { tipo: 'redirige_cobranza', client_id: cliente.id })
+    }
     return
   }
 

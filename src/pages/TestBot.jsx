@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 // Perfiles que se pueden simular. El agente fuerza la clasificación del número.
 const PERFILES = [
   { v: 'lead',       t: '🟢 Lead nuevo (ventas)',      d: 'Escribe por primera vez: identifica el proyecto → pide el nombre → corre el flujo del panel de ese proyecto. Verás también el aviso al admin.', c: '#9ccb86' },
-  { v: 'cliente',    t: '💵 Cliente (cobranza)',        d: 'Emula a un cliente REAL: su cobranza según su deuda y su respuesta a “ya pagué”.', c: '#b8a1d9' },
+  { v: 'cliente',    t: '💵 Cliente',        d: 'Emula a un cliente REAL escribiendo al número de leads: el bot le pasa el número de cobranzas.', c: '#b8a1d9' },
   { v: 'secretaria', t: '🗓️ Secretaria (seguimiento)', d: 'Emula a una secretaria REAL: pase de lista con sus tareas de hoy y sus respuestas.', c: '#7ec8e3' },
   { v: 'gerencia',   t: '👑 Gerencia (Q&A)',            d: 'Comandos (lotes, comisiones, vencidas…) y preguntas libres con IA.', c: '#e7c15a' },
 ]
@@ -49,7 +49,7 @@ export default function TestBot() {
     supabase.from('secretaries').select('id, full_name, phone').eq('active', true).order('full_name').then(({ data }) => setSecs((data || []).filter(s => (s.phone || '').replace(/\D/g, '').length >= 9)))
   }, [])
 
-  // clientes del proyecto elegido (los que tienen venta en ese proyecto) — para el filtro de cobranza
+  // clientes del proyecto elegido (los que tienen venta en ese proyecto) — para emular a un cliente
   useEffect(() => {
     if (perfil !== 'cliente' || !projectId) { setClientesProj([]); return }
     supabase.from('sales').select('client:clients!sales_client_id_fkey(id, full_name, phone), lot:lots!inner(project_id)').eq('lot.project_id', projectId)
@@ -97,7 +97,6 @@ export default function TestBot() {
     if (error) { setPensando(false); setEchoes(e => e.filter(x => x.body !== echo)); alert('No se pudo enviar el mensaje de prueba:\n\n' + error.message + '\n\nProbablemente falta correr la migración SQL (columna emulate_id).') }
   }
   const enviar = async () => { const text = input.trim(); if (!text) return; setInput(''); await encolar({ profile: perfil, text }, text) }
-  const simularCobranza = () => encolar({ profile: 'cobranza_now', emulate_id: clienteId }, null)
   const pasarLista = () => encolar({ profile: 'pasar_lista_now', emulate_id: secId }, null)
 
   const purgar = async () => {
@@ -151,7 +150,9 @@ export default function TestBot() {
               {clientesProj.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
             </select>
             <p className="muted" style={{ fontSize: 10, margin: '0 0 10px' }}>{clientesProj.length} cliente(s) con venta en este proyecto.</p>
-            <button className="btn" style={{ width: '100%', marginBottom: 14 }} disabled={!clienteId} onClick={simularCobranza}>▶️ SIMULAR ENVÍO DE COBRANZA</button>
+            <p className="muted" style={{ fontSize: 11, margin: '0 0 14px', textTransform: 'none' }}>
+              A un cliente, este bot solo le pasa el número de cobranzas. La cobranza se prueba en <b>Cobranza IA → Probar agente</b>.
+            </p>
           </>)}
 
           {perfil === 'secretaria' && (<>
@@ -166,7 +167,7 @@ export default function TestBot() {
           <button className="btn-ghost" style={{ width: '100%' }} onClick={nuevaConversacion}>🔄 NUEVA CONVERSACIÓN</button>
           {activePhone && activePhone.length >= 9 && <p className="muted" style={{ fontSize: 10, marginTop: 8 }}>Sesión: +{activePhone}{(perfil === 'cliente' || perfil === 'secretaria') ? ' (real)' : ' (prueba)'}</p>}
           <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-            Requiere el <b>agente desplegado</b> y los interruptores encendidos (VENTAS/COBRANZA/SEGUIMIENTO), igual que en real.
+            Requiere el <b>agente desplegado</b> y los interruptores encendidos (BOT/LEADS/SEGUIMIENTO), igual que en real.
           </p>
         </div>
 

@@ -10,7 +10,10 @@ dist
 
 # agente whatsapp: secretos y sesion NUNCA al repo
 agente/.env
+agente/.env.save*
 agente/auth/
+agente/auth_s/
+agente/msgstore.json
 agente/node_modules/
 
 # agentes Python (marketing / negocio): CODIGO + DATOS sensibles NUNCA al repo publico.

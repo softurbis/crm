@@ -14,7 +14,7 @@ const FLOW = {
 const TIPOS = [
   { v: 'desactivado', t: 'ADMINISTRATIVO (el bot no le responde; si recibe avisos internos)', s: 'ADMINISTRATIVO', c: '#e07b7b' },
   { v: 'bot',         t: 'BOT (flujo de leads)',                    s: 'BOT', c: '#9ccb86' },
-  { v: 'cliente',     t: 'CLIENTE (solo cobranza)',                 s: 'CLIENTE', c: '#b8a1d9' },
+  { v: 'cliente',     t: 'CLIENTE (el bot le pasa el número de cobranzas)', s: 'CLIENTE', c: '#b8a1d9' },
   { v: 'secretaria',  t: 'SECRETARIA (seguimiento de actividades)', s: 'SECRETARIA', c: '#7ec8e3' },
   { v: 'gerencia',    t: 'GERENCIA (seguimiento de actividades)',   s: '\u{1F454} GERENCIA', c: '#e7c15a' },
   { v: 'silencio',    t: 'SILENCIO TOTAL (nunca responde ni escribe)', s: '\u{1F507} SILENCIO TOTAL', c: '#8b95a1' },
@@ -23,15 +23,12 @@ const fh = iso => iso ? new Date(iso).toLocaleString('es-PE', { day: '2-digit', 
 // material adjuntable en cada paso del flujo (clave que entiende el agente -> etiqueta)
 const MEDIA_OPTS = [['foto1', 'Foto 1'], ['foto2', 'Foto 2'], ['foto3', 'Foto 3'], ['video', 'Video'], ['maps', 'Maps'], ['vista360', 'Tour 360°'], ['plano', 'Plano'], ['brochure', 'Brochure']]
 const nuevoPasoId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'p' + Date.now() + Math.random().toString(36).slice(2, 6))
-// tarjetas por sección (cobranza / seguimiento) — se guardan como texto con "## TAG"
-const COB_CARDS = [['A5', 'A · 5 días antes', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['A3', 'A · 3 días antes', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['A0', 'A · Vence hoy', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha}'], ['INSISTENCIA', 'Insistencia (1 vencida)', '{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias}'], ['B', '2 cuotas vencidas', '{nombre} {lote} {proyecto} {nvencidas} {deuda}'], ['C', '3+ cuotas vencidas', '{nombre} {lote} {proyecto} {nvencidas} {deuda}']]
+// tarjetas del seguimiento — se guardan como texto con "## TAG"
 const SEC_CARDS = [['SALUDO', 'Saludo matutino (buenos días + pendientes)', '{nombre} {lista}'], ['PREGUNTA', 'Pase de lista', '{nombre} {lista} {momento}'], ['RECORDATORIO', 'Recordatorio', '{nombre} {lista}'], ['CONFIRMACION', 'Confirmación', '{nombre} {resumen}'], ['PENDIENTE', 'Quedan pendientes', '{nombre}'], ['NO_ENTENDI', 'No entendí', '{nombre}'], ['RESUMEN', 'Resumen al admin', '{detalle}'], ['FEEDBACK', '¿Algo extra? (pregunta)', '{nombre}'], ['AVISO_HORA', 'Aviso por hora de tarea', '{nombre} {titulo} {hora}']]
 const parseSecc = txt => { const o = {}; ('\n' + String(txt || '')).split(/\n##[ \t]*/).slice(1).forEach(p => { const nl = p.indexOf('\n'); if (nl < 0) { const tag = p.trim().split(/[\s(]+/)[0].toUpperCase(); if (tag) o[tag] = ''; return } const tag = p.slice(0, nl).trim().split(/[\s(]+/)[0].toUpperCase(); if (tag) o[tag] = p.slice(nl + 1).trim() }); return o }
 const armarSecc = (obj, order) => order.filter(([k]) => (obj[k] || '').trim()).map(([k]) => '## ' + k + '\n' + (obj[k] || '').trim()).join('\n\n')
 const parseArr = s => { try { const o = JSON.parse(String(s || '')); return Array.isArray(o) ? o : [] } catch { return [] } }
 // consultas que puede mapear un comando de gerencia (reutilizan las plantillas gratis del bot)
-// buckets de cobranza por nº de cuotas vencidas: [clave, título, etiqueta-días, ¿tiene "repetir"?]
-const COB_BUCKETS = [['al_dia', '✅ Al día (0 vencidas)', 'días ANTES de vencer', false], ['v1', '🟡 1 cuota vencida', 'días después de vencer', true], ['v2', '🟠 2 cuotas vencidas', 'días después', true], ['v3', '🔴 3 cuotas vencidas', 'días después', true], ['v4', '⛔ 4 o más vencidas', 'días después', true]]
 const CONSULTAS_GER = [['resumen', 'Resumen del día'], ['lotes', 'Lotes disponibles y precios'], ['comisiones', 'Comisiones por cobrar'], ['vencidas', 'Cuotas vencidas'], ['gastos', 'Gastos del año/mes'], ['visitas', 'Visitas programadas'], ['ventas', 'Ventas (en proceso/pagadas)'], ['ingresos', 'Ingresos del mes'], ['separaciones', 'Separaciones vigentes'], ['clientes', 'Total de clientes'], ['cartera', 'Cartera por cobrar (total)'], ['pipeline', 'Pipeline de leads'], ['pagos de hoy', 'Pagos de hoy'], ['entregados', 'Lotes entregados'], ['top asesor', 'Top asesor (comisiones)'], ['pendientes', 'Pendientes de secretarias (hoy)'], ['cumplimiento', 'Cumplimiento de secretarias (hoy)']]
 // acciones de seguimiento configurables en gerencia (programar / reprogramar)
 const ACCIONES_GER = [['crear_tarea', 'Crear/programar tarea'], ['reprogramar_tarea', 'Reprogramar tarea']]
@@ -253,7 +250,7 @@ export default function Whatsapp() {
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
   const [proys, setProys] = useState([])
-  const [brainSel, setBrainSel] = useState('cobranza')
+  const [brainSel, setBrainSel] = useState('secretaria')
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useMsg('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
@@ -264,8 +261,6 @@ export default function Whatsapp() {
   const [projQMsg, setProjQMsg] = useMsg('')
   const [projFlow, setProjFlow] = useState({ reask_min: 0, max_reasks: 1, reask_text: '', reask_unit: 'min', pausa_seg: 3, media_lib: [], bombardeo: [], steps: [] })
   const [subiendo, setSubiendo] = useState(false)
-  const [cobCfg, setCobCfg] = useState({ al_dia: { avisos: [] }, v1: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v2: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v3: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } }, v4: { avisos: [], repetir: { cada_dias: 3, mensaje: '' } } })
-  const [cobFlow, setCobFlow] = useState([])         // reglas de respuesta de cobranza
   const [secCards, setSecCards] = useState({})       // tarjetas de seguimiento (por sección)
   const [gerCmds, setGerCmds] = useState([])         // comandos configurables de gerencia
   const [cfgMsg, setCfgMsg] = useMsg('')
@@ -375,10 +370,10 @@ export default function Whatsapp() {
   // Cada cerebro: clave, título largo (editor), etiqueta corta y color (mapa radial),
   // y "meta" objetivo de longitud para calcular el % de completado del nodo.
   // El bot de LEADS es 100% flujo por proyecto (preguntas cerradas), sin IA: no hay cerebro de ventas.
-  // Solo quedan las plantillas de cobranza/seguimiento y el Q&A de gerencia. Las preguntas de cada
-  // proyecto se editan en su FICHA (nodos 📁).
+  // Solo quedan los mensajes del seguimiento y el Q&A de gerencia. Las preguntas de cada
+  // proyecto se editan en su FICHA (nodos 📁). La COBRANZA ya no vive aquí: la atiende
+  // el agente con IA por el número oficial (pantalla Cobranza IA, sql/76).
   const BRAIN_DEFS = [
-    { k: 'cobranza', t: '💵 COBRANZA — plantillas de mensajes', lbl: 'COBRANZA', color: '#e0b34c', meta: 600 },
     { k: 'secretaria', t: '🗓️ SECRETARIA — mensajes del seguimiento', lbl: 'SEGUIMIENTO', color: '#b8a1d9', meta: 600 },
     { k: 'gerencia', t: '🔐 GERENCIA — notas internas para el Q&A del equipo (opcional)', lbl: 'GERENCIA', color: '#6fd0c9', meta: 500 },
   ]
@@ -415,8 +410,7 @@ export default function Whatsapp() {
     setBrainSel(k); setBrainMsg(''); setProjQMsg(''); setCfgMsg('')
     if (!k.startsWith('p:')) {
       setBrainTxt(B.find(x => x.key === k)?.content || '')
-      if (k === 'cobranza') { let cfg = null; try { cfg = JSON.parse(B.find(x => x.key === 'cobranza_cfg')?.content || '') } catch {}; const bk = (o, rep) => ({ avisos: Array.isArray(o?.avisos) ? o.avisos : [], ...(rep ? { repetir: o?.repetir || { cada_dias: 3, mensaje: '' } } : {}) }); setCobCfg({ al_dia: bk(cfg?.al_dia, false), v1: bk(cfg?.v1, true), v2: bk(cfg?.v2, true), v3: bk(cfg?.v3, true), v4: bk(cfg?.v4, true) }); setCobFlow(parseArr(B.find(x => x.key === 'cobranza_flow')?.content)) }
-      else if (k === 'secretaria') setSecCards(parseSecc(B.find(x => x.key === 'secretaria')?.content || ''))
+      if (k === 'secretaria') setSecCards(parseSecc(B.find(x => x.key === 'secretaria')?.content || ''))
       else if (k === 'gerencia') setGerCmds(parseArr(B.find(x => x.key === 'gerencia_cmd')?.content))
     }
     if (k.startsWith('p:')) {
@@ -500,29 +494,11 @@ export default function Whatsapp() {
     setProjQMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot usa el flujo en máx. 1 minuto')
     if (!error) cargarBrains()
   }
-  // ---- guardado de los paneles estructurados (cobranza / seguimiento / gerencia) ----
+  // ---- guardado de los paneles estructurados (seguimiento / gerencia) ----
   const setSec = (tag, v) => setSecCards(c => ({ ...c, [tag]: v }))
-  const cbAdd = b => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: [...(bk.avisos || []), { dias: b === 'al_dia' ? 3 : 1, mensaje: '' }] } } })
-  const cbSet = (b, i, patch) => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: (bk.avisos || []).map((x, j) => j === i ? { ...x, ...patch } : x) } } })
-  const cbDel = (b, i) => setCobCfg(c => { const bk = c[b] || { avisos: [] }; return { ...c, [b]: { ...bk, avisos: (bk.avisos || []).filter((_, j) => j !== i) } } })
-  const cbRep = (b, patch) => setCobCfg(c => { const bk = c[b] || {}; return { ...c, [b]: { ...bk, repetir: { ...(bk.repetir || { cada_dias: 3, mensaje: '' }), ...patch } } } })
-  const cfSet = (i, patch) => setCobFlow(a => a.map((x, j) => j === i ? { ...x, ...patch } : x))
-  const cfAdd = () => setCobFlow(a => [...a, { claves: '', accion: 'responder', respuesta: '' }])
-  const cfDel = i => setCobFlow(a => a.filter((_, j) => j !== i))
   const gcSet = (i, patch) => setGerCmds(a => a.map((x, j) => j === i ? { ...x, ...patch } : x))
   const gcAdd = () => setGerCmds(a => [...a, { claves: '', tipo: 'consulta', consulta: 'lotes', texto: '', accion: 'crear_tarea' }])
   const gcDel = i => setGerCmds(a => a.filter((_, j) => j !== i))
-  const guardarCobranza = async () => {
-    setCfgMsg('GUARDANDO...')
-    const limpAv = arr => (arr || []).map(r => ({ dias: Number(r.dias) || 0, mensaje: (r.mensaje || '').trim() })).filter(r => r.mensaje)
-    const bk = (b, rep) => { const o = { avisos: limpAv(cobCfg[b]?.avisos) }; if (rep) o.repetir = { cada_dias: Number(cobCfg[b]?.repetir?.cada_dias) || 3, mensaje: (cobCfg[b]?.repetir?.mensaje || '').trim() }; return o }
-    const cfg = { al_dia: bk('al_dia', false), v1: bk('v1', true), v2: bk('v2', true), v3: bk('v3', true), v4: bk('v4', true) }
-    const flow = cobFlow.map(r => ({ claves: (r.claves || '').trim(), accion: r.accion === 'asesor' ? 'asesor' : 'responder', respuesta: (r.respuesta || '').trim() })).filter(r => r.claves)
-    const e1 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_cfg', content: JSON.stringify(cfg), updated_at: new Date().toISOString() })).error
-    const e2 = (await supabase.from('bot_brains').upsert({ key: 'cobranza_flow', content: JSON.stringify(flow), updated_at: new Date().toISOString() })).error
-    setCfgMsg(e1 || e2 ? 'ERROR: ' + ((e1 || e2).message) : '✅ GUARDADO — el bot lo usa en máx. 1 minuto')
-    if (!e1 && !e2) cargarBrains()
-  }
   const guardarSeguimiento = async () => {
     setCfgMsg('GUARDANDO...')
     const { error } = await supabase.from('bot_brains').upsert({ key: 'secretaria', content: armarSecc(secCards, SEC_CARDS), updated_at: new Date().toISOString() })
@@ -848,7 +824,8 @@ export default function Whatsapp() {
           <span style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 10px 4px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.1)', opacity: flags.bot_activo ? 1 : 0.45 }}>
             <span className="muted" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.5px' }}>AGENTES</span>
             <Toggle on={flags.ia_activa} onClick={() => setFlag('ia_activa', !flags.ia_activa)} icon="🤖" label="LEADS" />
-            <Toggle on={flags.cobranza_activa} onClick={() => setFlag('cobranza_activa', !flags.cobranza_activa)} icon="💵" label="COBRANZA" />
+            <span title="La cobranza ya no la hace este bot: la atiende el agente con IA por el número oficial (menú Cobranza IA)"
+              style={{ fontSize: 11, fontWeight: 700, color: '#8b95a1', padding: '0 4px' }}>💵 COBRANZA → Cobranza IA</span>
             <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
           </span>
           </>)}
@@ -875,7 +852,7 @@ export default function Whatsapp() {
             title="Números que reciben copia de cada lead y pedido de asesor">📢 COPIA AVISOS{listaAvisos.length ? ' (' + listaAvisos.length + ')' : ''}</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
           {esAdminW && <button className="btn-ghost" onClick={() => setVerNums(!verNums)}>📇 DIRECTORIO ({nums.length})</button>}
-          {esAdminW && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('cobranza', b, p) } }}>🧠 CEREBROS</button>}
+          {esAdminW && <button className="btn-ghost" onClick={async () => { const v = !verBrains; setVerBrains(v); if (v) { const { b, p } = await cargarBrains(); elegirBrain('secretaria', b, p) } }}>🧠 CEREBROS</button>}
         </div>
       </div>
 
@@ -946,10 +923,6 @@ export default function Whatsapp() {
                 title={s.leads_activo !== false ? 'LEADS de este número ENCENDIDO: atiende a los interesados con el flujo de su proyecto. Clic para apagar (solo humano).' : 'LEADS de este número APAGADO: no responde a interesados nuevos. Clic para encender.'}
                 style={{ fontSize: 10, borderColor: s.leads_activo !== false ? '#9ccb86' : '#8b95a1', color: s.leads_activo !== false ? '#9ccb86' : '#8b95a1' }}>
                 🤖 LEADS {s.leads_activo !== false ? 'ON' : 'OFF'}</button>
-              <button className="btn-ghost" onClick={() => setSesCampo(s.id, { cobranza_activo: !(s.cobranza_activo !== false) })}
-                title={s.cobranza_activo !== false ? 'COBRANZA de este número ENCENDIDA: envía recordatorios de pago a los clientes de su proyecto. Clic para apagar.' : 'COBRANZA de este número APAGADA: no envía recordatorios por este número. Clic para encender.'}
-                style={{ fontSize: 10, borderColor: s.cobranza_activo !== false ? '#e0b34c' : '#8b95a1', color: s.cobranza_activo !== false ? '#e0b34c' : '#8b95a1' }}>
-                💵 COBRANZA {s.cobranza_activo !== false ? 'ON' : 'OFF'}</button>
               {s.project_id && <button className="btn-ghost" style={{ fontSize: 10 }} title="Editar el flujo del bot de este proyecto" onClick={() => abrirFlujoDe(s.project_id)}>✏️ FLUJO</button>}
               {s.is_corporate
                 ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: '1px solid #e7c15a', color: '#e7c15a' }}>★ CORPORATIVO</span>
@@ -964,8 +937,7 @@ export default function Whatsapp() {
         </div>
       )}
 
-      {esAdminW && !flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie ni envía cobranzas. Vuelve a activarlo cuando quieras.</div>}
-      {esAdminW && flags.bot_activo && !flags.cobranza_activa && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c' }}>La cobranza automática está APAGADA. El filtro de leads sigue funcionando.</div>}
+      {esAdminW && !flags.bot_activo && <div className="glass" style={{ padding: '8px 14px', marginBottom: 10, border: '1px solid rgba(224,123,123,.6)', color: '#e07b7b' }}>⚠️ BOT APAGADO: no responde a nadie. Vuelve a activarlo cuando quieras. (La cobranza no depende de este interruptor: vive en Cobranza IA.)</div>}
 
       {verBrains && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
@@ -984,7 +956,7 @@ export default function Whatsapp() {
               {BRAIN_DEFS.map(b => <option key={b.k} value={b.k}>{b.t}</option>)}
               {proys.map(p => <option key={p.id} value={'p:' + p.id}>📁 FICHA: {p.name}</option>)}
             </select>
-            {!['cobranza', 'secretaria'].includes(brainSel) && (<>
+            {brainSel !== 'secretaria' && (<>
               <label className="btn-ghost" style={{ cursor: 'pointer' }}>
                 📄 SUBIR .MD
                 <input type="file" accept=".md,.txt" onChange={subirMd} style={{ display: 'none' }} />
@@ -1002,49 +974,6 @@ export default function Whatsapp() {
                 <button className="btn" onClick={ensenar}>ENSEÑAR</button>
               </div>
               <p className="muted" style={{ fontSize: 10, marginTop: 6 }}>También por WhatsApp: desde el número ADMIN escríbele al bot <b>aprende: &lt;dato&gt;</b>.</p>
-            </div>
-          )}
-          {brainSel === 'cobranza' && (
-            <div>
-              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Configura cada caso según cuántas cuotas debe el cliente. Variables: <span style={{ fontFamily: 'monospace' }}>{'{nombre} {lote} {proyecto} {cuota} {monto} {fecha} {dias} {nvencidas} {deuda}'}</span>.</p>
-
-              {COB_BUCKETS.map(([b, titulo, etiq, rep]) => (
-                <div key={b} style={{ border: '1px solid rgba(255,255,255,.14)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(0,0,0,.12)' }}>
-                  <b style={{ fontSize: 12 }}>{titulo}</b>
-                  {((cobCfg[b] || {}).avisos || []).map((r, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, flexWrap: 'wrap' }}>
-                      <input type="number" min="0" value={r.dias} onChange={e => cbSet(b, i, { dias: e.target.value })} style={{ width: 52 }} /><span style={{ fontSize: 10, paddingTop: 6 }}>{etiq}:</span>
-                      <textarea value={r.mensaje} placeholder="Mensaje…" onChange={e => cbSet(b, i, { mensaje: e.target.value })} style={{ flex: '1 1 240px', minHeight: 38, textTransform: 'none', fontSize: 12 }} />
-                      <button className="btn-ghost" onClick={() => cbDel(b, i)}>✕</button>
-                    </div>
-                  ))}
-                  <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => cbAdd(b)}>+ Aviso</button>
-                  {rep && (
-                    <div style={{ borderTop: '1px dashed rgba(255,255,255,.15)', marginTop: 8, paddingTop: 8, fontSize: 12 }}>
-                      🔁 Si sigue sin pagar, repetir cada <input type="number" min="1" value={(cobCfg[b] || {}).repetir?.cada_dias ?? 3} onChange={e => cbRep(b, { cada_dias: e.target.value })} style={{ width: 44 }} /> días:
-                      <textarea value={(cobCfg[b] || {}).repetir?.mensaje || ''} placeholder="Mensaje de insistencia (opcional)…" onChange={e => cbRep(b, { mensaje: e.target.value })} style={{ width: '100%', minHeight: 36, textTransform: 'none', fontSize: 12, marginTop: 4 }} />
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div style={{ border: '1px solid rgba(126,200,227,.4)', borderRadius: 8, padding: 10, margin: '8px 0', background: 'rgba(126,200,227,.06)' }}>
-                <b style={{ fontSize: 12, color: '#7ec8e3' }}>💬 Flujo: cuando el cliente responde</b>
-                <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Regla por palabra clave: responde un texto o deriva al asesor. La primera que coincida gana.</p>
-                {cobFlow.map((r, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
-                    <input value={r.claves} placeholder="palabras clave: ya pagué, voucher" onChange={e => cfSet(i, { claves: e.target.value })} style={{ flex: '1 1 150px', textTransform: 'none' }} />
-                    <select value={r.accion} onChange={e => cfSet(i, { accion: e.target.value })} style={{ fontSize: 11 }}>
-                      <option value="responder">responder texto</option>
-                      <option value="asesor">derivar al asesor</option>
-                    </select>
-                    <input value={r.respuesta} placeholder={r.accion === 'asesor' ? 'texto al derivar (opcional)' : 'respuesta del bot'} onChange={e => cfSet(i, { respuesta: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />
-                    <button className="btn-ghost" onClick={() => cfDel(i)}>✕</button>
-                  </div>
-                ))}
-                <button className="btn-ghost" onClick={cfAdd}>+ Regla</button>
-              </div>
-              <button className="btn" onClick={guardarCobranza}>💾 GUARDAR COBRANZA</button>
-              {cfgMsg && <span style={{ fontSize: 12, marginLeft: 8 }}>{cfgMsg}</span>}
             </div>
           )}
           {brainSel === 'secretaria' && (
@@ -1300,7 +1229,7 @@ export default function Whatsapp() {
             </div>
           )}
           {brainSel.startsWith('p:') && <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Abajo (opcional) la <b>info del proyecto</b> que el bot manda en el bombardeo por defecto (cuando el proyecto no tiene flujo armado).</p>}
-          {!['cobranza', 'secretaria'].includes(brainSel) && (<>
+          {brainSel !== 'secretaria' && (<>
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
             placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
             style={{ width: '100%', minHeight: brainSel === 'gerencia' ? '20vh' : '48vh', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }} />
@@ -1317,7 +1246,7 @@ export default function Whatsapp() {
       {verNums && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
           <b>DIRECTORIO DE NÚMEROS</b>
-          <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>Todo número que NO esté aquí se trata como BOT (flujo de leads). Los CLIENTES registrados en el sistema reciben cobranza automáticamente sin necesidad de agregarlos.</p>
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>Todo número que NO esté aquí se trata como BOT (flujo de leads). Si un CLIENTE registrado escribe a este número, el bot le pasa el número de cobranzas (una vez por día): la cobranza la atiende el agente de Cobranza IA.</p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <input placeholder="Número (ej. 519XXXXXXXX)" value={nvo.phone} onChange={e => setNvo({ ...nvo, phone: e.target.value })} style={{ width: 180 }} />
             <select value={nvo.tipo} onChange={e => setNvo({ ...nvo, tipo: e.target.value })}>
