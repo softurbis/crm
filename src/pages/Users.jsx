@@ -250,6 +250,19 @@ export default function Users() {
     load()
   }
 
+  // Permisos especiales por PERSONA (sql/76): no dependen del rol. La base
+  // rechaza el cambio si no lo hace el superusuario.
+  async function togglePermiso(u, p, on) {
+    const cur = Array.isArray(u.permisos) ? u.permisos : []
+    const next = on ? [...new Set([...cur, p])] : cur.filter(x => x !== p)
+    const { error } = await supabase.from('profiles').update({ permisos: next }).eq('id', u.id)
+    if (error) setMsg({ ok: false, t: /permisos/.test(error.message) ? 'FALTA CORRER sql/76 EN LA BASE.' : 'ERROR: ' + error.message })
+    else setMsg({ ok: true, t: on
+      ? (u.full_name || u.email) + ' AHORA ES RESPONSABLE DE COBRANZA: valida pagos y maneja el agente. Que cierre sesión y vuelva a entrar para ver la pantalla.'
+      : 'PERMISO DE COBRANZA QUITADO A ' + (u.full_name || u.email) })
+    load()
+  }
+
   return (
     <>
       <div className="toolbar">
@@ -396,6 +409,13 @@ export default function Users() {
                       )
                     })}
                   {u.role !== 'superuser' && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
+                  {u.role !== 'superuser' && u.role !== 'socio' && (
+                    <label className="inline-check" style={{ fontSize: 11, marginTop: 8, display: 'flex' }}
+                      title="Valida los vouchers que lee el agente de cobranza, maneja el agente y ve sus conversaciones (sql/76)">
+                      <input type="checkbox" checked={(u.permisos || []).includes('cobranza')} onChange={e => togglePermiso(u, 'cobranza', e.target.checked)} />
+                      🤝 <b>Responsable de cobranza</b>
+                    </label>
+                  )}
                 </td>
               </tr>
             ))}

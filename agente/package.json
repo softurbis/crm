@@ -4,8 +4,9 @@
   "version": "1.0.0",
   "description": "Agente WhatsApp de Urbis Control: cobranza automatica y filtro de leads",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
+  "scripts": { "start": "node index.js", "cobranza": "node cobranza.js" },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "@supabase/supabase-js": "^2.47.0",
     "dotenv": "^16.4.5",

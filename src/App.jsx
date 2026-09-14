@@ -15,6 +15,7 @@ import Contracts from './pages/Contracts'
 import Campanas from './pages/Campanas'
 import Whatsapp from './pages/Whatsapp'
 import TestBot from './pages/TestBot'
+import CobranzaIA from './pages/CobranzaIA'
 import Secretarias from './pages/Secretarias'
 import Reset from './pages/Reset'
 import Visitas from './pages/Visitas'
@@ -47,6 +48,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="whatsapp" element={<Whatsapp />} />
         <Route path="probar-bot" element={<TestBot />} />
+        <Route path="cobranza-ia" element={<CobranzaIA />} />
         <Route path="corretaje" element={<Corretaje />} />
         <Route path="campanas" element={<Campanas />} />
         <Route path="secretarias" element={<Secretarias />} />

@@ -45,6 +45,8 @@ const GLOBAL = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482', grupo: 'Comunicación' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Comunicación' },
+  // la ve quien tenga el permiso especial de cobranza (sql/76), no un rol
+  { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Comunicación' },
   { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
   { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
@@ -68,7 +70,8 @@ const PROYECTO = [
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f' },
 ]
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
-export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
+// Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
+export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && !m.cobranza && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
@@ -111,9 +114,12 @@ export default function Layout() {
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
-  const enPanel = m => role === 'superuser' || m.to === '/' || m.admin || !panelsUser || panelsUser.includes(m.to)
+  const enPanel = m => role === 'superuser' || m.to === '/' || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to)
+  // Cobranza IA la abre el permiso especial (sql/76), no el rol ni los paneles.
+  // El administrador la ve para consultar; la pantalla le quita los botones.
+  const tieneCobranza = ['admin', 'superuser'].includes(role) || (profile?.permisos || []).includes('cobranza')
   // ¿este ítem es visible para el usuario? (mismo criterio que tenía el menú plano)
-  const verItem = m => !!m && (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && enPanel(m)
+  const verItem = m => !!m && (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && enPanel(m)
   const grupoAbierto = g => !gruposCerrados[g]
   const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
 

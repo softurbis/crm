@@ -66,7 +66,21 @@ async function enviarMedia(to, url, tipo = 'image', caption = '') {
 // --- WEBHOOK (recepcion) -----------------------------------------------------
 // Meta manda: mensajes entrantes de clientes + estados (sent/delivered/read).
 // `alRecibir(msg)` y `alEstado(st)` los conecta el bot a las tablas del panel.
-function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () => {} } = {}) {
+// --- DATOS DE LA CUENTA (solo lectura) ---------------------------------------
+// Sirven para confirmar desde el droplet, sin mostrar el token, en que estado
+// esta el numero. is_on_biz_app=true + platform_type=CLOUD_API = coexistencia:
+// la app del celular y la API conviven en el mismo numero.
+async function infoNumero(campos = 'display_phone_number,verified_name,name_status,quality_rating,status,platform_type,is_on_biz_app,throughput,code_verification_status') {
+  return api(`${PHONE_ID}?fields=${campos}`, null, 'GET')
+}
+// la app tiene que estar suscrita a la cuenta de WhatsApp (WABA) para recibir el webhook
+async function suscribirApp(wabaId) { return api(`${wabaId}/subscribed_apps`, {}) }
+async function appsSuscritas(wabaId) { return api(`${wabaId}/subscribed_apps`, null, 'GET') }
+async function listarPlantillas(wabaId) { return api(`${wabaId}/message_templates?fields=name,status,category,language&limit=100`, null, 'GET') }
+
+// `alEco`: lo que la persona escribio desde la app WhatsApp Business cuando el
+// numero esta en coexistencia (webhook smb_message_echoes).
+function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () => {}, alEco = () => {} } = {}) {
   const srv = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x')
     if (req.method === 'GET' && url.pathname === '/webhook') {
@@ -87,6 +101,7 @@ function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () =>
             const v = ch.value || {}
             for (const m of v.messages || []) await alRecibir(m, v)
             for (const s of v.statuses || []) await alEstado(s, v)
+            for (const x of v.message_echoes || []) await alEco(x, v)
           }
         } catch (err) { console.error('webhook:', err.message) }
       })
@@ -106,7 +121,7 @@ async function bajarMedia(mediaId) {
   return { buffer: Buffer.from(await r.arrayBuffer()), mime: meta.mime_type || 'application/octet-stream' }
 }
 
-module.exports = { enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia }
+module.exports = { enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia, infoNumero, suscribirApp, appsSuscritas, listarPlantillas }
 
 // --- PRUEBA EN SECO ----------------------------------------------------------
 if (require.main === module && process.argv.includes('--test')) {
