@@ -35,8 +35,11 @@ panel, sin que salga ningún mensaje.
    sola vez:
 
 ```bash
-scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -h 127.0.0.1 -U postgres -d postgres -f /root/77_rol_real.sql'
+scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/77_rol_real.sql'
 ```
+
+   > `ON_ERROR_STOP=1` es importante: sin eso, `psql` responde "todo bien" aunque
+   > el SQL falle, y lo que viene después con `&&` corre igual.
 
 2. Instalar o actualizar los dos procesos del servidor. **Este es el comando de
    siempre** cada vez que Claude publique cambios:
