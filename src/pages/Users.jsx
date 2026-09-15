@@ -81,7 +81,8 @@ export default function Users() {
 
   const [seguim, setSeguim] = useState([])
   const [segAcc, setSegAcc] = useState([])
-  const [firmaDe, setFirmaDe] = useState(null)   // a quién se le está cargando la firma
+  const [firmaDe, setFirmaDe] = useState(null)      // a quién se le está cargando la firma
+  const [firmaGrande, setFirmaGrande] = useState(null)   // firma abierta en grande para revisarla
   async function load() {
     const [u, p, a, s, sa] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at'),
@@ -403,12 +404,20 @@ export default function Users() {
                   <button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
                     title="Cargar la foto de su firma para las constancias de gastos"
                     onClick={() => setFirmaDe(firmaDe?.id === u.id ? null : u)}>✍ FIRMA {u.signature_url ? '✓' : ''}</button>
+                  {u.signature_url && (
+                    <img src={u.signature_url} alt={'Firma de ' + (u.full_name || u.email)}
+                      title="Ver la firma en grande"
+                      onClick={() => setFirmaGrande(u)}
+                      style={{ height: 30, maxWidth: 150, objectFit: 'contain', background: '#fff', borderRadius: 4, padding: 2, cursor: 'zoom-in' }} />
+                  )}
                   {firmaDe?.id === u.id && (
                     <div style={{ marginTop: 8, width: 340, maxWidth: '100%', textTransform: 'none' }}>
                       {u.signature_url && (
                         <p className="muted small" style={{ margin: '0 0 6px' }}>
                           Firma actual:{' '}
-                          <img src={u.signature_url} alt="Firma actual" style={{ height: 34, background: '#fff', borderRadius: 4, padding: 3, verticalAlign: 'middle' }} />
+                          <img src={u.signature_url} alt="Firma actual" title="Ver la firma en grande"
+                            onClick={() => setFirmaGrande(u)}
+                            style={{ height: 34, background: '#fff', borderRadius: 4, padding: 3, verticalAlign: 'middle', cursor: 'zoom-in' }} />
                         </p>
                       )}
                       <FirmaPad busy={busy} alto={140} onGuardar={f => guardarFirmaDe(u, f)} />
@@ -491,6 +500,24 @@ export default function Users() {
         </table>
         <p className="muted small">DESACTIVAR corta el acceso al instante (queda en la lista por historial). Para borrarlo definitivamente: Supabase &#8594; Authentication &#8594; usuario &#8594; Delete.</p>
       </div>
+
+      {/* la firma en grande: se revisa antes de que salga en una constancia */}
+      {firmaGrande && (
+        <div onClick={() => setFirmaGrande(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.65)', display: 'grid', placeItems: 'center', padding: 16, cursor: 'zoom-out' }}>
+          <div onClick={e => e.stopPropagation()} className="glass form-card" style={{ maxWidth: 720, width: '100%', textTransform: 'none', cursor: 'auto' }}>
+            <p style={{ margin: '0 0 8px' }}><b>FIRMA DE {firmaGrande.full_name || firmaGrande.email}</b></p>
+            <img src={firmaGrande.signature_url} alt="Firma en grande"
+              style={{ width: '100%', maxHeight: '55vh', objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 10 }} />
+            <p className="muted small" style={{ marginTop: 8 }}>Así va a salir en la constancia, sobre la línea de la firma. Si salió con manchas, cortada o con parte del nombre, vuelve a subirla.</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="btn-ghost" onClick={() => setFirmaGrande(null)}>Cerrar</button>
+              <a className="btn-ghost" href={firmaGrande.signature_url} target="_blank" rel="noreferrer">Abrir la imagen</a>
+              <button className="btn-ghost" onClick={() => { setFirmaDe(firmaGrande); setFirmaGrande(null) }}>Cambiarla</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
