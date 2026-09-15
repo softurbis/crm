@@ -2,18 +2,23 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirFotoWeb, subirLogoWeb } from '../lib/imagenesWeb'
 import { subirRuta } from '../lib/archivos'
+import { linkPublico, linkPanel } from '../lib/sitios'
 
 // Editor de la LANDING pública de un proyecto (Corretaje → Proyectos → Landing).
 // Guarda en corr_proyectos_pub (sql/78); la página vive en /p/<slug> y la
 // dibuja pages/Landing.jsx. Mientras la landing esté apagada, el admin con
-// sesión la ve como vista previa en el mismo link.
+// sesión la ve como vista previa desde el panel (con dominio propio la web
+// pública es otro sitio y no tiene sesión: ver lib/sitios.js).
 
 export const slugify = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/^(las?|el|los)\s+/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 // mientras se escribe se deja el guion final (si no, no se puede tipear "praderas-de")
 const limpiarSlug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-')
-export const linkLanding = slug => window.location.origin + import.meta.env.BASE_URL + 'p/' + slug
+// link para compartir: la web pública (hoy este mismo sitio; con dominio propio, otro)
+export const linkLanding = slug => linkPublico('p/' + slug)
+// el borrador solo se ve con sesión, y la sesión vive en el panel: la vista previa se abre aquí
+export const linkVistaPrevia = slug => linkPanel('p/' + slug)
 // si pegan el código <iframe …> entero, nos quedamos con el src
 const srcDeIframe = v => (String(v).match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i) || [, String(v)])[1].trim()
 
@@ -158,7 +163,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
         <span className="muted" style={{ fontSize: 12 }}>{linkLanding('')}</span>
         <input value={l.slug || ''} placeholder={slugify(pr.name)} onChange={e => set('slug', limpiarSlug(e.target.value))} style={{ width: 230 }} />
         {link && <button type="button" className="btn-ghost" onClick={copiar}>🔗 Copiar link</button>}
-        {link && <a className="btn-ghost" href={link} target="_blank" rel="noreferrer">👁️ Abrir</a>}
+        {link && <a className="btn-ghost" href={l.landing_activa ? link : linkVistaPrevia(slug)} target="_blank" rel="noreferrer">👁️ Abrir</a>}
         <button type="button" className="btn" onClick={guardar} disabled={guardando} style={{ marginLeft: 'auto' }}>{guardando ? 'Guardando…' : '💾 Guardar landing'}</button>
       </div>
 

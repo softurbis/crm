@@ -3121,7 +3121,8 @@ setInterval(() => { seguirCampanas().catch(e => log('seguirCampanas:', String(e.
 // WhatsApp. El numero del socio esta registrado como 'desactivado': recibe
 // avisos internos pero si escribe no se le responde como a un lead.
 async function avisarAprobaciones() {
-  const panel = 'https://softurbis.github.io/crm/gastos'
+  // PANEL_URL en el .env cuando el panel tenga dominio propio (sin barra final)
+  const panel = (process.env.PANEL_URL || 'https://softurbis.github.io/crm') + '/gastos'
   const sol = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : ''
   const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
   const dig = t => String(t || '').replace(/\D/g, '')
@@ -3257,7 +3258,7 @@ async function tableroLeads(phone, datos, fallback) {
   }
   partes.push('', 'Actualizado ' + horaLima() + ' — este mensaje se actualiza solo.')
   const texto = partes.join('\n')
-  const botones = [[{ t: '📊 Abrir el Kanban de leads', url: 'https://softurbis.github.io/crm/leads' }]]
+  const botones = [[{ t: '📊 Abrir el Kanban de leads', url: (process.env.PANEL_URL || 'https://softurbis.github.io/crm') + '/leads' }]]
   // leads nuevos: el MISMO mensaje se edita en silencio. Alguien pide humano:
   // el tablero re-suena (y la copia anterior se borra — un solo tablero siempre).
   if (datos.estado === 'asesor' || datos.estado === 'sin_respuesta') await avisoSonoro('leads', texto, botones)

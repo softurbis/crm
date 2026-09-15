@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
-import LandingEditor, { linkLanding } from '../components/LandingEditor'
+import LandingEditor, { linkLanding, linkVistaPrevia } from '../components/LandingEditor'
+import { linkPublico } from '../lib/sitios'
 
 const TIPOS = [
   ['terreno_urbano', 'Terreno urbano'], ['terreno_rural', 'Terreno rural (ha)'], ['lote', 'Lote'],
@@ -43,7 +44,7 @@ export default function Corretaje() {
   const [landingAbierta, setLandingAbierta] = useState(null)   // proyecto con el editor de landing abierto
 
   // link de la página pública (fuera del login) para compartir
-  const LINK_PUBLICO = window.location.origin + import.meta.env.BASE_URL + 'propiedades'
+  const LINK_PUBLICO = linkPublico('propiedades')
   const copiarLinkPublico = async () => {
     try { await navigator.clipboard.writeText(LINK_PUBLICO); alert('✅ Link público copiado:\n\n' + LINK_PUBLICO + '\n\nPégalo en WhatsApp, redes o donde quieras.') }
     catch { window.prompt('Copia este link público:', LINK_PUBLICO) }
@@ -285,7 +286,7 @@ export default function Corretaje() {
                 <button className="btn-ghost" onClick={() => guardarProy(pr.id)}>💾 Guardar</button>
                 <button className={landingAbierta === pr.id ? 'btn' : 'btn-ghost'} onClick={() => setLandingAbierta(a => (a === pr.id ? null : pr.id))} title="Página propia del proyecto para anuncios y redes">🌐 Landing</button>
                 {pr.pub.slug && (
-                  <a href={linkLanding(pr.pub.slug)} target="_blank" rel="noreferrer" style={{ fontSize: 12, textTransform: 'none', color: pr.pub.landing_activa ? '#6fdd9b' : '#c9c39a' }}>
+                  <a href={pr.pub.landing_activa ? linkLanding(pr.pub.slug) : linkVistaPrevia(pr.pub.slug)} target="_blank" rel="noreferrer" style={{ fontSize: 12, textTransform: 'none', color: pr.pub.landing_activa ? '#6fdd9b' : '#c9c39a' }}>
                     {pr.pub.landing_activa ? '🟢' : '⚪ borrador ·'} /p/{pr.pub.slug}
                   </a>
                 )}

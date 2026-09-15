@@ -224,7 +224,7 @@ export default function Users() {
 
   async function resetPass(u) {
     if (!confirm('¿Enviar correo de recuperación de contraseña a ' + u.email + '?\n\nRecibirá un enlace para crear su nueva clave.')) return
-    const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: window.location.origin + '/crm/reset' })
+    const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '') + '/reset' })
     setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'CORREO DE RECUPERACIÓN ENVIADO A ' + u.email })
   }
 

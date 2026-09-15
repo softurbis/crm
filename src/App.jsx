@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -24,6 +25,7 @@ import Corretaje from './pages/Corretaje'
 import Migracion from './pages/Migracion'
 import Publico from './pages/Publico'
 import Landing from './pages/Landing'
+import { SITIO_PUBLICO } from './lib/sitios'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -39,13 +41,28 @@ function Home() {
   return <Dashboard />
 }
 
+// Con dominio propio la web pública se publica aparte (lib/sitios.js): el panel
+// no la dibuja y manda al visitante allá. Solo se queda la vista previa de una
+// landing, que necesita la sesión del panel para leer el borrador.
+function AlSitioPublico() {
+  const { pathname, search, hash } = useLocation()
+  useEffect(() => { window.location.replace(SITIO_PUBLICO + pathname + search + hash) }, [pathname, search, hash])
+  return <div className="center-screen">Abriendo…</div>
+}
+
+function VistaPreviaLanding() {
+  const { session, loading } = useAuth()
+  if (loading) return <div className="center-screen">Cargando…</div>
+  return session ? <Landing /> : <AlSitioPublico />
+}
+
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/reset" element={<Reset />} />
-      <Route path="/propiedades" element={<Publico />} />
-      <Route path="/p/:slug" element={<Landing />} />
+      <Route path="/propiedades" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
+      <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Home />} />
         <Route path="whatsapp" element={<Whatsapp />} />
