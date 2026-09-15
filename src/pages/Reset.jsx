@@ -18,7 +18,7 @@ export default function Reset() {
 
   const guardar = async e => {
     e.preventDefault()
-    if (pass.length < 6) { setMsg('Mínimo 6 caracteres.'); return }
+    if (pass.length < 8) { setMsg('Mínimo 8 caracteres.'); return }
     const { error } = await supabase.auth.updateUser({ password: pass })
     if (error) setMsg('ERROR: ' + error.message)
     else { setOk(true); setMsg('✅ Contraseña actualizada. Ya puedes entrar al sistema.') }
@@ -27,8 +27,8 @@ export default function Reset() {
   return (
     <div className="center-screen">
       <div className="glass login-card">
-        <h1>Nueva contraseña</h1>
-        {!listo && <p className="muted">Abre esta página desde el enlace del correo de recuperación…</p>}
+        <h1>Mi contraseña</h1>
+        {!listo && <p className="muted">Primero entra al sistema con tu contraseña actual y vuelve a abrir esta página desde <b>🔑 Mi contraseña</b>, abajo en el menú.</p>}
         {listo && !ok && (
           <form onSubmit={guardar} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <label>Nueva contraseña

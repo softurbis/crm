@@ -50,23 +50,12 @@ export default function Login() {
     }
   }
 
-  // "Olvidé mi contraseña": el correo llega con un enlace a /reset, donde se
-  // escribe la nueva. Necesita el SMTP configurado en el Supabase del droplet.
-  async function olvide() {
-    const dest = email.trim().toLowerCase()
-    if (!dest) { setError('Escribe tu correo arriba y vuelve a tocar "Olvidé mi contraseña".'); return }
-    setBusy(true); setError(''); setAviso('')
-    // BASE_URL es '/': el panel vive en la raíz de panel.urbisgroupinmobiliaria.com
-    const volverA = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '') + '/reset'
-    const { error } = await supabase.auth.resetPasswordForEmail(dest, { redirectTo: volverA })
-    setBusy(false)
-    if (error) {
-      const m = (error.message || '').toLowerCase()
-      if (m.includes('rate limit')) setError('Ya se envió un correo hace poco. Espera un minuto y revisa tu bandeja (y el spam).')
-      else setError('No se pudo enviar el correo: ' + error.message + '. Avisa al administrador.')
-    } else {
-      setAviso('📬 Enviado. Revisa tu correo (' + dest + ') — también la carpeta de spam — y abre el enlace para crear tu nueva contraseña.')
-    }
+  // "Olvidé mi contraseña": este servidor NO puede mandar correos (DigitalOcean
+  // bloquea los puertos de correo). La repone el administrador desde Usuarios
+  // (sql/83), se la dicta, y cada quien la cambia después desde su menú.
+  function olvide() {
+    setError('')
+    setAviso('Pídele al administrador que te ponga una contraseña nueva desde Usuarios. Te la dicta y la cambias tú apenas entres.')
   }
 
   return (

@@ -257,7 +257,13 @@ export default function Layout() {
               <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
             </div>
           </div>
-          <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', marginTop: 5 }} onClick={logout}>Cerrar sesión</button>
+          <div style={{ display: 'flex', gap: 6, marginTop: 5 }}>
+            {/* sin correo de recuperación (el servidor no puede enviarlo): cada
+                quien cambia aquí la contraseña que le dictaron */}
+            <a className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
+              href={import.meta.env.BASE_URL + 'reset'} title="Cambiar mi contraseña">🔑 Mi contraseña</a>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }} onClick={logout}>Cerrar sesión</button>
+          </div>
         </div>
       </aside>
       <main className="content" style={{

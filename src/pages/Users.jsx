@@ -222,10 +222,25 @@ export default function Users() {
     load()
   }
 
-  async function resetPass(u) {
-    if (!confirm('¿Enviar correo de recuperación de contraseña a ' + u.email + '?\n\nRecibirá un enlace para crear su nueva clave.')) return
-    const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '') + '/reset' })
-    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'CORREO DE RECUPERACIÓN ENVIADO A ' + u.email })
+  // Contraseña nueva SIN correo: el servidor no puede enviarlos (DigitalOcean
+  // bloquea los puertos de correo). La base hace valer quién puede (sql/83),
+  // cierra las sesiones de esa persona y lo deja en la bitácora.
+  async function cambiarPass(u) {
+    const sugerida = 'Urbis' + Math.floor(1000 + Math.random() * 9000)
+    const nueva = prompt(
+      'Contraseña nueva para ' + (u.full_name || u.email) + '\n\n' +
+      'Mínimo 8 caracteres. Dictásela y que la cambie cuando quiera.\n' +
+      'Se le cerrará la sesión en todos sus dispositivos.', sugerida)
+    if (nueva === null) return
+    setBusy(true); setMsg(null)
+    const { error } = await supabase.rpc('cambiar_password', { uid: u.id, nueva })
+    setBusy(false)
+    if (error) {
+      setMsg({ ok: false, t: /cambiar_password|schema cache/i.test(error.message)
+        ? 'FALTA CORRER sql/83 EN LA BASE.' : 'ERROR: ' + error.message })
+      return
+    }
+    setMsg({ ok: true, t: 'CONTRASEÑA DE ' + u.email + ' CAMBIADA A:  ' + nueva + '   — dictásela; ya no podrá entrar con la anterior.' })
   }
 
   async function toggleActivo(u) {
@@ -350,7 +365,7 @@ export default function Users() {
                     : <button className={u.active === false ? 'btn-ghost' : 'link-btn bad'} onClick={() => toggleActivo(u)}>
                         {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
                       </button>}
-                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Enviar correo para crear nueva contraseña" onClick={() => resetPass(u)}>🔑 RESET</button>
+                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Ponerle una contraseña nueva y dictársela" onClick={() => cambiarPass(u)}>🔑 CONTRASEÑA</button>
                 </td>
                 <td>
                   {(() => {

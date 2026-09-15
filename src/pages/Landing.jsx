@@ -29,6 +29,10 @@ const sinMovimiento = () => typeof matchMedia === 'function' && matchMedia('(pre
 // primero rutas/accesos, si no hay, cualquier mapa o satelital.
 const MAPA = [/ruta|acceso|llegar|croquis/i, /mapa|satelit|ubicaci|wayfinding|plano/i]
 
+// Pie de todas las landings: quien la ve puede pedir una igual para su empresa
+// (va al WhatsApp de Urbis Group, no al del proyecto)
+const CREDITO_WSP = '51924947651'
+
 // Tarjetas de "¿Por qué…?": cada una con un tono (verde de marca, sol, laguna,
 // tierra) y un ícono que se elige solo por lo que dice el texto.
 const TONOS = ['var(--lp-c)', '#d9971a', '#2f7fb8', '#b8502a']
@@ -385,9 +389,15 @@ export default function Landing() {
         <Formulario p={p} linkWa={linkWa} />
       </div></section>
 
-      <footer className="lp-foot"><div className="lp-wrap lp-foot-in">
-        <span>© {new Date().getFullYear()} {p.marca || nombre}</span>
-        <Link to="/propiedades">Ver otros proyectos</Link>
+      <footer className="lp-foot"><div className="lp-wrap">
+        <div className="lp-foot-in">
+          <span>© {new Date().getFullYear()} {p.marca || nombre}</span>
+          <Link to="/propiedades">Ver otros proyectos</Link>
+        </div>
+        <a className="lp-credito" href={`https://wa.me/${CREDITO_WSP}?text=${encodeURIComponent(`Hola, vi la página de ${nombre} y quiero una así para mi empresa`)}`} target="_blank" rel="noreferrer">
+          <span className="lp-credito-ico"><IcoChispa /></span>
+          <span><b>¿Quieres una página así para tu empresa?</b> Cotiza la tuya por WhatsApp →</span>
+        </a>
       </div></footer>
 
       {linkWa && <a className="lp-fab" href={linkWa} target="_blank" rel="noreferrer" aria-label="Escribir por WhatsApp"><IcoWa size={30} /></a>}
@@ -610,6 +620,11 @@ const TRAZOS = {
 const IcoTarjeta = ({ tipo }) => (
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {TRAZOS[tipo] || TRAZOS.estrella}
+  </svg>
+)
+const IcoChispa = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18l-1.9-5.6L4.5 10.5l5.6-1.9L12 3Z" /><path d="M19 16v4M17 18h4M5 4v3M3.5 5.5h3" />
   </svg>
 )
 const IcoChat = () => (
