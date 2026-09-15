@@ -390,13 +390,16 @@ export default function Users() {
                   )}
                 </td>
                 <td>
+                  {/* uno debajo del otro: en fila, los botones quedaban fuera
+                      de la pantalla a la derecha y no se veian */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
                   {u.id === profile?.id
                     ? <span className="ok">ACTIVO</span>
                     : <button className={u.active === false ? 'btn-ghost' : 'link-btn bad'} onClick={() => toggleActivo(u)}>
                         {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
                       </button>}
-                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Ponerle una contraseña nueva y dictársela" onClick={() => cambiarPass(u)}>🔑 CONTRASEÑA</button>
-                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                  <button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Ponerle una contraseña nueva y dictársela" onClick={() => cambiarPass(u)}>🔑 CONTRASEÑA</button>
+                  <button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
                     title="Cargar la foto de su firma para las constancias de gastos"
                     onClick={() => setFirmaDe(firmaDe?.id === u.id ? null : u)}>✍ FIRMA {u.signature_url ? '✓' : ''}</button>
                   {firmaDe?.id === u.id && (
@@ -414,6 +417,7 @@ export default function Users() {
                       </div>
                     </div>
                   )}
+                  </div>
                 </td>
                 <td>
                   {(() => {
