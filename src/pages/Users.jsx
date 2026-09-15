@@ -314,6 +314,9 @@ export default function Users() {
       <p className="muted small">Jerarquia: SUPERUSUARIO (tu) &#8594; ADMINISTRADOR (edita todo, sin acceso a usuarios ni bitacora) &#8594; SECRETARIA (opera) &#8594; GERENCIA (solo ver).</p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
+      {/* los dos recuadros de arriba, lado a lado: asi la tabla de usuarios
+          entra en pantalla sin bajar. En pantalla chica se apilan solos. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 12, alignItems: 'start' }}>
       <div className="glass form-card">
         <p style={{ margin: 0 }}><b>⚙️ EFECTO AL GUARDAR</b> <span className="muted small">— solo tú, vive en esta computadora</span></p>
         <p className="muted small" style={{ margin: '2px 0 8px' }}>
@@ -350,6 +353,7 @@ export default function Users() {
         <button className="btn-primary" disabled={busy}>{busy ? 'Creando...' : 'Crear usuario'}</button>
         <p className="muted small">Si al entrar sale "Email not confirmed": Supabase &#8594; Authentication &#8594; Sign In / Providers &#8594; Email &#8594; desactivar "Confirm email".</p>
       </form>
+      </div>
 
       <div className="glass table-wrap">
         <table>
