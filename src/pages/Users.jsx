@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
 import { PANELS } from '../components/Layout'
 import Avatar from '../components/Avatar'
+import FirmaPad from '../components/FirmaPad'
 
 const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -243,6 +244,31 @@ export default function Users() {
     setMsg({ ok: true, t: 'CONTRASEÑA DE ' + u.email + ' CAMBIADA A:  ' + nueva + '   — dictásela; ya no podrá entrar con la anterior.' })
   }
 
+  // ---- firma de cada persona (la que sale en las constancias de gastos) ----
+  // El superusuario puede cargar la FOTO de la firma en papel de otro (sql/84):
+  // queda en la bitácora quién la subió y a quién. Cada quien puede cambiar la
+  // suya desde Gastos.
+  const [firmaDe, setFirmaDe] = useState(null)
+
+  async function guardarFirmaDe(u, file) {
+    setBusy(true); setMsg(null)
+    try {
+      const url = await subirRuta('firmas/' + u.id + '-' + Date.now() + '.png', file, { comprimir: false, abrirWord: false })
+      const { error } = await supabase.rpc('guardar_firma_de', { uid: u.id, url })
+      if (error) throw new Error(/guardar_firma_de|schema cache/i.test(error.message) ? 'FALTA CORRER sql/84 EN LA BASE.' : error.message)
+      setMsg({ ok: true, t: 'FIRMA DE ' + (u.full_name || u.email) + ' GUARDADA' })
+      setFirmaDe(null); load()
+    } catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }) }
+    setBusy(false)
+  }
+
+  async function quitarFirma(u) {
+    if (!confirm('¿Quitar la firma de ' + (u.full_name || u.email) + '?\n\nNo podrá firmar solicitudes hasta que vuelva a registrarla.')) return
+    const { error } = await supabase.rpc('guardar_firma_de', { uid: u.id, url: null })
+    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'FIRMA QUITADA A ' + (u.full_name || u.email) })
+    setFirmaDe(null); load()
+  }
+
   async function toggleActivo(u) {
     if (u.id === profile?.id) return
     const accion = u.active === false ? 'REACTIVAR' : 'DESACTIVAR'
@@ -366,6 +392,24 @@ export default function Users() {
                         {u.active === false ? 'REACTIVAR' : 'DESACTIVAR (eliminar acceso)'}
                       </button>}
                   {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} title="Ponerle una contraseña nueva y dictársela" onClick={() => cambiarPass(u)}>🔑 CONTRASEÑA</button>
+                  {' '}<button className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                    title="Cargar la foto de su firma para las constancias de gastos"
+                    onClick={() => setFirmaDe(firmaDe?.id === u.id ? null : u)}>✍ FIRMA {u.signature_url ? '✓' : ''}</button>
+                  {firmaDe?.id === u.id && (
+                    <div style={{ marginTop: 8, width: 340, maxWidth: '100%', textTransform: 'none' }}>
+                      {u.signature_url && (
+                        <p className="muted small" style={{ margin: '0 0 6px' }}>
+                          Firma actual:{' '}
+                          <img src={u.signature_url} alt="Firma actual" style={{ height: 34, background: '#fff', borderRadius: 4, padding: 3, verticalAlign: 'middle' }} />
+                        </p>
+                      )}
+                      <FirmaPad busy={busy} alto={140} onGuardar={f => guardarFirmaDe(u, f)} />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setFirmaDe(null)}>Cerrar</button>
+                        {u.signature_url && <button className="btn-ghost bad" style={{ fontSize: 11 }} onClick={() => quitarFirma(u)}>Quitar firma</button>}
+                      </div>
+                    </div>
+                  )}
                 </td>
                 <td>
                   {(() => {
