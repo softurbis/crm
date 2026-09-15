@@ -2,6 +2,7 @@ node_modules
 dist
 dist-panel
 dist-publico
+.wrangler
 .env
 .env.local
 .env.r2
