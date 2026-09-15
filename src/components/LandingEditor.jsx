@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirFotoWeb, subirLogoWeb } from '../lib/imagenesWeb'
+import { subirRuta } from '../lib/archivos'
 
 // Editor de la LANDING pública de un proyecto (Corretaje → Proyectos → Landing).
 // Guarda en corr_proyectos_pub (sql/78); la página vive en /p/<slug> y la
@@ -13,9 +14,11 @@ export const slugify = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g,
 const limpiarSlug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-')
 export const linkLanding = slug => window.location.origin + import.meta.env.BASE_URL + 'p/' + slug
+// si pegan el código <iframe …> entero, nos quedamos con el src
+const srcDeIframe = v => (String(v).match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i) || [, String(v)])[1].trim()
 
 const TEXTOS = ['marca', 'titular', 'subtitulo', 'descripcion', 'color', 'logo_url', 'foto_url', 'pdf_url', 'precio_desde_txt',
-  'inicial_desde', 'cuotas_txt', 'ubicacion_txt', 'maps_url', 'video_url', 'legal_txt', 'wa_texto']
+  'inicial_desde', 'cuotas_txt', 'ubicacion_txt', 'maps_url', 'video_url', 'legal_txt', 'wa_texto', 'visor_url', 'tour_url']
 const EN_PARALELO = 2       // fotos convirtiéndose a la vez: rápido sin ahogar la memoria de la PC
 
 export default function LandingEditor({ pr, setPub, avisar }) {
@@ -102,6 +105,20 @@ export default function LandingEditor({ pr, setPub, avisar }) {
       set('logo_url', url)
       await supabase.from('corr_proyectos_pub').upsert({ project_id: pr.id, logo_url: url })
     } catch (err) { avisar('ERROR al subir el logo: ' + err.message) }
+    setSubiendo('')
+  }
+  // el visor 3D es un .html de una sola pieza (Three.js adentro): se sube tal cual a R2 y se sirve como página
+  const subirVisor = async e => {
+    const file = e.target.files?.[0]; e.target.value = ''
+    if (!file) return
+    if (!/\.html?$/i.test(file.name)) { avisar('ERROR: el visor tiene que ser un archivo .html'); return }
+    setSubiendo('Subiendo visor…')
+    try {
+      const url = await subirRuta(`${carpeta}/visor-${Date.now()}.html`, new File([file], file.name, { type: 'text/html' }), { comprimir: false, abrirWord: false })
+      set('visor_url', url)
+      await supabase.from('corr_proyectos_pub').upsert({ project_id: pr.id, visor_url: url })
+      avisar('✅ Visor subido: ya sale en la landing')
+    } catch (err) { avisar('ERROR al subir el visor: ' + err.message) }
     setSubiendo('')
   }
   const mover = (i, d) => { const g = [...galeria]; [g[i], g[i + d]] = [g[i + d], g[i]]; guardarGaleria(g) }
@@ -214,9 +231,9 @@ export default function LandingEditor({ pr, setPub, avisar }) {
         <div style={grid}>
           {campo('inicial_desde', 'Inicial desde', 'S/ 500')}
           {campo('cuotas_txt', 'Cuotas', '48 cuotas sin intereses')}
-          {campo('precio_desde_txt', 'Precio desde (solo si no hay lotes cargados)', 'S/ 27,000')}
+          {campo('precio_desde_txt', 'Precio desde (si lo dejas vacío sale el menor de tus lotes)', '20100')}
         </div>
-        <span className="muted" style={{ fontSize: 12 }}>Si el proyecto tiene lotes en el sistema, la página muestra sola el menor precio disponible y los contadores en vivo.</span>
+        <span className="muted" style={{ fontSize: 12 }}>Si escribes un precio, ese manda (20100 se muestra como S/ 20,100). Si lo dejas vacío, la página muestra el menor precio de tus lotes disponibles. Los contadores siempre van en vivo.</span>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
           <input type="checkbox" checked={l.mostrar_stock !== false} onChange={e => set('mostrar_stock', e.target.checked)} /> Mostrar lotes disponibles y vendidos
         </label>
@@ -250,6 +267,22 @@ export default function LandingEditor({ pr, setPub, avisar }) {
           {campo('video_url', 'Video (YouTube u otro link)', 'https://youtu.be/…')}
         </div>
         {area('legal_txt', 'Respaldo legal (sin número de partida)', 'Predio inscrito en SUNARP…', 3)}
+      </div>
+
+      {/* recorrido virtual */}
+      <div style={bloque}>
+        {titulo('RECORRIDO VIRTUAL: TOUR 360° Y VISOR 3D')}
+        <label>Tour 360° (pega el link de inserción o el código completo del &lt;iframe&gt; que te da Panoraven: se queda solo con el link)
+          <input value={l.tour_url || ''} placeholder="https://panoraven.com/es/embed/…" onChange={e => set('tour_url', srcDeIframe(e.target.value))} />
+        </label>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🧊 Subir visor (archivo .html)<input type="file" accept=".html,.htm,text/html" onChange={subirVisor} style={{ display: 'none' }} /></label>
+          <span className="muted" style={{ fontSize: 12 }}>o pega un link:</span>
+          <input value={l.visor_url || ''} placeholder="https://…" onChange={e => set('visor_url', e.target.value)} style={{ flex: '1 1 260px' }} />
+          {l.visor_url && <a className="btn-ghost" href={l.visor_url} target="_blank" rel="noreferrer">👁️ Abrir</a>}
+          {l.visor_url && <button type="button" className="btn-ghost" onClick={() => set('visor_url', '')} title="Quitar de la landing (luego Guardar)">✕</button>}
+        </div>
+        <span className="muted" style={{ fontSize: 12 }}>Salen en la sección "Recorrido virtual" (si hay los dos, con pestañas 360° / 3D). El tour se abre dentro de la página; el visor 3D dentro en PC y en pestaña aparte en celular.</span>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

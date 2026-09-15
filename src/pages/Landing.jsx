@@ -60,6 +60,8 @@ export default function Landing() {
   const slug = String(crudo || '').toLowerCase()
   const [p, setP] = useState(undefined)      // undefined = cargando · null = no existe
   const [foto, setFoto] = useState(null)     // índice abierto en el visor
+  const [modo, setModo] = useState(null)            // '360' | '3d' (null = el primero que haya)
+  const [recorrido, setRecorrido] = useState(false) // el tour/visor incrustado (solo se carga si lo piden)
 
   useEffect(() => {
     let vivo = true
@@ -129,7 +131,25 @@ export default function Landing() {
   const totalLotes = (p.disponibles || 0) + (p.vendidos || 0) + (p.reservados || 0)
   const conStock = p.mostrar_stock !== false && totalLotes > 0
   const ocupados = (p.vendidos || 0) + (p.reservados || 0)
-  const desde = p.precio_desde != null ? soles(p.precio_desde) : (p.precio_desde_txt || null)
+  // el precio escrito en el panel manda; si no hay, el menor de los lotes disponibles
+  const precioTxt = String(p.precio_desde_txt || '').trim()
+  const precioNum = /^(S\/\s*)?[\d.,]+$/i.test(precioTxt)
+    ? Number(precioTxt.replace(/^S\/\s*/i, '').replace(/\.(?=\d{3}\b)/g, '').replace(/,/g, ''))   // "20100", "20,100" y "20.100" son lo mismo
+    : NaN
+  const desde = precioTxt ? (Number.isFinite(precioNum) ? soles(precioNum) : precioTxt) : (p.precio_desde != null ? soles(p.precio_desde) : null)
+  // recorrido virtual: tour 360° (link de inserción) y/o visor 3D (html en R2)
+  const modos = [
+    p.tour_url && { id: '360', nombre: 'Tour 360°', url: p.tour_url, boton: 'Ver el tour 360°', texto: 'Mira el terreno en 360° desde el mismo lugar: gira la vista con el dedo o el mouse.' },
+    p.visor_url && { id: '3d', nombre: 'Modelo 3D', url: p.visor_url, boton: 'Abrir el visor 3D', texto: 'Modelo real del terreno levantado con dron: gira, acércate y míralo desde cualquier ángulo.' },
+  ].filter(Boolean)
+  const modoActual = modos.find(m => m.id === modo) || modos[0]
+  const fotoVisor = fotosHero[1] || fotoPortada
+  const abrirRecorrido = () => {
+    // en celular el visor 3D captura el dedo y traba el scroll de la página: mejor en pestaña aparte
+    if (modoActual.id === '3d' && matchMedia('(max-width: 860px)').matches) window.open(modoActual.url, '_blank', 'noopener')
+    else setRecorrido(true)
+  }
+  const cambiarModo = id => { setModo(id); setRecorrido(false) }
   const cuotas = p.cuotas_txt || p.cuota_desde
   const yt = idYoutube(p.video_url)
   const stats = [
@@ -207,6 +227,33 @@ export default function Landing() {
                 {i === 4 && galeria.length > 5 && <span className="lp-gal-more">+{galeria.length - 5} fotos</span>}
               </button>
             ))}
+          </div>
+        </div></section>
+      )}
+
+      {modoActual && (
+        <section className="lp-sec"><div className="lp-wrap">
+          <div data-reveal>
+            <div className="lp-eyebrow">Recorrido virtual</div>
+            <h2>Recorre el proyecto como si estuvieras ahí</h2>
+            <p className="lp-lead">{modoActual.texto}</p>
+          </div>
+          <div className="lp-visor" data-reveal>
+            {modos.length > 1 && (
+              <div className="lp-visor-tabs">
+                {modos.map(m => <button key={m.id} type="button" className={'lp-btn lp-btn-sm ' + (m.id === modoActual.id ? 'lp-btn-c' : 'lp-btn-line')} onClick={() => cambiarModo(m.id)}>{m.nombre}</button>)}
+              </div>
+            )}
+            {recorrido
+              ? <iframe key={modoActual.id} className="lp-visor-frame" src={modoActual.url} title={modoActual.nombre + ' de ' + nombre}
+                  allow="fullscreen; accelerometer; magnetometer; gyroscope; xr-spatial-tracking" allowFullScreen />
+              : (
+                <button type="button" className="lp-visor-poster" onClick={abrirRecorrido}>
+                  {fotoVisor && <img src={medianaDe(fotoVisor)} srcSet={srcsetDe(fotoVisor)} sizes="(max-width: 1120px) 100vw, 1120px" alt="" loading="lazy" decoding="async" />}
+                  <span className="lp-visor-play"><i>{modoActual.id === '360' ? <Ico360 /> : <IcoCubo />}</i>{modoActual.boton}</span>
+                </button>
+              )}
+            <a className="lp-visor-ext" href={modoActual.url} target="_blank" rel="noreferrer">Abrir en pantalla completa ↗</a>
           </div>
         </div></section>
       )}
@@ -439,6 +486,16 @@ const IcoPin = () => (
 const IcoLupa = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
+  </svg>
+)
+const Ico360 = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <ellipse cx="12" cy="13" rx="9" ry="4" /><path d="M12 9V3m0 0-2.5 2.5M12 3l2.5 2.5" /><path d="M3.6 15.2c1.3 1.5 4.6 2.6 8.4 2.6" />
+  </svg>
+)
+const IcoCubo = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7L12 2.5Z" /><path d="M3.5 7 12 11.5 20.5 7M12 11.5v10" />
   </svg>
 )
 const IcoEscudo = () => (

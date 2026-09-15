@@ -114,6 +114,18 @@
 .lp-cinta-item:hover img { transform: scale(1.05); }
 @keyframes lp-cinta { to { transform: translateX(-50%); } }
 
+/* recorrido 3D: una portada con botón; el visor pesado solo se carga si lo piden */
+.lp-visor { margin-top: 32px; }
+.lp-visor-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.lp-visor-poster { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 18px; overflow: hidden; background: #0e1512; cursor: pointer; box-shadow: 0 18px 44px rgba(16, 32, 24, .14); }
+.lp-visor-poster img { width: 100%; height: 100%; object-fit: cover; opacity: .72; transition: transform .8s ease, opacity .4s ease; }
+.lp-visor-poster:hover img { transform: scale(1.04); opacity: .6; }
+.lp-visor-play { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #fff; font: 700 clamp(17px, 2.4vw, 22px)/1.2 'Montserrat', sans-serif; text-shadow: 0 2px 12px rgba(0, 0, 0, .5); }
+.lp-visor-play i { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: rgba(255, 255, 255, .16); border: 2px solid rgba(255, 255, 255, .85); backdrop-filter: blur(4px); transition: transform .3s ease, background .3s ease; }
+.lp-visor-poster:hover .lp-visor-play i { transform: scale(1.08); background: var(--lp-c); border-color: var(--lp-c); }
+.lp-visor-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 18px; background: #0e1512; box-shadow: 0 18px 44px rgba(16, 32, 24, .14); }
+.lp-visor-ext { display: inline-block; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--lp-c); }
+
 /* cómo llegar: el mapa se amplía al tocarlo */
 .lp-split-llegar { grid-template-columns: .9fr 1.1fr; }
 .lp-mapa { position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 18px; overflow: hidden; background: #dfe5e1; cursor: zoom-in; box-shadow: 0 18px 44px rgba(16, 32, 24, .12); }
@@ -197,6 +209,7 @@
   .lp-stat:nth-child(-n+2) { border-top: 0; }
   .lp-stat:nth-child(even) { border-left: 1px solid var(--lp-line); }
   .lp-gal { grid-template-columns: 1fr 1fr; grid-auto-rows: 130px; gap: 8px; }
+  .lp-visor-poster, .lp-visor-frame { aspect-ratio: 4 / 3; }
   .lp-fab { display: none; }
   .lp-mbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: grid; grid-template-columns: 1.3fr 1fr; gap: 8px;
