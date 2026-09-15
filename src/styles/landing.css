@@ -196,7 +196,8 @@
 .lp-form-ok p { color: var(--lp-soft); margin: 8px 0 18px; }
 
 /* ---------- pie, botón flotante, barra móvil ---------- */
-.lp-foot { background: #0e1512; color: rgba(255, 255, 255, .7); padding: 34px 0 40px; font-size: 14px; }
+/* el pie deja libre la franja donde viven los botones flotantes (chat y WhatsApp), para que no tapen la tarjeta */
+.lp-foot { background: #0e1512; color: rgba(255, 255, 255, .7); padding: 34px 0 118px; font-size: 14px; }
 .lp-foot-in { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .lp-foot a { color: #fff; }
 /* "¿Quieres una página así?": tarjeta discreta al final, va al WhatsApp de Urbis */
@@ -288,7 +289,7 @@
   }
   .lp-mbar.lp-mbar-1 { grid-template-columns: 1fr; }
   .lp-mbar .lp-btn { width: 100%; padding: 12px 10px; }
-  .lp-foot { padding-bottom: 104px; }
+  .lp-foot { padding-bottom: 156px; }          /* barra de abajo + burbuja del chat encima */
   /* el chat vive encima de la barra de abajo */
   .lp-chat-abrir { left: 12px; bottom: calc(78px + env(safe-area-inset-bottom)); padding: 7px 14px 7px 7px; font-size: 14px; }
   .lp-chat-abrir i { width: 32px; height: 32px; }
