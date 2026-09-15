@@ -23,6 +23,7 @@ import Commissions from './pages/Commissions'
 import Corretaje from './pages/Corretaje'
 import Migracion from './pages/Migracion'
 import Publico from './pages/Publico'
+import Landing from './pages/Landing'
 
 function Protected({ children }) {
   const { session, loading } = useAuth()
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/reset" element={<Reset />} />
       <Route path="/propiedades" element={<Publico />} />
+      <Route path="/p/:slug" element={<Landing />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
         <Route index element={<Home />} />
         <Route path="whatsapp" element={<Whatsapp />} />

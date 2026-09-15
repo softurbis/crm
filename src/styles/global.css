@@ -1086,3 +1086,6 @@ select { cursor: pointer; }
 .switch input:checked + .track { background: var(--ok); }
 .switch input:checked + .track::after { transform: translateX(20px); }
 .switch input:disabled + .track { opacity: .45; cursor: not-allowed; }
+
+/* textos de marketing (landing de proyectos): se ven tal cual se escriben, sin MAYÚSCULAS */
+.sin-mayus, .sin-mayus input, .sin-mayus textarea, .sin-mayus select, .sin-mayus button { text-transform: none; }

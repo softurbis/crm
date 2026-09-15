@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
+import LandingEditor, { linkLanding } from '../components/LandingEditor'
 
 const TIPOS = [
   ['terreno_urbano', 'Terreno urbano'], ['terreno_rural', 'Terreno rural (ha)'], ['lote', 'Lote'],
@@ -39,6 +40,7 @@ export default function Corretaje() {
   const [consultas, setConsultas] = useState([])
   const [nombresProp, setNombresProp] = useState({})
   const [nombresProy, setNombresProy] = useState({})
+  const [landingAbierta, setLandingAbierta] = useState(null)   // proyecto con el editor de landing abierto
 
   // link de la página pública (fuera del login) para compartir
   const LINK_PUBLICO = window.location.origin + import.meta.env.BASE_URL + 'propiedades'
@@ -70,7 +72,7 @@ export default function Corretaje() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from('projects').select('id, name, photo_url').order('name'),
+      supabase.from('projects').select('id, name, photo_url, color, logo_url').order('name'),
       supabase.from('corr_proyectos_pub').select('*'),
     ]).then(([pr, cp]) => {
       const m = {}; (cp.data || []).forEach(x => { m[x.project_id] = x })
@@ -281,6 +283,12 @@ export default function Corretaje() {
                 <input placeholder="Cuota desde (ej. S/ 300/mes)" value={pr.pub.cuota_desde || ''} onChange={e => setProjPub(pr.id, { cuota_desde: e.target.value })} style={{ flex: '1 1 170px', textTransform: 'none' }} />
                 <input type="number" placeholder="orden" value={pr.pub.orden ?? ''} onChange={e => setProjPub(pr.id, { orden: e.target.value })} style={{ width: 64 }} />
                 <button className="btn-ghost" onClick={() => guardarProy(pr.id)}>💾 Guardar</button>
+                <button className={landingAbierta === pr.id ? 'btn' : 'btn-ghost'} onClick={() => setLandingAbierta(a => (a === pr.id ? null : pr.id))} title="Página propia del proyecto para anuncios y redes">🌐 Landing</button>
+                {pr.pub.slug && (
+                  <a href={linkLanding(pr.pub.slug)} target="_blank" rel="noreferrer" style={{ fontSize: 12, textTransform: 'none', color: pr.pub.landing_activa ? '#6fdd9b' : '#c9c39a' }}>
+                    {pr.pub.landing_activa ? '🟢' : '⚪ borrador ·'} /p/{pr.pub.slug}
+                  </a>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap', fontSize: 12 }}>
                 <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 PDF (plano/brochure)<input type="file" accept="application/pdf" onChange={e => subirProy(pr.id, 'pdf_url', e)} style={{ display: 'none' }} /></label>
@@ -288,6 +296,7 @@ export default function Corretaje() {
                 <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Foto de portada<input type="file" accept="image/*" onChange={e => subirProy(pr.id, 'foto_url', e)} style={{ display: 'none' }} /></label>
                 {(pr.pub.foto_url || pr.photo_url) && <img src={pr.pub.foto_url || pr.photo_url} alt="" style={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
               </div>
+              {landingAbierta === pr.id && <LandingEditor pr={pr} setPub={patch => setProjPub(pr.id, patch)} subir={subir} avisar={setMsg} />}
             </div>
           ))}
           {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
@@ -303,6 +312,7 @@ export default function Corretaje() {
                 <b style={{ fontSize: 13 }}>{c.nombre || '—'}</b>
                 <a href={'https://wa.me/' + (c.telefono || '').replace(/\D/g, '')} target="_blank" rel="noreferrer" style={{ color: '#6fdd9b', fontSize: 13 }}>📱 {c.telefono}</a>
                 <span className="muted" style={{ fontSize: 12 }}>{c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
+                {c.origen === 'landing' && <span style={{ fontSize: 11, color: '#6fdd9b', border: '1px solid rgba(111,221,155,.4)', borderRadius: 10, padding: '0 7px' }}>🌐 landing</span>}
                 <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleString('es-PE')}</span>
                 <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!c.atendido} onChange={() => toggleAtendido(c)} /> atendido</label>
               </div>
