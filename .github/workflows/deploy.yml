@@ -1,8 +1,17 @@
-name: Publicar en GitHub Pages
+name: Redireccion de softurbis.github.io/crm
+
+# Desde el 15 sep 2026 el sistema vive en el dominio propio y lo publica
+# Cloudflare en cada push a main (wrangler.panel.jsonc y wrangler.publico.jsonc).
+# GitHub Pages ya NO publica la app: solo deja una redireccion para que los
+# marcadores y los links viejos (softurbis.github.io/crm/...) lleguen al lugar
+# nuevo. Por eso solo corre cuando cambia la redireccion.
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'redireccion-github/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -12,23 +21,18 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false   # Pages: encolar los deploys en orden, no cancelarlos (evita perder publicaciones cuando hay varios push seguidos)
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: cp dist/index.html dist/404.html
+      # la misma pagina en index y en 404: cualquier ruta vieja cae en la redireccion
+      - run: mkdir -p salida && cp redireccion-github/index.html salida/index.html && cp redireccion-github/index.html salida/404.html
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: salida
 
   deploy:
     needs: build
@@ -46,15 +50,5 @@ jobs:
         run: sleep 45
 
       - name: Publicar (intento 2)
-        id: d2
         if: steps.d1.outcome == 'failure'
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-
-      - name: Esperar antes del ultimo intento
-        if: steps.d1.outcome == 'failure' && steps.d2.outcome == 'failure'
-        run: sleep 90
-
-      - name: Publicar (intento 3)
-        if: steps.d1.outcome == 'failure' && steps.d2.outcome == 'failure'
         uses: actions/deploy-pages@v4

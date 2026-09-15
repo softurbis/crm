@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// base '/crm/' solo en produccion (GitHub Pages); en local sigue siendo '/'
-export default defineConfig(({ mode }) => ({
+// PANEL: vive en la raíz de panel.urbisgroupinmobiliaria.com (Cloudflare,
+// wrangler.panel.jsonc → npm run build:panel). La web pública se arma aparte
+// con vite.publico.config.js. GitHub Pages ya no publica la app (15 sep 2026).
+export default defineConfig({
   plugins: [react()],
-  base: mode === 'production' ? '/crm/' : '/',
-}))
+})

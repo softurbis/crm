@@ -56,7 +56,7 @@ export default function Login() {
     const dest = email.trim().toLowerCase()
     if (!dest) { setError('Escribe tu correo arriba y vuelve a tocar "Olvidé mi contraseña".'); return }
     setBusy(true); setError(''); setAviso('')
-    // BASE_URL es '/crm/' publicado en GitHub Pages y '/' trabajando en local
+    // BASE_URL es '/': el panel vive en la raíz de panel.urbisgroupinmobiliaria.com
     const volverA = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '') + '/reset'
     const { error } = await supabase.auth.resetPasswordForEmail(dest, { redirectTo: volverA })
     setBusy(false)

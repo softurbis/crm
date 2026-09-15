@@ -4,7 +4,7 @@
 //   · panel: que Google no lo muestre y que nadie lo meta dentro de otra página.
 // En Cloudflare cada cara es un Worker de solo archivos (wrangler.publico.jsonc /
 // wrangler.panel.jsonc) en modo SPA: /p/<slug> responde index.html con 200. Por
-// eso aquí no se crea 404.html: ese truco es solo de GitHub Pages.
+// eso aquí no se crea 404.html.
 import { renameSync, copyFileSync, writeFileSync } from 'node:fs'
 
 const cara = process.argv[2]

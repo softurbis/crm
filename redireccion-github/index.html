@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Urbis Group se mudó</title>
+  <script>
+    // softurbis.github.io/crm se mudó al dominio propio (15 sep 2026). GitHub
+    // Pages publica SOLO esta página (como index y como 404) para que ningún
+    // marcador ni link viejo quede roto: las páginas públicas van a la web y
+    // todo lo demás al panel, con la misma ruta.
+    function urbisDestino(pathname, search, hash) {
+      var ruta = String(pathname || '/').replace(/^\/crm(?=\/|$)/, '') || '/'
+      if (ruta === '/privacidad.html') ruta = '/privacidad'
+      var publica = /^\/(p\/|propiedades|privacidad)/.test(ruta)
+      return (publica ? 'https://urbisgroupinmobiliaria.com' : 'https://panel.urbisgroupinmobiliaria.com') + ruta + (search || '') + (hash || '')
+    }
+    location.replace(urbisDestino(location.pathname, location.search, location.hash))
+  </script>
+  <noscript><meta http-equiv="refresh" content="0; url=https://panel.urbisgroupinmobiliaria.com/" /></noscript>
+</head>
+<body style="font-family: system-ui, sans-serif; padding: 24px">
+  <p>El sistema de Urbis Group se mudó a
+    <a href="https://panel.urbisgroupinmobiliaria.com">panel.urbisgroupinmobiliaria.com</a>.</p>
+  <p>Proyectos y propiedades:
+    <a href="https://urbisgroupinmobiliaria.com">urbisgroupinmobiliaria.com</a>.</p>
+</body>
+</html>

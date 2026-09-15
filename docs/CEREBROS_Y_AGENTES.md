@@ -81,7 +81,7 @@ Cada respuesta cierra recordando: *"¿Algo más específico? Escríbeme la pregu
 
 ## 4. Qué tienes que hacer TÚ (desplegar el agente)
 
-El **frontend** (esta pantalla) se despliega solo con el push a GitHub Pages — ya está.
+El **frontend** (esta pantalla) se despliega solo con el push a `main` (Cloudflare, panel.urbisgroupinmobiliaria.com) — ya está.
 El **agente** corre en el droplet de DigitalOcean con **pm2** y NO se actualiza solo. Para que
 funcionen el cerebro APRENDIDO y el comando `aprende:` hay que subir el nuevo `index.js`:
 

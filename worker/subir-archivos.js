@@ -1,7 +1,7 @@
 /**
  * WORKER DE SUBIDA A R2 — Urbis Control
  * ---------------------------------------------------------------------------
- * El panel es una web estática (GitHub Pages): no puede guardar las llaves de
+ * El panel es una web estática (panel.urbisgroupinmobiliaria.com): no puede guardar las llaves de
  * R2. Este Worker es el intermediario: recibe el archivo, comprueba que quien
  * sube es un usuario con sesión válida del CRM (token de Supabase) y lo guarda
  * en el bucket. Las LECTURAS no pasan por aquí — van directo a la URL pública.
@@ -21,7 +21,7 @@ const cors = origen => ({
 // Solo se aceptan subidas desde los orígenes autorizados (el panel y pruebas locales).
 function origenOk(req, env) {
   const o = req.headers.get('Origin') || ''
-  const lista = (env.ORIGENES || 'https://softurbis.github.io,http://localhost:5173').split(',').map(s => s.trim())
+  const lista = (env.ORIGENES || 'https://panel.urbisgroupinmobiliaria.com,http://localhost:5173').split(',').map(s => s.trim())
   return lista.includes(o) ? o : null
 }
 

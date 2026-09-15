@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:panel": "vite build --base / --outDir dist-panel && node scripts/sitio-publicado.mjs panel",
+    "build:panel": "vite build --outDir dist-panel && node scripts/sitio-publicado.mjs panel",
     "build:publico": "vite build --config vite.publico.config.js && node scripts/sitio-publicado.mjs publico",
     "preview": "vite preview",
-    "preview:panel": "vite preview --base / --outDir dist-panel --port 4175",
+    "preview:panel": "vite preview --outDir dist-panel --port 4175",
     "preview:publico": "vite preview --config vite.publico.config.js --port 4174"
   },
   "dependencies": {

@@ -1,9 +1,9 @@
-// Dónde vive cada cara del sistema.
-//   · Hoy (GitHub Pages) todo sale de softurbis.github.io/crm/: sin variables,
-//     estos links dan exactamente lo mismo que antes.
-//   · Con dominio propio, la web pública (propiedades + landing) se publica
-//     aparte y SIN sesión (npm run build:publico) y el panel en panel.<dominio>
-//     (npm run build:panel), con VITE_SITIO_PUBLICO apuntando a la web pública.
+// Dónde vive cada cara del sistema (dominio propio desde el 15 sep 2026):
+//   · web pública (propiedades + landing): urbisgroupinmobiliaria.com, compilada
+//     aparte y SIN sesión (npm run build:publico)
+//   · panel: panel.urbisgroupinmobiliaria.com (npm run build:panel)
+// VITE_SITIO_PUBLICO (.env.production) dice dónde está la web pública. Sin ella
+// (npm run dev) todo sale del mismo sitio, y así se prueba en local.
 const quitarBarra = s => String(s || '').replace(/\/+$/, '')
 const aqui = () => window.location.origin + quitarBarra(import.meta.env.BASE_URL)
 const sinBarraInicial = ruta => String(ruta || '').replace(/^\/+/, '')

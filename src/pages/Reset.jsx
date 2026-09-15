@@ -38,7 +38,7 @@ export default function Reset() {
           </form>
         )}
         {msg && <p className={ok ? 'ok' : 'error'}>{msg}</p>}
-        {ok && <a className="btn-link btn-primary" href="/crm/">IR AL SISTEMA</a>}
+        {ok && <a className="btn-link btn-primary" href={import.meta.env.BASE_URL}>IR AL SISTEMA</a>}
       </div>
     </div>
   )

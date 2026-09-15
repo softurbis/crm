@@ -214,7 +214,7 @@ ssh root@157.245.8.78 "grep WA_VERIFY_TOKEN /root/crm/agente/.env"
 ```
 
 2. En la app de Meta → WhatsApp → **Configuración** → Webhook → **Editar**:
-   - URL de devolución de llamada: `https://urbis-hook.duckdns.org/webhook`
+   - URL de devolución de llamada: `https://hook.urbisgroupinmobiliaria.com/webhook`
    - Token de verificación: el valor que salió arriba (lo que va después del `=`)
    - **Verificar y guardar**. Con el agente corriendo, Meta lo acepta al instante.
 3. En "Campos del webhook", **Suscribirse** a `messages` y, si aparece,

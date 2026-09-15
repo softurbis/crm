@@ -25,7 +25,7 @@ solo están permitidas con ese permiso.
 
 ### Cómo entrar
 
-1. `softurbis.github.io/crm` → entra con el usuario superusuario.
+1. `panel.urbisgroupinmobiliaria.com` → entra con el usuario superusuario.
 2. Arriba a la derecha, **elige el proyecto EL TRIUNFO DE NESHUYA**. Todo lo de esta guía se
    hace con ese proyecto seleccionado.
 
