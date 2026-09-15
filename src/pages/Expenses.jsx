@@ -448,6 +448,54 @@ export default function Expenses() {
     )
   }
 
+  // ---- ATAJOS: los gastos que se piden siempre, ya prellenados ----
+  // El texto sale igual que en las constancias de papel; despues se puede editar.
+  const ATAJOS = [
+    { t: '📅 Administrativos del mes', f: { type: 'GASTOS ADMINISTRATIVOS', description: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], discount_from: 'URBIS GROUP', payment_method: 'EFECTIVO' } },
+    { t: '🤝 Pago de comisión', f: { type: 'PAGO DE COMISION', description: 'PAGO DE COMISION POR LA VENTA DEL LOTE ', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+    { t: '📣 Publicidad (ADS)', f: { type: 'GASTOS ADMINISTRATIVOS', description: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'TRANSFERENCIA' } },
+    { t: '🧰 Compra de materiales', f: { type: 'GASTOS DE DESARROLLO', description: 'COMPRA DE MATERIALES PARA EL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+  ]
+  const usarAtajo = a => { setEditId(null); setF({ issue_date: hoy(), ...a.f }); setShow(true) }
+
+  // Copiar una solicitud anterior: sirve para el gasto que se repite cada mes.
+  // No se copian ni el correlativo ni las firmas: es una solicitud nueva.
+  function duplicar(g) {
+    setEditId(null)
+    setF({
+      type: g.type, issue_date: hoy(), amount: g.amount, recipient: g.recipient, recipient_dni: g.recipient_dni,
+      requester_id: g.requester_id || '', sender: g.sender, discount_from: g.discount_from,
+      payment_method: g.payment_method, document_type: g.document_type, description: g.description, detail: g.detail,
+    })
+    setShow(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // ---- RECEPTORES ya usados: elegirlo completa su DNI solo ----
+  const receptores = useMemo(() => {
+    const m = new Map()
+    for (const g of list) if (g.recipient && !m.has(g.recipient)) m.set(g.recipient, g.recipient_dni || '')
+    return [...m.entries()]
+  }, [list])
+
+  // ---- DETALLE en filas (se guarda como siempre: FECHA | DESCRIPCION | MONTO) ----
+  // La primera columna casi siempre es la fecha, pero en gastos viejos puede ser
+  // otra cosa ("2.00 UND" en la tabla de una compra): se guarda TAL CUAL y el
+  // calendario aparece solo cuando de verdad es una fecha.
+  const esFechaDmy = s => /^\d{2}\/\d{2}\/\d{4}$/.test(s || '')
+  const aIso = d => esFechaDmy(d) ? d.slice(6, 10) + '-' + d.slice(3, 5) + '-' + d.slice(0, 2) : ''
+  const aDmy = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.slice(8, 10) + '/' + v.slice(5, 7) + '/' + v.slice(0, 4) : v
+  const filas = (f.detail || '').split('\n').map(l => l.split('|').map(x => x.trim()))
+    .filter(a => a.some(Boolean)).map(a => ({ fecha: a[0] || '', desc: a[1] || '', monto: a[2] || '' }))
+  const filasVista = filas.length ? filas : [{ fecha: '', desc: '', monto: '' }]
+  const guardarFilas = fs => setF(x => ({
+    ...x,
+    detail: fs.filter(r => r.desc || r.monto).map(r => [r.fecha, r.desc, r.monto].join(' | ')).join('\n'),
+  }))
+  const setFila = (i, campo, valor) => guardarFilas(filasVista.map((r, j) =>
+    j === i ? { ...r, [campo]: campo === 'fecha' ? aDmy(valor) : valor } : r))
+  const totalDetalle = filasVista.reduce((s, r) => s + Number(r.monto || 0), 0)
+
   const IN = (k, label, type = 'text', req = false) => (
     <label key={k}>{label}
       <input type={type} step="0.01" value={f[k] || ''} required={req}
@@ -550,6 +598,15 @@ export default function Expenses() {
       {show && !readOnly && (
         <form className="glass form-card" onSubmit={guardar}>
           <p><b>{editId ? 'CORREGIR SOLICITUD (se mantiene el mismo correlativo)' : 'SOLICITUD DE GASTO'}</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
+          {!editId && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px', alignItems: 'center' }}>
+              <span className="muted small" style={{ textTransform: 'none' }}>Atajos:</span>
+              {ATAJOS.map(a => (
+                <button key={a.t} type="button" className="chip" style={{ textTransform: 'none' }}
+                  title="Llena el gasto típico; después puedes cambiar lo que quieras" onClick={() => usarAtajo(a)}>{a.t}</button>
+              ))}
+            </div>
+          )}
           <div className="form-grid">
             <label>Tipo
               <select value={f.type || ''} onChange={e => setF(x => ({ ...x, type: e.target.value }))} required>
@@ -559,7 +616,18 @@ export default function Expenses() {
             </label>
             {IN('issue_date', 'Fecha', 'date', true)}
             {IN('amount', 'Monto S/', 'number', true)}
-            {IN('recipient', 'Receptor (quien recibe el dinero)', 'text', true)}
+            {/* al elegir a alguien que ya recibió antes, su DNI se llena solo */}
+            <label>Receptor (quien recibe el dinero)
+              <input list="receptores-gasto" value={f.recipient || ''} required
+                onChange={e => {
+                  const v = e.target.value
+                  const dni = receptores.find(([n]) => n === v.toUpperCase())?.[1]
+                  setF(x => ({ ...x, recipient: v, ...(dni ? { recipient_dni: dni } : {}) }))
+                }} />
+              <datalist id="receptores-gasto">
+                {receptores.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
+              </datalist>
+            </label>
             {IN('recipient_dni', 'DNI del receptor', 'text', true)}
             {/* El solicitante deja de ser un texto suelto: es la persona que
                 despues FIRMA la solicitud en el panel (sql/74). Si el proyecto
@@ -595,11 +663,35 @@ export default function Expenses() {
               <input value={f.description || ''} onChange={e => setF(x => ({ ...x, description: e.target.value }))} required
                 placeholder="GASTOS ADMINISTRATIVOS DEL MES DE JULIO / COMISION POR LA VENTA DEL LOTE MZ K LT 8 / OBRAS DE FUMIGADO..." />
             </label>
-            <label className="span2">Detalle itemizado (opcional, una linea por gasto: FECHA | DESCRIPCION | MONTO)
-              <textarea rows="3" value={f.detail || ''} style={{ textTransform: 'none' }}
-                placeholder={'07/04/2026 | VENENO PARA FUMIGACION | 150.00\n08/04/2026 | ALMUERZO + AGUA | 30.00'}
-                onChange={e => setF(x => ({ ...x, detail: e.target.value }))} />
-            </label>
+            {/* El detalle se llena como una tabla, no escribiendo con barras: cada
+                fila sale igual en la constancia y el total puede llenar el monto. */}
+            <div className="span2">
+              <label style={{ marginBottom: 4 }}>Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
+              <table className="ctable" style={{ fontSize: 12 }}>
+                <thead><tr><th style={{ width: 130 }}>Fecha</th><th>Descripción</th><th style={{ width: 110 }}>Monto S/</th><th style={{ width: 34 }}></th></tr></thead>
+                <tbody>
+                  {filasVista.map((r, i) => (
+                    <tr key={i}>
+                      <td>{esFechaDmy(r.fecha) || !r.fecha
+                        ? <input type="date" value={aIso(r.fecha)} style={{ width: '100%' }} onChange={e => setFila(i, 'fecha', e.target.value)} />
+                        : <input value={r.fecha} style={{ width: '100%', textTransform: 'none' }} title="Este gasto viejo no usa fecha en esta columna" onChange={e => setFila(i, 'fecha', e.target.value)} />}</td>
+                      <td><input value={r.desc} style={{ width: '100%', textTransform: 'none' }} placeholder="VENENO PARA FUMIGACION" onChange={e => setFila(i, 'desc', e.target.value)} /></td>
+                      <td><input type="number" step="0.01" value={r.monto} style={{ width: '100%' }} onChange={e => setFila(i, 'monto', e.target.value)} /></td>
+                      <td>{filasVista.length > 1 && <button type="button" className="link-btn bad" title="Quitar esta fila"
+                        onClick={() => guardarFilas(filasVista.filter((_, j) => j !== i))}>✕</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                <button type="button" className="btn-ghost" onClick={() => guardarFilas([...filasVista, { fecha: '', desc: '', monto: '' }])}>+ Agregar fila</button>
+                {totalDetalle > 0 && <>
+                  <b>TOTAL {soles(totalDetalle)}</b>
+                  {Number(f.amount || 0) !== Number(totalDetalle.toFixed(2)) &&
+                    <button type="button" className="btn-act" onClick={() => setF(x => ({ ...x, amount: totalDetalle.toFixed(2) }))}>Usar como monto</button>}
+                </>}
+              </div>
+            </div>
           </div>
           <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
         </form>
@@ -639,6 +731,8 @@ export default function Expenses() {
                   {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
                     <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>{' '}</>
                   )}
+                  {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
+                    onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
                   {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
                     <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
                     <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>{' '}
