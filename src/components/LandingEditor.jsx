@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { subirFotoWeb, subirLogoWeb } from '../lib/imagenesWeb'
 
 // Editor de la LANDING pública de un proyecto (Corretaje → Proyectos → Landing).
 // Guarda en corr_proyectos_pub (sql/78); la página vive en /p/<slug> y la
@@ -15,12 +16,14 @@ export const linkLanding = slug => window.location.origin + import.meta.env.BASE
 
 const TEXTOS = ['marca', 'titular', 'subtitulo', 'descripcion', 'color', 'logo_url', 'foto_url', 'pdf_url', 'precio_desde_txt',
   'inicial_desde', 'cuotas_txt', 'ubicacion_txt', 'maps_url', 'video_url', 'legal_txt', 'wa_texto']
+const EN_PARALELO = 2       // fotos convirtiéndose a la vez: rápido sin ahogar la memoria de la PC
 
-export default function LandingEditor({ pr, setPub, subir, avisar }) {
+export default function LandingEditor({ pr, setPub, avisar }) {
   const l = pr.pub
   const set = (k, v) => setPub({ [k]: v })
   const galeria = Array.isArray(l.galeria) ? l.galeria : []
   const beneficios = Array.isArray(l.beneficios) ? l.beneficios : []
+  const carpeta = 'corretaje/proyectos/' + pr.id + '/landing'
   const [subiendo, setSubiendo] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [campanas, setCampanas] = useState([])
@@ -58,16 +61,25 @@ export default function LandingEditor({ pr, setPub, subir, avisar }) {
     const { error } = await supabase.from('corr_proyectos_pub').upsert({ project_id: pr.id, galeria: nueva })
     if (error) avisar('ERROR: ' + error.message)
   }
+  // cada foto se convierte en el navegador a 3 tamaños WebP (lib/imagenesWeb.js)
+  // y viajan esos archivos livianos, no la foto original de 10 MB
   const subirFotos = async e => {
     const files = [...(e.target.files || [])]; e.target.value = ''
     if (!files.length) return
-    const nuevas = []
-    for (let i = 0; i < files.length; i++) {
-      setSubiendo(`Subiendo ${i + 1} de ${files.length}…`)
-      try { nuevas.push({ url: await subir(files[i], 'proyectos/' + pr.id + '/landing'), titulo: '' }) }
-      catch (err) { avisar('ERROR al subir ' + files[i].name + ': ' + err.message) }
+    const listas = new Array(files.length)
+    let siguiente = 0, hechas = 0
+    setSubiendo(`Preparando ${files.length} foto${files.length === 1 ? '' : 's'}…`)
+    const trabajador = async () => {
+      while (siguiente < files.length) {
+        const i = siguiente++
+        try { listas[i] = { ...(await subirFotoWeb(files[i], carpeta)), titulo: '' } }
+        catch (err) { avisar('ERROR al subir ' + files[i].name + ': ' + err.message) }
+        setSubiendo(`Subidas ${++hechas} de ${files.length}…`)
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(EN_PARALELO, files.length) }, trabajador))
     setSubiendo('')
+    const nuevas = listas.filter(Boolean)
     if (nuevas.length) { await guardarGaleria([...galeria, ...nuevas]); avisar(`✅ ${nuevas.length} foto${nuevas.length === 1 ? '' : 's'} agregada${nuevas.length === 1 ? '' : 's'}`) }
   }
   const subirLogo = async e => {
@@ -75,7 +87,7 @@ export default function LandingEditor({ pr, setPub, subir, avisar }) {
     if (!file) return
     setSubiendo('Subiendo logo…')
     try {
-      const url = await subir(file, 'proyectos/' + pr.id + '/landing')
+      const url = await subirLogoWeb(file, carpeta)
       set('logo_url', url)
       await supabase.from('corr_proyectos_pub').upsert({ project_id: pr.id, logo_url: url })
     } catch (err) { avisar('ERROR al subir el logo: ' + err.message) }
@@ -133,7 +145,7 @@ export default function LandingEditor({ pr, setPub, subir, avisar }) {
           </label>
           <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🏷️ Logo (PNG sin fondo)<input type="file" accept="image/*" onChange={subirLogo} style={{ display: 'none' }} /></label>
           {(l.logo_url || pr.logo_url) && <img src={l.logo_url || pr.logo_url} alt="" style={{ height: 34, background: '#2a3a31', borderRadius: 6, padding: 3 }} />}
-          <span className="muted">La foto de portada es la de arriba (🖼️ Foto de portada) o la ★ de la galería.</span>
+          <span className="muted">La portada es la foto marcada con ★ en la galería (o la de 🖼️ Foto de portada).</span>
         </div>
       </div>
 
@@ -158,14 +170,14 @@ export default function LandingEditor({ pr, setPub, subir, avisar }) {
           {titulo(`GALERÍA (${galeria.length})`)}
           <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>📷 Subir fotos<input type="file" accept="image/*" multiple onChange={subirFotos} style={{ display: 'none' }} /></label>
           {subiendo && <span style={{ fontSize: 12 }}>{subiendo}</span>}
-          <span className="muted" style={{ fontSize: 12 }}>Se optimizan solas al subir (máx. 2560 px) para que carguen rápido en celular. Se guardan al instante.</span>
+          <span className="muted" style={{ fontSize: 12 }}>Sube la foto original en alta: se convierte sola a 3 tamaños para web (800 · 1600 · 2560 px) y la página abre rápido en celular. Se guarda al instante.</span>
         </div>
         {galeria.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
             {galeria.map((g, i) => (
               <div key={g.url + i} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 8, overflow: 'hidden', border: l.foto_url === g.url ? '2px solid #ffc644' : '2px solid transparent' }}>
                 <div style={{ position: 'relative' }}>
-                  <img src={g.url} alt="" style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
+                  <img src={g.s || g.url} alt="" loading="lazy" style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                   <span style={{ position: 'absolute', top: 4, left: 4, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 11, padding: '1px 6px', borderRadius: 10 }}>{l.foto_url === g.url ? '★ portada' : i + 1}</span>
                 </div>
                 <input value={g.titulo || ''} placeholder="Descripción (opcional)" onChange={e => set('galeria', galeria.map((x, j) => (j === i ? { ...x, titulo: e.target.value } : x)))}

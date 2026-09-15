@@ -296,7 +296,7 @@ export default function Corretaje() {
                 <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Foto de portada<input type="file" accept="image/*" onChange={e => subirProy(pr.id, 'foto_url', e)} style={{ display: 'none' }} /></label>
                 {(pr.pub.foto_url || pr.photo_url) && <img src={pr.pub.foto_url || pr.photo_url} alt="" style={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
               </div>
-              {landingAbierta === pr.id && <LandingEditor pr={pr} setPub={patch => setProjPub(pr.id, patch)} subir={subir} avisar={setMsg} />}
+              {landingAbierta === pr.id && <LandingEditor pr={pr} setPub={patch => setProjPub(pr.id, patch)} avisar={setMsg} />}
             </div>
           ))}
           {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}

@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { srcsetDe } from '../lib/imagenesWeb'
 import '../styles/landing.css'
 
 // Landing PÚBLICA de un proyecto (sin login): /p/<slug>. Lee la vista segura
 // pub_landing (solo landings activas; sql/78). Si la landing sigue apagada y
 // quien entra tiene sesión, se arma el borrador desde las tablas como VISTA
 // PREVIA. Todo el contenido se edita en Corretaje → Proyectos → Landing.
+// Las fotos traen 3 anchos (lib/imagenesWeb.js): cada <img> declara cuánto
+// ocupa en pantalla (sizes) y el navegador baja solo el archivo que le toca.
 
 const MINUS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'en'])
 // los nombres de proyecto viven en MAYÚSCULAS en la base
@@ -86,6 +89,7 @@ export default function Landing() {
   const nombre = bonito(p.nombre)
   const galeria = (Array.isArray(p.galeria) ? p.galeria : []).filter(g => g?.url)
   const portada = p.portada_url || galeria[0]?.url
+  const fotoPortada = galeria.find(g => g.url === portada)
   const beneficios = (Array.isArray(p.beneficios) ? p.beneficios : []).filter(b => b?.titulo || b?.texto)
   const tel = telWa(p.whatsapp)
   const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(p.wa_texto || `Hola, vi la página de ${nombre} y quiero información`)}` : null
@@ -115,7 +119,7 @@ export default function Landing() {
       </div></nav>
 
       <header className="lp-hero">
-        {portada && <img className="lp-hero-img" src={portada} alt="" fetchPriority="high" />}
+        {portada && <img className="lp-hero-img" src={fotoPortada?.m || portada} srcSet={srcsetDe(fotoPortada)} sizes="100vw" alt="" fetchPriority="high" />}
         <div className="lp-wrap lp-hero-in">
           <div className="lp-kicker">{p.logo_url ? nombre : (p.marca || 'Proyecto inmobiliario')}</div>
           <h1>{p.titular || nombre}</h1>
@@ -160,7 +164,8 @@ export default function Landing() {
           <div className="lp-gal">
             {galeria.slice(0, 5).map((g, i) => (
               <button key={g.url + i} type="button" onClick={() => setFoto(i)} aria-label={'Ver foto ' + (i + 1)}>
-                <img src={g.url} alt={g.titulo || nombre} loading="lazy" />
+                <img src={g.m || g.url} srcSet={srcsetDe(g)} sizes={i === 0 ? '(max-width: 760px) 100vw, 560px' : '(max-width: 760px) 50vw, 280px'}
+                  alt={g.titulo || nombre} loading="lazy" decoding="async" />
                 {i === 4 && galeria.length > 5 && <span className="lp-gal-more">+{galeria.length - 5} fotos</span>}
               </button>
             ))}
@@ -207,7 +212,8 @@ export default function Landing() {
                 allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowFullScreen loading="lazy" />
             : p.video_url
               ? <a className="lp-video-link" href={p.video_url} target="_blank" rel="noreferrer">▶ Ver el video del proyecto</a>
-              : galeria[1] && <img className="lp-side-img" src={galeria[1].url} alt={galeria[1].titulo || nombre} loading="lazy" />}
+              : galeria[1] && <img className="lp-side-img" src={galeria[1].m || galeria[1].url} srcSet={srcsetDe(galeria[1])} sizes="(max-width: 860px) 100vw, 520px"
+                  alt={galeria[1].titulo || nombre} loading="lazy" decoding="async" />}
         </div></section>
       )}
 
@@ -312,7 +318,7 @@ function Visor({ fotos, i, nombre, onNav, onClose }) {
     <div className="lp-lb" role="dialog" aria-label={'Fotos de ' + nombre} onClick={onClose}
       onTouchStart={e => { toque.current = e.touches[0].clientX }}
       onTouchEnd={e => { const dx = e.changedTouches[0].clientX - (toque.current ?? e.changedTouches[0].clientX); if (Math.abs(dx) > 50 && n > 1) mover(dx < 0 ? 1 : -1) }}>
-      <img src={g.url} alt={g.titulo || nombre} onClick={e => e.stopPropagation()} />
+      <img src={g.url} srcSet={srcsetDe(g)} sizes="94vw" alt={g.titulo || nombre} onClick={e => e.stopPropagation()} />
       <button type="button" className="lp-lb-x" onClick={onClose} aria-label="Cerrar">×</button>
       {n > 1 && <>
         <button type="button" className="lp-lb-prev" onClick={e => { e.stopPropagation(); mover(-1) }} aria-label="Foto anterior">‹</button>
