@@ -26,6 +26,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
   const set = (k, v) => setPub({ [k]: v })
   const galeria = Array.isArray(l.galeria) ? l.galeria : []
   const beneficios = Array.isArray(l.beneficios) ? l.beneficios : []
+  const faq = Array.isArray(l.faq) ? l.faq : []
   const carpeta = 'corretaje/proyectos/' + pr.id + '/landing'
   const [subiendo, setSubiendo] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -50,10 +51,11 @@ export default function LandingEditor({ pr, setPub, avisar }) {
     fila.whatsapp = String(l.whatsapp || '').replace(/\D/g, '') || null
     fila.galeria = galeria
     fila.beneficios = beneficios.map(b => ({ titulo: String(b.titulo || '').trim(), texto: String(b.texto || '').trim() })).filter(b => b.titulo || b.texto)
+    fila.faq = faq.map(q => ({ p: String(q.p || '').trim(), r: String(q.r || '').trim() })).filter(q => q.p && q.r)
     const { error } = await supabase.from('corr_proyectos_pub').upsert(fila)
     setGuardando(false)
     if (error) { avisar('ERROR: ' + (/slug/.test(error.message) ? 'ese link ya lo usa otro proyecto' : error.message)); return }
-    setPub({ slug: final, beneficios: fila.beneficios })
+    setPub({ slug: final, beneficios: fila.beneficios, faq: fila.faq })
     avisar(fila.landing_activa ? '✅ Landing guardada y PÚBLICA' : '✅ Landing guardada como borrador')
   }
 
@@ -124,6 +126,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
   const mover = (i, d) => { const g = [...galeria]; [g[i], g[i + d]] = [g[i + d], g[i]]; guardarGaleria(g) }
   const quitar = i => { if (confirm('¿Quitar esta foto de la landing?')) guardarGaleria(galeria.filter((_, j) => j !== i)) }
   const setBen = (i, k, v) => set('beneficios', beneficios.map((b, j) => (j === i ? { ...b, [k]: v } : b)))
+  const setFaq = (i, k, v) => set('faq', faq.map((q, j) => (j === i ? { ...q, [k]: v } : q)))
 
   const copiar = async () => {
     try { await navigator.clipboard.writeText(link); avisar('✅ Link copiado') }
@@ -267,6 +270,20 @@ export default function LandingEditor({ pr, setPub, avisar }) {
           {campo('video_url', 'Video (YouTube u otro link)', 'https://youtu.be/…')}
         </div>
         {area('legal_txt', 'Respaldo legal (sin número de partida)', 'Predio inscrito en SUNARP…', 3)}
+      </div>
+
+      {/* chat de dudas */}
+      <div style={bloque}>
+        {titulo(`CHAT "¿TIENES DUDAS?" (${faq.length} de 6 preguntas)`)}
+        <span className="muted" style={{ fontSize: 12 }}>Burbuja abajo a la izquierda que aparece al bajar. El cliente toca una pregunta y ve la respuesta al instante; si tiene otra duda, lo manda al WhatsApp. Sin preguntas, la burbuja no sale.</span>
+        {faq.map((q, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(240px, 2fr) auto', gap: 6, alignItems: 'start' }}>
+            <input value={q.p || ''} placeholder="Pregunta (ej. ¿Cuánto cuesta un lote?)" onChange={e => setFaq(i, 'p', e.target.value)} />
+            <textarea rows={2} value={q.r || ''} placeholder="Respuesta corta y clara" onChange={e => setFaq(i, 'r', e.target.value)} />
+            <button type="button" className="btn-ghost" onClick={() => set('faq', faq.filter((_, j) => j !== i))} title="Quitar">✕</button>
+          </div>
+        ))}
+        {faq.length < 6 && <button type="button" className="btn-ghost" style={{ justifySelf: 'start' }} onClick={() => set('faq', [...faq, { p: '', r: '' }])}>➕ Agregar pregunta</button>}
       </div>
 
       {/* recorrido virtual */}

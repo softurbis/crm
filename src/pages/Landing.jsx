@@ -28,6 +28,21 @@ const sinMovimiento = () => typeof matchMedia === 'function' && matchMedia('(pre
 // La foto de "Cómo llegar" se reconoce por su título (se pone en el panel):
 // primero rutas/accesos, si no hay, cualquier mapa o satelital.
 const MAPA = [/ruta|acceso|llegar|croquis/i, /mapa|satelit|ubicaci|wayfinding|plano/i]
+
+// Tarjetas de "¿Por qué…?": cada una con un tono (verde de marca, sol, laguna,
+// tierra) y un ícono que se elige solo por lo que dice el texto.
+const TONOS = ['var(--lp-c)', '#d9971a', '#2f7fb8', '#b8502a']
+const ICONOS = [
+  [/legal|sunarp|contrato|respaldo|inscrit|notari|segur/i, 'escudo'],
+  [/banco|financ|cuota|inter[eé]s|inicial|pago|precio|soles|s\//i, 'monedas'],
+  [/plano|lote|manzana|esquina|elig|m²|m2/i, 'plano'],
+  [/v[ií]a|acceso|carretera|ruta|llegar|minutos|km|pista/i, 'ruta'],
+  [/laguna|agua|r[ií]o|playa|orilla|naturaleza|verde|campo/i, 'agua'],
+  [/obra|calle|puente|luz|servicio|avance/i, 'obra'],
+]
+// primero decide el título ("La laguna a un paso" → agua) y solo si no dice nada, el texto
+const buscarIcono = t => (ICONOS.find(([re]) => re.test(t || '')) || [])[1]
+const iconoDe = (titulo, texto) => buscarIcono(titulo) || buscarIcono(texto) || 'estrella'
 const esMapa = g => MAPA.some(re => re.test(g?.titulo || ''))
 const indiceMapa = galeria => { for (const re of MAPA) { const i = galeria.findIndex(g => re.test(g.titulo || '')); if (i >= 0) return i } return -1 }
 
@@ -100,7 +115,13 @@ export default function Landing() {
       // se enciende este bloque y todos los de arriba: si alguien salta directo
       // al formulario, nada de lo que dejó atrás puede quedarse invisible
       const hasta = els.indexOf(e.target)
-      els.slice(0, hasta + 1).forEach(el => { el.classList.add('lp-in'); io.unobserve(el) })
+      els.slice(0, hasta + 1).forEach(el => {
+        if (el.classList.contains('lp-in')) return
+        el.classList.add('lp-in'); io.unobserve(el)
+        // el escalonado solo sirve para entrar: después se quita, si no el hover también esperaría
+        const espera = parseFloat(el.style.transitionDelay) || 0
+        setTimeout(() => { el.style.transitionDelay = '0s' }, espera * 1000 + 850)
+      })
     }), { rootMargin: '0px 0px -6% 0px', threshold: 0.06 })
     els.forEach(e => io.observe(e))
     return () => io.disconnect()
@@ -124,8 +145,12 @@ export default function Landing() {
   const iMapa = indiceMapa(galeria)
   const iLlegar = iMapa >= 0 ? iMapa : (galeria.length > 1 ? 1 : -1)
   const fotoLlegar = iLlegar >= 0 ? galeria[iLlegar] : null
-  const fotoBanda = galeria.filter(g => !esMapa(g) && g.url !== portada)[2] || null
+  const restantes = galeria.filter(g => !esMapa(g) && g.url !== portada)
+  const fotoBanda = restantes[2] || null
+  // dos fotos "sueltas" al lado del título de "¿Por qué…?", de las que no salen en la portada
+  const fotosIntro = restantes.length > 5 ? restantes.slice(3, 5) : restantes.slice(0, 2)
   const beneficios = (Array.isArray(p.beneficios) ? p.beneficios : []).filter(b => b?.titulo || b?.texto)
+  const faq = (Array.isArray(p.faq) ? p.faq : []).filter(q => q?.p && q?.r)
   const tel = telWa(p.whatsapp)
   const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(p.wa_texto || `Hola, vi la página de ${nombre} y quiero información`)}` : null
   const totalLotes = (p.disponibles || 0) + (p.vendidos || 0) + (p.reservados || 0)
@@ -200,16 +225,24 @@ export default function Landing() {
 
       {(p.descripcion || beneficios.length > 0) && (
         <section className="lp-sec"><div className="lp-wrap">
-          <div data-reveal>
-            <div className="lp-eyebrow">El proyecto</div>
-            <h2>¿Por qué {nombre}?</h2>
-            {p.descripcion && <p className="lp-lead">{p.descripcion}</p>}
+          <div className="lp-intro" data-reveal>
+            <div>
+              <div className="lp-eyebrow">El proyecto</div>
+              <h2>¿Por qué {nombre}?</h2>
+              {p.descripcion && <p className="lp-lead">{p.descripcion}</p>}
+            </div>
+            {fotosIntro.length > 0 && (
+              <div className="lp-intro-fotos" aria-hidden="true">
+                {fotosIntro.map(g => <img key={g.url} src={medianaDe(g)} srcSet={srcsetDe(g)} sizes="(max-width: 860px) 100vw, 400px" alt="" loading="lazy" decoding="async" />)}
+              </div>
+            )}
           </div>
           {beneficios.length > 0 && (
             <div className="lp-grid4">
               {beneficios.map((b, i) => (
-                <div key={i} className="lp-card" data-reveal style={retraso(i)}>
-                  <div className="lp-card-n">{i + 1}</div>
+                <div key={i} className="lp-card" data-reveal style={{ ...retraso(i), '--c': TONOS[i % TONOS.length] }}>
+                  <span className="lp-card-n">{String(i + 1).padStart(2, '0')}</span>
+                  <div className="lp-card-ico"><IcoTarjeta tipo={iconoDe(b.titulo, b.texto)} /></div>
                   {b.titulo && <h3>{b.titulo}</h3>}
                   {b.texto && <p>{b.texto}</p>}
                 </div>
@@ -363,8 +396,79 @@ export default function Landing() {
         <button type="button" className="lp-btn lp-btn-c" onClick={() => ir('contacto')}>Que me llamen</button>
       </div>
 
+      {faq.length > 0 && <ChatDudas faq={faq} nombre={nombre} logo={p.logo_url} linkWa={linkWa} irContacto={() => ir('contacto')} />}
       {foto != null && <Visor fotos={galeria} i={foto} nombre={nombre} onNav={setFoto} onClose={() => setFoto(null)} />}
     </div>
+  )
+}
+
+// "¿Tienes dudas?": burbuja abajo a la izquierda que aparece al bajar. Se ve
+// como un chat, pero no piensa: el cliente toca una de las preguntas del
+// panel y recibe la respuesta escrita ahí; para todo lo demás, WhatsApp.
+function ChatDudas({ faq, nombre, logo, linkWa, irContacto }) {
+  const [visible, setVisible] = useState(false)
+  const [abierto, setAbierto] = useState(false)
+  const [hilo, setHilo] = useState([])          // [{ de: 'yo' | 'bot', texto }]
+  const [escribiendo, setEscribiendo] = useState(false)
+  const [hechas, setHechas] = useState([])
+  const cuerpo = useRef(null)
+  const timer = useRef(null)
+
+  useEffect(() => {
+    const mirar = () => setVisible(window.scrollY > 240)
+    mirar()
+    window.addEventListener('scroll', mirar, { passive: true })
+    return () => { window.removeEventListener('scroll', mirar); clearTimeout(timer.current) }
+  }, [])
+  useEffect(() => {
+    if (!abierto) return
+    const tecla = e => { if (e.key === 'Escape') setAbierto(false) }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [abierto])
+  // cada mensaje nuevo deja la conversación abajo, como en cualquier chat
+  useEffect(() => { cuerpo.current?.scrollTo({ top: 1e6, behavior: 'smooth' }) }, [hilo, escribiendo])
+
+  const preguntar = (q, i) => {
+    if (escribiendo) return
+    setHilo(h => [...h, { de: 'yo', texto: q.p }])
+    setHechas(x => [...x, i])
+    setEscribiendo(true)
+    // una pausa corta "escribiendo…": sin ella la respuesta cae encima y no se lee como chat
+    timer.current = setTimeout(() => { setEscribiendo(false); setHilo(h => [...h, { de: 'bot', texto: q.r }]) }, 600 + Math.min(q.r.length * 5, 900))
+  }
+
+  return (
+    <>
+      <button type="button" className={'lp-chat-abrir' + (visible && !abierto ? ' lp-on' : '')} onClick={() => setAbierto(true)} aria-label="¿Tienes dudas? Abrir el chat">
+        <i><IcoChat /></i> ¿Tienes dudas?
+      </button>
+      {abierto && (
+        <div className="lp-chat" role="dialog" aria-label={'Dudas frecuentes de ' + nombre}>
+          <div className="lp-chat-cab">
+            <span className="lp-chat-avatar">{logo ? <img src={logo} alt="" /> : <IcoChat />}</span>
+            <div><b>{nombre}</b><small>Respuestas al instante</small></div>
+            <button type="button" className="lp-chat-x" onClick={() => setAbierto(false)} aria-label="Cerrar">×</button>
+          </div>
+          <div className="lp-chat-cuerpo" ref={cuerpo}>
+            <div className="lp-burbuja lp-bot">¡Hola! 👋 Toca una pregunta y te respondo al instante. Si tienes otra duda, te atendemos por WhatsApp.</div>
+            {hilo.map((m, k) => <div key={k} className={'lp-burbuja ' + (m.de === 'bot' ? 'lp-bot' : 'lp-yo')}>{m.texto}</div>)}
+            {escribiendo && <div className="lp-burbuja lp-bot lp-escribe" aria-label="Escribiendo"><i /><i /><i /></div>}
+            <div className="lp-chat-chips">
+              {faq.map((q, i) => (
+                <button key={i} type="button" className={'lp-chip' + (hechas.includes(i) ? ' lp-chip-hecha' : '')} onClick={() => preguntar(q, i)} disabled={escribiendo}>{q.p}</button>
+              ))}
+            </div>
+          </div>
+          <div className="lp-chat-pie">
+            <span>¿Otra duda?</span>
+            {linkWa
+              ? <a className="lp-btn lp-btn-wa lp-btn-sm" href={linkWa} target="_blank" rel="noreferrer"><IcoWa /> Escríbenos</a>
+              : <button type="button" className="lp-btn lp-btn-c lp-btn-sm" onClick={() => { setAbierto(false); irContacto() }}>Que me llamen</button>}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -492,6 +596,25 @@ const IcoPin = () => (
 const IcoLupa = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
+  </svg>
+)
+const TRAZOS = {
+  escudo: <><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z" /><path d="m8.8 12 2.2 2.2 4.3-4.4" /></>,
+  monedas: <><ellipse cx="9" cy="7" rx="6" ry="2.6" /><path d="M3 7v4c0 1.4 2.7 2.6 6 2.6s6-1.2 6-2.6V7" /><path d="M3 11v4c0 1.4 2.7 2.6 6 2.6s6-1.2 6-2.6v-4" /><path d="M15 9.6c3.4.2 6 1.3 6 2.6v4c0 1.4-2.7 2.6-6 2.6" /></>,
+  plano: <><path d="M3.5 5.5 9 3.5l6 2 5.5-2v15l-5.5 2-6-2-5.5 2v-15Z" /><path d="M9 3.5v15M15 5.5v15" /></>,
+  ruta: <><path d="M5 20c0-5 4-6 7-6s7-1 7-6" /><circle cx="5" cy="20" r="2" /><circle cx="19" cy="8" r="2" /><path d="M19 3v3M17.5 4.5 19 3l1.5 1.5" /></>,
+  agua: <><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z" /><path d="M9.5 15.5a2.6 2.6 0 0 0 2 2" /></>,
+  obra: <><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M10 21v-6h4v6" /><path d="M2 12l10-7 10 7" /></>,
+  estrella: <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" />,
+}
+const IcoTarjeta = ({ tipo }) => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {TRAZOS[tipo] || TRAZOS.estrella}
+  </svg>
+)
+const IcoChat = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-4.6A8 8 0 1 1 21 12Z" /><path d="M9 11.5h6M9 8.5h6" />
   </svg>
 )
 const Ico360 = ({ size = 28 }) => (
