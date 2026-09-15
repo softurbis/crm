@@ -150,6 +150,9 @@ export default function Landing() {
     else setRecorrido(true)
   }
   const cambiarModo = id => { setModo(id); setRecorrido(false) }
+  const hay360 = modos.some(m => m.id === '360')
+  // el botón de arriba baja a la sección y deja el tour ya abierto
+  const irAl360 = () => { setModo('360'); setRecorrido(true); ir('recorrido') }
   const cuotas = p.cuotas_txt || p.cuota_desde
   const yt = idYoutube(p.video_url)
   const stats = [
@@ -169,7 +172,10 @@ export default function Landing() {
 
       <nav className="lp-nav"><div className="lp-wrap">
         {p.logo_url ? <img className="lp-logo" src={p.logo_url} alt={nombre} /> : <span className="lp-logo-txt">{nombre}</span>}
-        {aWa('lp-btn-wa lp-btn-sm', 'Escríbenos')}
+        <div className="lp-nav-btns">
+          {hay360 && <button type="button" className="lp-btn lp-btn-sm lp-btn-360" onClick={irAl360}><Ico360 size={20} /> Mira acá el 360°</button>}
+          {aWa('lp-btn-wa lp-btn-sm', 'Escríbenos')}
+        </div>
       </div></nav>
 
       <header className="lp-hero">
@@ -232,7 +238,7 @@ export default function Landing() {
       )}
 
       {modoActual && (
-        <section className="lp-sec"><div className="lp-wrap">
+        <section className="lp-sec" id="recorrido"><div className="lp-wrap">
           <div data-reveal>
             <div className="lp-eyebrow">Recorrido virtual</div>
             <h2>Recorre el proyecto como si estuvieras ahí</h2>
@@ -488,8 +494,8 @@ const IcoLupa = () => (
     <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
   </svg>
 )
-const Ico360 = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+const Ico360 = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <ellipse cx="12" cy="13" rx="9" ry="4" /><path d="M12 9V3m0 0-2.5 2.5M12 3l2.5 2.5" /><path d="M3.6 15.2c1.3 1.5 4.6 2.6 8.4 2.6" />
   </svg>
 )
