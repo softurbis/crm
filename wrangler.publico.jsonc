@@ -1,0 +1,14 @@
+// WEB PÚBLICA en Cloudflare Workers (solo archivos, sin código de servidor).
+// Worker "urbis-web" → urbisgroupinmobiliaria.com
+//   Build command:  npm run build:publico
+//   Deploy command: npx wrangler deploy --config wrangler.publico.jsonc
+// El "name" tiene que ser IGUAL al nombre del Worker en el panel de Cloudflare.
+{
+  "name": "urbis-web",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist-publico",
+    // cualquier ruta (/p/<slug>, /propiedades) responde index.html con 200
+    "not_found_handling": "single-page-application"
+  }
+}

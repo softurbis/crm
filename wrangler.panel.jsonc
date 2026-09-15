@@ -1,0 +1,15 @@
+// PANEL (CRM completo) en Cloudflare Workers (solo archivos, sin código de servidor).
+// Worker "urbis-panel" → panel.urbisgroupinmobiliaria.com
+//   Build command:  npm run build:panel
+//   Deploy command: npx wrangler deploy --config wrangler.panel.jsonc
+//   Variable de build: VITE_SITIO_PUBLICO=https://urbisgroupinmobiliaria.com
+// El "name" tiene que ser IGUAL al nombre del Worker en el panel de Cloudflare.
+{
+  "name": "urbis-panel",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist-panel",
+    // cualquier ruta del panel (/pagos, /corretaje…) responde index.html con 200
+    "not_found_handling": "single-page-application"
+  }
+}

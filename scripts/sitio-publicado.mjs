@@ -2,8 +2,9 @@
 //   · publico: el index sale de publico.html y de public/ solo se copia la
 //     política de privacidad (lo demás son documentos internos).
 //   · panel: que Google no lo muestre y que nadie lo meta dentro de otra página.
-// Cloudflare sirve index.html en cualquier ruta cuando NO hay 404.html (modo
-// SPA), así /p/<slug> responde 200. El truco del 404.html es solo de GitHub Pages.
+// En Cloudflare cada cara es un Worker de solo archivos (wrangler.publico.jsonc /
+// wrangler.panel.jsonc) en modo SPA: /p/<slug> responde index.html con 200. Por
+// eso aquí no se crea 404.html: ese truco es solo de GitHub Pages.
 import { renameSync, copyFileSync, writeFileSync } from 'node:fs'
 
 const cara = process.argv[2]
