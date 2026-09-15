@@ -4,6 +4,8 @@
       "allowed": {
         "origins": [
           "https://softurbis.github.io",
+          "https://panel.urbisgroupinmobiliaria.com",
+          "https://urbisgroupinmobiliaria.com",
           "http://localhost:5173"
         ],
         "methods": ["GET", "HEAD"],
