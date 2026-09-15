@@ -81,6 +81,7 @@ export default function Users() {
 
   const [seguim, setSeguim] = useState([])
   const [segAcc, setSegAcc] = useState([])
+  const [firmaDe, setFirmaDe] = useState(null)   // a quién se le está cargando la firma
   async function load() {
     const [u, p, a, s, sa] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at'),
@@ -247,8 +248,8 @@ export default function Users() {
   // ---- firma de cada persona (la que sale en las constancias de gastos) ----
   // El superusuario puede cargar la FOTO de la firma en papel de otro (sql/84):
   // queda en la bitácora quién la subió y a quién. Cada quien puede cambiar la
-  // suya desde Gastos.
-  const [firmaDe, setFirmaDe] = useState(null)
+  // suya desde Gastos. (el estado vive arriba, con los demás: declararlo aquí
+  // dejaba la pantalla en blanco al recargar — hay un return temprano antes)
 
   async function guardarFirmaDe(u, file) {
     setBusy(true); setMsg(null)
