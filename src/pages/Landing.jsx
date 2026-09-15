@@ -1,15 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { srcsetDe } from '../lib/imagenesWeb'
+import { srcsetDe, medianaDe } from '../lib/imagenesWeb'
 import '../styles/landing.css'
 
 // Landing PÚBLICA de un proyecto (sin login): /p/<slug>. Lee la vista segura
 // pub_landing (solo landings activas; sql/78). Si la landing sigue apagada y
 // quien entra tiene sesión, se arma el borrador desde las tablas como VISTA
 // PREVIA. Todo el contenido se edita en Corretaje → Proyectos → Landing.
-// Las fotos traen 3 anchos (lib/imagenesWeb.js): cada <img> declara cuánto
+// Las fotos traen varios anchos (lib/imagenesWeb.js): cada <img> declara cuánto
 // ocupa en pantalla (sizes) y el navegador baja solo el archivo que le toca.
+//
+// Movimiento: la portada rota las primeras fotos con un zoom lento, las
+// secciones aparecen al bajar y una cinta de fotos corre sola. Todo se apaga
+// si el visitante pidió "reducir movimiento" en su celular.
 
 const MINUS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'en'])
 // los nombres de proyecto viven en MAYÚSCULAS en la base
@@ -19,6 +23,13 @@ const bonito = s => String(s || '').toLowerCase().split(/\s+/).filter(Boolean)
 const soles = n => 'S/ ' + Math.ceil(Number(n)).toLocaleString('es-PE')
 const telWa = w => { const d = String(w || '').replace(/\D/g, ''); return d.length === 9 ? '51' + d : d }
 const idYoutube = u => (String(u || '').match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/) || [])[1]
+const sinMovimiento = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// La foto de "Cómo llegar" se reconoce por su título (se pone en el panel):
+// primero rutas/accesos, si no hay, cualquier mapa o satelital.
+const MAPA = [/ruta|acceso|llegar|croquis/i, /mapa|satelit|ubicaci|wayfinding|plano/i]
+const esMapa = g => MAPA.some(re => re.test(g?.titulo || ''))
+const indiceMapa = galeria => { for (const re of MAPA) { const i = galeria.findIndex(g => re.test(g.titulo || '')); if (i >= 0) return i } return -1 }
 
 async function cargarBorrador(slug) {
   const { data: ses } = await supabase.auth.getSession()
@@ -77,6 +88,22 @@ export default function Landing() {
     }
   }, [p])
 
+  // las secciones aparecen cuando entran en pantalla (una sola vez cada una)
+  useEffect(() => {
+    if (!p) return
+    const els = [...document.querySelectorAll('.lp [data-reveal]')]
+    if (!('IntersectionObserver' in window) || sinMovimiento()) { els.forEach(e => e.classList.add('lp-in')); return }
+    const io = new IntersectionObserver(entradas => entradas.forEach(e => {
+      if (!e.isIntersecting) return
+      // se enciende este bloque y todos los de arriba: si alguien salta directo
+      // al formulario, nada de lo que dejó atrás puede quedarse invisible
+      const hasta = els.indexOf(e.target)
+      els.slice(0, hasta + 1).forEach(el => { el.classList.add('lp-in'); io.unobserve(el) })
+    }), { rootMargin: '0px 0px -6% 0px', threshold: 0.06 })
+    els.forEach(e => io.observe(e))
+    return () => io.disconnect()
+  }, [p])
+
   if (p === undefined) return <div className="lp"><div className="lp-hero" /></div>
   if (p === null) return (
     <div className="lp lp-nada"><div className="lp-wrap">
@@ -89,7 +116,13 @@ export default function Landing() {
   const nombre = bonito(p.nombre)
   const galeria = (Array.isArray(p.galeria) ? p.galeria : []).filter(g => g?.url)
   const portada = p.portada_url || galeria[0]?.url
-  const fotoPortada = galeria.find(g => g.url === portada)
+  const fotoPortada = galeria.find(g => g.url === portada) || (portada ? { url: portada } : null)
+  // la portada rota entre las primeras fotos (sin planos ni mapas), empezando por la elegida
+  const fotosHero = fotoPortada ? [fotoPortada, ...galeria.filter(g => g.url !== portada && !esMapa(g))].slice(0, 5) : []
+  const iMapa = indiceMapa(galeria)
+  const iLlegar = iMapa >= 0 ? iMapa : (galeria.length > 1 ? 1 : -1)
+  const fotoLlegar = iLlegar >= 0 ? galeria[iLlegar] : null
+  const fotoBanda = galeria.filter(g => !esMapa(g) && g.url !== portada)[2] || null
   const beneficios = (Array.isArray(p.beneficios) ? p.beneficios : []).filter(b => b?.titulo || b?.texto)
   const tel = telWa(p.whatsapp)
   const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(p.wa_texto || `Hola, vi la página de ${nombre} y quiero información`)}` : null
@@ -108,6 +141,7 @@ export default function Landing() {
   const ir = id => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   const aWa = (clase, texto, icono = true) => linkWa &&
     <a className={'lp-btn ' + clase} href={linkWa} target="_blank" rel="noreferrer">{icono && <IcoWa />}{texto}</a>
+  const retraso = i => ({ transitionDelay: Math.min(i, 8) * 90 + 'ms' })
 
   return (
     <div className="lp" style={p.color ? { '--lp-c': p.color } : undefined}>
@@ -119,7 +153,7 @@ export default function Landing() {
       </div></nav>
 
       <header className="lp-hero">
-        {portada && <img className="lp-hero-img" src={fotoPortada?.m || portada} srcSet={srcsetDe(fotoPortada)} sizes="100vw" alt="" fetchPriority="high" />}
+        <Portada fotos={fotosHero} />
         <div className="lp-wrap lp-hero-in">
           <div className="lp-kicker">{p.logo_url ? nombre : (p.marca || 'Proyecto inmobiliario')}</div>
           <h1>{p.titular || nombre}</h1>
@@ -133,20 +167,22 @@ export default function Landing() {
       </header>
 
       {stats.length > 0 && (
-        <div className="lp-wrap lp-strip"><div className="lp-strip-in">
+        <div className="lp-wrap lp-strip" data-reveal><div className="lp-strip-in">
           {stats.map(([t, v]) => <div key={t} className="lp-stat"><small>{t}</small><b>{v}</b></div>)}
         </div></div>
       )}
 
       {(p.descripcion || beneficios.length > 0) && (
         <section className="lp-sec"><div className="lp-wrap">
-          <div className="lp-eyebrow">El proyecto</div>
-          <h2>¿Por qué {nombre}?</h2>
-          {p.descripcion && <p className="lp-lead">{p.descripcion}</p>}
+          <div data-reveal>
+            <div className="lp-eyebrow">El proyecto</div>
+            <h2>¿Por qué {nombre}?</h2>
+            {p.descripcion && <p className="lp-lead">{p.descripcion}</p>}
+          </div>
           {beneficios.length > 0 && (
             <div className="lp-grid4">
               {beneficios.map((b, i) => (
-                <div key={i} className="lp-card">
+                <div key={i} className="lp-card" data-reveal style={retraso(i)}>
                   <div className="lp-card-n">{i + 1}</div>
                   {b.titulo && <h3>{b.titulo}</h3>}
                   {b.texto && <p>{b.texto}</p>}
@@ -159,12 +195,14 @@ export default function Landing() {
 
       {galeria.length > 0 && (
         <section className="lp-sec lp-sec-alt"><div className="lp-wrap">
-          <div className="lp-eyebrow">Galería</div>
-          <h2>Conoce el lugar</h2>
+          <div data-reveal>
+            <div className="lp-eyebrow">Galería</div>
+            <h2>Conoce el lugar</h2>
+          </div>
           <div className="lp-gal">
             {galeria.slice(0, 5).map((g, i) => (
-              <button key={g.url + i} type="button" onClick={() => setFoto(i)} aria-label={'Ver foto ' + (i + 1)}>
-                <img src={g.m || g.url} srcSet={srcsetDe(g)} sizes={i === 0 ? '(max-width: 760px) 100vw, 560px' : '(max-width: 760px) 50vw, 280px'}
+              <button key={g.url + i} type="button" onClick={() => setFoto(i)} aria-label={'Ver foto ' + (i + 1)} data-reveal style={retraso(i)}>
+                <img src={medianaDe(g)} srcSet={srcsetDe(g)} sizes={i === 0 ? '(max-width: 760px) 100vw, 560px' : '(max-width: 760px) 50vw, 280px'}
                   alt={g.titulo || nombre} loading="lazy" decoding="async" />
                 {i === 4 && galeria.length > 5 && <span className="lp-gal-more">+{galeria.length - 5} fotos</span>}
               </button>
@@ -174,52 +212,73 @@ export default function Landing() {
       )}
 
       {(desde || p.inicial_desde || cuotas) && (
-        <section className="lp-sec lp-band"><div className="lp-wrap">
-          <div className="lp-eyebrow">Cómo pagas</div>
-          <h2>Financiamiento directo, sin bancos</h2>
-          <div className="lp-pay">
-            {desde && <div><small>Precio desde</small><b>{desde}</b></div>}
-            {p.inicial_desde && <div><small>Inicial desde</small><b>{p.inicial_desde}</b></div>}
-            {cuotas && <div><small>Cuotas</small><b className="lp-pay-txt">{cuotas}</b></div>}
-          </div>
-          {conStock && ocupados > 0 && (
-            <div className="lp-avance">
-              <div className="lp-avance-t"><span>{ocupados} de {totalLotes} lotes ya vendidos o separados</span><span>{p.disponibles} disponibles</span></div>
-              <div className="lp-bar"><i style={{ width: Math.round(ocupados / totalLotes * 100) + '%' }} /></div>
+        <section className="lp-sec lp-band">
+          {fotoBanda && <img className="lp-band-bg" src={medianaDe(fotoBanda)} srcSet={srcsetDe(fotoBanda)} sizes="100vw" alt="" loading="lazy" decoding="async" />}
+          <div className="lp-wrap" data-reveal>
+            <div className="lp-eyebrow">Cómo pagas</div>
+            <h2>Financiamiento directo, sin bancos</h2>
+            <div className="lp-pay">
+              {desde && <div><small>Precio desde</small><b>{desde}</b></div>}
+              {p.inicial_desde && <div><small>Inicial desde</small><b>{p.inicial_desde}</b></div>}
+              {cuotas && <div><small>Cuotas</small><b className="lp-pay-txt">{cuotas}</b></div>}
             </div>
-          )}
-          <div className="lp-ctas">
-            {aWa('lp-btn-wa', 'Cotiza tu lote')}
-            {p.pdf_url && <a className="lp-btn lp-btn-ghost" href={p.pdf_url} target="_blank" rel="noreferrer">Ver plano de lotes</a>}
+            {conStock && ocupados > 0 && (
+              <div className="lp-avance">
+                <div className="lp-avance-t"><span>{ocupados} de {totalLotes} lotes ya vendidos o separados</span><span>{p.disponibles} disponibles</span></div>
+                <div className="lp-bar"><i style={{ width: Math.round(ocupados / totalLotes * 100) + '%' }} /></div>
+              </div>
+            )}
+            <div className="lp-ctas">
+              {aWa('lp-btn-wa', 'Cotiza tu lote')}
+              {p.pdf_url && <a className="lp-btn lp-btn-ghost" href={p.pdf_url} target="_blank" rel="noreferrer">Ver plano de lotes</a>}
+            </div>
+            <p className="lp-nota">Precios y disponibilidad sujetos a cambio. Tu asesor confirma el lote y las condiciones vigentes.</p>
           </div>
-          <p className="lp-nota">Precios y disponibilidad sujetos a cambio. Tu asesor confirma el lote y las condiciones vigentes.</p>
-        </div></section>
+        </section>
       )}
 
-      {(p.ubicacion_txt || p.maps_url || p.video_url) && (
-        <section className="lp-sec"><div className="lp-wrap lp-split">
+      {galeria.length >= 4 && (
+        <div className="lp-cinta" aria-label="Más fotos del proyecto">
+          <div className="lp-cinta-track" style={{ animationDuration: galeria.length * 6 + 's' }}>
+            {[0, 1].map(copia => galeria.map((g, i) => (
+              // la segunda copia solo sirve para que la cinta no se corte: no cuenta para lectores ni teclado
+              <button key={copia + '-' + i} type="button" className="lp-cinta-item" onClick={() => setFoto(i)}
+                aria-label={copia ? undefined : 'Ver foto ' + (i + 1)} aria-hidden={copia ? 'true' : undefined} tabIndex={copia ? -1 : 0}>
+                <img src={g.s || g.url} srcSet={srcsetDe(g)} sizes="(max-width: 760px) 200px, 320px" alt={copia ? '' : (g.titulo || nombre)} loading="lazy" decoding="async" />
+              </button>
+            )))}
+          </div>
+        </div>
+      )}
+
+      {(p.ubicacion_txt || p.maps_url || p.video_url || fotoLlegar) && (
+        <section className="lp-sec"><div className="lp-wrap lp-split lp-split-llegar" data-reveal>
           <div>
             <div className="lp-eyebrow">Ubicación</div>
             <h2>Cómo llegar</h2>
             {p.ubicacion_txt && <p className="lp-lead">{p.ubicacion_txt}</p>}
             <div className="lp-ctas">
               {p.maps_url && <a className="lp-btn lp-btn-c" href={p.maps_url} target="_blank" rel="noreferrer"><IcoPin /> Abrir en Google Maps</a>}
+              {p.video_url && !yt && <a className="lp-btn lp-btn-line" href={p.video_url} target="_blank" rel="noreferrer">▶ Ver el video</a>}
               {aWa('lp-btn-line', 'Agenda una visita', false)}
             </div>
           </div>
           {yt
             ? <iframe className="lp-video" src={'https://www.youtube-nocookie.com/embed/' + yt} title={'Video de ' + nombre}
                 allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowFullScreen loading="lazy" />
-            : p.video_url
-              ? <a className="lp-video-link" href={p.video_url} target="_blank" rel="noreferrer">▶ Ver el video del proyecto</a>
-              : galeria[1] && <img className="lp-side-img" src={galeria[1].m || galeria[1].url} srcSet={srcsetDe(galeria[1])} sizes="(max-width: 860px) 100vw, 520px"
-                  alt={galeria[1].titulo || nombre} loading="lazy" decoding="async" />}
+            : fotoLlegar && (
+              <button type="button" className="lp-mapa" onClick={() => setFoto(iLlegar)} aria-label="Ver el mapa en grande">
+                <img src={medianaDe(fotoLlegar)} srcSet={srcsetDe(fotoLlegar)} sizes="(max-width: 860px) 100vw, 620px" alt={fotoLlegar.titulo || nombre} loading="lazy" decoding="async" />
+                <span className="lp-mapa-lupa"><IcoLupa /> Ampliar</span>
+                {fotoLlegar.titulo && <span className="lp-mapa-cap">{fotoLlegar.titulo}</span>}
+              </button>
+            )}
         </div></section>
       )}
 
       {p.legal_txt && (
         <section className="lp-sec lp-sec-alt"><div className="lp-wrap">
-          <div className="lp-trust">
+          <div className="lp-trust" data-reveal>
             <div className="lp-trust-ico"><IcoEscudo /></div>
             <div>
               <div className="lp-eyebrow">Respaldo</div>
@@ -230,7 +289,7 @@ export default function Landing() {
         </div></section>
       )}
 
-      <section className="lp-sec" id="contacto"><div className="lp-wrap lp-split">
+      <section className="lp-sec" id="contacto"><div className="lp-wrap lp-split" data-reveal>
         <div>
           <div className="lp-eyebrow">Contacto</div>
           <h2>Te llamamos y resolvemos tus dudas</h2>
@@ -254,6 +313,44 @@ export default function Landing() {
       {foto != null && <Visor fotos={galeria} i={foto} nombre={nombre} onNav={setFoto} onClose={() => setFoto(null)} />}
     </div>
   )
+}
+
+// Fotos de la portada: pasan solas cada 7 s con un fundido y un zoom lento.
+// Solo hay dos <img> montadas a la vez (la que se va y la que entra) y la
+// siguiente se descarga por adelantado, así el cambio nunca parpadea.
+function Portada({ fotos }) {
+  const [i, setI] = useState(0)
+  const arranco = useRef(false)                 // false hasta el primer cambio
+  const lista = useRef(fotos); lista.current = fotos
+  const n = fotos.length
+  const clave = fotos.map(g => g.url).join('|')
+
+  useEffect(() => {
+    setI(0); arranco.current = false
+    if (n < 2 || sinMovimiento()) return
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return   // pestaña de fondo: no gastar
+      arranco.current = true
+      setI(x => (x + 1) % n)
+    }, 7000)
+    return () => clearInterval(t)
+  }, [clave, n])
+
+  useEffect(() => {
+    if (n < 2) return
+    const g = lista.current[(i + 1) % n]
+    const im = new Image()
+    const ss = srcsetDe(g); if (ss) { im.srcset = ss; im.sizes = '100vw' }
+    im.src = medianaDe(g)
+  }, [i, n])
+
+  if (!n) return null
+  const cur = fotos[i]
+  const visibles = arranco.current && n > 1 ? [fotos[(i - 1 + n) % n], cur] : [cur]
+  return visibles.map((g, k) => (
+    <img key={g.url} className={'lp-hero-img' + (k === visibles.length - 1 && arranco.current ? ' lp-hero-cur' : '')}
+      src={medianaDe(g)} srcSet={srcsetDe(g)} sizes="100vw" alt="" fetchPriority={arranco.current ? undefined : 'high'} />
+  ))
 }
 
 function Formulario({ p, linkWa }) {
@@ -337,6 +434,11 @@ const IcoWa = ({ size = 18 }) => (
 const IcoPin = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12Z" /><circle cx="12" cy="10" r="2.5" />
+  </svg>
+)
+const IcoLupa = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
   </svg>
 )
 const IcoEscudo = () => (

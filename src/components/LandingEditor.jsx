@@ -54,6 +54,17 @@ export default function LandingEditor({ pr, setPub, avisar }) {
     avisar(fila.landing_activa ? '✅ Landing guardada y PÚBLICA' : '✅ Landing guardada como borrador')
   }
 
+  // el interruptor se guarda al toque: marcar la casilla y no darle a Guardar
+  // dejaba la landing en borrador aunque el panel dijera "activa"
+  const activar = async on => {
+    const final = slug || slugify(pr.name)
+    set('landing_activa', on)
+    const { error } = await supabase.from('corr_proyectos_pub').upsert({ project_id: pr.id, landing_activa: on, slug: final, updated_at: new Date().toISOString() })
+    if (error) { set('landing_activa', !on); avisar('ERROR: ' + error.message); return }
+    set('slug', final)
+    avisar(on ? '🟢 Landing PÚBLICA: cualquiera con el link ya la ve' : '⚪ Landing en borrador: solo se ve con sesión')
+  }
+
   // las fotos se guardan al toque (como el PDF y la portada): subir y olvidar
   // guardar dejaba archivos en R2 que ninguna página usaba
   const guardarGaleria = async nueva => {
@@ -117,10 +128,10 @@ export default function LandingEditor({ pr, setPub, avisar }) {
       {/* estado + link */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>
-          <input type="checkbox" checked={!!l.landing_activa} onChange={e => set('landing_activa', e.target.checked)} /> Página pública activa
+          <input type="checkbox" checked={!!l.landing_activa} onChange={e => activar(e.target.checked)} /> Página pública activa
         </label>
         <span className="muted" style={{ fontSize: 12 }}>
-          {l.landing_activa ? '🟢 Cualquiera con el link la ve.' : '⚪ Borrador: el link solo muestra una vista previa a quien tiene sesión.'}
+          {l.landing_activa ? '🟢 Cualquiera con el link la ve.' : '⚪ Borrador: el link solo muestra una vista previa a quien tiene sesión.'} Se guarda al marcar.
         </span>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -170,7 +181,10 @@ export default function LandingEditor({ pr, setPub, avisar }) {
           {titulo(`GALERÍA (${galeria.length})`)}
           <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>📷 Subir fotos<input type="file" accept="image/*" multiple onChange={subirFotos} style={{ display: 'none' }} /></label>
           {subiendo && <span style={{ fontSize: 12 }}>{subiendo}</span>}
-          <span className="muted" style={{ fontSize: 12 }}>Sube la foto original en alta: se convierte sola a 3 tamaños para web (800 · 1600 · 2560 px) y la página abre rápido en celular. Se guarda al instante.</span>
+          <span className="muted" style={{ fontSize: 12 }}>Sube la foto original en alta: se convierte sola a 4 tamaños para web y la página abre rápido en celular. Se guarda al instante.</span>
+        </div>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Las primeras fotos rotan en la portada (planos y mapas no entran). La foto cuya descripción diga <b>ruta</b>, <b>acceso</b> o <b>cómo llegar</b> se usa en la sección "Cómo llegar".
         </div>
         {galeria.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
