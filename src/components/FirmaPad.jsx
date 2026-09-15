@@ -15,6 +15,22 @@ import { useEffect, useRef, useState } from 'react'
 
 const CLARO = 195   // mas claro que esto es papel: se vuelve transparente
 
+// Muchas firmas vienen sobre una RAYA, con el nombre y el DNI debajo. Esta
+// busca esa raya: la primera fila con una linea seguida que cruza mas de la
+// mitad del ancho del contenido. Devuelve -1 si no hay.
+function filaDeLaRaya(d, w, h, x0, x1) {
+  const minimo = Math.round((x1 - x0 + 1) * 0.55)
+  for (let y = Math.round(h * 0.2); y < h; y++) {
+    let seguidos = 0
+    for (let x = x0; x <= x1; x++) {
+      if (d[(y * w + x) * 4 + 3] > 40) {
+        if (++seguidos >= minimo) return y
+      } else seguidos = 0
+    }
+  }
+  return -1
+}
+
 // Devuelve un canvas con la firma sobre fondo transparente y recortada, o null
 // si la foto no tiene ningun trazo oscuro.
 async function limpiarFoto(file) {
@@ -45,6 +61,25 @@ async function limpiarFoto(file) {
   }
   ctx.putImageData(img, 0, 0)
   if (x1 < 0) return null
+
+  // Si la firma viene sobre una raya con el nombre y el DNI debajo, nos
+  // quedamos solo con lo de ARRIBA. Se exige que encima de la raya haya al
+  // menos la cuarta parte del alto: si no, esa "raya" es parte de la firma.
+  const raya = filaDeLaRaya(d, c.width, c.height, x0, x1)
+  if (raya > 0 && raya - y0 > (y1 - y0) * 0.25) {
+    y1 = Math.max(y0, raya - 4)
+    // el nombre de abajo suele ser mas ancho que el trazo: recalcular el ancho
+    let nx0 = c.width, nx1 = -1
+    for (let y = y0; y <= y1; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (d[(y * c.width + x) * 4 + 3] > 40) {
+          if (x < nx0) nx0 = x
+          if (x > nx1) nx1 = x
+        }
+      }
+    }
+    if (nx1 >= 0) { x0 = nx0; x1 = nx1 }
+  }
 
   const m = 6   // un respiro alrededor del trazo
   x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m)
