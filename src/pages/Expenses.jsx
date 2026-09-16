@@ -919,24 +919,28 @@ export default function Expenses() {
                   <td style={{ textAlign: 'center', paddingTop: prt.requester_signed_at && prt.requester_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
                     {prt.requester_signed_at && prt.requester_signature_url
                       ? <>
-                          <img src={prt.requester_signature_url} alt="Firma del solicitante" style={{ height: 70, display: 'block', margin: '0 auto' }} />
-                          ______________________________<br /><b>SOLICITANTE</b><br />{prt.requester_name}<br />
+                          <img src={prt.requester_signature_url} alt="Firma de quien recibe" style={{ height: 70, display: 'block', margin: '0 auto' }} />
+                          ______________________________<br /><b>RECEPTOR</b><br />{prt.requester_name || prt.recipient}
+                          {prt.recipient_dni ? <><br />DNI: {prt.recipient_dni}</> : null}<br />
                           <span className="small">Firmado electrónicamente el {fechaHora(prt.requester_signed_at)}<br />Código de verificación: <b>{prt.requester_code}</b>
                             {verif?.solicitud_valida === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
                             {verif?.solicitud_valida === true && ' · verificado'}</span>
                         </>
-                      : <>______________________________<br /><b>SOLICITANTE</b>{prt.sender ? <><br />{prt.sender}</> : null}</>}
+                      : <>______________________________<br /><b>RECEPTOR</b>{prt.recipient ? <><br />{prt.recipient}</> : null}
+                          {prt.recipient_dni ? <><br />DNI: {prt.recipient_dni}</> : null}</>}
                   </td>
                   <td style={{ textAlign: 'center', paddingTop: prt.approved_at && prt.approval_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
                     {prt.approved_at && prt.approval_signature_url
                       ? <>
-                          <img src={prt.approval_signature_url} alt="Firma de quien aprueba" style={{ height: 70, display: 'block', margin: '0 auto' }} />
-                          ______________________________<br /><b>APRUEBA</b><br />{prt.approved_name}<br />
+                          <img src={prt.approval_signature_url} alt="Firma de quien entrega" style={{ height: 70, display: 'block', margin: '0 auto' }} />
+                          ______________________________<br /><b>REMITENTE</b><br />{prt.approved_name || prt.sender}
+                          {prt.sender_dni ? <><br />DNI: {prt.sender_dni}</> : null}<br />
                           <span className="small">Firmado electrónicamente el {fechaHora(prt.approved_at)}<br />Código de verificación: <b>{prt.approval_code}</b>
                             {verif?.valido === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
                             {verif?.valido === true && ' · verificado'}</span>
                         </>
-                      : <>______________________________<br /><b>APRUEBA</b><br />ADMINISTRACION — URBIS GROUP</>}
+                      : <>______________________________<br /><b>REMITENTE</b><br />{prt.sender || 'ADMINISTRACION — URBIS GROUP'}
+                          {prt.sender_dni ? <><br />DNI: {prt.sender_dni}</> : null}</>}
                   </td>
                 </tr></tbody></table>
               </div>
