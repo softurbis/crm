@@ -48,6 +48,28 @@ const ROLES = [
 // "Paneles visibles". WhatsApp y Seguimiento quedan fuera: son del equipo.
 const SOCIO_PANELS = ['/lotes', '/ventas', '/pagos', '/gastos', '/contratos', '/comisiones', '/clientes']
 
+// Campo de teléfono CON botón: guardar al salir del casillero no se nota y uno
+// se queda esperando un botón que no existe. También guarda con Enter, y cuando
+// ya está guardado muestra ✓.
+function CampoTel({ valor, placeholder, titulo, onGuardar }) {
+  const [v, setV] = useState(valor || '')
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => { setV(valor || '') }, [valor])
+  const soloDig = s => String(s || '').replace(/\D/g, '')
+  const cambio = soloDig(v) !== soloDig(valor)
+  const guardar = async () => { setGuardando(true); await onGuardar(v); setGuardando(false) }
+  return (
+    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+      <input value={v} placeholder={placeholder} title={titulo} style={{ width: 170, fontSize: 11 }}
+        onChange={e => setV(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); guardar() } }} />
+      {cambio
+        ? <button type="button" className="btn-act" style={{ fontSize: 10, padding: '2px 8px' }} disabled={guardando} onClick={guardar}>{guardando ? '…' : 'Guardar'}</button>
+        : valor ? <span className="ok" style={{ fontSize: 11 }} title="Guardado">✓</span> : null}
+    </span>
+  )
+}
+
 export default function Users() {
   const { role, profile } = useAuth()
   const [users, setUsers] = useState([])
@@ -404,13 +426,13 @@ export default function Users() {
                       · firma: el personal, adonde llega el código de 6 dígitos (sql/86) */}
                   <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {u.role === 'socio' && (
-                      <input placeholder="WhatsApp de avisos 51…" defaultValue={u.phone || ''} style={{ width: 180, fontSize: 11 }}
-                        onBlur={e => guardarTelSocio(u, e.target.value)}
-                        title="Por aquí le avisa el bot cuando hay una solicitud por firmar" />
+                      <CampoTel valor={u.phone} placeholder="WhatsApp de avisos 51…"
+                        titulo="Por aquí le avisa el bot cuando hay una solicitud por firmar"
+                        onGuardar={tel => guardarTelSocio(u, tel)} />
                     )}
-                    <input placeholder="📲 Celular para FIRMAR 51…" defaultValue={u.firma_phone || ''} style={{ width: 180, fontSize: 11 }}
-                      onBlur={e => guardarTelFirma(u, e.target.value)}
-                      title="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo." />
+                    <CampoTel valor={u.firma_phone} placeholder="📲 Celular para FIRMAR 51…"
+                      titulo="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo."
+                      onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
                     {u.role === 'socio' && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
                   </div>

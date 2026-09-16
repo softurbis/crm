@@ -456,7 +456,21 @@ export default function Expenses() {
     { t: '📣 Publicidad (ADS)', f: { type: 'GASTOS ADMINISTRATIVOS', description: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'TRANSFERENCIA' } },
     { t: '🧰 Compra de materiales', f: { type: 'GASTOS DE DESARROLLO', description: 'COMPRA DE MATERIALES PARA EL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
   ]
-  const usarAtajo = a => { setEditId(null); setF({ issue_date: hoy(), ...a.f }); setShow(true) }
+  // Lo que ya sabemos del proyecto viene puesto: quién firma la solicitud y a
+  // quién se le suele entregar el dinero (lo último registrado de ese tipo).
+  // Todo se puede cambiar: son valores de arranque, no una regla.
+  function porDefecto(extra = {}) {
+    const ult = list.find(g => (!extra.type || g.type === extra.type) && g.recipient) || {}
+    const previo = firmantes.length === 1 ? firmantes[0].id : (list.find(g => g.requester_id)?.requester_id || '')
+    return {
+      issue_date: hoy(),
+      requester_id: firmantes.some(p => p.id === previo) ? previo : '',
+      recipient: ult.recipient || '',
+      recipient_dni: ult.recipient_dni || '',
+      ...extra,
+    }
+  }
+  const usarAtajo = a => { setEditId(null); setF(porDefecto(a.f)); setShow(true) }
 
   // Copiar una solicitud anterior: sirve para el gasto que se repite cada mes.
   // No se copian ni el correlativo ni las firmas: es una solicitud nueva.
@@ -502,6 +516,57 @@ export default function Expenses() {
         onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} />
     </label>
   )
+
+  // ---- LA CONSTANCIA, EN UN SOLO LUGAR ----
+  // La arman igual la VISTA PREVIA (mientras se llena la solicitud) y la ventana
+  // de imprimir: lo que se ve mientras se escribe es exactamente lo que se firma.
+  const numeroDe = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0')
+    : g.id ? String(g.id).slice(0, 8).toUpperCase() : '(se asigna al registrarla)'
+
+  function constanciaDe(g) {
+    const vars = {
+      RECEPTOR: g.recipient || '____________________',
+      RECEPTOR_DNI: g.recipient_dni || '__________',
+      FECHA_LETRAS: fechaLetras(g.issue_date || hoy()),
+      MONTO: 'S/. ' + Number(g.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 }),
+      MONTO_LETRAS: letras(Number(g.amount || 0)),
+      MOTIVO: g.description || g.type || '____________________',
+      TIPO: g.type || '', PROYECTO: proyecto?.name || '',
+      DESCUENTO: g.discount_from || 'URBIS GROUP',
+      NUMERO: numeroDe(g),
+    }
+    const fill = t => t.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] !== undefined ? String(vars[k]) : m)
+
+    const items = (g.detail || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 2)
+    const TablaDetalle = items.length > 0 ? (
+      <table className="ctable">
+        <thead><tr><th>FECHA DE GASTO</th><th>DESCRIPCION</th><th>MONTO</th></tr></thead>
+        <tbody>
+          {items.map((a, i) => <tr key={i}><td>{a[0]}</td><td>{a[1]}</td><td>{a[2] ? 'S/. ' + a[2] : ''}</td></tr>)}
+          <tr><td></td><td><b>TOTAL</b></td><td><b>{'S/. ' + Number(g.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b></td></tr>
+        </tbody>
+      </table>
+    ) : null
+    const Firma = (
+      <table className="ctable firmas"><tbody><tr>
+        <td style={{ textAlign: 'center', paddingTop: '5em' }}>
+          ______________________________<br /><b>{vars.RECEPTOR}</b><br />DNI N. {vars.RECEPTOR_DNI}
+        </td>
+      </tr></tbody></table>
+    )
+    const BLOQ = { TABLA_DETALLE: TablaDetalle, FIRMA_RECEPTOR: Firma }
+
+    const tpl = proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
+    let primera = true
+    return tpl.split('\n').map((ln, i) => {
+      const t = ln.trim()
+      if (!t) return null
+      const mb = t.match(/^\{\{(\w+)\}\}$/)
+      if (mb && mb[1] in BLOQ) return <div key={i}>{BLOQ[mb[1]]}</div>
+      if (primera) { primera = false; return <h2 key={i} style={{ textAlign: 'center' }}>{fill(t)}</h2> }
+      return <p key={i}>{fill(t)}</p>
+    })
+  }
 
   return (
     <>
@@ -555,7 +620,7 @@ export default function Expenses() {
           <option value="falta_rh">FALTA RH / FACTURA</option>
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
         </select>
-        {!readOnly && <button className="btn-primary" onClick={() => { setShow(!show); setEditId(null); setF({}) }}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
+        {!readOnly && <button className="btn-primary" onClick={() => { setShow(!show); setEditId(null); setF(porDefecto()) }}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
 
       <p className="hint">
@@ -693,7 +758,35 @@ export default function Expenses() {
               </div>
             </div>
           </div>
-          <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
+          {/* VISTA PREVIA: la MISMA constancia que se imprime, armada con lo que
+              está escrito ahora. Se actualiza al escribir, así nadie descubre un
+              error recién cuando la imprime para hacerla firmar. */}
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <b style={{ fontSize: 13 }}>👁️ VISTA PREVIA DE LA CONSTANCIA</b>
+              <span className="muted small" style={{ textTransform: 'none' }}>se actualiza mientras escribes</span>
+              {role === 'superuser' && (
+                <button type="button" className="link-btn" onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                  ✏️ cambiar el texto de la plantilla
+                </button>
+              )}
+            </div>
+            <div className="print-area contract"
+              style={{ background: '#fff', color: '#111', padding: '20px 22px', borderRadius: 8, marginTop: 6, maxHeight: 460, overflow: 'auto' }}>
+              <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
+              {constanciaDe({
+                ...f,
+                amount: Number(f.amount || 0),
+                issue_date: f.issue_date || hoy(),
+                request_number: editId ? (list.find(g => g.id === editId)?.request_number ?? null) : null,
+              })}
+            </div>
+            <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+              Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
+            </p>
+          </div>
+
+          <button className="btn-primary" disabled={busy} style={{ marginTop: 12 }}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
         </form>
       )}
 
@@ -753,51 +846,7 @@ export default function Expenses() {
         </table>
       </div>
 
-      {prt && (() => {
-        const vars = {
-          RECEPTOR: prt.recipient || '____________________',
-          RECEPTOR_DNI: prt.recipient_dni || '__________',
-          FECHA_LETRAS: fechaLetras(prt.issue_date),
-          MONTO: 'S/. ' + Number(prt.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 }),
-          MONTO_LETRAS: letras(Number(prt.amount)),
-          MOTIVO: prt.description || prt.type,
-          TIPO: prt.type, PROYECTO: proyecto?.name || '',
-          DESCUENTO: prt.discount_from || 'URBIS GROUP',
-          NUMERO: prt.request_number ? 'SOL-' + String(prt.request_number).padStart(5, '0') : String(prt.id).slice(0, 8).toUpperCase(),
-        }
-        const fill = t => t.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] !== undefined ? String(vars[k]) : m)
-
-        const items = (prt.detail || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 2)
-        const TablaDetalle = items.length > 0 ? (
-          <table className="ctable">
-            <thead><tr><th>FECHA DE GASTO</th><th>DESCRIPCION</th><th>MONTO</th></tr></thead>
-            <tbody>
-              {items.map((a, i) => <tr key={i}><td>{a[0]}</td><td>{a[1]}</td><td>{a[2] ? 'S/. ' + a[2] : ''}</td></tr>)}
-              <tr><td></td><td><b>TOTAL</b></td><td><b>{'S/. ' + Number(prt.amount).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</b></td></tr>
-            </tbody>
-          </table>
-        ) : null
-        const Firma = (
-          <table className="ctable firmas"><tbody><tr>
-            <td style={{ textAlign: 'center', paddingTop: '5em' }}>
-              ______________________________<br /><b>{vars.RECEPTOR}</b><br />DNI N. {vars.RECEPTOR_DNI}
-            </td>
-          </tr></tbody></table>
-        )
-        const BLOQ = { TABLA_DETALLE: TablaDetalle, FIRMA_RECEPTOR: Firma }
-
-        const tpl = proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
-        let primera = true
-        const cuerpo = tpl.split('\n').map((ln, i) => {
-          const t = ln.trim()
-          if (!t) return null
-          const mb = t.match(/^\{\{(\w+)\}\}$/)
-          if (mb && mb[1] in BLOQ) return <div key={i}>{BLOQ[mb[1]]}</div>
-          if (primera) { primera = false; return <h2 key={i} style={{ textAlign: 'center' }}>{fill(t)}</h2> }
-          return <p key={i}>{fill(t)}</p>
-        })
-
-        return (
+      {prt && (
           <div className="modal-bg" onClick={() => setPrt(null)}>
             <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
               <div className="modal-head no-print">
@@ -806,9 +855,9 @@ export default function Expenses() {
                 <button className="btn-ghost" onClick={() => setPrt(null)}>&#10005;</button>
               </div>
               <div className="print-area contract">
-                <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {vars.NUMERO}</b></p>
+                <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(prt)}</b></p>
                 {prt.rejected_at && <p style={{ textAlign: 'center', border: '2px solid #c0392b', color: '#c0392b', padding: 6 }}><b>SOLICITUD RECHAZADA</b> · {prt.rejected_reason}</p>}
-                {cuerpo}
+                {constanciaDe(prt)}
                 <table className="ctable firmas"><tbody><tr>
                   {/* las DOS firmas de la constancia. Cada una sale con su
                       codigo: quien reciba el papel puede pedir que se verifique
@@ -839,8 +888,7 @@ export default function Expenses() {
               </div>
             </div>
           </div>
-        )
-      })()}
+      )}
 
       {aprobar && (
         <AprobarGasto gasto={aprobar.g} modo={aprobar.modo} proyecto={proyecto} profile={profile} firmaUrl={tengoFirma}
