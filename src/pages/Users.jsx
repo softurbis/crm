@@ -169,6 +169,21 @@ export default function Users() {
     setBusy(false)
   }
 
+  // Celular de FIRMA (sql/86): adonde llega el codigo de 6 digitos para firmar.
+  // Es OTRO campo, aparte del WhatsApp de avisos, y solo lo cambia el
+  // superusuario: la base lo hace valer y deja el cambio en la bitacora.
+  async function guardarTelFirma(u, tel) {
+    const dig = String(tel || '').replace(/\D/g, '')
+    if (dig === String(u.firma_phone || '')) return
+    if (dig && dig.length < 11) { setMsg({ ok: false, t: 'EL NÚMERO DEBE LLEVAR EL 51 ADELANTE (ej. 51961234567)' }); return }
+    const { error } = await supabase.from('profiles').update({ firma_phone: dig || null }).eq('id', u.id)
+    if (error) { setMsg({ ok: false, t: /firma_phone|column|schema cache/i.test(error.message) ? 'FALTA CORRER sql/86 EN LA BASE.' : 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: dig
+      ? 'CELULAR DE FIRMA DE ' + (u.full_name || u.email) + ' GUARDADO — ahí le llegará el código'
+      : 'CELULAR DE FIRMA QUITADO A ' + (u.full_name || u.email) })
+    load()
+  }
+
   // WhatsApp del socio: por ahi le avisa el bot cuando entra una solicitud por
   // aprobar. Su numero se registra como ADMINISTRATIVO: si le escribe al bot,
   // no la trata como lead ni le abre el menu de consultas de gerencia (que no
@@ -383,14 +398,21 @@ export default function Users() {
                     onChange={e => cambiarRol(u, e.target.value)}>
                     {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
-                  {/* El celular ya no es solo del socio: es a donde llega el CÓDIGO
-                      para firmar (sql/85). Sin celular, esa persona no puede firmar. */}
-                  <div style={{ marginTop: 6, fontSize: 11 }}>
-                    <input placeholder="Celular 51…" defaultValue={u.phone || ''} style={{ width: 140, fontSize: 11 }}
-                      onBlur={e => guardarTelSocio(u, e.target.value)}
-                      title="Aquí le llega el código para firmar; al socio, además, los avisos de solicitudes" />
-                    {!u.phone && <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Sin celular no puede firmar.</div>}
-                    {u.role === 'socio' && !asig.some(a => a.user_id === u.id) && <div className="bad" style={{ fontSize: 10, marginTop: 3 }}>⚠ Sin proyectos asignados: no ve nada.</div>}
+                  {/* DOS celulares distintos a propósito:
+                      · avisos (solo el socio): el que ya conoce el equipo, por ahí
+                        le avisa el bot que hay una solicitud esperando su firma
+                      · firma: el personal, adonde llega el código de 6 dígitos (sql/86) */}
+                  <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {u.role === 'socio' && (
+                      <input placeholder="WhatsApp de avisos 51…" defaultValue={u.phone || ''} style={{ width: 180, fontSize: 11 }}
+                        onBlur={e => guardarTelSocio(u, e.target.value)}
+                        title="Por aquí le avisa el bot cuando hay una solicitud por firmar" />
+                    )}
+                    <input placeholder="📲 Celular para FIRMAR 51…" defaultValue={u.firma_phone || ''} style={{ width: 180, fontSize: 11 }}
+                      onBlur={e => guardarTelFirma(u, e.target.value)}
+                      title="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo." />
+                    {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
+                    {u.role === 'socio' && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
                   </div>
                 </td>
                 <td>
