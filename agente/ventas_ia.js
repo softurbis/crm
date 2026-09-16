@@ -563,6 +563,18 @@ module.exports = function crearVentasIA({ supabase, log }) {
     return 'el encargado NO puede atender la visita que propusiste. Discúlpate con naturalidad, sin dar explicaciones inventadas, y propón otro día y hora.'
   }
 
+  // Por qué no pudo responder, en palabras del dueño (para la consola y la alarma)
+  function explicarError(e) {
+    const t = String(e?.message || e || '')
+    if (e instanceof Anthropic.AuthenticationError) return 'la clave de Claude no es válida o fue anulada'
+    if (e instanceof Anthropic.PermissionDeniedError) return 'la clave de Claude no tiene permiso para este modelo'
+    if (e instanceof Anthropic.RateLimitError) return 'se llegó al límite de uso de la cuenta de Claude'
+    // el saldo agotado llega como un 400 común: solo se distingue por el texto
+    if (e instanceof Anthropic.BadRequestError && /credit balance/i.test(t)) return 'la cuenta de Claude no tiene crédito: cárgalo en platform.claude.com → Facturación'
+    if (e instanceof Anthropic.NotFoundError) return 'el modelo configurado no existe: revisa Agente de ventas → Configuración'
+    return t.slice(0, 200)
+  }
+
   async function latido() {
     await supabase.from('ventas_ia_config').update({
       latido: new Date().toISOString(),
@@ -570,5 +582,5 @@ module.exports = function crearVentasIA({ supabase, log }) {
     }).eq('id', 1).then(() => {}, () => {})
   }
 
-  return { config, esperaLectura, enHorario, asignar, responder, notaDeCita, latido, activo: () => !!ia }
+  return { config, esperaLectura, enHorario, asignar, responder, notaDeCita, explicarError, latido, activo: () => !!ia }
 }

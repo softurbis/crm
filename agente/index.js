@@ -1862,7 +1862,23 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
       TEST_ACTIVE = phone
     }
     if (!esPrueba && ses?.sock) { try { await ses.sock.sendPresenceUpdate('composing', jid) } catch (e) {} }
-    await VIA.responder(ctx)
+    try {
+      await VIA.responder(ctx)
+    } catch (e) {
+      // Sin esto el agente fallaba en silencio: en la prueba no aparecía nada, y con
+      // un cliente real el barrido reintentaba cada 30 s sin contestarle nunca.
+      const motivo = VIA.explicarError(e)
+      log('VENTAS IA no pudo responder a', phone, ':', motivo)
+      if (esPrueba) {
+        await enviar(phone, '(prueba) ⚠ El agente no pudo responder: ' + motivo, { tipo: 'test', prueba })
+        // turno dado por atendido: el barrido no repite el error cada 30 s, espera un mensaje nuevo
+        await supabase.from('ventas_ia_leads').update({ ultimo_turno_at: new Date().toISOString() }).eq('lead_id', lead.id)
+      } else {
+        await ctx.pasarAHumano()
+        await supabase.from('ventas_ia_leads').update({ derivado_at: new Date().toISOString(), derivado_motivo: 'error del agente: ' + motivo.slice(0, 200) }).eq('lead_id', lead.id)
+        await ctx.avisar('⚠️ *TU AGENTE DE VENTAS NO PUDO RESPONDER*\nCliente: ' + (lead.full_name || '-') + '\nTel: +' + phone + '\nMotivo: ' + motivo + '\n\nEl chat quedó para una persona: escríbele tú.')
+      }
+    }
   } finally {
     if (tomoMutex) { TEST_ACTIVE = null; _procPruebasBusy = false }
     _ventasEnCurso.delete(phone)
