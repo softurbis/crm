@@ -874,6 +874,13 @@ export default function Expenses() {
                   {miPuedeFirmar(g) && (
                     <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar solicitud</button>{' '}</>
                   )}
+                  {/* si le toca a OTRO, que se vea a quien se espera (antes no
+                      salia nada y parecia que el boton no existia) */}
+                  {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && (
+                    <span className="muted small" style={{ textTransform: 'none' }}>
+                      ⏳ Espera la firma de {(firmantes.find(p => p.id === g.requester_id)?.full_name || 'quien la pidió').split(' ')[0]}{' '}
+                    </span>
+                  )}
                   {/* ...y recien entonces aparece la firma del socio */}
                   {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
                     <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>{' '}</>

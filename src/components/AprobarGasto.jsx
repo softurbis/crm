@@ -131,7 +131,8 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
           {fila('Motivo', g.description || g.type)}
           {fila('Tipo', g.type)}
           {fila('Fecha', g.issue_date)}
-          {fila('Solicitante', g.sender)}
+          {/* las dos personas de la constancia: quien recibe va arriba, en grande */}
+          {fila('Entrega', (g.sender || '—') + (g.sender_dni ? ' · DNI ' + g.sender_dni : ''))}
           {fila('Pago', (g.payment_method || '—') + ' · se descuenta de ' + (g.discount_from || 'URBIS GROUP'))}
           {fila('Comprobante', g.document_type)}
           {/* al socio le importa ver que la primera firma ya esta puesta */}
