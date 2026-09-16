@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const numSol = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : String(g.id).slice(0, 8).toUpperCase()
+const mmss = s => String(Math.floor(s / 60)) + ':' + String(s % 60).padStart(2, '0')
 
 // ============================================================
 // REVISAR Y FIRMAR una solicitud de gasto
@@ -11,40 +12,94 @@ const numSol = g => g.request_number ? 'SOL-' + String(g.request_number).padStar
 // hay que revisar antes de firmar es exactamente lo mismo:
 //   modo="solicitar" → la firma de quien pide el gasto (firmar_solicitud, sql/74)
 //   modo="aprobar"   → la firma del socio que lo autoriza (aprobar_gasto, sql/73)
-// Firmar = la firma registrada + la contraseña escrita AHORA. El servidor
-// rechaza la firma si la sesion no se autentico con contraseña en los ultimos
-// 5 minutos: una sesion abierta y olvidada en otra PC no firma nada.
-// Rechazar es solo del socio y no pide contraseña (no compromete dinero), pero
-// si el motivo: la secretaria lo recibe para corregir.
+//
+// Firmar pide TRES cosas (sql/85):
+//   1. la firma registrada de esa persona,
+//   2. su contraseña escrita AHORA (el servidor rechaza una sesión vieja),
+//   3. un código de 6 dígitos que le llega al celular — Telegram, o WhatsApp si
+//      no lo tiene vinculado. Así no basta con saber la contraseña: hay que
+//      tener el teléfono de esa persona.
+// Si la base todavía no tiene sql/85, se firma como antes y la pantalla lo avisa.
+// Rechazar es solo del socio y no pide contraseña ni código (no compromete
+// dinero), pero sí el motivo: la secretaria lo recibe para corregir.
 // ============================================================
 export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, modo = 'aprobar', onCerrar, onHecho, onPedirFirma }) {
   const pidiendo = modo === 'solicitar'
+  const accion = pidiendo ? 'solicitud' : 'aprobacion'
+  const rpcFirma = pidiendo ? 'firmar_solicitud' : 'aprobar_gasto'
   const [pass, setPass] = useState('')
-  const [rechazo, setRechazo] = useState(null)   // null = aprobando; texto = escribiendo el motivo
+  const [codigo, setCodigo] = useState('')
+  const [envio, setEnvio] = useState(null)       // { destino } cuando el código ya salió
+  const [quedan, setQuedan] = useState(0)        // segundos de vida del código
+  const [rechazo, setRechazo] = useState(null)   // null = firmando; texto = escribiendo el motivo
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+
+  // cuenta regresiva del código
+  useEffect(() => {
+    if (!quedan) return
+    const t = setInterval(() => setQuedan(s => (s <= 1 ? 0 : s - 1)), 1000)
+    return () => clearInterval(t)
+  }, [quedan])
 
   const items = (g.detail || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 2)
   const docs = [['Constancia', g.request_doc_url], ['RH / factura', g.receipt_url], ['Sustento', g.voucher_url]].filter(([, u]) => u)
   const fila = (t, v) => v ? <tr><td style={{ opacity: .65, padding: '4px 10px 4px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{t}</td><td style={{ padding: '4px 0' }}>{v}</td></tr> : null
 
-  async function aprobar(e) {
-    e.preventDefault()
-    if (!firmaUrl) { onPedirFirma?.(); return }
-    if (!pass) { setErr('Escribe tu contraseña para firmar.'); return }
-    setBusy(true); setErr('')
-    // 1) la contraseña: un inicio de sesion nuevo con la MISMA cuenta. Si esta
-    //    mal, el gasto no se llega a tocar.
-    const { error: e1 } = await supabase.auth.signInWithPassword({ email: profile?.email, password: pass })
-    if (e1) { setBusy(false); setErr('Contraseña incorrecta.'); return }
-    // 2) la firma, en el servidor: rol, proyecto, estado y contraseña reciente
-    const { data, error } = await supabase.rpc(pidiendo ? 'firmar_solicitud' : 'aprobar_gasto', { eid: g.id })
-    setBusy(false); setPass('')
-    if (error) { setErr(/firmar_solicitud/.test(error.message) ? 'Falta correr sql/74 en la base.' : error.message); return }
+  const faltaSql85 = e => /pedir_codigo_firma|schema cache|PGRST202/i.test(e || '')
+
+  // Firma de verdad. `cod` va vacío cuando la base todavía no pide código.
+  async function firmar(cod) {
+    const args = cod === null ? { eid: g.id } : { eid: g.id, codigo: cod }
+    const { data, error } = await supabase.rpc(rpcFirma, args)
+    if (error) return { error }
     onHecho?.(pidiendo
       ? '✍ SOLICITUD ' + numSol(g) + ' FIRMADA · código ' + (data?.code || '')
         + (proyecto?.expense_approval ? '. Ahora pasa al socio para su aprobación.' : '')
       : '✍ SOLICITUD ' + numSol(g) + ' APROBADA Y FIRMADA · código de verificación ' + (data?.code || ''))
+    return {}
+  }
+
+  // Paso 1: contraseña → se pide el código al celular
+  async function pedirCodigo(e) {
+    e?.preventDefault?.()
+    if (!firmaUrl) { onPedirFirma?.(); return }
+    if (!pass) { setErr('Escribe tu contraseña para firmar.'); return }
+    setBusy(true); setErr('')
+    // la contraseña: un inicio de sesión nuevo con la MISMA cuenta. Si está mal,
+    // el gasto no se llega a tocar.
+    const { error: e1 } = await supabase.auth.signInWithPassword({ email: profile?.email, password: pass })
+    if (e1) { setBusy(false); setErr('Contraseña incorrecta.'); return }
+
+    const { data, error } = await supabase.rpc('pedir_codigo_firma', { eid: g.id, accion })
+    if (error && faltaSql85(error.message)) {
+      // base sin sql/85: se firma como antes (contraseña + firma) y se avisa
+      const r = await firmar(null)
+      setBusy(false); setPass('')
+      if (r.error) setErr(r.error.message)
+      return
+    }
+    setBusy(false); setPass('')
+    if (error) { setErr(error.message); return }
+    setEnvio(data || {}); setQuedan((data?.minutos || 5) * 60); setCodigo('')
+  }
+
+  // Paso 2: el código que llegó al celular
+  async function firmarConCodigo(e) {
+    e.preventDefault()
+    if (codigo.replace(/\D/g, '').length !== 6) { setErr('El código son 6 dígitos.'); return }
+    setBusy(true); setErr('')
+    const r = await firmar(codigo.replace(/\D/g, ''))
+    setBusy(false)
+    if (r.error) { setErr(r.error.message); setCodigo('') }
+  }
+
+  async function reenviar() {
+    setBusy(true); setErr('')
+    const { data, error } = await supabase.rpc('pedir_codigo_firma', { eid: g.id, accion })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    setEnvio(data || {}); setQuedan((data?.minutos || 5) * 60); setCodigo('')
   }
 
   async function rechazar() {
@@ -102,7 +157,7 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
         )}
 
         {rechazo === null ? (
-          <form onSubmit={aprobar} style={{ marginTop: 14 }}>
+          <form onSubmit={envio ? firmarConCodigo : pedirCodigo} style={{ marginTop: 14 }}>
             {firmaUrl
               ? (
                 <div style={{ textAlign: 'center' }}>
@@ -111,20 +166,41 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
                 </div>
               )
               : <p className="warn">Todavía no registraste tu firma. <button type="button" className="link-btn" onClick={onPedirFirma}>Registrarla ahora</button></p>}
-            <label style={{ marginTop: 10 }}>Tu contraseña, para confirmar que eres tú
-              <input type="password" autoComplete="current-password" value={pass}
-                onChange={e => setPass(e.target.value)} style={{ textTransform: 'none' }} autoFocus />
-            </label>
+
+            {!envio ? (
+              <label style={{ marginTop: 10 }}>Tu contraseña, para confirmar que eres tú
+                <input type="password" autoComplete="current-password" value={pass}
+                  onChange={e => setPass(e.target.value)} style={{ textTransform: 'none' }} autoFocus />
+              </label>
+            ) : (
+              <div style={{ marginTop: 10 }}>
+                <p className="ok small" style={{ textTransform: 'none' }}>
+                  📲 Te mandamos un código al celular {envio.destino ? <b>{envio.destino}</b> : ''}. Escríbelo aquí:
+                </p>
+                <input inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={codigo} autoFocus
+                  onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                  style={{ fontSize: 30, letterSpacing: 8, textAlign: 'center', width: '100%', fontVariantNumeric: 'tabular-nums' }} />
+                <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+                  {quedan > 0 ? <>Vence en <b>{mmss(quedan)}</b>.</> : <b>El código venció.</b>}{' '}
+                  <button type="button" className="link-btn" disabled={busy || quedan > 240} onClick={reenviar}>Reenviar</button>
+                </p>
+              </div>
+            )}
+
             {err && <p className="error">{err}</p>}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <button className="btn-primary" disabled={busy || !firmaUrl}>{busy ? 'Firmando…' : (pidiendo ? '✍ Firmar la solicitud' : '✍ Aprobar y firmar')}</button>
-              {!pidiendo && (
+              <button className="btn-primary" disabled={busy || !firmaUrl}>
+                {busy ? (envio ? 'Firmando…' : 'Enviando el código…') : envio ? '✍ Confirmar y firmar' : 'Continuar'}
+              </button>
+              {envio && <button type="button" className="btn-ghost" disabled={busy} onClick={() => { setEnvio(null); setErr(''); setCodigo('') }}>Volver</button>}
+              {!pidiendo && !envio && (
                 <button type="button" className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }}
                   onClick={() => { setRechazo(''); setErr('') }}>Rechazar…</button>
               )}
             </div>
             <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
-              Al firmar queda registrado quién {pidiendo ? 'pidió el gasto' : 'aprobó'}, cuándo, y una huella del gasto. Si alguien lo modifica después,
+              Firmar pide tu contraseña y un código que llega a tu celular. Queda registrado quién {pidiendo ? 'pidió el gasto' : 'aprobó'}, cuándo, y una huella del gasto. Si alguien lo modifica después,
               {pidiendo ? ' tu firma se anula y hay que volver a firmarla.' : ' la constancia lo va a señalar.'}
             </p>
           </form>

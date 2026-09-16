@@ -179,7 +179,7 @@ export default function Users() {
     if (dig && dig.length < 11) { setMsg({ ok: false, t: 'EL NÚMERO DEBE LLEVAR EL 51 ADELANTE (ej. 51961234567)' }); return }
     const { error } = await supabase.from('profiles').update({ phone: dig || null }).eq('id', u.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    if (dig) await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'desactivado', note: 'SOCIO: ' + (u.full_name || u.email).toUpperCase() })
+    if (dig) await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'desactivado', note: (u.role === 'socio' ? 'SOCIO: ' : 'EQUIPO: ') + (u.full_name || u.email).toUpperCase() })
     setMsg({ ok: true, t: dig ? 'WHATSAPP DEL SOCIO GUARDADO: +' + dig : 'WHATSAPP DEL SOCIO QUITADO' })
     load()
   }
@@ -383,13 +383,15 @@ export default function Users() {
                     onChange={e => cambiarRol(u, e.target.value)}>
                     {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
-                  {u.role === 'socio' && (
-                    <div style={{ marginTop: 6, fontSize: 11 }}>
-                      <input placeholder="WhatsApp 51…" defaultValue={u.phone || ''} style={{ width: 140, fontSize: 11 }}
-                        onBlur={e => guardarTelSocio(u, e.target.value)} title="Por aquí le avisa el bot cuando hay una solicitud por firmar" />
-                      {!asig.some(a => a.user_id === u.id) && <div className="bad" style={{ fontSize: 10, marginTop: 3 }}>⚠ Sin proyectos asignados: no ve nada.</div>}
-                    </div>
-                  )}
+                  {/* El celular ya no es solo del socio: es a donde llega el CÓDIGO
+                      para firmar (sql/85). Sin celular, esa persona no puede firmar. */}
+                  <div style={{ marginTop: 6, fontSize: 11 }}>
+                    <input placeholder="Celular 51…" defaultValue={u.phone || ''} style={{ width: 140, fontSize: 11 }}
+                      onBlur={e => guardarTelSocio(u, e.target.value)}
+                      title="Aquí le llega el código para firmar; al socio, además, los avisos de solicitudes" />
+                    {!u.phone && <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Sin celular no puede firmar.</div>}
+                    {u.role === 'socio' && !asig.some(a => a.user_id === u.id) && <div className="bad" style={{ fontSize: 10, marginTop: 3 }}>⚠ Sin proyectos asignados: no ve nada.</div>}
+                  </div>
                 </td>
                 <td>
                   {/* uno debajo del otro: en fila, los botones quedaban fuera

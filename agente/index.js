@@ -3204,6 +3204,43 @@ async function avisarAprobaciones() {
 }
 setInterval(() => { avisarAprobaciones().catch(e => log('avisarAprobaciones:', String(e.message || e))) }, 60000)
 
+// ---------- CODIGO PARA FIRMAR (sql/85) ----------
+// Firmar un gasto pide, ademas de la contraseña, un codigo de 6 digitos que
+// llega al celular de esa persona: asi no basta con saber la contraseña, hay que
+// tener el telefono. El panel crea el codigo en firma_codigos y ESTE proceso lo
+// entrega — Telegram si lo tiene vinculado, WhatsApp si no. La copia en claro se
+// borra apenas sale: en la base queda solo su huella.
+async function enviarCodigosFirma() {
+  const { data: pend } = await supabase.from('firma_codigos')
+    .select('id, expense_id, accion, codigo_plano, destino')
+    .is('enviado_at', null).not('codigo_plano', 'is', null)
+    .gt('expira_at', new Date().toISOString()).limit(10)
+  for (const c of (pend || [])) {
+    const dig = String(c.destino || '').replace(/\D/g, '')
+    const { data: g } = await supabase.from('expenses')
+      .select('request_number, amount, recipient').eq('id', c.expense_id).maybeSingle()
+    const sol = g?.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : ''
+    const texto = '🔐 *Código para firmar*\n\n*' + c.codigo_plano + '*\n\n'
+      + [sol, soles(g?.amount || 0), g?.recipient].filter(Boolean).join(' · ')
+      + '\n' + (c.accion === 'aprobacion' ? 'Aprobación del socio' : 'Firma de quien pide el gasto')
+      + '\n\nVence en 5 minutos y sirve una sola vez. *No se lo pases a nadie.*'
+    let por = null, err = null
+    try {
+      const chat = (TGREG && dig) ? await TGREG.chatDe(dig) : null
+      if (chat) { por = (await TG.tgEnviar(chat, texto)) ? 'telegram' : null; if (!por) err = 'Telegram no entrego' }
+      else if (dig) { por = (await enviar(dig, texto, { tipo: 'codigo_firma' })) ? 'whatsapp' : null; if (!por) err = 'WhatsApp no entrego' }
+      else err = 'sin celular registrado'
+    } catch (e) { err = String(e.message || e).slice(0, 200) }
+    await supabase.from('firma_codigos').update({
+      enviado_at: por ? new Date().toISOString() : null,
+      enviado_por: por, error: err,
+      codigo_plano: por ? null : c.codigo_plano,   // si no salio, se reintenta hasta que venza
+    }).eq('id', c.id)
+    log(por ? 'CODIGO FIRMA ✔ por ' + por + ' a ' + dig : 'CODIGO FIRMA ✗ ' + err + ' a ' + dig)
+  }
+}
+setInterval(() => { enviarCodigosFirma().catch(e => log('enviarCodigosFirma:', String(e.message || e))) }, 5000)
+
 // El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
 // se marca la respuesta, se avisa al asesor y sube al tablero como urgente.
 async function respondioSeguimiento(ses, phone, lead, corto) {
