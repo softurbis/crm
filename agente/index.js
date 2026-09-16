@@ -21,6 +21,8 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
 // registro de vínculos teléfono -> chat de Telegram (canal interno de seguimiento)
 const TGREG = TG.activo() ? TG.crearRegistro(supabase, (...a) => log(...a)) : null
+// agente de ventas IA: el experimento contra el supervisor (ventas_ia.js, sql/91)
+const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
 
 // ===== MODO PRUEBAS (consola / chat virtual) =====
 // Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
@@ -908,20 +910,24 @@ async function comandosGerencia(jid, phone, texto) {
 
 
 async function enviar(phone, texto, meta = {}) {
+  // meta.prueba: el agente de ventas dice explícitamente si es prueba (el teléfono
+  // de la prueba) o real (false). Escribe con pausas largas: si dependiera de la
+  // variable global, una prueba en paralelo se tragaría un mensaje real.
+  const PRUEBA = meta.prueba !== undefined ? meta.prueba : TEST_ACTIVE
   // sesion por la que sale: la del chat > la del proyecto (meta.project_id) > corporativa
-  const S = TEST_ACTIVE ? null : await sesionPara(phone, meta)
+  const S = PRUEBA ? null : await sesionPara(phone, meta)
   // pausa natural entre mensajes del flujo (configurable), tanto en real como en la consola de prueba
   if (['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')) {
-    if (!TEST_ACTIVE && S && S.sock) { try { await S.sock.sendPresenceUpdate('composing', String(phone).includes('@') ? String(phone) : jidDe(phone)) } catch (e) {} }
+    if (!PRUEBA && S && S.sock) { try { await S.sock.sendPresenceUpdate('composing', String(phone).includes('@') ? String(phone) : jidDe(phone)) } catch (e) {} }
     await espera(PAUSA_MS)
   }
   // MODO PRUEBA: capturar todo bajo el teléfono de la sesión, sin tocar WhatsApp real.
-  if (TEST_ACTIVE) {
+  if (PRUEBA) {
     const rp = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
-    const esSesion = rp.slice(-9) === String(TEST_ACTIVE).slice(-9)
+    const esSesion = rp.slice(-9) === String(PRUEBA).slice(-9)
     const body = esSesion ? texto : '📨 (aviso interno → +' + rp + '):\n' + texto
     await supabase.from('scheduled_messages').insert({
-      recipient_phone: TEST_ACTIVE, body, tipo: 'test_' + (meta.tipo || 'msj'),
+      recipient_phone: PRUEBA, body, tipo: 'test_' + (meta.tipo || 'msj'),
       lead_id: meta.lead_id || null, client_id: meta.client_id || null,
       scheduled_for: new Date().toISOString(), status: 'enviado', sent_at: new Date().toISOString(),
     })
@@ -942,7 +948,7 @@ async function enviar(phone, texto, meta = {}) {
   // vuelve por WhatsApp: contestar por otro canal desconcierta, y probando el bot
   // desde un número del equipo parece que no respondió.
   {
-    const conversacional = meta.canal === 'whatsapp' || ['lead_flujo', 'ia', 'auto_cliente'].includes(meta.tipo || '')
+    const conversacional = meta.canal === 'whatsapp' || ['lead_flujo', 'ia', 'ia_ventas', 'auto_cliente'].includes(meta.tipo || '')
     const digTg = conversacional ? '' : (String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, ''))
     const chat = (TGREG && digTg) ? await TGREG.chatDe(digTg) : null
     if (chat) {
@@ -968,7 +974,7 @@ async function enviar(phone, texto, meta = {}) {
   // 40, el bot se quedaba mudo A MEDIA CONVERSACION despues del primer lead, sin
   // avisar a nadie. Contestarle a alguien que TE ESCRIBIO no tiene ese riesgo, asi
   // que esas respuestas ya no cuentan contra el tope.
-  const CONVERSACION = ['lead_flujo', 'ia', 'auto_cliente', 'redirige_cobranza', 'manual', 'aviso_admin', 'reporte', 'secretaria', 'interno']
+  const CONVERSACION = ['lead_flujo', 'ia', 'ia_ventas', 'auto_cliente', 'redirige_cobranza', 'manual', 'aviso_admin', 'reporte', 'secretaria', 'interno']
   const cuentaParaTope = !CONVERSACION.includes(meta.tipo || '')
   if (cuentaParaTope && (S.enviados || 0) >= MAX_DIA && process.env.SIMULACRO !== '1') {
     log('TOPE DIARIO ALCANZADO en', S.row.label || 'PRINCIPAL', ', no se envia a', phone)
@@ -1693,10 +1699,15 @@ async function detectarProyecto(texto) {
 
 // Deriva el lead a un asesor humano y corta la conversación automática.
 async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
+  // EXPERIMENTO (sql/91): de cada 10 que llegan aquí, algunos los atiende el agente
+  // de ventas IA en vez del supervisor. Si algo falla, sigue el camino de siempre.
+  try {
+    const grupo = await VIA.asignar(lead, { phone, motivo, esPrueba: !!TEST_ACTIVE })
+    if (grupo === 'ia') { await entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo); return }
+  } catch (e) { log('VENTAS IA reparto:', String(e.message || e)) }
   await setConv(phone, { flow_state: 'humano' }, ses)
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}).catch(() => {})
-  const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
-  if (!sinSaludo) await enviar(jid, `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`, { tipo: 'lead_flujo', lead_id: lead.id, ses })
+  if (!sinSaludo) await enviar(jid, textoPasoAsesor(lead), { tipo: 'lead_flujo', lead_id: lead.id, ses })
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
   const msj = '📞 *LEAD PIDE ASESOR*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: ' + phone + '\nMotivo: ' + motivo + '\n\n→ Está en el KANBAN, contáctalo pronto.'
   const asesor = String(l2?.project?.lead_notify_phone || '').replace(/\D/g, '')
@@ -1707,6 +1718,161 @@ async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
   // al admin: el tablero se RE-PUBLICA para que suene — hay un cliente esperando humano
   await tableroLeads(phone, { estado: 'asesor', nombre: l2?.full_name || '', proyecto: l2?.project?.name || '' }, msj)
 }
+
+// ============ AGENTE DE VENTAS IA (ventas_ia.js, sql/91) ============
+// El lead del grupo IA sigue en ESTE chat: flow_state = 'ia'. El agente espera a
+// que termine de escribir, "escribe" con pausas y manda mensajes cortos. Si una
+// persona le escribe desde el panel o el celular, el chat pasa a modo humano y
+// el agente se calla, igual que el bot.
+// el MISMO mensaje para los dos grupos: el lead no puede notar a cuál le tocó
+function textoPasoAsesor(lead) {
+  const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
+  return `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`
+}
+async function entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo) {
+  await setConv(phone, { flow_state: 'ia', flow_step: null }, ses)
+  await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}, () => {})
+  if (!sinSaludo) await enviar(jid, textoPasoAsesor(lead), { tipo: 'lead_flujo', lead_id: lead.id, ses })
+  await supabase.from('lead_activities').insert({ lead_id: lead.id, note: 'LO ATIENDE EL AGENTE DE VENTAS IA (' + String(motivo || '').toUpperCase() + ')' }).then(() => {}, () => {})
+  // al supervisor NO se le avisa: es el grupo de comparación. Se entera el dueño.
+  const cfg = await VIA.config()
+  const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name)').eq('id', lead.id).maybeSingle()
+  if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, '🤖 *LEAD PARA TU AGENTE DE VENTAS*\nProyecto: ' + (l2?.project?.name || '-') + '\nNombre: ' + (l2?.full_name || '-') + '\nTel: +' + phone + '\nMotivo: ' + motivo +
+    '\n\nLo atiende el agente. Si quieres tomarlo tú, escríbele desde el panel y el agente se calla.', { tipo: 'aviso_admin' })
+  // un asesor de verdad no escribe al segundo de "te escribe en breve": entre 30 s y 75 s
+  programarVentas(phone, !!TEST_ACTIVE, TEST_ACTIVE ? 1500 : 30000 + Math.random() * 45000)
+}
+
+const _ventasTimers = new Map()
+const _ventasEnCurso = new Set()
+// Espera a que el lead termine de escribir: cada mensaje nuevo reinicia la cuenta.
+function programarVentas(phone, esPrueba, ms) {
+  const tel = String(phone)
+  clearTimeout(_ventasTimers.get(tel))
+  _ventasTimers.set(tel, setTimeout(() => {
+    _ventasTimers.delete(tel)
+    turnoVentas(tel, esPrueba).catch(e => log('VENTAS IA turno:', String(e.message || e)))
+  }, ms ?? VIA.esperaLectura(esPrueba)))
+}
+
+// "Escribiendo…" durante ms, refrescado: WhatsApp lo apaga solo a los ~25 s.
+async function escribiendo(ses, phone, ms, esPrueba) {
+  const fin = Date.now() + Math.max(0, ms)
+  const S = esPrueba ? null : await sesionPara(phone, { ses })
+  const jid = jidDe(phone)
+  while (Date.now() < fin) {
+    if (S && S.sock) { try { await S.sock.sendPresenceUpdate('composing', jid) } catch (e) {} }
+    await espera(Math.min(8000, Math.max(0, fin - Date.now())))
+  }
+  if (S && S.sock) { try { await S.sock.sendPresenceUpdate('paused', jid) } catch (e) {} }
+}
+
+async function turnoVentas(phone, esPruebaProgramada, nota) {
+  if (_ventasEnCurso.has(phone)) { programarVentas(phone, esPruebaProgramada, 5000); return }
+  _ventasEnCurso.add(phone)
+  let tomoMutex = false
+  try {
+    const { data: convs } = await supabase.from('whatsapp_conversations')
+      .select('id, phone, lead_id, flow_state, modo, is_test, session_id').eq('phone', phone).eq('flow_state', 'ia').limit(1)
+    const conv = convs && convs[0]
+    if (!conv || conv.modo === 'humano' || !conv.lead_id) return
+    const { data: lead } = await supabase.from('leads').select('id, full_name, phone, project_id, source, budget_estimate, status, is_test').eq('id', conv.lead_id).maybeSingle()
+    if (!lead) return
+    // una prueba NUNCA sale por WhatsApp real, venga por donde venga
+    const esPrueba = !!(esPruebaProgramada || conv.is_test || lead.is_test)
+    if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
+    const cfg = await VIA.config()
+    if (!esPrueba && !VIA.enHorario(cfg)) return               // fuera de horario: lo retoma el barrido al abrir
+    const ses = (conv.session_id && SESSIONS.get(conv.session_id)) || sesCorporativa()
+    if (!esPrueba && ses?.row && ses.row.leads_activo === false) return
+    const jid = jidDe(phone)
+    const factor = esPrueba ? 0.1 : 1
+    const prueba = esPrueba ? phone : false                     // explícito: ver enviar()
+    let desde = Date.now()                                      // "escribiendo" arranca al empezar a pensar
+    const ctx = {
+      conv, lead, phone, esPrueba, nota,
+      decir: async texto => {
+        const burbujas = String(texto).split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
+        for (let i = 0; i < burbujas.length; i++) {
+          const b = burbujas[i]
+          // ~45 ms por letra, entre 2 y 16 s, con variación: nadie escribe a ritmo fijo
+          const tipeo = Math.min(16000, 2000 + b.length * 45) * (0.8 + Math.random() * 0.4) * factor
+          await escribiendo(ses, phone, tipeo - (Date.now() - desde), esPrueba)
+          await enviar(phone, b, { tipo: 'ia_ventas', lead_id: lead.id, ses, prueba })
+          await espera((700 + Math.random() * 1500) * factor)
+          desde = Date.now()
+        }
+      },
+      mandarMaterial: async ids => {
+        // enviarArchivo todavía mira la variable global: una media real espera a
+        // que termine la prueba que esté corriendo
+        if (!esPrueba) for (let i = 0; TEST_ACTIVE && i < 120; i++) await espera(500)
+        const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
+        await enviarMediaLib(ses, jid, (parseFlowRaw(proy) || {}).media_lib || [], ids, lead, proy)
+        desde = Date.now()
+      },
+      avisar: async texto => { if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, texto, { tipo: 'aviso_admin', prueba }) },
+      pasarAHumano: async () => { await setConv(phone, { flow_state: 'humano' }, ses) },
+    }
+    if (esPrueba) {
+      // la consola de pruebas usa un candado propio: se espera turno
+      for (let i = 0; _procPruebasBusy && i < 60; i++) await espera(2000)
+      if (_procPruebasBusy) { programarVentas(phone, true, 5000); return }
+      _procPruebasBusy = true; tomoMutex = true
+      TEST_ACTIVE = phone
+    }
+    if (!esPrueba && ses?.sock) { try { await ses.sock.sendPresenceUpdate('composing', jid) } catch (e) {} }
+    await VIA.responder(ctx)
+  } finally {
+    if (tomoMutex) { TEST_ACTIVE = null; _procPruebasBusy = false }
+    _ventasEnCurso.delete(phone)
+  }
+}
+
+// Red de seguridad cada 30 s: mensajes que quedaron sin contestar (el proceso se
+// reinició, llegaron de noche) y visitas que el dueño confirmó o canceló.
+let _barriendoVentas = false
+async function barridoVentas() {
+  if (_barriendoVentas) return
+  _barriendoVentas = true
+  try {
+    const cfg = await VIA.config()
+    if (!cfg) return
+    const hace7d = new Date(Date.now() - 7 * 86400e3).toISOString()
+    const { data: convs } = await supabase.from('whatsapp_conversations')
+      .select('id, phone, lead_id, modo, is_test').eq('flow_state', 'ia').gte('last_message_at', hace7d).limit(50)
+    for (const c of (convs || [])) {
+      if (c.modo === 'humano' || !c.lead_id || _ventasTimers.has(c.phone) || _ventasEnCurso.has(c.phone)) continue
+      const { data: v } = await supabase.from('ventas_ia_leads').select('asignado_at, ultimo_turno_at, primer_mensaje_at, es_prueba').eq('lead_id', c.lead_id).maybeSingle()
+      if (!v) continue
+      const esPrueba = !!(c.is_test || v.es_prueba)
+      if (!esPrueba && !VIA.enHorario(cfg)) continue
+      if (!v.primer_mensaje_at && !v.ultimo_turno_at) { programarVentas(c.phone, esPrueba, 1000); continue }
+      const { data: ult } = await supabase.from('whatsapp_messages').select('created_at').eq('conversation_id', c.id).eq('direction', 'in').order('created_at', { ascending: false }).limit(1)
+      const ultimoIn = ult && ult[0] ? new Date(ult[0].created_at).getTime() : 0
+      const atendido = new Date(v.ultimo_turno_at || v.asignado_at).getTime()
+      if (ultimoIn > atendido && Date.now() - ultimoIn > 45000) programarVentas(c.phone, esPrueba, 1000)
+    }
+    const hace3d = new Date(Date.now() - 3 * 86400e3).toISOString()
+    const { data: citas } = await supabase.from('ventas_ia_citas')
+      .select('id, lead_id, fecha, hora, estado, cambio_hora, es_prueba').in('estado', ['confirmada', 'cancelada'])
+      .is('aviso_cliente_at', null).gte('updated_at', hace3d).limit(10)
+    for (const ci of (citas || [])) {
+      if (!ci.es_prueba && !VIA.enHorario(cfg)) continue
+      const { data: cv } = await supabase.from('whatsapp_conversations').select('phone, modo, flow_state').eq('lead_id', ci.lead_id).order('last_message_at', { ascending: false }).limit(1)
+      const conv = cv && cv[0]
+      if (conv && _ventasEnCurso.has(conv.phone)) continue          // está escribiendo: en la próxima vuelta
+      // se marca ANTES de avisar: un aviso repetido es peor que uno perdido (queda en el panel)
+      await supabase.from('ventas_ia_citas').update({ aviso_cliente_at: new Date().toISOString() }).eq('id', ci.id)
+      if (!conv || conv.flow_state !== 'ia' || conv.modo === 'humano') continue
+      await turnoVentas(conv.phone, ci.es_prueba, VIA.notaDeCita(ci)).catch(e => log('VENTAS IA cita:', String(e.message || e)))
+    }
+  } catch (e) { log('VENTAS IA barrido:', String(e.message || e)) }
+  finally { _barriendoVentas = false }
+}
+setInterval(() => { barridoVentas() }, 30000)
+setInterval(() => { VIA.latido() }, 300000)
+setTimeout(() => { VIA.latido() }, 15000)
 
 // DETIENE el flujo cuando el cliente no responde: NO avanza, NO le escribe nada
 // al cliente, deja el chat para atención humana y avisa al asesor/admin.
@@ -2021,7 +2187,11 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   _convSesCache.delete(phone)   // refrescar el cache de ruteo (la conv acaba de moverse/crearse)
   espejo(['📥 *de +' + phone + '*', String(corto || '[archivo]').slice(0, 160)].join('\n'))
   // solo media sin texto: queda registrada para verla en el panel; no hay nada que responder
-  if (!corto) return
+  // (salvo que lo atienda el agente de ventas: una foto o un audio también se contestan)
+  if (!corto) {
+    if (conv?.flow_state === 'ia' && conv.modo !== 'humano' && media) programarVentas(phone, !!TEST_ACTIVE)
+    return
+  }
 
   // Lo INTERNO (gerencia y seguimiento) vive en Telegram desde ago 2026: en ese
   // caso los números de WhatsApp son solo comerciales y no interceptan a nadie —
@@ -2138,6 +2308,14 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     return
   }
 
+  // AGENTE DE VENTAS IA (sql/91): este lead es del grupo del agente. Se anota y se
+  // espera a que termine de escribir; el agente contesta todo junto.
+  if (lead && estado === 'ia') {
+    await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}, () => {})
+    programarVentas(phone, !!TEST_ACTIVE)
+    return
+  }
+
   // ESCALADA INMEDIATA: si en CUALQUIER momento pide asesor/humano, corta y lo deriva ya.
   if (lead && estado && estado !== 'humano' && estado !== 'completado' &&
       /\basesor|humano|persona real|hablar con (alguien|un)|que me llamen|ll[aá]men|vendedor|encargado|un agente/i.test(corto)) {
@@ -2237,6 +2415,13 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     const trivial = corto.length < 3 || /^(gracias|grasias|ok|okey|oki|ya|listo|dale|de acuerdo|👍|🙏)[.!\s]*$/i.test(corto)
     if (trivial) return
     if (/asesor|humano|persona real|hablar con alguien|que me llamen|llamen/i.test(corto)) {
+      // también entra al reparto del experimento (sql/91)
+      try {
+        if ((await VIA.asignar(lead, { phone, motivo: 'pidio_asesor', esPrueba: !!TEST_ACTIVE })) === 'ia') {
+          await entregarAlAgente(ses, jid, phone, lead, 'pidio_asesor')
+          return
+        }
+      } catch (e) { log('VENTAS IA reparto:', String(e.message || e)) }
       await setConv(phone, { flow_state: 'humano' }, ses)
       await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis. Te escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id, ses })
       if (ADMIN) await enviar(ADMIN, '⚠️ PIDIÓ ASESOR\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nÚltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })

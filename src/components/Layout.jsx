@@ -48,6 +48,8 @@ const GLOBAL = [
   // la ve quien tenga el permiso especial de cobranza (sql/76), no un rol
   { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Comunicación' },
   { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
+  // el experimento del agente de ventas IA contra el supervisor (sql/91)
+  { to: '/ventas-ia', label: 'Agente de ventas', icon: '🤖', admin: true, color: '#8ab4f8', grupo: 'Comercial' },
   { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
   { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
