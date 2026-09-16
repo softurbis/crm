@@ -27,6 +27,11 @@ Configuración) sin tocar los textos ni volver a pedirle permiso a Meta.
 ya mandó su voucher y espera validación, y el lote con la cobranza automática
 pausada.
 
+**Cuándo NO sale nada, aunque toque:** sábados, domingos, feriados y después de
+las 8 p.m. No es una preferencia nuestra: el art. 62 de la Ley 29571 considera
+**cobranza abusiva** comunicarse con el deudor esos días y a esas horas. Lo que
+le tocaba a un cliente el sábado le llega el lunes.
+
 > ⚠️ **Lo que hay que decidir: desde cuántas cuotas.** El sistema viene en **4**.
 > El contrato (cláusula 5.1) considera incumplimiento grave **2 cuotas seguidas
 > o 3 acumuladas**, así que en 4 el aviso llega *después* de que el

@@ -214,8 +214,14 @@ ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir"
    **"Tomar yo"**.
 3. Escribir en Configuración los **nombres de las 5 plantillas** apenas Meta las
    apruebe, revisar **desde cuántas cuotas** sale el aviso de resolución (viene en
-   4; el contrato considera grave 2 seguidas o 3 acumuladas), poner un **tope
-   diario bajo** el primer día (por ejemplo 20) y recién ahí prender **📨 Avisos**.
+   4; el contrato considera grave 2 seguidas o 3 acumuladas), dejar marcado
+   **📅 Solo días hábiles**, poner un **tope diario bajo** el primer día (por
+   ejemplo 20) y recién ahí prender **📨 Avisos**.
+
+   > **Solo días hábiles** no es una preferencia: el art. 62 de la Ley 29571
+   > considera cobranza abusiva escribirle al deudor sábados, domingos, feriados
+   > o entre las 8 p.m. y las 7 a.m. Los feriados están cargados hasta 2027 y se
+   > actualizan en el mismo panel.
 
 ---
 

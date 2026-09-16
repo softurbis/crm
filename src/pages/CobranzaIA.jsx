@@ -619,7 +619,7 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
 
   useEffect(() => {
     if (!cfg || f) return
-    setF({ ...cfg, dias_antes: (cfg.dias_antes || []).join(', '), dias_despues: (cfg.dias_despues || []).join(', '), hora_avisos: String(cfg.hora_avisos || '09:00').slice(0, 5) })
+    setF({ ...cfg, dias_antes: (cfg.dias_antes || []).join(', '), dias_despues: (cfg.dias_despues || []).join(', '), feriados: (cfg.feriados || []).join(', '), hora_avisos: String(cfg.hora_avisos || '09:00').slice(0, 5) })
   }, [cfg])
   useEffect(() => {
     (async () => {
@@ -670,6 +670,8 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
       ...('grave_desde_cuotas' in cfg ? {                                        // sql/90
         plantilla_vencida_grave: txt(f.plantilla_vencida_grave),
         grave_desde_cuotas: Math.min(12, Math.max(2, Number(f.grave_desde_cuotas) || 4)),
+        avisos_dias_habiles: !!f.avisos_dias_habiles,
+        feriados: [...new Set(String(f.feriados || '').split(/[,;\s]+/).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort(),
       } : {}),
       ...('numero_cobranza' in cfg ? { numero_cobranza: String(f.numero_cobranza || '').replace(/\D/g, '') || '51986598614' } : {}),   // sql/77
     })
@@ -710,6 +712,19 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <label>Número de cobranzas (el bot de leads se lo pasa a los clientes)<input value={f.numero_cobranza || ''} onChange={campo('numero_cobranza')} disabled={!puede} placeholder="51986598614" /></label>
         </div>
         <p className="small muted" style={{ textTransform: 'none' }}>Meta pone un tope de 250 conversaciones iniciadas por día mientras el negocio no esté verificado: deja el tope por debajo.</p>
+
+        {'avisos_dias_habiles' in cfg && <>
+          <label className="inline-check" style={{ display: 'flex', margin: '10px 0 4px' }}>
+            <input type="checkbox" disabled={!puede} checked={!!f.avisos_dias_habiles} onChange={e => setF(x => ({ ...x, avisos_dias_habiles: e.target.checked }))} />
+            📅 <b>Solo días hábiles</b>: ni sábados, ni domingos, ni feriados, ni después de las 8 p.m.
+          </label>
+          <p className="small muted" style={{ textTransform: 'none', marginTop: 0 }}>
+            Es la ley, no una preferencia: el art. 62 de la Ley 29571 considera cobranza abusiva comunicarse esos días u horas. Lo que le tocaba a un cliente el sábado sale el lunes.
+          </p>
+          <label>Feriados <span className="muted small">(YYYY-MM-DD separados por coma — hay que actualizarlos cada año)</span>
+            <textarea rows="2" value={f.feriados || ''} onChange={campo('feriados')} disabled={!puede} style={{ textTransform: 'none' }} placeholder="2026-12-25, 2027-01-01" />
+          </label>
+        </>}
 
         <p><b>Nombres de las plantillas aprobadas en Meta</b> <span className="muted small">(exactos; vacío = ese aviso no sale)</span></p>
         <div className="form-grid">

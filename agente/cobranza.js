@@ -765,7 +765,9 @@ async function vistaPreviaAviso(chat) {
       ? `hoy le toca "${d.motivo}" con la plantilla ${d.plantilla || '(SIN NOMBRE — configurar)'} → ${d.params.join(' · ')}`
       : 'hoy no le toca aviso con la configuración actual'))
   }
+  const noHoy = diaDeCobranza(cfg, hoy)
   return '📨 VISTA PREVIA DE AVISOS (no se envía)\n' + lineas.join('\n')
+    + (noHoy ? '\n\n⚠ Igual hoy no saldría ninguno: ' + noHoy + ' (Ley 29571: no se cobra sábados, domingos ni feriados).' : '')
 }
 
 async function registrarEnvio(tel, d, extra, cfg) {
@@ -793,13 +795,28 @@ async function todasLasVentas() {
   return out
 }
 
+// Ley 29571 art. 62 (metodos abusivos de cobranza): nada de cobrar sabados,
+// domingos, feriados ni entre las 20:00 y las 07:00. Si hoy no se puede, no se
+// marca el barrido: los avisos salen el siguiente dia habil.
+function diaDeCobranza(cfg, hoy) {
+  if (!cfg.avisos_dias_habiles) return null
+  const dia = new Date(hoy + 'T12:00:00Z').getUTCDay()          // 0 domingo, 6 sabado
+  if (dia === 0 || dia === 6) return dia === 0 ? 'es domingo' : 'es sábado'
+  if ((cfg.feriados || []).includes(hoy)) return 'es feriado'
+  return null
+}
+
 let barriendo = false
 async function barridoAvisos() {
   if (barriendo) return
   const cfg = await config()
   const hoy = hoyLima()
   if (!cfg.avisos_activos || cfg.ultimo_barrido === hoy) return
-  if (horaLima() < String(cfg.hora_avisos || '09:00').slice(0, 5)) return
+  const ahora = horaLima()
+  if (ahora < String(cfg.hora_avisos || '09:00').slice(0, 5)) return
+  if (ahora >= '20:00') return                                   // fuera de hora: mañana
+  const noHoy = diaDeCobranza(cfg, hoy)
+  if (noHoy) { log('AVISOS: hoy no se cobra (' + noHoy + '). Salen el siguiente día hábil.'); return }
   if (!WA_LISTO) { log('AVISOS: falta WA_TOKEN, no se envía nada'); return }
   barriendo = true
   try {
