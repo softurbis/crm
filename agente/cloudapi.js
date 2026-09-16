@@ -76,7 +76,40 @@ async function infoNumero(campos = 'display_phone_number,verified_name,name_stat
 // la app tiene que estar suscrita a la cuenta de WhatsApp (WABA) para recibir el webhook
 async function suscribirApp(wabaId) { return api(`${wabaId}/subscribed_apps`, {}) }
 async function appsSuscritas(wabaId) { return api(`${wabaId}/subscribed_apps`, null, 'GET') }
-async function listarPlantillas(wabaId) { return api(`${wabaId}/message_templates?fields=name,status,category,language&limit=100`, null, 'GET') }
+async function listarPlantillas(wabaId) { return api(`${wabaId}/message_templates?fields=name,status,category,language,rejected_reason&limit=200`, null, 'GET') }
+async function crearPlantilla(wabaId, def) { return api(`${wabaId}/message_templates`, def) }
+async function infoCuenta(wabaId) { return api(`${wabaId}?fields=id,name,timezone_id,message_template_namespace`, null, 'GET') }
+async function numerosDe(wabaId) { return api(`${wabaId}/phone_numbers?fields=id,display_phone_number&limit=50`, null, 'GET') }
+
+// El id de la cuenta de WhatsApp (WABA) sin tener que buscarlo en la web de Meta.
+// Tres caminos, del mas directo al mas general; devuelve el primero que sirva.
+async function buscarWaba() {
+  const intentos = []
+  if (process.env.WA_WABA_ID) return { id: process.env.WA_WABA_ID, via: 'WA_WABA_ID del .env', intentos }
+  try {                                   // 1) el propio numero suele decir de quien es
+    const d = await api(`${PHONE_ID}?fields=whatsapp_business_account`, null, 'GET')
+    if (d.whatsapp_business_account?.id) return { id: d.whatsapp_business_account.id, via: 'el numero', intentos }
+    intentos.push('el numero no informa su cuenta')
+  } catch (e) { intentos.push('por el numero: ' + e.message.slice(0, 90)) }
+  try {                                   // 2) que activos alcanza este token
+    const d = await api(`debug_token?input_token=${TOKEN}`, null, 'GET')
+    const g = d.data?.granular_scopes || []
+    const ids = [...new Set(g.filter(s => String(s.scope).startsWith('whatsapp_business')).flatMap(s => s.target_ids || []))]
+    if (ids.length === 1) return { id: ids[0], via: 'los permisos del token', intentos }
+    if (ids.length > 1) return { id: null, varias: ids, via: 'los permisos del token', intentos }
+    intentos.push('el token no declara cuentas de WhatsApp')
+  } catch (e) { intentos.push('por los permisos del token: ' + e.message.slice(0, 90)) }
+  const neg = process.env.WA_BUSINESS_ID
+  if (neg) {                              // 3) todas las del portafolio
+    try {
+      const d = await api(`${neg}/owned_whatsapp_business_accounts?fields=id,name&limit=50`, null, 'GET')
+      const ids = (d.data || []).map(x => x.id)
+      if (ids.length === 1) return { id: ids[0], via: 'el portafolio', intentos }
+      if (ids.length > 1) return { id: null, varias: ids, via: 'el portafolio', intentos }
+    } catch (e) { intentos.push('por el portafolio: ' + e.message.slice(0, 90)) }
+  } else intentos.push('no hay WA_BUSINESS_ID en el .env')
+  return { id: null, intentos }
+}
 
 // `alEco`: lo que la persona escribio desde la app WhatsApp Business cuando el
 // numero esta en coexistencia (webhook smb_message_echoes).
@@ -121,7 +154,11 @@ async function bajarMedia(mediaId) {
   return { buffer: Buffer.from(await r.arrayBuffer()), mime: meta.mime_type || 'application/octet-stream' }
 }
 
-module.exports = { enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia, infoNumero, suscribirApp, appsSuscritas, listarPlantillas }
+module.exports = {
+  enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia,
+  infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
+  infoCuenta, numerosDe, buscarWaba,
+}
 
 // --- PRUEBA EN SECO ----------------------------------------------------------
 if (require.main === module && process.argv.includes('--test')) {

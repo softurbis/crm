@@ -744,6 +744,11 @@ function decidirAviso(v, cfg, hoy) {
     if (dd > base && (dd - base) % cada === 0) motivo = 'repite_' + dd
   }
   if (!motivo) return null
+  // escalon (sql/90): quien ACUMULA cuotas vencidas recibe el otro aviso, no los dos
+  if (cfg.plantilla_vencida_grave && vencidas.length >= Number(cfg.grave_desde_cuotas || 4)) {
+    const total = vencidas.reduce((s, x) => s + x.pendiente, 0)
+    return { motivo: 'grave_' + dd, plantilla: cfg.plantilla_vencida_grave, q, params: [nombre, vencidas.length, lote, proyecto, monto2(total)] }
+  }
   return { motivo, plantilla: cfg.plantilla_vencida, q, params: [nombre, q.installment_number, lote, proyecto, fechaCorta(q.due_date), monto2(q.pendiente)] }
 }
 

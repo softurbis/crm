@@ -667,6 +667,10 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
       plantilla_recordatorio: txt(f.plantilla_recordatorio), plantilla_vence_hoy: txt(f.plantilla_vence_hoy),
       plantilla_vencida: txt(f.plantilla_vencida), plantilla_promesa: txt(f.plantilla_promesa),
       plantilla_idioma: txt(f.plantilla_idioma) || 'es', notas_agente: txt(f.notas_agente),
+      ...('grave_desde_cuotas' in cfg ? {                                        // sql/90
+        plantilla_vencida_grave: txt(f.plantilla_vencida_grave),
+        grave_desde_cuotas: Math.min(12, Math.max(2, Number(f.grave_desde_cuotas) || 4)),
+      } : {}),
       ...('numero_cobranza' in cfg ? { numero_cobranza: String(f.numero_cobranza || '').replace(/\D/g, '') || '51986598614' } : {}),   // sql/77
     })
   }
@@ -713,7 +717,15 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <label>Vence hoy<input value={f.plantilla_vence_hoy || ''} onChange={campo('plantilla_vence_hoy')} disabled={!puede} placeholder="urbis_cuota_vence_hoy" style={{ textTransform: 'none' }} /></label>
           <label>Cuota vencida<input value={f.plantilla_vencida || ''} onChange={campo('plantilla_vencida')} disabled={!puede} placeholder="urbis_cuota_vencida" style={{ textTransform: 'none' }} /></label>
           <label>Recordatorio de promesa<input value={f.plantilla_promesa || ''} onChange={campo('plantilla_promesa')} disabled={!puede} placeholder="urbis_promesa_pago" style={{ textTransform: 'none' }} /></label>
+          {'grave_desde_cuotas' in cfg && <>
+            <label>Varias cuotas vencidas <span className="muted small">(reemplaza al de arriba)</span><input value={f.plantilla_vencida_grave || ''} onChange={campo('plantilla_vencida_grave')} disabled={!puede} placeholder="urbis_cuotas_atrasadas" style={{ textTransform: 'none' }} /></label>
+            <label>…desde cuántas cuotas vencidas<input type="number" min="2" max="12" value={f.grave_desde_cuotas ?? 4} onChange={campo('grave_desde_cuotas')} disabled={!puede} /></label>
+          </>}
         </div>
+        {'grave_desde_cuotas' in cfg && <p className="small muted" style={{ textTransform: 'none' }}>
+          Al llegar a esa cantidad de cuotas vencidas, el cliente recibe el aviso que menciona la <b>resolución del contrato</b> en vez del recordatorio normal (nunca los dos).
+          El contrato considera incumplimiento grave <b>2 cuotas seguidas o 3 acumuladas</b>: por encima de 4 el aviso llega tarde.
+        </p>}
 
         <label style={{ marginTop: 10, display: 'block' }}>Indicaciones para el agente <span className="muted small">(horario de atención, cómo se llama la secretaria, avisos del mes…)</span>
           <textarea rows="4" value={f.notas_agente || ''} onChange={campo('notas_agente')} disabled={!puede} style={{ textTransform: 'none' }}

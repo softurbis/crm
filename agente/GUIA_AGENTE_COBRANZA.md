@@ -24,6 +24,20 @@
   la API.
 - La app "n8n" de tu Facebook es de El Cholao: no se usa para Urbis.
 
+## El orden, de un vistazo
+
+| # | Qué | Quién | Sin esto… |
+|---|---|---|---|
+| 0 | Tablas y modo prueba | juntos | — |
+| 1 | Método de pago en Meta | tú | no sale ni un mensaje |
+| 2 | App `urbis-cobranza-agente` | tú ✅ hecho | no hay dónde generar el token |
+| 3 | Usuario del sistema | tú ✅ hecho | el token caduca en horas |
+| 4 | Workspace de Claude | tú | el agente usa la clave general |
+| 5 | Token y clave en el servidor | juntos | el agente no habla con Meta |
+| 6 | Las 5 plantillas (un comando) | juntos | los avisos no salen |
+| 7 | Webhook | tú + un comando | los clientes escriben y nadie contesta |
+| 8 | Prender, en orden | tú | — |
+
 ---
 
 ## Paso 0 · Arrancar el agente en MODO PRUEBA (juntos, hoy mismo)
@@ -31,15 +45,15 @@
 No necesita nada de Meta: sirve para probar el agente con datos reales desde el
 panel, sin que salga ningún mensaje.
 
-1. Las tablas del agente y el arreglo de permisos, **en ese orden**. Son una
-   sola vez:
+1. Las tablas del agente, el arreglo de permisos y el escalón de cuotas
+   acumuladas, **en ese orden**. Son una sola vez:
 
 ```bash
-scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/77_rol_real.sql'
+scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" "C:\Claude\Projects\Sistema CRM\sql\90_cobranza_escalon.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; for f in 76_agente_cobranza 77_rol_real 90_cobranza_escalon; do echo "== $f =="; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/$f.sql || break; done'
 ```
 
    > `ON_ERROR_STOP=1` es importante: sin eso, `psql` responde "todo bien" aunque
-   > el SQL falle, y lo que viene después con `&&` corre igual.
+   > el SQL falle, y lo que viene después corre igual.
 
 2. Instalar o actualizar los dos procesos del servidor. **Este es el comando de
    siempre** cada vez que Claude publique cambios:
@@ -72,102 +86,35 @@ Sin esto Meta no deja enviar ni un mensaje. Las plantillas (los avisos que manda
 empresa) se cobran por mensaje, del orden de centavos. Las respuestas dentro de las
 24 h desde que el cliente escribe no se cobran.
 
-## Paso 2 (tú) · Crear la app de Meta
+## Paso 2 (tú) · La app de Meta — ✅ hecha
 
-1. developers.facebook.com → **Mis apps** → **Crear app**.
-2. Si pregunta el caso de uso: **Otro** → tipo **Negocio**. Si aparece "Conectar con
-   clientes a través de WhatsApp", también sirve.
-3. Nombre: `urbis-cobranza-agente`. Portafolio comercial: **Urbis Group**. Crear.
-4. En el panel de la app, busca **WhatsApp** → **Configurar**.
-5. Cuando pida la cuenta de WhatsApp Business, elige la **existente de Urbis Group**
-   (la del 986 598 614). **No** crees una cuenta nueva y **no** agregues número.
-6. Si te muestra un "número de prueba", ignóralo.
+Ya existe `urbis-cobranza-agente` en el portafolio **Urbis Group**, con WhatsApp
+agregado y la cuenta existente del 986 598 614. Si alguna vez hay que rehacerla:
+developers.facebook.com → Mis apps → Crear app → **Otro** / **Negocio**, y en
+WhatsApp elegir la cuenta **existente** (nunca crear una nueva ni agregar número).
 
-📸 Mándame una captura de WhatsApp → **Configuración de la API**. Si ahí aparece un
-"token de acceso temporal", **tápalo**.
+## Paso 3 (tú) · Usuario del sistema — ✅ hecho
 
-> Los nombres de los botones de Meta cambian seguido. Si algo no coincide, manda
-> captura y lo vemos.
+Ya existe `agente-cobranza` (Employee) con la app y la cuenta de WhatsApp en
+**control total**. Es el dueño del token: por eso el token no caduca aunque cambies
+tu contraseña de Facebook.
 
-## Paso 3 (tú) · Usuario del sistema (el "robot" dueño del token)
-
-1. business.facebook.com → ⚙ **Configuración** → **Usuarios** → **Usuarios del
-   sistema** → **Agregar**.
-2. Nombre `agente-cobranza`, rol **Administrador** → Crear.
-3. Con ese usuario seleccionado → **Asignar activos**:
-   - **Apps** → `urbis-cobranza-agente` → **Control total**.
-   - **Cuentas de WhatsApp** → Urbis Group → **Control total**.
-4. **Todavía no generes el token.** Lo generamos en el paso 6, en el momento de
-   pegarlo en el servidor, porque Meta lo muestra una sola vez.
-
-## Paso 4 (tú) · Crear las 4 plantillas
-
-Administrador de WhatsApp → **Plantillas de mensajes** → **Crear plantilla**. En
-cada una:
-
-- Categoría **Utilidad**.
-- Nombre **exacto**, en minúsculas y con guiones bajos.
-- Idioma **Español**. Si ofrece variantes, elige "Español" a secas.
-- Sin encabezado, sin pie y sin botones.
-- Pega el cuerpo **tal cual** y llena los ejemplos de variables.
-
-### 1) `urbis_cuota_recordatorio`
-
-> Hola {{1}}, le saludamos de Urbis Group. Le recordamos que su cuota N° {{2}} del
-> lote {{3}} del proyecto {{4}} vence el {{5}} por S/ {{6}}. Si ya realizó el pago,
-> envíe la foto de su voucher por este chat para registrarlo. Gracias.
-
-Ejemplos: {{1}} Juan · {{2}} 12 · {{3}} Mz B Lt 7 · {{4}} Las Praderas de Cashibo ·
-{{5}} 30/09/2026 · {{6}} 350.00
-
-### 2) `urbis_cuota_vence_hoy`
-
-> Hola {{1}}, le saludamos de Urbis Group. Hoy vence su cuota N° {{2}} del lote {{3}}
-> del proyecto {{4}} por S/ {{5}}. Cuando realice el pago, envíe la foto de su
-> voucher por este chat y lo registraremos. Gracias.
-
-Ejemplos: {{1}} Juan · {{2}} 12 · {{3}} Mz B Lt 7 · {{4}} Las Praderas de Cashibo ·
-{{5}} 350.00
-
-### 3) `urbis_cuota_vencida`
-
-> Hola {{1}}, le saludamos de Urbis Group. Su cuota N° {{2}} del lote {{3}} del
-> proyecto {{4}} venció el {{5}} y tiene un saldo pendiente de S/ {{6}}. Si ya pagó,
-> envíenos el voucher por este chat; si necesita coordinar una fecha, escríbanos por
-> aquí. Gracias.
-
-Ejemplos: {{1}} Juan · {{2}} 12 · {{3}} Mz B Lt 7 · {{4}} Las Praderas de Cashibo ·
-{{5}} 30/08/2026 · {{6}} 350.00
-
-### 4) `urbis_promesa_pago`
-
-> Hola {{1}}, le saludamos de Urbis Group. Le recordamos que para el {{2}} quedó en
-> realizar su pago de S/ {{3}} del lote {{4}} del proyecto {{5}}. Cuando lo realice,
-> envíe la foto de su voucher por este chat. Gracias.
-
-Ejemplos: {{1}} Juan · {{2}} 15/10/2026 · {{3}} 350.00 · {{4}} Mz B Lt 7 ·
-{{5}} Las Praderas de Cashibo
-
-**El orden de las variables importa:** el agente las llena exactamente en ese
-orden. Meta tarda de minutos a 24 h en aprobarlas. Si alguna la rechaza o la pasa a
-"Marketing", manda captura y ajustamos el texto.
-
-## Paso 5 (tú) · Espacio de Claude para cobranza
+## Paso 4 (tú) · Espacio de Claude para cobranza
 
 1. console.anthropic.com → entra con la cuenta de la empresa.
 2. **Settings → Workspaces → Create workspace** → nombre `Cobranza`.
 3. Dentro del workspace, en **Limits**, pon un límite mensual bajo para empezar
    (por ejemplo US$ 10).
-4. **Todavía no crees la clave.** La creamos en el paso 6.
+4. **Todavía no crees la clave.** La creamos en el paso 5.
 
-> Si la consola no te muestra límites por workspace, igual crea el workspace y
-> avísame.
+> Sirve para ver el gasto del agente aparte y poder anular esa clave sola, sin
+> tocar el asistente interno del bot.
 
-## Paso 6 (juntos) · Poner el token y la clave en el servidor
+## Paso 5 (juntos) · Poner el token y la clave en el servidor
 
 Hazlo con la terminal del servidor abierta en otra ventana.
 
-1. Abre el archivo de claves:
+1. Entra y abre el archivo de claves:
 
 ```bash
 ssh root@157.245.8.78
@@ -190,20 +137,54 @@ WA_PHONE_NUMBER_ID=1316329454896872
    `agente-cobranza` → **Generar token** → app `urbis-cobranza-agente` → caducidad
    **Nunca** → permisos `whatsapp_business_messaging` y
    `whatsapp_business_management` → Generar → **Copiar**.
-4. Al final del `.env` escribe `WA_TOKEN=` y pega el token pegado, sin espacios.
+4. Al final del `.env` escribe `WA_TOKEN=` y pega el token, sin espacios.
 5. **Genera la clave de Claude:** console.anthropic.com → workspace **Cobranza** →
    **API keys → Create key** → nombre `agente-cobranza` → **Copiar**.
 6. En otra línea escribe `COBRANZA_ANTHROPIC_API_KEY=` y pega la clave.
 7. Guarda con **Ctrl+O**, **Enter**, **Ctrl+X**. Si ya había una línea `WA_TOKEN=`,
    deja una sola.
-8. Reinicia y verifica (no muestra ningún secreto):
+8. Reinicia y revisa TODO de una (no muestra ningún secreto):
 
 ```bash
-ssh root@157.245.8.78 "cd /root/crm/agente && pm2 restart cobranza-agente --update-env && node cobranza_meta.js verificar && node cobranza_meta.js ia"
+ssh root@157.245.8.78 "cd /root/crm/agente && pm2 restart cobranza-agente --update-env && node cobranza_meta.js listo"
 ```
 
-   Tiene que decir ✅ **El token funciona**, ✅ **La clave de Claude funciona**, y si
-   el número está en coexistencia, ✅ **COEXISTENCIA**. Mándame esa salida.
+   Eso imprime, en una sola pasada: el número y si está en coexistencia, el id de la
+   cuenta de WhatsApp, si el webhook está suscrito, cómo van las plantillas y si la
+   clave de Claude responde. **Mándame esa salida entera.**
+
+   > Los dos permisos del token importan: con `whatsapp_business_messaging` solo se
+   > envían mensajes; el que deja **crear las plantillas** y suscribir el webhook es
+   > `whatsapp_business_management`.
+
+## Paso 6 (juntos) · Las 5 plantillas, de un comando
+
+Los textos ya están escritos y aprobados en `PLANTILLAS_COBRANZA.md`. En vez de
+copiarlos a mano en la web de Meta (cinco veces, y cualquier tilde de más los
+rechaza), los crea el servidor:
+
+```bash
+ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js crear_plantillas"
+```
+
+- Busca solo el id de la cuenta de WhatsApp: no hay que ir a buscarlo a Meta.
+- La que ya exista **no se toca** (se puede correr las veces que haga falta).
+- Meta las revisa sola: de minutos a 24 h.
+
+Para ver cómo van:
+
+```bash
+ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js plantillas"
+```
+
+✅ = aprobada · ⏳ = en revisión · ❌ = rechazada (manda la salida y ajustamos el
+texto). Si alguna sale como **MARKETING** en vez de *Utilidad*, avísame: se cobra
+distinto y conviene reescribirla.
+
+> Para verlas antes de crearlas: `node cobranza_meta.js textos`.
+> Para cambiar un texto: se edita `plantillas_cobranza.js`, se publica, y se vuelve
+> a correr `crear_plantillas` con **otro nombre** (Meta no deja reescribir el texto
+> de una plantilla ya aprobada sin volver a revisarla).
 
 ## Paso 7 (tú) · Conectar el webhook
 
@@ -218,13 +199,11 @@ ssh root@157.245.8.78 "grep WA_VERIFY_TOKEN /root/crm/agente/.env"
    - Token de verificación: el valor que salió arriba (lo que va después del `=`)
    - **Verificar y guardar**. Con el agente corriendo, Meta lo acepta al instante.
 3. En "Campos del webhook", **Suscribirse** a `messages` y, si aparece,
-   `smb_message_echoes`.
-4. Busca el **identificador de la cuenta de WhatsApp** (WABA): Administrador de
-   WhatsApp → Configuración de la cuenta, o en la URL como `asset_id=...`. Con ese
-   número:
+   `smb_message_echoes` (es lo que la secretaria escribe desde su celular).
+4. Suscribir la app a la cuenta, para que Meta empiece a mandar los mensajes:
 
 ```bash
-ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir ID_DE_LA_CUENTA && node cobranza_meta.js plantillas ID_DE_LA_CUENTA"
+ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir"
 ```
 
 ## Paso 8 · Prender, en este orden
@@ -233,9 +212,10 @@ ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir ID
 2. **Prender el agente** (Configuración → 🤖 Agente) en horario de oficina, con la
    secretaria mirando **Conversaciones**. Si un chat se complica, lo toma con
    **"Tomar yo"**.
-3. Escribir en Configuración los **nombres de las 4 plantillas** apenas Meta las
-   apruebe, poner un **tope diario bajo** para el primer día (por ejemplo 20) y
-   recién ahí prender **📨 Avisos**.
+3. Escribir en Configuración los **nombres de las 5 plantillas** apenas Meta las
+   apruebe, revisar **desde cuántas cuotas** sale el aviso de resolución (viene en
+   4; el contrato considera grave 2 seguidas o 3 acumuladas), poner un **tope
+   diario bajo** el primer día (por ejemplo 20) y recién ahí prender **📨 Avisos**.
 
 ---
 
@@ -244,7 +224,17 @@ ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir ID
 | Paso | Me pasas | Nunca |
 |---|---|---|
 | 0 | La salida de los comandos | — |
-| 2 | Captura de Configuración de la API, con el token tapado | El token |
-| 4 | Captura de la lista de plantillas con su estado | — |
-| 6 | La salida de `verificar` e `ia` | Token de Meta, clave de Claude |
-| 7 | La salida de `suscribir` y `plantillas` | — |
+| 5 | La salida completa de `listo` | Token de Meta, clave de Claude |
+| 6 | La salida de `crear_plantillas` y de `plantillas` | — |
+| 7 | La salida de `suscribir` | El token de verificación |
+
+## Si algo falla
+
+| Lo que ves | Qué pasa |
+|---|---|
+| `Faltan WA_PHONE_NUMBER_ID o WA_TOKEN` | el `.env` no se guardó, o falta reiniciar con `--update-env` |
+| `(#200) requires whatsapp_business_management` | el token se generó sin ese permiso: hay que generarlo de nuevo |
+| `No pude averiguar el id de la cuenta` | pásalo a mano: `node cobranza_meta.js plantillas EL_ID` |
+| `Ninguna app suscrita` | falta el paso 7.4 |
+| El cliente escribe y no llega nada | webhook mal puesto, o falta suscribirse a `messages` |
+| `Pasaron más de 24 h…` al responder | fuera de la ventana de Meta: solo sale una plantilla |
