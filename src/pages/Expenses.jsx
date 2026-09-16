@@ -143,6 +143,15 @@ export default function Expenses() {
   // las que me tocan a MI: mientras existan, la pantalla me ofrece registrar mi firma
   const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && (g.requester_id === profile?.id || role === 'superuser')
   const miasPorFirmar = list.filter(miPuedeFirmar).length
+  const nombreFirmante = g => firmantes.find(p => p.id === g.requester_id)?.full_name || g.requester_name || 'quien la pidió'
+  // lo que me toca firmar AHORA: mi firma como quien pide, o la aprobación del
+  // socio. Va arriba, con su botón, para no buscar la fila en la tabla.
+  const pendientesMias = list.flatMap(g => {
+    const e = estadoGasto(g)
+    if (e === 'por_firmar' && miPuedeFirmar(g)) return [{ g, modo: 'solicitar' }]
+    if (e === 'solicitado' && puedeAprobar && (esSocio || proyecto?.expense_approval)) return [{ g, modo: 'aprobar' }]
+    return []
+  })
   const tengoFirma = miFirma || profile?.signature_url
   const hay74 = firmantes.length > 0      // la RPC de sql/74 respondio: la segunda firma existe
   // el socio registra su firma apenas entra, aunque no haya nada pendiente:
@@ -844,9 +853,32 @@ export default function Expenses() {
         </form>
       )}
 
+      {/* LO QUE TE TOCA FIRMAR, arriba y con su botón: antes había que buscar la
+          fila en la tabla y correrla hasta la última columna. */}
+      {pendientesMias.length > 0 && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p style={{ margin: '0 0 8px' }}><b>✍ TE TOCA FIRMAR ({pendientesMias.length})</b></p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pendientesMias.slice(0, 8).map(({ g, modo }) => (
+              <div key={g.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ minWidth: 90 }}>{numeroDe(g)}</b>
+                <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</b>
+                <span className="muted small" style={{ textTransform: 'none' }}>
+                  {g.recipient || '—'} · {(g.description || g.type || '').slice(0, 60)}
+                </span>
+                <button className="btn-primary" style={{ fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}
+                  onClick={() => setAprobar({ g, modo })}>
+                  {modo === 'solicitar' ? '✍ Firmar' : '✍ Revisar y firmar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Sustento</th><th></th></tr></thead>
+          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Sustento</th><th></th></tr></thead>
           <tbody>
             {filtrada.slice(0, 200).map(g => (
               <tr key={g.id}>
@@ -857,9 +889,24 @@ export default function Expenses() {
                   if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
                   if (e === 'aprobado') return <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
                   if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
-                  if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + (g.sender || 'quien la pidió')}>&#9203; POR FIRMAR<br /><span className="muted small">{(g.sender || '').split(' ')[0]}</span></span>
+                  if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{nombreFirmante(g).split(' ')[0]}</span></span>
                   return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
                 })()}</td>
+                {/* La firma va ADELANTE: antes estaba en la última columna y había
+                    que barrer toda la tabla a la derecha para llegar al botón. */}
+                <td>
+                  {miPuedeFirmar(g) && (
+                    <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar</button>
+                  )}
+                  {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && (
+                    <span className="muted small" style={{ textTransform: 'none' }}>⏳ espera a {nombreFirmante(g).split(' ')[0]}</span>
+                  )}
+                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
+                    <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>
+                  )}
+                </td>
                 <td>{g.type}</td>
                 <td title={g.description}>{g.recipient || '-'}</td>
                 <td>{soles(g.amount)}</td>
@@ -870,26 +917,28 @@ export default function Expenses() {
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
                 <td><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" /></td>
                 <td>
-                  {/* primero firma quien pidio el gasto... */}
-                  {miPuedeFirmar(g) && (
-                    <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar solicitud</button>{' '}</>
-                  )}
-                  {/* si le toca a OTRO, que se vea a quien se espera (antes no
-                      salia nada y parecia que el boton no existia) */}
-                  {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && (
-                    <span className="muted small" style={{ textTransform: 'none' }}>
-                      ⏳ Espera la firma de {(firmantes.find(p => p.id === g.requester_id)?.full_name || 'quien la pidió').split(' ')[0]}{' '}
-                    </span>
-                  )}
-                  {/* ...y recien entonces aparece la firma del socio */}
-                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
-                    <><button className="btn-primary" style={{ fontSize: 12 }} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>{' '}</>
-                  )}
+                  {/* los botones de firma viven ahora en la columna "Firma",
+                      adelante: acá quedan las acciones de oficina */}
                   {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
                     onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
                   {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
                     <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
-                    <button className="btn-ghost" onClick={() => confirmar(g)}>Confirmar pago</button>{' '}
+                    {/* confirmar = el dinero ya se entregó. No se habilita hasta
+                        que estén las firmas que exige el proyecto (la base
+                        también lo impide, sql/89). */}
+                    {(() => {
+                      const faltaF = g.requester_id && !g.requester_signed_at
+                      const faltaS = proyecto?.expense_approval && !g.approved_at
+                      const motivo = faltaF ? 'Falta la firma de ' + nombreFirmante(g)
+                        : faltaS ? 'Falta la aprobación firmada del socio' : ''
+                      return (
+                        <button className="btn-ghost" onClick={() => confirmar(g)} disabled={!!motivo}
+                          title={motivo || 'El dinero ya se entregó'}
+                          style={motivo ? { opacity: .45, cursor: 'not-allowed' } : undefined}>
+                          {motivo ? '🔒 Confirmar pago' : 'Confirmar pago'}
+                        </button>
+                      )
+                    })()}{' '}
                     {['admin', 'superuser'].includes(role) &&
                       <button className="link-btn bad" onClick={async () => {
                         if (!confirm(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`)) return
