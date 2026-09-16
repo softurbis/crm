@@ -17,6 +17,7 @@
 // `avisar` y `pasarAHumano`, que son los que tienen la sesión y los tiempos.
 // ============================================================================
 const { Anthropic } = require('@anthropic-ai/sdk')
+const VOZ = require('./transcribir')
 
 const TZ = 'America/Lima'
 const MODELO_POR_DEFECTO = 'claude-opus-5'
@@ -394,17 +395,45 @@ module.exports = function crearVentasIA({ supabase, log }) {
   // ---------------------------------------------------------------- historial
   // Lo mismo que muestra la bandeja del panel: entrantes y lo escrito desde el
   // celular (whatsapp_messages) + lo que mandó el bot o el panel (scheduled_messages).
+  let conColumnaVoz = true   // false si todavía no se corrió sql/93
+  async function mensajesDelChat(convId) {
+    const q = cols => supabase.from('whatsapp_messages').select(cols).eq('conversation_id', convId).order('created_at', { ascending: false }).limit(60)
+    if (conColumnaVoz) {
+      const r = await q('id, body, created_at, direction, media_url, media_type, delivery_status, transcripcion')
+      if (!r.error) return r
+      if (!/transcripcion/.test(r.error.message)) return r
+      conColumnaVoz = false
+      log('VENTAS IA: falta correr sql/93 (las notas de voz se transcriben pero no se guardan)')
+    }
+    return q('id, body, created_at, direction, media_url, media_type, delivery_status')
+  }
+
+  // Notas de voz del cliente → texto (Groq). Se guarda para no volver a pagarla y
+  // para que el panel muestre lo que dijo. Máximo 5 por turno: un cliente que
+  // mandó 20 audios no deja al agente pensando un minuto.
+  async function oirNotasDeVoz(filas) {
+    if (!VOZ.disponible()) return
+    let hechas = 0
+    for (const f of filas) {
+      if (f.dir !== 'in' || f.media_type !== 'audio' || !f.media_url || f.transcripcion != null || hechas >= 5) continue
+      hechas++
+      try {
+        f.transcripcion = await VOZ.transcribir(f.media_url)
+        if (conColumnaVoz && f.id) await supabase.from('whatsapp_messages').update({ transcripcion: f.transcripcion }).eq('id', f.id).then(() => {}, () => {})
+      } catch (e) { log('VENTAS IA nota de voz:', String(e.message || e)) }
+    }
+  }
+
   async function historial(ctx) {
     const { conv, phone } = ctx
     const tel = dig(phone)
     const [ins, outs] = await Promise.all([
-      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, delivery_status')
-        .eq('conversation_id', conv.id).order('created_at', { ascending: false }).limit(60),
+      mensajesDelChat(conv.id),
       supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, tipo, status')
         .eq('recipient_phone', tel).eq('status', 'enviado').order('scheduled_for', { ascending: false }).limit(60),
     ])
     const filas = []
-    for (const m of (ins.data || [])) filas.push({ at: m.created_at, dir: m.direction === 'out' ? 'out' : 'in', autor: m.direction === 'out' ? 'equipo' : 'cliente', texto: m.body, media_url: m.media_url, media_type: m.media_type })
+    for (const m of (ins.data || [])) filas.push({ id: m.id, at: m.created_at, dir: m.direction === 'out' ? 'out' : 'in', autor: m.direction === 'out' ? 'equipo' : 'cliente', texto: m.body, media_url: m.media_url, media_type: m.media_type, transcripcion: m.transcripcion ?? null })
     for (const m of (outs.data || [])) {
       const tipo = String(m.tipo || '').replace(/^test_/, '')
       const body = String(m.body || '')
@@ -415,6 +444,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
     }
     filas.sort((a, b) => new Date(a.at) - new Date(b.at))
     const ult = filas.slice(-40)
+    await oirNotasDeVoz(ult)
     let ultimaRespuesta = -1
     ult.forEach((f, i) => { if (f.dir === 'out' && f.autor === 'agente') ultimaRespuesta = i })
 
@@ -430,7 +460,11 @@ module.exports = function crearVentasIA({ supabase, log }) {
         if (f.media_url || f.media_type) {
           const nuevo = i > ultimaRespuesta
           if (nuevo && f.media_type === 'image' && f.media_url) b.push({ type: 'image', source: { type: 'url', url: f.media_url } })
-          else if (f.media_type === 'audio') b.push({ type: 'text', text: '[Nota interna: la persona mandó un audio y no puedes escucharlo. Pídele con amabilidad que te lo escriba, como si no pudieras escuchar audios en este momento.]' })
+          else if (f.media_type === 'audio' && f.transcripcion) b.push({ type: 'text', text: '[nota de voz] ' + f.transcripcion })
+          else if (f.media_type === 'audio' && f.transcripcion === '') b.push({ type: 'text', text: '[nota de voz en la que no se entienden palabras: si hace falta, pídele que la repita o te la escriba]' })
+          else if (f.media_type === 'audio') b.push({ type: 'text', text: nuevo
+            ? '[Nota interna: la persona mandó un audio y no puedes escucharlo. Pídele con amabilidad que te lo escriba, como si no pudieras escuchar audios en este momento.]'
+            : '[la persona mandó una nota de voz, ya atendida]' })
           else b.push({ type: 'text', text: '[la persona envió un archivo (' + (f.media_type || 'adjunto') + ')' + (nuevo ? '' : ', ya visto') + ']' })
         }
         if (f.texto) b.push({ type: 'text', text: f.texto })

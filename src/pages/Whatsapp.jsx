@@ -654,11 +654,14 @@ export default function Whatsapp() {
     const orSched = `conversation_id.eq.${c.id},and(conversation_id.is.null,recipient_phone.in.(${dests.join(',')}))`
     // solo los ~150 más recientes de cada lado (con el backup un chat puede tener miles):
     // el orden DESC + limit baja el EGRESS muchísimo; el sort final los deja cronológicos.
-    const [ins, outs] = await Promise.all([
-      supabase.from('whatsapp_messages').select('body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(150),
+    const [ins, outs, voz] = await Promise.all([
+      supabase.from('whatsapp_messages').select('id, body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(150),
       supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).order('scheduled_for', { ascending: false }).limit(150),
+      // notas de voz transcritas (sql/93). Consulta aparte: si la columna no existe, falla sola y la bandeja sigue
+      supabase.from('whatsapp_messages').select('id, transcripcion').eq('conversation_id', c.id).eq('media_type', 'audio').not('transcripcion', 'is', null).limit(150),
     ])
-    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial' }))
+    const transcritas = new Map((voz.data || []).map(v => [v.id, v.transcripcion]))
+    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial', transcripcion: transcritas.get(m.id) }))
     const b = (outs.data || [])
       .filter(m => m.tipo !== 'edit_panel')   // las ediciones no son burbujas (actualizan el original)
       .map(m => m.tipo === 'vcard_panel'
@@ -1512,7 +1515,10 @@ export default function Whatsapp() {
                         : m.media_type === 'video'
                           ? <video src={m.media_url} controls preload="none" style={{ maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: m.body ? 6 : 0 }} />
                           : m.media_type === 'audio'
-                            ? <audio src={m.media_url} controls preload="none" style={{ maxWidth: 260, display: 'block', marginBottom: m.body ? 6 : 0 }} />
+                            ? <>
+                                <audio src={m.media_url} controls preload="none" style={{ maxWidth: 260, display: 'block', marginBottom: m.body || m.transcripcion != null ? 6 : 0 }} />
+                                {m.transcripcion != null && <div title="Transcrita automáticamente: puede tener errores" style={{ fontSize: 12, fontStyle: 'italic', opacity: .85, textTransform: 'none', marginBottom: m.body ? 6 : 0 }}>🎙️ {m.transcripcion ? '“' + m.transcripcion + '”' : '(no se entienden palabras)'}</div>}
+                              </>
                             : <a href={m.media_url} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#7ec8e3', marginBottom: m.body ? 6 : 0, textTransform: 'none' }}>📄 {m.media_name || 'DOCUMENTO'}</a>
                     )}
                     {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}
