@@ -49,7 +49,7 @@ panel, sin que salga ningún mensaje.
    acumuladas, **en ese orden**. Son una sola vez:
 
 ```bash
-scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" "C:\Claude\Projects\Sistema CRM\sql\90_cobranza_escalon.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; for f in 76_agente_cobranza 77_rol_real 90_cobranza_escalon; do echo "== $f =="; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/$f.sql || break; done'
+scp "C:\Claude\Projects\Sistema CRM\sql\76_agente_cobranza.sql" "C:\Claude\Projects\Sistema CRM\sql\77_rol_real.sql" "C:\Claude\Projects\Sistema CRM\sql\90_cobranza_escalon.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/76_agente_cobranza.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/77_rol_real.sql && PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/90_cobranza_escalon.sql'
 ```
 
    > `ON_ERROR_STOP=1` es importante: sin eso, `psql` responde "todo bien" aunque
