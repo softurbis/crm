@@ -192,7 +192,7 @@ function Resultados({ cfg }) {
   }
   useEffect(() => { cargar() }, [desde])
 
-  const g = k => (filas || []).find(f => f.grupo === k) || { leads: 0, respondieron: 0, visitas_agendadas: 0, visitas_realizadas: 0, ganados: 0, propuestas_agente: 0, derivados: 0, costo_tokens_in: 0, costo_tokens_out: 0 }
+  const g = k => (filas || []).find(f => f.grupo === k) || { leads: 0, respondieron: 0, visitas_agendadas: 0, visitas_realizadas: 0, ganados: 0, propuestas_agente: 0, derivados: 0, intervenidos: 0, costo_tokens_in: 0, costo_tokens_out: 0 }
   const ia = g('ia'), hu = g('humano')
   const [pin, pout] = PRECIOS[cfg.modelo] || PRECIOS['claude-opus-5']
   const usd = (Number(ia.costo_tokens_in) * pin + Number(ia.costo_tokens_out) * pout) / 1e6
@@ -230,6 +230,11 @@ function Resultados({ cfg }) {
         El agente propuso {ia.propuestas_agente} visita(s) y pasó {ia.derivados} lead(s) a una persona. Costo aproximado de Claude: US$ {usd.toFixed(2)}
         {Number(ia.leads) ? ` (US$ ${(usd / Number(ia.leads)).toFixed(2)} por lead)` : ''}.
       </p>
+      {Number(ia.intervenidos) > 0 && (
+        <p className="error" style={{ textTransform: 'none' }}>
+          ⚠ {ia.intervenidos} lead(s) del agente fueron tocados por una persona (escribió desde el celular o el panel). Esas conversaciones no las terminó el agente: míralas en <b>Leads del agente</b>.
+        </p>
+      )}
       <p className="hint" style={{ textTransform: 'none' }}>
         <b>Cómo se mide:</b> los dos grupos salen del mismo reparto al azar y se miden igual: una visita cuenta si está en <b>Visitas</b> con el celular del lead
         y fue registrada después del reparto (las del supervisor las carga él; las del agente entran al confirmarlas aquí). Las pruebas no cuentan.
@@ -248,7 +253,7 @@ function Leads() {
 
   async function cargar() {
     const { data } = await supabase.from('ventas_ia_leads')
-      .select('lead_id, grupo, es_prueba, motivo, asignado_at, primer_mensaje_at, ultimo_turno_at, turnos, derivado_at, derivado_motivo, lead:leads(full_name, phone, status, temperature, budget_estimate), project:projects(name)')
+      .select('lead_id, grupo, es_prueba, motivo, asignado_at, primer_mensaje_at, ultimo_turno_at, turnos, derivado_at, derivado_motivo, intervenido_at, intervenido_por, intervenido_texto, lead:leads(full_name, phone, status, temperature, budget_estimate), project:projects(name)')
       .eq('grupo', 'ia').eq('es_prueba', verPruebas).order('asignado_at', { ascending: false }).limit(100)
     setLista(data || [])
   }
@@ -277,6 +282,7 @@ function Leads() {
                     <td className="small">
                       {String(v.lead?.status || '').replace('_', ' ')}{v.lead?.temperature === 'caliente' ? ' 🔥' : ''}
                       {v.derivado_at && <><br />🙋 pasado a persona: {v.derivado_motivo}</>}
+                      {v.intervenido_at && <><br /><span className="error" title={v.intervenido_texto || ''}>⚠ tocado por {v.intervenido_por === 'celular' ? 'el celular del chip' : v.intervenido_por} · {fHora(v.intervenido_at)}</span></>}
                     </td>
                   </tr>
                 )

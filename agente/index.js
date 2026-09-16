@@ -1701,11 +1701,13 @@ async function detectarProyecto(texto) {
 async function pasarAsesor(ses, jid, phone, lead, motivo, sinSaludo) {
   // EXPERIMENTO (sql/91): de cada 10 que llegan aquí, algunos los atiende el agente
   // de ventas IA en vez del supervisor. Si algo falla, sigue el camino de siempre.
+  let grupo = null
   try {
-    const grupo = await VIA.asignar(lead, { phone, motivo, esPrueba: !!TEST_ACTIVE })
+    grupo = await VIA.asignar(lead, { phone, motivo, esPrueba: !!TEST_ACTIVE })
     if (grupo === 'ia') { await entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo); return }
   } catch (e) { log('VENTAS IA reparto:', String(e.message || e)) }
   await setConv(phone, { flow_state: 'humano' }, ses)
+  if (grupo === 'humano') await etiquetarExperimento(ses, phone, 'SUPERVISOR', true)
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}).catch(() => {})
   if (!sinSaludo) await enviar(jid, textoPasoAsesor(lead), { tipo: 'lead_flujo', lead_id: lead.id, ses })
   const { data: l2 } = await supabase.from('leads').select('full_name, project:projects(name, lead_notify_phone)').eq('id', lead.id).maybeSingle()
@@ -1729,8 +1731,46 @@ function textoPasoAsesor(lead) {
   const primer = (lead.full_name && lead.full_name !== 'POR CONFIRMAR') ? ', ' + lead.full_name.split(' ')[0] : ''
   return `¡Con gusto${primer}! 🙌 Te paso con un *asesor especializado* que te ayudará con precios, disponibilidad y a coordinar tu visita. Te escribe en breve. 🌳`
 }
+// Etiqueta visible en el celular del chip (WhatsApp Business) y en la bandeja del
+// panel: quien tiene el celular sabe de un vistazo qué chats no le tocan.
+async function etiquetarExperimento(ses, phone, etiqueta, soloSiVacio) {
+  if (TEST_ACTIVE) return
+  try {
+    const conv = await estadoConv(phone, ses)
+    if (!conv || conv.is_test || (soloSiVacio && conv.tag)) return
+    await supabase.from('whatsapp_conversations').update({ tag: etiqueta }).eq('id', conv.id)
+    const S = (ses && ses.sock) ? ses : await sesionPara(phone, {})
+    if (S && S.sock) await aplicarLabelChat(S, conv, etiqueta)
+  } catch (e) { log('VENTAS IA etiqueta:', String(e.message || e)) }
+}
+
+// Alguien escribió a mano (celular o panel) en un chat que atiende el agente. No se
+// impide: si el cliente necesita a una persona, que la tenga, y el agente ya se
+// calla por el modo humano. Pero ese lead deja de medir al agente: queda anotado
+// (sql/92) y el dueño recibe UNA alarma por lead.
+async function marcarIntervencion(conv, por, texto) {
+  try {
+    if (!conv?.lead_id || conv.flow_state !== 'ia') return
+    const { data: v } = await supabase.from('ventas_ia_leads').select('grupo, es_prueba, intervenido_at, derivado_at').eq('lead_id', conv.lead_id).maybeSingle()
+    if (!v || v.grupo !== 'ia' || v.es_prueba || v.derivado_at) return   // derivado = el agente lo pasó: escribirle es lo que corresponde
+    const corto = String(texto || '[archivo]').slice(0, 300)
+    await supabase.from('lead_activities').insert({ lead_id: conv.lead_id, note: ('UNA PERSONA ESCRIBIÓ (' + por + ') EN UN CHAT DEL AGENTE IA: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}, () => {})
+    if (v.intervenido_at) return
+    const { error } = await supabase.from('ventas_ia_leads').update({ intervenido_at: new Date().toISOString(), intervenido_por: por, intervenido_texto: corto }).eq('lead_id', conv.lead_id)
+    if (error) log('VENTAS IA intervención (¿falta sql/92?):', error.message)
+    const cfg = await VIA.config()
+    const { data: l } = await supabase.from('leads').select('full_name').eq('id', conv.lead_id).maybeSingle()
+    if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, '⚠️ *ALGUIEN ESCRIBIÓ A UN LEAD DE TU AGENTE*\nDesde: ' + (por === 'celular' ? 'el celular del chip' : 'el panel (' + por + ')') +
+      '\nCliente: ' + (l?.full_name || '-') + '\nTel: +' + conv.phone + '\nEscribió: "' + corto + '"' +
+      '\n\nEl agente se calló en ese chat y el lead queda como TOCADO en el experimento. Si fue un error: WhatsApp del panel → ese chat → "devolver al bot" y el agente sigue.',
+      { tipo: 'aviso_admin', prueba: false })
+    log('VENTAS IA: una persona escribió (' + por + ') en el chat del agente con', conv.phone)
+  } catch (e) { log('VENTAS IA intervención:', String(e.message || e)) }
+}
+
 async function entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo) {
   await setConv(phone, { flow_state: 'ia', flow_step: null }, ses)
+  await etiquetarExperimento(ses, phone, 'AGENTE IA')
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}, () => {})
   if (!sinSaludo) await enviar(jid, textoPasoAsesor(lead), { tipo: 'lead_flujo', lead_id: lead.id, ses })
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: 'LO ATIENDE EL AGENTE DE VENTAS IA (' + String(motivo || '').toUpperCase() + ')' }).then(() => {}, () => {})
@@ -2416,13 +2456,13 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     if (trivial) return
     if (/asesor|humano|persona real|hablar con alguien|que me llamen|llamen/i.test(corto)) {
       // también entra al reparto del experimento (sql/91)
+      let grupo = null
       try {
-        if ((await VIA.asignar(lead, { phone, motivo: 'pidio_asesor', esPrueba: !!TEST_ACTIVE })) === 'ia') {
-          await entregarAlAgente(ses, jid, phone, lead, 'pidio_asesor')
-          return
-        }
+        grupo = await VIA.asignar(lead, { phone, motivo: 'pidio_asesor', esPrueba: !!TEST_ACTIVE })
+        if (grupo === 'ia') { await entregarAlAgente(ses, jid, phone, lead, 'pidio_asesor'); return }
       } catch (e) { log('VENTAS IA reparto:', String(e.message || e)) }
       await setConv(phone, { flow_state: 'humano' }, ses)
+      if (grupo === 'humano') await etiquetarExperimento(ses, phone, 'SUPERVISOR', true)
       await enviar(jid, 'Claro 🙌 Le paso con un asesor de Urbis. Te escribe en breve.', { tipo: 'lead_flujo', lead_id: lead.id, ses })
       if (ADMIN) await enviar(ADMIN, '⚠️ PIDIÓ ASESOR\nTel: ' + phone + '\nNombre: ' + (lead.full_name || '-') + '\nÚltimo msj: ' + corto.slice(0, 120), { tipo: 'aviso_admin' })
       return
@@ -2541,6 +2581,7 @@ async function registrarDesdeCelular(S, m) {
     await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_desde: new Date().toISOString() }).eq('id', conv.id)
     log('CHAT EN MODO HUMANO (respuesta desde el celular):', phone)
   }
+  if (conv && !esInterno) await marcarIntervencion(conv, 'celular', texto || (media ? '[' + (media.tipo || 'archivo') + ']' : ''))
   log('CELULAR -> registrado a', phone, 'por', S.row.label || 'PRINCIPAL')
 }
 
@@ -3945,11 +3986,11 @@ async function procesarSalientesPanel() {
     try {
       let conv = null
       if (m.conversation_id) {
-        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id').eq('id', m.conversation_id).maybeSingle()
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id, lead_id, flow_state').eq('id', m.conversation_id).maybeSingle()
         conv = c || null
       }
       if (!conv) {
-        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id')
+        const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id, lead_id, flow_state')
           .eq('phone', m.recipient_phone).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
         conv = (c || [])[0] || null
       }
@@ -4009,6 +4050,10 @@ async function procesarSalientesPanel() {
       if (conv && conv.modo !== 'humano') {
         await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_por: m.sender_id || null, humano_desde: new Date().toISOString() }).eq('id', conv.id)
         log('CHAT EN MODO HUMANO:', conv.phone)
+      }
+      if (conv?.flow_state === 'ia') {
+        const { data: quien } = m.sender_id ? await supabase.from('profiles').select('full_name').eq('id', m.sender_id).maybeSingle() : { data: null }
+        await marcarIntervencion(conv, quien?.full_name || 'panel', m.body || (m.media_type ? '[' + m.media_type + ']' : ''))
       }
       log('PANEL -> ENVIADO a', m.recipient_phone, 'por', S.row.label || 'PRINCIPAL')
     } catch (e) {

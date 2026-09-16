@@ -10,6 +10,7 @@ const FLOW = {
   espera_nombre:   { t: 'ESPERANDO NOMBRE',  c: '#e0b34c' },
   espera_proyecto: { t: 'ELIGIENDO PROYECTO', c: '#7ec8e3' },
   completado:      { t: 'CALIFICADO',         c: '#7fbf7f' },
+  ia:              { t: '🤖 AGENTE IA',       c: '#8ab4f8' },   // lo atiende el agente de ventas (sql/91)
 }
 const TIPOS = [
   { v: 'desactivado', t: 'ADMINISTRATIVO (el bot no le responde; si recibe avisos internos)', s: 'ADMINISTRATIVO', c: '#e07b7b' },
@@ -1469,6 +1470,8 @@ export default function Whatsapp() {
                             await supabase.from('whatsapp_conversations').update({ modo: 'bot', humano_por: null, humano_desde: null }).eq('id', sel.id)
                             cargarConvs(); setSel(x => ({ ...x, modo: 'bot' }))
                           }}>👤 EN HUMANO · 🤖 devolver al bot</button>
+                      ) : sel.flow_state === 'ia' ? (
+                        <span className="wa-badge" title="Lo atiende el agente de ventas IA (experimento). Si alguien escribe aquí, el agente se calla y el lead queda marcado como tocado." style={{ color: '#8ab4f8', borderColor: '#8ab4f8' }}>🤖 AGENTE DE VENTAS ATIENDE</span>
                       ) : (
                         <span className="wa-badge" title="El bot atiende este chat. Se calla solo cuando alguien responde desde el panel." style={{ color: '#9ccb86', borderColor: '#9ccb86' }}>🤖 BOT ATIENDE</span>
                       )}
@@ -1563,11 +1566,17 @@ export default function Whatsapp() {
                   <button className="btn-ghost" onClick={() => setReenvio(null)}>✕</button>
                 </div>
               )}
-              {puedeEscribir
+              {sel.flow_state === 'ia' && sel.modo !== 'humano' && (
+                <p style={{ fontSize: 12, margin: '6px 0', padding: '6px 10px', borderRadius: 8, border: '1px solid #8ab4f8', color: '#8ab4f8', textTransform: 'none' }}>
+                  🤖 <b>Este cliente lo atiende el agente de ventas</b> (experimento de gerencia). No le escribas ni lo llames: si hace falta una persona, el agente avisa.
+                  {role === 'superuser' && ' Si escribes aquí, el agente se calla y el lead queda marcado como tocado.'}
+                </p>
+              )}
+              {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
                     quicks={quicks} esAdmin={esAdminW} onQuicks={guardarQuicks}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
-                : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
+                : !puedeEscribir && <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
             </>
           )}
         </div>
