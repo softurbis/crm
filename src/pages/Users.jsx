@@ -48,10 +48,10 @@ const ROLES = [
 // "Paneles visibles". WhatsApp y Seguimiento quedan fuera: son del equipo.
 const SOCIO_PANELS = ['/lotes', '/ventas', '/pagos', '/gastos', '/contratos', '/comisiones', '/clientes']
 
-// Campo de teléfono CON botón: guardar al salir del casillero no se nota y uno
-// se queda esperando un botón que no existe. También guarda con Enter, y cuando
-// ya está guardado muestra ✓.
-function CampoTel({ valor, placeholder, titulo, onGuardar }) {
+// Campo chico CON botón (celulares, DNI): guardar al salir del casillero no se
+// nota y uno se queda esperando un botón que no existe. También guarda con
+// Enter, y cuando ya está guardado muestra ✓.
+function CampoConBoton({ valor, placeholder, titulo, onGuardar }) {
   const [v, setV] = useState(valor || '')
   const [guardando, setGuardando] = useState(false)
   useEffect(() => { setV(valor || '') }, [valor])
@@ -189,6 +189,18 @@ export default function Users() {
       setNu({ role: 'secretary' }); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
     setBusy(false)
+  }
+
+  // DNI de la persona (sql/87): con esto la constancia de gastos lo llena solo,
+  // en vez de escribirlo a mano en cada solicitud.
+  async function guardarDni(u, dni) {
+    const d = String(dni || '').replace(/\D/g, '')
+    if (d === String(u.dni || '')) return
+    if (d && (d.length < 8 || d.length > 12)) { setMsg({ ok: false, t: 'EL DNI TIENE 8 DÍGITOS (o el número del carné de extranjería)' }); return }
+    const { error } = await supabase.from('profiles').update({ dni: d || null }).eq('id', u.id)
+    if (error) { setMsg({ ok: false, t: /dni|column|schema cache/i.test(error.message) ? 'FALTA CORRER sql/87 EN LA BASE.' : 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: d ? 'DNI DE ' + (u.full_name || u.email) + ' GUARDADO' : 'DNI QUITADO A ' + (u.full_name || u.email) })
+    load()
   }
 
   // Celular de FIRMA (sql/86): adonde llega el codigo de 6 digitos para firmar.
@@ -414,7 +426,15 @@ export default function Users() {
                   </div>
                 </td>
                 <td>{u.email}{u.id === profile?.id && <b className="accent"> (TU)</b>}</td>
-                <td><input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} /></td>
+                <td>
+                  <input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} />
+                  {/* el DNI sale solo en las constancias de gastos (sql/87) */}
+                  <div style={{ marginTop: 4 }}>
+                    <CampoConBoton valor={u.dni} placeholder="DNI"
+                      titulo="Sale solo en las constancias donde esta persona recibe o entrega el dinero"
+                      onGuardar={dni => guardarDni(u, dni)} />
+                  </div>
+                </td>
                 <td>
                   <select value={u.role} disabled={u.id === profile?.id}
                     onChange={e => cambiarRol(u, e.target.value)}>
@@ -426,11 +446,11 @@ export default function Users() {
                       · firma: el personal, adonde llega el código de 6 dígitos (sql/86) */}
                   <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {u.role === 'socio' && (
-                      <CampoTel valor={u.phone} placeholder="WhatsApp de avisos 51…"
+                      <CampoConBoton valor={u.phone} placeholder="WhatsApp de avisos 51…"
                         titulo="Por aquí le avisa el bot cuando hay una solicitud por firmar"
                         onGuardar={tel => guardarTelSocio(u, tel)} />
                     )}
-                    <CampoTel valor={u.firma_phone} placeholder="📲 Celular para FIRMAR 51…"
+                    <CampoConBoton valor={u.firma_phone} placeholder="📲 Celular para FIRMAR 51…"
                       titulo="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo."
                       onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}

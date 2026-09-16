@@ -30,12 +30,12 @@ const MOTIVOS_NA = [
   'EL PROVEEDOR NO EMITIO COMPROBANTE',
 ]
 
-const GASTO_VARS = ['RECEPTOR','RECEPTOR_DNI','FECHA_LETRAS','MONTO','MONTO_LETRAS','MOTIVO','TIPO','PROYECTO','DESCUENTO','NUMERO']
+const GASTO_VARS = ['RECEPTOR','RECEPTOR_DNI','REMITENTE','REMITENTE_DNI','FECHA_LETRAS','MONTO','MONTO_LETRAS','MOTIVO','TIPO','PROYECTO','DESCUENTO','NUMERO']
 const GASTO_BLOQUES = ['TABLA_DETALLE','FIRMA_RECEPTOR']
 
 const DEFAULT_GASTO_TEMPLATE = `CONSTANCIA DE RECEPCION DE DINERO
 
-Yo, {{RECEPTOR}}, identificado con DNI N. {{RECEPTOR_DNI}}, dejo constancia de haber recibido en la fecha {{FECHA_LETRAS}}, la suma de {{MONTO}} ({{MONTO_LETRAS}} SOLES).
+Yo, {{RECEPTOR}}, identificado con DNI N. {{RECEPTOR_DNI}}, dejo constancia de haber recibido en la fecha {{FECHA_LETRAS}}, la suma de {{MONTO}} ({{MONTO_LETRAS}} SOLES) de parte de {{REMITENTE}}, identificado(a) con DNI N. {{REMITENTE_DNI}}.
 Este monto corresponde al pago por {{MOTIVO}} del proyecto "{{PROYECTO}}".
 {{TABLA_DETALLE}}
 *Este presupuesto se descontara directamente de {{DESCUENTO}}.
@@ -66,6 +66,7 @@ export default function Expenses() {
   const [firmaBusy, setFirmaBusy] = useState(false)
   const [verif, setVerif] = useState(null)              // huellas de las dos firmas (verificar_gasto)
   const [firmantes, setFirmantes] = useState([])        // a quien se le puede pedir la firma en este proyecto
+  const [personas, setPersonas] = useState([])          // personas del proyecto con su DNI (sql/87)
   const [proyecto, setProyecto] = useState(null)
   const [list, setList] = useState([])
   const [msg, setMsg] = useMsg(null)
@@ -99,6 +100,9 @@ export default function Expenses() {
   useEffect(() => {
     if (!pidOp || readOnly) return
     supabase.rpc('firmantes_gasto', { pid: pidOp }).then(({ data }) => setFirmantes(data || []), () => setFirmantes([]))
+    // todas las personas del proyecto CON su DNI (sql/87): sirven para llenar
+    // solos al que recibe y al que entrega el dinero, socios incluidos
+    supabase.rpc('personas_gasto', { pid: pidOp }).then(({ data }) => setPersonas(data || []), () => setPersonas([]))
   }, [pidOp, readOnly])
   useEffect(() => {
     setVerif(null)
@@ -171,7 +175,11 @@ export default function Expenses() {
       const campos = {
         type: f.type || 'OTROS', issue_date: f.issue_date || hoy(),
         recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
-        sender: firm ? up(firm.full_name) : up(f.sender), amount: Number(f.amount),
+        // quien ENTREGA el dinero (el remitente de la constancia) es un dato
+        // propio: antes se copiaba el nombre de quien firma la solicitud, que
+        // casi siempre es OTRA persona — justamente la que recibe (sql/87)
+        sender: up(f.sender), sender_dni: (f.sender_dni || '').trim() || null,
+        amount: Number(f.amount),
         // la columna solo se manda si sql/74 esta corrido (si no, firmantes_gasto
         // no responde y la lista queda vacia). Sin esto, un panel desplegado
         // antes que la migracion dejaria a la secretaria sin poder registrar
@@ -181,6 +189,11 @@ export default function Expenses() {
         description: up(f.description), discount_from: f.discount_from || 'URBIS GROUP',
         detail: (f.detail || '').trim() || null,
       }
+      // si todavía no se corrió sql/87, la columna sender_dni no existe: se
+      // reintenta sin ella en vez de dejar a nadie sin poder registrar el gasto
+      const sinDni = o => { const c = { ...o }; delete c.sender_dni; return c }
+      const faltaCol = e => /sender_dni/i.test(e?.message || '')
+
       if (editId) {
         // corrige la MISMA solicitud: conserva el correlativo (request_number).
         // Las firmas eran sobre OTROS datos: se anulan las dos y la solicitud
@@ -200,13 +213,18 @@ export default function Expenses() {
             requester_hash: null, requester_code: null, requester_notified_at: null,
           } : {}),
         } : {}
-        const { error } = await supabase.from('expenses').update({ ...campos, ...reinicio }).eq('id', editId)
+        let { error } = await supabase.from('expenses').update({ ...campos, ...reinicio }).eq('id', editId)
+        if (error && faltaCol(error)) ({ error } = await supabase.from('expenses').update({ ...sinDni(campos), ...reinicio }).eq('id', editId))
         if (error) throw new Error(error.message)
         setMsg({ ok: true, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' })
       } else {
-        const { data: creado, error } = await supabase.from('expenses')
-          .insert({ project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id, ...campos })
-          .select('request_number').single()
+        const base = { project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id }
+        let { data: creado, error } = await supabase.from('expenses')
+          .insert({ ...base, ...campos }).select('request_number').single()
+        if (error && faltaCol(error)) {
+          ({ data: creado, error } = await supabase.from('expenses')
+            .insert({ ...base, ...sinDni(campos) }).select('request_number').single())
+        }
         if (error) throw new Error(error.message)
         setMsg({
           ok: true,
@@ -462,11 +480,16 @@ export default function Expenses() {
   function porDefecto(extra = {}) {
     const ult = list.find(g => (!extra.type || g.type === extra.type) && g.recipient) || {}
     const previo = firmantes.length === 1 ? firmantes[0].id : (list.find(g => g.requester_id)?.requester_id || '')
+    // quien ENTREGA de parte de Urbis: el socio del proyecto, o el último que entregó
+    const socio = personas.find(p => p.rol === 'socio')
+    const ultEntrega = list.find(g => g.sender) || {}
     return {
       issue_date: hoy(),
       requester_id: firmantes.some(p => p.id === previo) ? previo : '',
       recipient: ult.recipient || '',
-      recipient_dni: ult.recipient_dni || '',
+      recipient_dni: ult.recipient_dni || dniDe(ult.recipient),
+      sender: socio?.full_name || ultEntrega.sender || '',
+      sender_dni: socio?.dni || ultEntrega.sender_dni || '',
       ...extra,
     }
   }
@@ -485,12 +508,19 @@ export default function Expenses() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // ---- RECEPTORES ya usados: elegirlo completa su DNI solo ----
-  const receptores = useMemo(() => {
+  // ---- NOMBRES CONOCIDOS con su DNI ----
+  // Las personas del sistema (sql/87) y quienes ya recibieron o entregaron en
+  // gastos anteriores. Al elegir uno, su DNI se llena solo.
+  const opcionesPersonas = useMemo(() => {
     const m = new Map()
-    for (const g of list) if (g.recipient && !m.has(g.recipient)) m.set(g.recipient, g.recipient_dni || '')
+    for (const p of personas) if (p.full_name) m.set(String(p.full_name).toUpperCase(), p.dni || '')
+    for (const g of list) {
+      if (g.recipient && !m.has(g.recipient)) m.set(g.recipient, g.recipient_dni || '')
+      if (g.sender && !m.has(g.sender)) m.set(g.sender, g.sender_dni || '')
+    }
     return [...m.entries()]
-  }, [list])
+  }, [personas, list])
+  const dniDe = nombre => opcionesPersonas.find(([n]) => n === String(nombre || '').toUpperCase())?.[1] || ''
 
   // ---- DETALLE en filas (se guarda como siempre: FECHA | DESCRIPCION | MONTO) ----
   // La primera columna casi siempre es la fecha, pero en gastos viejos puede ser
@@ -527,6 +557,8 @@ export default function Expenses() {
     const vars = {
       RECEPTOR: g.recipient || '____________________',
       RECEPTOR_DNI: g.recipient_dni || '__________',
+      REMITENTE: g.sender || '____________________',
+      REMITENTE_DNI: g.sender_dni || '__________',
       FECHA_LETRAS: fechaLetras(g.issue_date || hoy()),
       MONTO: 'S/. ' + Number(g.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 }),
       MONTO_LETRAS: letras(Number(g.amount || 0)),
@@ -661,7 +693,7 @@ export default function Expenses() {
       )}
 
       {show && !readOnly && (
-        <form className="glass form-card" onSubmit={guardar}>
+        <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardar}>
           <p><b>{editId ? 'CORREGIR SOLICITUD (se mantiene el mismo correlativo)' : 'SOLICITUD DE GASTO'}</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
           {!editId && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px', alignItems: 'center' }}>
@@ -672,6 +704,10 @@ export default function Expenses() {
               ))}
             </div>
           )}
+          {/* dos columnas: los campos a la izquierda y la constancia a la
+              derecha, para llenar mirando cómo va quedando. En pantalla angosta
+              se apilan solas. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 18, alignItems: 'start' }}>
           <div className="form-grid">
             <label>Tipo
               <select value={f.type || ''} onChange={e => setF(x => ({ ...x, type: e.target.value }))} required>
@@ -681,34 +717,51 @@ export default function Expenses() {
             </label>
             {IN('issue_date', 'Fecha', 'date', true)}
             {IN('amount', 'Monto S/', 'number', true)}
-            {/* al elegir a alguien que ya recibió antes, su DNI se llena solo */}
-            <label>Receptor (quien recibe el dinero)
-              <input list="receptores-gasto" value={f.recipient || ''} required
+            {/* LAS DOS PERSONAS DE LA CONSTANCIA. Al elegir a alguien conocido
+                (del sistema o de un gasto anterior) su DNI se llena solo. */}
+            <label>Quien RECIBE el dinero
+              <input list="personas-gasto" value={f.recipient || ''} required
                 onChange={e => {
-                  const v = e.target.value
-                  const dni = receptores.find(([n]) => n === v.toUpperCase())?.[1]
-                  setF(x => ({ ...x, recipient: v, ...(dni ? { recipient_dni: dni } : {}) }))
+                  const v = e.target.value, d = dniDe(v)
+                  setF(x => ({ ...x, recipient: v, ...(d ? { recipient_dni: d } : {}) }))
                 }} />
-              <datalist id="receptores-gasto">
-                {receptores.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
-              </datalist>
             </label>
-            {IN('recipient_dni', 'DNI del receptor', 'text', true)}
+            {IN('recipient_dni', 'DNI de quien recibe', 'text', true)}
+            <label>Quien ENTREGA el dinero <span className="muted small">(de parte de Urbis)</span>
+              <input list="personas-gasto" value={f.sender || ''}
+                onChange={e => {
+                  const v = e.target.value, d = dniDe(v)
+                  setF(x => ({ ...x, sender: v, ...(d ? { sender_dni: d } : {}) }))
+                }} />
+            </label>
+            {IN('sender_dni', 'DNI de quien entrega')}
+            <datalist id="personas-gasto">
+              {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
+            </datalist>
             {/* El solicitante deja de ser un texto suelto: es la persona que
                 despues FIRMA la solicitud en el panel (sql/74). Si el proyecto
                 exige la aprobacion del socio, elegirlo es obligatorio — sin
                 solicitante no hay primera firma y el pago no se destraba. */}
-            <label>Solicitante — quien firma la solicitud
+            <label>Quien FIRMA la solicitud <span className="muted small">(normalmente, quien recibe)</span>
               {firmantes.length > 0 ? (
                 <select value={f.requester_id || ''} required={!!proyecto?.expense_approval}
-                  onChange={e => setF(x => ({ ...x, requester_id: e.target.value }))}>
+                  onChange={e => {
+                    const id = e.target.value
+                    const p = firmantes.find(x => x.id === id)
+                    // si todavía no se puso a quién se le entrega, se asume que
+                    // es esta misma persona: es lo que pasa casi siempre
+                    setF(x => ({
+                      ...x, requester_id: id,
+                      ...(p && !x.recipient ? { recipient: p.full_name, recipient_dni: p.dni || x.recipient_dni || '' } : {}),
+                    }))
+                  }}>
                   <option value="">{proyecto?.expense_approval ? '- elegir -' : '- nadie / se firma en papel -'}</option>
                   {firmantes.map(p => (
                     <option key={p.id} value={p.id}>{p.full_name}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
                   ))}
                 </select>
               ) : (
-                <input value={f.sender || ''} onChange={e => setF(x => ({ ...x, sender: e.target.value }))} />
+                <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
               )}
             </label>
             <label>Se descuenta de
@@ -784,6 +837,7 @@ export default function Expenses() {
             <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
               Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
             </p>
+          </div>
           </div>
 
           <button className="btn-primary" disabled={busy} style={{ marginTop: 12 }}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
