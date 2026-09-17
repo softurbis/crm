@@ -42,7 +42,10 @@ function aTexto(nodo, out) {
 export async function textoDeWord(arrayBuffer) {
   const { default: mammoth } = await import('mammoth/mammoth.browser.js')
   const { value: html } = await mammoth.convertToHtml({ arrayBuffer })
-  const doc = new DOMParser().parseFromString('<div id="raiz">' + html + '</div>', 'text/html')
+  // un espacio después de cada párrafo: una celda con dos párrafos no pega la última
+  // palabra del primero con la primera del segundo
+  const conEspacios = html.replace(/<\/(p|li|h[1-6])>/g, '$& ')
+  const doc = new DOMParser().parseFromString('<div id="raiz">' + conEspacios + '</div>', 'text/html')
   const out = []
   aTexto(doc.getElementById('raiz'), out)
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
