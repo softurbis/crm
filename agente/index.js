@@ -956,7 +956,7 @@ async function enviar(phone, texto, meta = {}) {
     if (chat) {
       const ok = await TG.tgEnviar(chat, texto)
       await supabase.from('scheduled_messages').insert({
-        recipient_phone: digTg, body: texto, tipo: meta.tipo || 'manual',
+        recipient_phone: digTg, body: meta.registro ?? texto, tipo: meta.tipo || 'manual',
         installment_id: meta.installment_id || null, client_id: meta.client_id || null,
         lead_id: meta.lead_id || null, sale_id: meta.sale_id || null,
         scheduled_for: new Date().toISOString(),
@@ -1005,13 +1005,15 @@ async function enviar(phone, texto, meta = {}) {
   const destJid = String(phone).includes('@') ? String(phone) : jidDe(phone)
   try {
     guardarMsg(await S.sock.sendMessage(destJid, { text: texto }))
-    espejo(['📤 *a +' + String(phone).replace(/\D/g, '') + '* [' + (meta.tipo || 'msj') + ']', String(texto).slice(0, 160)].join('\n'))
+    // meta.registro: lo que queda guardado en vez del texto (los códigos no se guardan legibles)
+    const paraRegistro = meta.registro ?? texto
+    espejo(['📤 *a +' + String(phone).replace(/\D/g, '') + '* [' + (meta.tipo || 'msj') + ']', String(paraRegistro).slice(0, 160)].join('\n'))
     // el contador solo sube con lo que cuenta para el tope: si sumara tambien las
     // respuestas del flujo, un par de leads volverian a dejar al chip sin cupo
     enviadosHoy++
     if (cuentaParaTope) S.enviados = (S.enviados || 0) + 1
     await supabase.from('scheduled_messages').insert({
-      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
+      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: paraRegistro, tipo: meta.tipo || 'manual',
       installment_id: meta.installment_id || null, client_id: meta.client_id || null,
       lead_id: meta.lead_id || null, sale_id: meta.sale_id || null, session_id: sesId(S),
       scheduled_for: new Date().toISOString(),
@@ -1022,7 +1024,7 @@ async function enviar(phone, texto, meta = {}) {
   } catch (e) {
     log('ERROR enviando a', phone, e.message)
     await supabase.from('scheduled_messages').insert({
-      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: texto, tipo: meta.tipo || 'manual',
+      recipient_phone: String(phone).includes('@') ? telDeJid(String(phone)) : String(phone), body: meta.registro ?? texto, tipo: meta.tipo || 'manual',
       scheduled_for: new Date().toISOString(), status: 'fallido', last_error: e.message,
     })
     return false
@@ -3523,7 +3525,7 @@ async function enviarCodigosFirma() {
     try {
       const chat = (TGREG && dig) ? await TGREG.chatDe(dig) : null
       if (chat) { por = (await TG.tgEnviar(chat, texto)) ? 'telegram' : null; if (!por) err = 'Telegram no entrego' }
-      else if (dig) { por = (await enviar(dig, texto, { tipo: 'codigo_firma' })) ? 'whatsapp' : null; if (!por) err = 'WhatsApp no entrego' }
+      else if (dig) { por = (await enviar(dig, texto, { tipo: 'codigo_firma', registro: texto.replace(c.codigo_plano, '••••••') })) ? 'whatsapp' : null; if (!por) err = 'WhatsApp no entrego' }
       else err = 'sin celular registrado'
     } catch (e) { err = String(e.message || e).slice(0, 200) }
     await supabase.from('firma_codigos').update({
@@ -3833,6 +3835,19 @@ async function quienEsNumero(dig) {
   return null
 }
 
+// Vínculos por "/soy <número>" esperando el código que salió por WhatsApp (en memoria:
+// duran 5 minutos; si el bot se reinicia, se pide otro). chatId -> { quien, codigo, expira, intentos }
+const VINCULOS_PEND = new Map()
+const PEDIDOS_VINCULO = new Map()   // chatId -> [ms de cada código pedido]: máximo 3 por hora
+
+async function terminarVinculo(chatId, quien, info, como) {
+  const ok = await TGREG.vincular(chatId, quien.phone, info?.nombre)
+  log('TG: ' + (ok ? 'vinculado' : 'NO se pudo vincular') + ' +' + quien.phone + ' (' + quien.full_name + ', ' + quien.de + ') al chat ' + chatId + ' con ' + como)
+  await TG.tgEnviar(chatId, ok
+    ? `✅ ¡Listo, ${String(quien.full_name || '').split(' ')[0] || 'bienvenido'}! Quedaste vinculado con el +${quien.phone}.\n\nDesde ahora te llegan por aquí tus avisos y los códigos para firmar. Escribe *hola* para ver lo que puedes consultar.`
+    : '❌ No pude vincularte. Avísale al administrador.', TG.SIN_TECLADO)
+}
+
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
 // consultas al sistema). Solo cambia por dónde llega el mensaje.
 async function manejarTelegram(chatId, texto, info) {
@@ -3850,30 +3865,79 @@ async function manejarTelegram(chatId, texto, info) {
   // otro, quitarle el vínculo y recibir sus códigos para firmar. El contacto que llega
   // del botón lo confirma Telegram (es el número de la cuenta que escribe).
   if (!phone) {
+    const OTRO_NUMERO = '\n\n¿En el sistema figuras con *otro número* que el de tu Telegram (por ejemplo, tu WhatsApp)? Escribe */soy* y ese número, así: */soy 51999888777*. Te mando un código por WhatsApp a ese número para confirmar que es tuyo.'
     const c = info?.contacto
-    if (!c) {
-      await TG.tgEnviar(chatId, '👋 Hola, soy el asistente interno de *URBIS GROUP*.\n\nPara reconocerte, toca el botón *📱 Compartir mi número* que aparece abajo.'
-        + (/^\/?soy\b/i.test(t) ? '\n\nYa no hace falta escribir el número: el botón lo confirma y así nadie puede usar un número ajeno.' : ''), TG.BOTON_NUMERO)
+    const mSoy = t.match(/^\/?soy\s+\+?([\d\s-]{9,20})$/i)
+    const pend = VINCULOS_PEND.get(chatId)
+
+    // A) el botón: Telegram confirma que el número es de esta cuenta
+    if (c) {
+      // un contacto reenviado (el de otra persona) trae otro user_id, o ninguno
+      if (!c.user_id || String(c.user_id) !== String(info.from_id)) {
+        log('TG: vinculación rechazada en chat ' + chatId + ': compartió un número que no es el suyo')
+        await TG.tgEnviar(chatId, '❌ Ese no es tu número. Toca el botón *📱 Compartir mi número* para mandar el tuyo.', TG.BOTON_NUMERO)
+        return
+      }
+      const dig = String(c.phone).replace(/\D/g, '')
+      const quien = await quienEsNumero(dig)
+      if (!quien) {
+        log('TG: vinculación rechazada: +' + dig + ' no está en el sistema')
+        await TG.tgEnviar(chatId, '❌ Tu número de Telegram +' + dig + ' no está registrado en el sistema.' + OTRO_NUMERO
+          + '\n\nSi no figuras con ningún número, pídele al administrador que te agregue (en *Usuarios* o en *Seguimiento*).', TG.BOTON_NUMERO)
+        return
+      }
+      await terminarVinculo(chatId, quien, info, 'botón')
       return
     }
-    // un contacto reenviado (el de otra persona) trae otro user_id, o ninguno
-    if (!c.user_id || String(c.user_id) !== String(info.from_id)) {
-      log('TG: vinculación rechazada en chat ' + chatId + ': compartió un número que no es el suyo')
-      await TG.tgEnviar(chatId, '❌ Ese no es tu número. Toca el botón *📱 Compartir mi número* para mandar el tuyo.', TG.BOTON_NUMERO)
+
+    // B) "/soy <número del sistema>": el código va por WHATSAPP a ese número. Sirve cuando
+    //    el Telegram está en otro chip. Sin el WhatsApp de ese número, nadie se vincula.
+    if (mSoy) {
+      const quien = await quienEsNumero(mSoy[1])
+      if (!quien) {
+        await TG.tgEnviar(chatId, '❌ El +' + mSoy[1].replace(/\D/g, '') + ' no está registrado en el sistema. Pídele al administrador que te agregue (en *Usuarios* o en *Seguimiento*).', TG.BOTON_NUMERO)
+        return
+      }
+      const pedidos = (PEDIDOS_VINCULO.get(chatId) || []).filter(x => x > Date.now() - 3600e3)
+      if (pedidos.length >= 3) { await TG.tgEnviar(chatId, '⏳ Ya pediste 3 códigos en la última hora. Espera un rato y vuelve a intentar.'); return }
+      pedidos.push(Date.now()); PEDIDOS_VINCULO.set(chatId, pedidos)
+      const codigo = String(crypto.randomInt(0, 1000000)).padStart(6, '0')
+      const cuenta = info?.nombre ? '«' + info.nombre + '»' : 'sin nombre'
+      const salio = await enviar(quien.phone,
+        '🔐 *Código para vincular Telegram*\n\n*' + codigo + '*\n\nSe pidió vincular la cuenta de Telegram ' + cuenta + ' a este número. Si fuiste tú, escríbelo en el chat del bot. Si no, ignora este mensaje: sin el código nadie se vincula.\n\nVence en 5 minutos.',
+        { tipo: 'aviso_admin', canal: 'whatsapp', registro: '🔐 Código para vincular Telegram (oculto) · pedido por la cuenta ' + cuenta })
+      log('TG: código de vínculo para +' + quien.phone + ' pedido desde el chat ' + chatId + ' (' + cuenta + ') → ' + (salio ? 'enviado por WhatsApp' : 'NO salió'))
+      if (!salio) {
+        await TG.tgEnviar(chatId, '❌ No pude mandarte el código por WhatsApp al •••• ' + quien.phone.slice(-3) + '. Puede que el WhatsApp de la empresa esté desconectado: intenta en unos minutos.')
+        return
+      }
+      VINCULOS_PEND.set(chatId, { quien, codigo, expira: Date.now() + 5 * 60000, intentos: 0 })
+      await TG.tgEnviar(chatId, '📲 Te mandé un código por *WhatsApp* al •••• ' + quien.phone.slice(-3) + '.\n\nEscríbelo aquí (son 6 números). Vence en 5 minutos.', TG.SIN_TECLADO)
       return
     }
-    const dig = String(c.phone).replace(/\D/g, '')
-    const quien = await quienEsNumero(dig)
-    if (!quien) {
-      log('TG: vinculación rechazada: +' + dig + ' no está en el sistema')
-      await TG.tgEnviar(chatId, '❌ Tu número +' + dig + ' no está registrado en el sistema.\n\nPídele al administrador que lo agregue (en *Usuarios* o en *Seguimiento*) y vuelve a tocar el botón.', TG.BOTON_NUMERO)
+
+    // C) el código que llegó por WhatsApp
+    if (pend && /^\d{6}$/.test(t.replace(/\s/g, ''))) {
+      if (Date.now() > pend.expira) {
+        VINCULOS_PEND.delete(chatId)
+        await TG.tgEnviar(chatId, '⌛ El código venció. Pide otro escribiendo */soy* y tu número.')
+        return
+      }
+      if (t.replace(/\s/g, '') !== pend.codigo) {
+        pend.intentos++
+        if (pend.intentos >= 3) {
+          VINCULOS_PEND.delete(chatId)
+          log('TG: código de vínculo anulado por 3 intentos en el chat ' + chatId)
+          await TG.tgEnviar(chatId, '❌ Código incorrecto. Se anuló por seguridad: pide otro escribiendo */soy* y tu número.')
+        } else await TG.tgEnviar(chatId, '❌ Código incorrecto. Te queda' + (3 - pend.intentos === 1 ? ' 1 intento.' : 'n ' + (3 - pend.intentos) + ' intentos.'))
+        return
+      }
+      VINCULOS_PEND.delete(chatId)
+      await terminarVinculo(chatId, pend.quien, info, 'código por WhatsApp')
       return
     }
-    const ok = await TGREG.vincular(chatId, quien.phone, info?.nombre)
-    log('TG: ' + (ok ? 'vinculado' : 'NO se pudo vincular') + ' +' + quien.phone + ' (' + quien.full_name + ', ' + quien.de + ') al chat ' + chatId)
-    await TG.tgEnviar(chatId, ok
-      ? `✅ ¡Listo, ${String(quien.full_name || '').split(' ')[0] || 'bienvenido'}! Quedaste vinculado con el +${quien.phone}.\n\nDesde ahora te llegan por aquí tus avisos y los códigos para firmar. Escribe *hola* para ver lo que puedes consultar.`
-      : '❌ No pude vincularte. Avísale al administrador.', TG.SIN_TECLADO)
+
+    await TG.tgEnviar(chatId, '👋 Hola, soy el asistente interno de *URBIS GROUP*.\n\nPara reconocerte, toca el botón *📱 Compartir mi número* que aparece abajo.' + OTRO_NUMERO, TG.BOTON_NUMERO)
     return
   }
 

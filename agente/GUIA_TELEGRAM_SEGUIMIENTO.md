@@ -62,6 +62,12 @@ lugares: Seguimiento, Usuarios (celular de avisos o celular para firmar), asesor
 un proyecto (agente de ventas o avisos de leads) o gerencia. Los que ya estaban
 vinculados no tienen que hacer nada.
 
+**Si el Telegram está en otro chip** que el número del sistema (le pasó al dueño: su
+Telegram es un número y su WhatsApp de gerencia otro), escribe **`/soy 51999888777`**
+con el número del sistema. El bot manda un **código de 6 dígitos por WhatsApp** a ese
+número, y se escribe en Telegram: 5 minutos, 3 intentos, máximo 3 códigos por hora.
+Sin el WhatsApp de ese número nadie se vincula. En el panel el código queda oculto.
+
 Quien **no** se vincule sigue recibiendo por WhatsApp (si hay sesión conectada).
 Es un cambio gradual: no rompe nada mientras el equipo se pasa.
 
