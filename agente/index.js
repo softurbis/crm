@@ -23,6 +23,8 @@ let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
 const TGREG = TG.activo() ? TG.crearRegistro(supabase, (...a) => log(...a)) : null
 // agente de ventas IA: el experimento contra el supervisor (ventas_ia.js, sql/91)
 const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
+// lee con IA los comprobantes de pago que sube la socia y los valida (sql/103)
+const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(...a) })
 
 // ===== MODO PRUEBAS (consola / chat virtual) =====
 // Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
@@ -3537,6 +3539,8 @@ async function enviarCodigosFirma() {
   }
 }
 setInterval(() => { enviarCodigosFirma().catch(e => log('enviarCodigosFirma:', String(e.message || e))) }, 5000)
+// comprobantes de pago que el panel pidió leer (la socia espera en pantalla: cada 3 s)
+setInterval(() => { LECTOR.procesar().catch(e => log('lector comprobantes:', String(e.message || e))) }, 3000)
 
 // El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
 // se marca la respuesta, se avisa al asesor y sube al tablero como urgente.
