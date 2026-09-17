@@ -141,7 +141,10 @@ export default function Expenses() {
   const porAprobar = list.filter(g => estadoGasto(g) === 'solicitado').length
   const porFirmar = list.filter(g => estadoGasto(g) === 'por_firmar').length
   // las que me tocan a MI: mientras existan, la pantalla me ofrece registrar mi firma
-  const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && (g.requester_id === profile?.id || role === 'superuser')
+  // Dos firmas, dos personas (sql/100): la de la solicitud es SOLO de quien pide el
+  // gasto (el superusuario ya no la firma "de respaldo") y quien lo pidió no lo aprueba.
+  const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && g.requester_id === profile?.id
+  const miPuedeAprobar = g => puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id !== profile?.id
   const miasPorFirmar = list.filter(miPuedeFirmar).length
   const nombreFirmante = g => firmantes.find(p => p.id === g.requester_id)?.full_name || g.requester_name || 'quien la pidió'
   // lo que me toca firmar AHORA: mi firma como quien pide, o la aprobación del
@@ -149,7 +152,7 @@ export default function Expenses() {
   const pendientesMias = list.flatMap(g => {
     const e = estadoGasto(g)
     if (e === 'por_firmar' && miPuedeFirmar(g)) return [{ g, modo: 'solicitar' }]
-    if (e === 'solicitado' && puedeAprobar && (esSocio || proyecto?.expense_approval)) return [{ g, modo: 'aprobar' }]
+    if (miPuedeAprobar(g)) return [{ g, modo: 'aprobar' }]
     return []
   })
   const tengoFirma = miFirma || profile?.signature_url
@@ -698,7 +701,7 @@ export default function Expenses() {
         </p>
       )}
       {role === 'superuser' && proyecto?.expense_approval && !tengoFirma && !cambiarFirma && (
-        <p className="hint muted">Tú también puedes firmar como respaldo: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
+        <p className="hint muted">Tú también puedes aprobar los gastos que no pediste: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
       )}
 
       {show && !readOnly && (
@@ -902,9 +905,12 @@ export default function Expenses() {
                   {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && (
                     <span className="muted small" style={{ textTransform: 'none' }}>⏳ espera a {nombreFirmante(g).split(' ')[0]}</span>
                   )}
-                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && (
+                  {miPuedeAprobar(g) && (
                     <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
                       onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>
+                  )}
+                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id === profile?.id && (
+                    <span className="muted small" style={{ textTransform: 'none' }} title="Quien pide el gasto no puede aprobarlo">⏳ la aprueba otra persona</span>
                   )}
                 </td>
                 <td>{g.type}</td>
