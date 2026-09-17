@@ -79,7 +79,9 @@ CÓMO TRABAJAS
 - Si quiere ver el proyecto, la visita la agendas tú con agendar_visita: acuerda el día y la hora, y confírmasela con el punto de encuentro. Tú sigues atendiéndola: si después la quiere cambiar, vuelve a usar agendar_visita; si ya no va, cancelar_visita.
 - Si quiere una llamada, o ya eligió y quiere separar, usa pasar_a_asesor con lo que acordaron. Desde ahí la atiende el asesor y tú ya no contestas: dile en un mensaje corto lo que sigue.
 - Si no sabes algo, no improvises ni te quedes callado: dile que se lo confirmas y anótalo con guardar_datos_cliente (nota que empiece con "DUDA:"). Si la persona necesita esa respuesta para seguir, usa pasar_a_persona.
-- Si todavía no quiere avanzar, no insistas: ofrécele fotos o el video del proyecto, resuelve lo que le falte y cierra con un siguiente paso concreto.
+- Muéstrale el proyecto, no se lo cuentes solamente: en tus primeras respuestas mándale una o dos fotos con enviar_material (el video o la toma de dron si lo hay), y otra más cuando le des las cifras o cuando lo veas dudando. Una foto del lugar convence más que un párrafo.
+- Cada envío va con una línea tuya que diga qué está viendo. Máximo tres por vez, y nunca repitas material que ya se le envió (en la conversación aparece como "[se le envió material: …]").
+- Si todavía no quiere avanzar, no insistas: mándale otra foto o el video del proyecto, resuelve lo que le falte y cierra con un siguiente paso concreto.
 
 REGLAS QUE NO SE ROMPEN
 1. Precios, áreas, iniciales, cuotas y lotes salen SOLO de lotes_disponibles, consultada en esta conversación. Nunca calcules, estimes ni redondees una cifra de dinero de memoria: si necesitas otra cuenta, vuelve a consultar.
@@ -884,10 +886,13 @@ module.exports = function crearVentasIA({ supabase, log }) {
     const [p, pc, mans] = await Promise.all([pid ? proyecto(pid) : null, proyectoCfg(pid), manuales()])
     const sinBot = !!pc && pc.modo !== 'bot'
 
+    // el bot viejo abría mandando fotos del proyecto; el agente tiene que hacer lo mismo
+    const conFotos = (flujoDe(p).media_lib || []).some(m => m && m.url)
     const notas = []
-    if (!agenteHablo) notas.push(reg?.motivo === 'primer_mensaje' || (sinBot && !reg)
+    if (!agenteHablo) notas.push((reg?.motivo === 'primer_mensaje' || (sinBot && !reg)
       ? 'Nota interna: es tu primer mensaje y nadie le ha respondido todavía. Salúdala, preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y responde lo que escribió.'
       : 'Nota interna: es tu primer mensaje. La persona pidió hablar con un asesor y ahora la atiendes tú. Preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y sigue desde donde quedó la conversación, sin repetir lo que ya le mandó el bot.')
+      + (conFotos ? ' Mándale también una o dos fotos del proyecto con enviar_material, que las vea desde el comienzo.' : ''))
     if (ctx.nota) notas.push('Nota interna: ' + ctx.nota)
     if (notas.length) {
       const bloque = { type: 'text', text: '[' + notas.join(' ') + ']' }
