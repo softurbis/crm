@@ -43,14 +43,16 @@ async function tgApi(metodo, body, ms = 30000) {
 // Un envio que falla NO puede ser silencioso: se perdia el mensaje entero sin
 // dejar rastro, y como nadie mira el valor de retorno, el bot quedaba mudo.
 // Si lo que falla es el formato, va en texto plano antes que no llegar nada.
-async function tgEnviar(chatId, texto) {
+// teclado: opcional, p. ej. BOTON_NUMERO para vincularse o SIN_TECLADO para quitarlo
+async function tgEnviar(chatId, texto, teclado) {
+  const extra = teclado ? { reply_markup: teclado } : {}
   let r = await tgApi('sendMessage', {
-    chat_id: chatId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true,
+    chat_id: chatId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...extra,
   })
   if (r && r.error) {
     _log('TELEGRAM: sendMessage a ' + chatId + ' fallo — ' + r.error)
     if (/parse|entit|tag|markup/i.test(r.error)) {
-      r = await tgApi('sendMessage', { chat_id: chatId, text: String(texto || ''), disable_web_page_preview: true })
+      r = await tgApi('sendMessage', { chat_id: chatId, text: String(texto || ''), disable_web_page_preview: true, ...extra })
       _log(r && !r.error
         ? 'TELEGRAM: reenviado a ' + chatId + ' en texto plano (el formato era invalido)'
         : 'TELEGRAM: tampoco salio en texto plano — ' + (r && r.error))
@@ -58,6 +60,13 @@ async function tgEnviar(chatId, texto) {
   }
   return !!(r && !r.error)
 }
+
+// ---- VINCULARSE: el número lo confirma Telegram, no se escribe a mano ----
+// El botón request_contact manda el número de la CUENTA que lo toca. Escribir
+// "/soy <número>" dejaba que cualquiera tomara el número de otro (y sus códigos
+// para firmar). Solo funciona en chats privados, que son los únicos que se atienden.
+const BOTON_NUMERO = { keyboard: [[{ text: '📱 Compartir mi número', request_contact: true }]], resize_keyboard: true, one_time_keyboard: true }
+const SIN_TECLADO = { remove_keyboard: true }
 
 // ---- MENSAJES CON BOTONES QUE CAMBIAN DE ESTADO ----
 // Un aviso que se repite (la alarma de "sin respuesta", el WhatsApp caido) no
@@ -212,10 +221,12 @@ function escuchar(onMensaje, log = () => {}, onBoton = null) {
         if (!m.chat) { log('TELEGRAM <- message sin chat, descartado'); continue }
         if (m.chat.type !== 'private') { log('TELEGRAM <- chat ' + m.chat.id + ' es de tipo "' + m.chat.type + '", descartado'); continue }
         const texto = String(m.text || m.caption || '').trim()
-        if (!texto) { log('TELEGRAM <- chat ' + m.chat.id + ' sin texto (' + Object.keys(m).filter(k => !['message_id', 'from', 'chat', 'date'].includes(k)).join(',') + '), descartado'); continue }
-        log('TELEGRAM <- chat ' + m.chat.id + ': ' + texto.slice(0, 60))
+        // el botón "📱 Compartir mi número" llega como contacto, sin texto
+        const contacto = m.contact ? { phone: String(m.contact.phone_number || ''), user_id: m.contact.user_id || null } : null
+        if (!texto && !contacto) { log('TELEGRAM <- chat ' + m.chat.id + ' sin texto (' + Object.keys(m).filter(k => !['message_id', 'from', 'chat', 'date'].includes(k)).join(',') + '), descartado'); continue }
+        log('TELEGRAM <- chat ' + m.chat.id + ': ' + (contacto ? '[compartió un número]' : texto.slice(0, 60)))
         const nombre = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(' ')
-        try { await onMensaje(m.chat.id, texto, { nombre, usuario: m.from?.username || null }) }
+        try { await onMensaje(m.chat.id, texto, { nombre, usuario: m.from?.username || null, contacto, from_id: m.from?.id || null }) }
         catch (e) { log('TG onMensaje:', String(e.message || e)) }
       }
     }
@@ -229,4 +240,4 @@ function escuchar(onMensaje, log = () => {}, onBoton = null) {
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, tgBorrar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog }
+module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, tgBorrar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog, BOTON_NUMERO, SIN_TECLADO }

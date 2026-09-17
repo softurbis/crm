@@ -50,9 +50,17 @@ Pásale a tu equipo el enlace del bot: `https://t.me/urbis_asistente_bot`
 (con el usuario que elegiste). Cada uno:
 
 1. Abre el bot y toca **Iniciar / Start**.
-2. Escribe: `/soy 51999888777` — **su número tal como está en el sistema**
-   (el que figura en Seguimiento).
+2. Toca el botón **📱 Compartir mi número** que aparece abajo (en la PC, si no se
+   ve el botón, hazlo desde el celular).
 3. El bot responde `✅ ¡Listo, <nombre>!` y desde ahí recibe todo por Telegram.
+
+Desde el 17 sep **ya no se vincula escribiendo `/soy <número>`**: cualquiera podía
+poner el número de otra persona y recibir sus códigos para firmar. El número que
+manda el botón lo confirma Telegram. Por eso **la cuenta de Telegram tiene que estar
+creada con el mismo número que figura en el sistema**, en cualquiera de estos
+lugares: Seguimiento, Usuarios (celular de avisos o celular para firmar), asesor de
+un proyecto (agente de ventas o avisos de leads) o gerencia. Los que ya estaban
+vinculados no tienen que hacer nada.
 
 Quien **no** se vincule sigue recibiendo por WhatsApp (si hay sesión conectada).
 Es un cambio gradual: no rompe nada mientras el equipo se pasa.

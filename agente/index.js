@@ -3752,7 +3752,7 @@ function espejo(linea) {
 async function manejarBotonTg(chatId, dato, msgId) {
   if (!TGREG) return
   const phone = await TGREG.telDe(chatId).catch(() => null)
-  if (!phone) { await TG.tgEnviar(chatId, '🔒 Primero vincúlate con */soy <tu número>*.'); return }
+  if (!phone) { await TG.tgEnviar(chatId, '🔒 Primero vincúlate: toca *📱 Compartir mi número*.', TG.BOTON_NUMERO); return }
   const esAdmin = ADMIN && phone.slice(-9) === ADMIN.slice(-9)
 
   if (dato === 'sr_check') {
@@ -3808,6 +3808,31 @@ async function manejarBotonTg(chatId, dato, msgId) {
   log('TG: boton desconocido "' + dato + '" de ' + chatId)
 }
 
+// ¿De quién es este número en el sistema? Para vincular Telegram: por los últimos 9
+// dígitos, en el orden en que importa (Seguimiento primero, porque el pase de lista
+// busca a la secretaria por el teléfono guardado). null = no es de nadie del equipo.
+async function quienEsNumero(dig) {
+  const p9 = String(dig || '').replace(/\D/g, '').slice(-9)
+  if (p9.length < 9) return null
+  const d = t => String(t || '').replace(/\D/g, '')
+  const es = t => d(t).slice(-9) === p9
+  const { data: sec } = await supabase.from('secretaries').select('full_name, phone').ilike('phone', `%${p9}%`).limit(1)
+  if (sec && sec[0]) return { full_name: sec[0].full_name, phone: d(sec[0].phone), de: 'Seguimiento' }
+  if (ADMIN && ADMIN.slice(-9) === p9) return { full_name: 'GERENCIA', phone: ADMIN, de: 'gerencia' }
+  // usuarios del panel: celular de firma o de avisos
+  const { data: pfs } = await supabase.from('profiles').select('full_name, email, phone, firma_phone, active').or(`firma_phone.ilike.*${p9}*,phone.ilike.*${p9}*`).limit(5)
+  const pf = (pfs || []).find(x => x.active !== false)
+  if (pf) return { full_name: pf.full_name || pf.email || '', phone: d(es(pf.firma_phone) ? pf.firma_phone : pf.phone), de: 'Usuarios' }
+  // asesores que reciben los pases del agente de ventas o los avisos de leads
+  const { data: vps } = await supabase.from('ventas_ia_proyectos').select('asesor_nombre, asesor_phone').ilike('asesor_phone', `%${p9}%`).limit(1)
+  if (vps && vps[0]) return { full_name: vps[0].asesor_nombre || 'ASESOR', phone: d(vps[0].asesor_phone), de: 'asesor de ventas' }
+  const { data: prs } = await supabase.from('projects').select('name, lead_notify_phone').ilike('lead_notify_phone', `%${p9}%`).limit(1)
+  if (prs && prs[0]) return { full_name: 'ASESOR', phone: d(prs[0].lead_notify_phone), de: 'asesor de ' + prs[0].name }
+  const { data: nums } = await supabase.from('whatsapp_numbers').select('*').ilike('phone', `%${p9}%`).eq('tipo', 'gerencia').limit(1)
+  if (nums && nums[0]) return { full_name: nums[0].nombre || nums[0].label || 'GERENCIA', phone: d(nums[0].phone), de: 'gerencia' }
+  return null
+}
+
 // manejadores de siempre (checklist de secretarias, comandos de gerencia,
 // consultas al sistema). Solo cambia por dónde llega el mensaje.
 async function manejarTelegram(chatId, texto, info) {
@@ -3820,25 +3845,35 @@ async function manejarTelegram(chatId, texto, info) {
   catch (e) { log('TG: no pude leer los vinculos:', String(e.message || e)); return }
   log('TG: chat ' + chatId + ' -> ' + (phone ? 'telefono ' + phone : 'SIN VINCULAR'))
 
-  // ---- vinculación: la persona se identifica con su número del sistema ----
+  // ---- vinculación: la persona COMPARTE su número con el botón de Telegram ----
+  // Antes bastaba escribir "/soy <número>": cualquiera podía vincular el número de
+  // otro, quitarle el vínculo y recibir sus códigos para firmar. El contacto que llega
+  // del botón lo confirma Telegram (es el número de la cuenta que escribe).
   if (!phone) {
-    const m = t.match(/^\/?(?:soy|start)\s+\+?(\d{9,15})$/i)
-    if (!m) {
-      await TG.tgEnviar(chatId, '👋 Hola, soy el asistente interno de *URBIS GROUP*.\n\nPara reconocerte, escríbeme tu número tal como está en el sistema:\n\n*/soy 51999888777*')
+    const c = info?.contacto
+    if (!c) {
+      await TG.tgEnviar(chatId, '👋 Hola, soy el asistente interno de *URBIS GROUP*.\n\nPara reconocerte, toca el botón *📱 Compartir mi número* que aparece abajo.'
+        + (/^\/?soy\b/i.test(t) ? '\n\nYa no hace falta escribir el número: el botón lo confirma y así nadie puede usar un número ajeno.' : ''), TG.BOTON_NUMERO)
       return
     }
-    const dig = m[1].replace(/\D/g, '')
-    const p9 = dig.slice(-9)
-    const { data: sec } = await supabase.from('secretaries').select('full_name, phone').ilike('phone', `%${p9}%`).limit(1)
-    const conocido = (sec && sec[0]) || (ADMIN && ADMIN.slice(-9) === p9 ? { full_name: 'GERENCIA', phone: ADMIN } : null)
-    if (!conocido) {
-      await TG.tgEnviar(chatId, '❌ Ese número no está registrado en el sistema. Pídele al administrador que te dé de alta en *Seguimiento* y vuelve a intentarlo.')
+    // un contacto reenviado (el de otra persona) trae otro user_id, o ninguno
+    if (!c.user_id || String(c.user_id) !== String(info.from_id)) {
+      log('TG: vinculación rechazada en chat ' + chatId + ': compartió un número que no es el suyo')
+      await TG.tgEnviar(chatId, '❌ Ese no es tu número. Toca el botón *📱 Compartir mi número* para mandar el tuyo.', TG.BOTON_NUMERO)
       return
     }
-    const ok = await TGREG.vincular(chatId, conocido.phone, info?.nombre)
+    const dig = String(c.phone).replace(/\D/g, '')
+    const quien = await quienEsNumero(dig)
+    if (!quien) {
+      log('TG: vinculación rechazada: +' + dig + ' no está en el sistema')
+      await TG.tgEnviar(chatId, '❌ Tu número +' + dig + ' no está registrado en el sistema.\n\nPídele al administrador que lo agregue (en *Usuarios* o en *Seguimiento*) y vuelve a tocar el botón.', TG.BOTON_NUMERO)
+      return
+    }
+    const ok = await TGREG.vincular(chatId, quien.phone, info?.nombre)
+    log('TG: ' + (ok ? 'vinculado' : 'NO se pudo vincular') + ' +' + quien.phone + ' (' + quien.full_name + ', ' + quien.de + ') al chat ' + chatId)
     await TG.tgEnviar(chatId, ok
-      ? `✅ ¡Listo, ${String(conocido.full_name || '').split(' ')[0]}! Quedaste vinculado.\n\nDesde ahora recibes por aquí tus recordatorios y pases de lista. Respóndeme igual que antes (*LISTO*, los números de lo hecho, o tus consultas al sistema).`
-      : '❌ No pude vincularte. Avísale al administrador.')
+      ? `✅ ¡Listo, ${String(quien.full_name || '').split(' ')[0] || 'bienvenido'}! Quedaste vinculado con el +${quien.phone}.\n\nDesde ahora te llegan por aquí tus avisos y los códigos para firmar. Escribe *hola* para ver lo que puedes consultar.`
+      : '❌ No pude vincularte. Avísale al administrador.', TG.SIN_TECLADO)
     return
   }
 
@@ -3891,7 +3926,7 @@ async function manejarTelegram(chatId, texto, info) {
 
   if (/^\/?(desvincular|salir)$/i.test(t)) {
     await TGREG.desvincular(chatId)
-    await TG.tgEnviar(chatId, '🔌 Listo, te desvinculé. Escribe */soy <tu número>* cuando quieras volver.')
+    await TG.tgEnviar(chatId, '🔌 Listo, te desvinculé. Cuando quieras volver, toca *📱 Compartir mi número*.', TG.BOTON_NUMERO)
     return
   }
   // ---- misma atención que por WhatsApp, según el tipo de número ----
