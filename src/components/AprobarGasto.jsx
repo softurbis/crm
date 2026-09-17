@@ -56,7 +56,8 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
     onHecho?.(pidiendo
       ? '✍ SOLICITUD ' + numSol(g) + ' FIRMADA · código ' + (data?.code || '')
         + (proyecto?.expense_approval ? '. Ahora pasa al socio para su aprobación.' : '')
-      : '✍ SOLICITUD ' + numSol(g) + ' APROBADA Y FIRMADA · código de verificación ' + (data?.code || ''))
+      : '✍ SOLICITUD ' + numSol(g) + ' APROBADA Y FIRMADA · código de verificación ' + (data?.code || '')
+        + (proyecto?.expense_approval ? '. Cuando hagas el pago, sube el comprobante con "💸 Subir comprobante".' : ''))
     return {}
   }
 

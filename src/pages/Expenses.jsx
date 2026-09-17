@@ -8,6 +8,8 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import VisorDoc from '../components/VisorDoc'
 import FirmaPad from '../components/FirmaPad'
 import AprobarGasto from '../components/AprobarGasto'
+import RegistrarPago from '../components/RegistrarPago'
+import { useEsCelular } from '../lib/useEsCelular'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -61,6 +63,8 @@ export default function Expenses() {
   const esSocio = role === 'socio'
   const puedeAprobar = ['socio', 'superuser'].includes(role)
   const [aprobar, setAprobar] = useState(null)          // { g, modo } solicitud abierta para firmar
+  const [pagar, setPagar] = useState(null)              // solicitud aprobada a la que la socia le sube el comprobante
+  const esCelular = useEsCelular()                      // en el celular la tabla ancha se vuelve tarjetas
   const [miFirma, setMiFirma] = useState(null)          // firma recien registrada (el perfil del contexto no se recarga solo)
   const [cambiarFirma, setCambiarFirma] = useState(false)
   const [firmaBusy, setFirmaBusy] = useState(false)
@@ -145,14 +149,21 @@ export default function Expenses() {
   // gasto (el superusuario ya no la firma "de respaldo") y quien lo pidió no lo aprueba.
   const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && g.requester_id === profile?.id
   const miPuedeAprobar = g => puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id !== profile?.id
+  // Tercer paso en los proyectos con aprobación (sql/101): aprobada la solicitud, la
+  // socia paga y sube el comprobante. Hasta entonces el gasto está "pago pendiente".
+  const pagoPendiente = g => !!proyecto?.expense_approval && estadoGasto(g) === 'aprobado'
+  const miPuedePagar = g => puedeAprobar && pagoPendiente(g) && g.requester_id !== profile?.id
   const miasPorFirmar = list.filter(miPuedeFirmar).length
   const nombreFirmante = g => firmantes.find(p => p.id === g.requester_id)?.full_name || g.requester_name || 'quien la pidió'
-  // lo que me toca firmar AHORA: mi firma como quien pide, o la aprobación del
-  // socio. Va arriba, con su botón, para no buscar la fila en la tabla.
+  // el primer nombre; sin nombre (el socio no carga la lista de firmantes) no se corta la frase
+  const primerFirmante = g => { const n = nombreFirmante(g); return n === 'quien la pidió' ? n : n.split(' ')[0] }
+  // lo que me toca AHORA: mi firma como quien pide, la aprobación del socio o
+  // (la socia) subir el comprobante. Va arriba, con su botón, para no buscar la fila.
   const pendientesMias = list.flatMap(g => {
     const e = estadoGasto(g)
     if (e === 'por_firmar' && miPuedeFirmar(g)) return [{ g, modo: 'solicitar' }]
     if (miPuedeAprobar(g)) return [{ g, modo: 'aprobar' }]
+    if (esSocio && miPuedePagar(g)) return [{ g, modo: 'pagar' }]
     return []
   })
   const tengoFirma = miFirma || profile?.signature_url
@@ -612,6 +623,98 @@ export default function Expenses() {
     })
   }
 
+  // ---- LAS PIEZAS DE CADA GASTO ----
+  // Las usan igual la tabla (computadora) y las tarjetas (celular): así un estado o
+  // un botón nuevo aparece en los dos lados. Son funciones que devuelven JSX, no
+  // componentes: un componente definido aquí adentro se remontaría en cada render.
+  const estadoDe = g => {
+    const e = estadoGasto(g)
+    if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
+    if (e === 'aprobado') return pagoPendiente(g)
+      ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · falta comprobante</span></span>
+      : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
+    if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
+    if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}</span></span>
+    return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
+  }
+
+  // firmar, aprobar o (la socia) subir el comprobante; `grande` = botón a lo ancho (celular)
+  const accionesFirma = (g, grande) => {
+    const st = grande ? { width: '100%', padding: '.8rem', fontSize: '1rem' } : { fontSize: 12, whiteSpace: 'nowrap' }
+    const espera = t => <span className="muted small" style={{ textTransform: 'none' }}>⏳ {t}</span>
+    return <>
+      {miPuedeFirmar(g) && <button className="btn-primary" style={st} onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar</button>}
+      {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && espera('espera la firma de ' + primerFirmante(g))}
+      {miPuedeAprobar(g) && <button className="btn-primary" style={st} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>}
+      {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id === profile?.id && espera('la aprueba otra persona')}
+      {miPuedePagar(g) && <button className="btn-primary" style={st} onClick={() => setPagar(g)}>💸 Subir comprobante</button>}
+      {pagoPendiente(g) && !miPuedePagar(g) && espera('la socia paga y sube el comprobante')}
+    </>
+  }
+
+  const docConstancia = g => <>
+    <button className="link-btn" onClick={() => setPrt(g)}>imprimir</button>{' | '}
+    <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />
+  </>
+
+  // el comprobante de un pago pendiente lo sube la socia con su botón (queda PAGADO al
+  // subirlo): la oficina no lo sube por su lado, o quedaría el archivo sin el pago
+  const docComprobante = g => pagoPendiente(g) && !g.voucher_url
+    ? <span className="muted small" style={{ textTransform: 'none' }}>{miPuedePagar(g) ? 'con 💸 Subir comprobante' : 'lo sube la socia'}</span>
+    : <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
+
+  async function eliminarGasto(g) {
+    if (!confirm(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`)) return
+    const { error } = await supabase.from('expenses').delete().eq('id', g.id)
+    setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'SOLICITUD ELIMINADA' })
+    load()
+  }
+
+  const accionesOficina = g => <>
+    {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
+      onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
+    {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
+      <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
+      {/* confirmar = el dinero ya se entregó. No se habilita hasta que esté la firma
+          de quien lo pidió (la base también lo impide, sql/89). En los proyectos con
+          aprobación de socio NO hay botón: el pago lo registra la socia al subir el
+          comprobante (sql/101). */}
+      {!proyecto?.expense_approval && (() => {
+        const motivo = g.requester_id && !g.requester_signed_at ? 'Falta la firma de ' + nombreFirmante(g) : ''
+        return (
+          <button className="btn-ghost" onClick={() => confirmar(g)} disabled={!!motivo}
+            title={motivo || 'El dinero ya se entregó'}
+            style={motivo ? { opacity: .45, cursor: 'not-allowed' } : undefined}>
+            {motivo ? '🔒 Confirmar pago' : 'Confirmar pago'}
+          </button>
+        )
+      })()}{' '}
+      {['admin', 'superuser'].includes(role) && <button className="link-btn bad" onClick={() => eliminarGasto(g)}>eliminar</button>}
+    </>)}
+    {g.status === 'confirmado' && role === 'superuser' &&
+      <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar (superuser)</button>}
+  </>
+
+  const tarjetaGasto = g => (
+    <div key={g.id} className="glass gasto-card">
+      <div className="gc-top">
+        <b>{g.request_number ? numeroDe(g) : '—'}</b>
+        <span className="muted small">{g.issue_date || g.reception_date || ''}</span>
+      </div>
+      <div>{estadoDe(g)}</div>
+      <div className="gc-monto">{soles(g.amount)}</div>
+      <div><b>{g.recipient || '—'}</b></div>
+      <div className="muted small gc-motivo">{g.description || g.type}</div>
+      <div className="gc-acciones">{accionesFirma(g, true)}</div>
+      <div className="gc-docs">
+        <div className="gc-doc"><span className="muted">Constancia</span><span>{docConstancia(g)}</span></div>
+        <div className="gc-doc"><span className="muted">RH / factura</span><span><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></span></div>
+        <div className="gc-doc"><span className="muted">Comprobante de pago</span><span>{docComprobante(g)}</span></div>
+      </div>
+      {!readOnly && <div className="gc-oficina">{accionesOficina(g)}</div>}
+    </div>
+  )
+
   return (
     <>
       <div className="toolbar">
@@ -659,7 +762,7 @@ export default function Expenses() {
           <option value="confirmado">CONFIRMADOS</option>
           <option value="por_firmar">POR FIRMAR (solicitante)</option>
           <option value="por_aprobar">POR APROBAR (socio)</option>
-          <option value="aprobado">APROBADOS, SIN PAGAR</option>
+          <option value="aprobado">{proyecto?.expense_approval ? 'PAGO PENDIENTE (falta comprobante)' : 'APROBADOS, SIN PAGAR'}</option>
           <option value="rechazado">RECHAZADOS</option>
           <option value="falta_rh">FALTA RH / FACTURA</option>
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
@@ -719,7 +822,7 @@ export default function Expenses() {
           {/* dos columnas: los campos a la izquierda y la constancia a la
               derecha, para llenar mirando cómo va quedando. En pantalla angosta
               se apilan solas. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 18, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: 18, alignItems: 'start' }}>
           <div className="form-grid">
             <label>Tipo
               <select value={f.type || ''} onChange={e => setF(x => ({ ...x, type: e.target.value }))} required>
@@ -797,7 +900,8 @@ export default function Expenses() {
                 fila sale igual en la constancia y el total puede llenar el monto. */}
             <div className="span2">
               <label style={{ marginBottom: 4 }}>Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
-              <table className="ctable" style={{ fontSize: 12 }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table className="ctable" style={{ fontSize: 12, minWidth: 440 }}>
                 <thead><tr><th style={{ width: 130 }}>Fecha</th><th>Descripción</th><th style={{ width: 110 }}>Monto S/</th><th style={{ width: 34 }}></th></tr></thead>
                 <tbody>
                   {filasVista.map((r, i) => (
@@ -813,6 +917,7 @@ export default function Expenses() {
                   ))}
                 </tbody>
               </table>
+              </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
                 <button type="button" className="btn-ghost" onClick={() => guardarFilas([...filasVista, { fecha: '', desc: '', monto: '' }])}>+ Agregar fila</button>
                 {totalDetalle > 0 && <>
@@ -856,22 +961,23 @@ export default function Expenses() {
         </form>
       )}
 
-      {/* LO QUE TE TOCA FIRMAR, arriba y con su botón: antes había que buscar la
-          fila en la tabla y correrla hasta la última columna. */}
+      {/* LO QUE TE TOCA, arriba y con su botón: antes había que buscar la fila en
+          la tabla y correrla hasta la última columna. */}
       {pendientesMias.length > 0 && (
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>✍ TE TOCA FIRMAR ({pendientesMias.length})</b></p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ margin: '0 0 8px' }}><b>✍ TE TOCA ({pendientesMias.length})</b></p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {pendientesMias.slice(0, 8).map(({ g, modo }) => (
-              <div key={g.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <b style={{ minWidth: 90 }}>{numeroDe(g)}</b>
                 <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</b>
-                <span className="muted small" style={{ textTransform: 'none' }}>
+                <span className="muted small" style={{ textTransform: 'none', flexBasis: esCelular ? '100%' : undefined }}>
                   {g.recipient || '—'} · {(g.description || g.type || '').slice(0, 60)}
                 </span>
-                <button className="btn-primary" style={{ fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}
-                  onClick={() => setAprobar({ g, modo })}>
-                  {modo === 'solicitar' ? '✍ Firmar' : '✍ Revisar y firmar'}
+                <button className="btn-primary"
+                  style={esCelular ? { width: '100%', padding: '.8rem' } : { fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}
+                  onClick={() => modo === 'pagar' ? setPagar(g) : setAprobar({ g, modo })}>
+                  {modo === 'solicitar' ? '✍ Firmar' : modo === 'pagar' ? '💸 Subir comprobante de pago' : '✍ Revisar y firmar'}
                 </button>
               </div>
             ))}
@@ -879,88 +985,41 @@ export default function Expenses() {
         </div>
       )}
 
+      {/* En el celular cada gasto es una TARJETA: la tabla de 11 columnas obligaba
+          a correr la pantalla de costado y los botones no se alcanzaban. */}
+      {esCelular ? (
+        <div className="gastos-cards">
+          {filtrada.length === 0 && <p className="muted" style={{ padding: 12 }}>No hay gastos con estos filtros.</p>}
+          {filtrada.slice(0, 200).map(tarjetaGasto)}
+        </div>
+      ) : (
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Sustento</th><th></th></tr></thead>
+          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma / pago</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Comprobante de pago</th><th></th></tr></thead>
           <tbody>
             {filtrada.slice(0, 200).map(g => (
               <tr key={g.id}>
                 <td>{g.request_number ? <b>{'SOL-' + String(g.request_number).padStart(5, '0')}</b> : <span className="muted">-</span>}</td>
                 <td>{g.issue_date || g.reception_date || '-'}</td>
-                <td>{(() => {
-                  const e = estadoGasto(g)
-                  if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
-                  if (e === 'aprobado') return <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
-                  if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
-                  if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{nombreFirmante(g).split(' ')[0]}</span></span>
-                  return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
-                })()}</td>
+                <td>{estadoDe(g)}</td>
                 {/* La firma va ADELANTE: antes estaba en la última columna y había
                     que barrer toda la tabla a la derecha para llegar al botón. */}
-                <td>
-                  {miPuedeFirmar(g) && (
-                    <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                      onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar</button>
-                  )}
-                  {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && (
-                    <span className="muted small" style={{ textTransform: 'none' }}>⏳ espera a {nombreFirmante(g).split(' ')[0]}</span>
-                  )}
-                  {miPuedeAprobar(g) && (
-                    <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                      onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>
-                  )}
-                  {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id === profile?.id && (
-                    <span className="muted small" style={{ textTransform: 'none' }} title="Quien pide el gasto no puede aprobarlo">⏳ la aprueba otra persona</span>
-                  )}
-                </td>
+                <td>{accionesFirma(g, false)}</td>
                 <td>{g.type}</td>
                 <td title={g.description}>{g.recipient || '-'}</td>
                 <td>{soles(g.amount)}</td>
-                <td>
-                  <button className="link-btn" onClick={() => setPrt(g)}>imprimir</button>{' | '}
-                  <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />
-                </td>
+                <td>{docConstancia(g)}</td>
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
-                <td><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" /></td>
-                <td>
-                  {/* los botones de firma viven ahora en la columna "Firma",
-                      adelante: acá quedan las acciones de oficina */}
-                  {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
-                    onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
-                  {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
-                    <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
-                    {/* confirmar = el dinero ya se entregó. No se habilita hasta
-                        que estén las firmas que exige el proyecto (la base
-                        también lo impide, sql/89). */}
-                    {(() => {
-                      const faltaF = g.requester_id && !g.requester_signed_at
-                      const faltaS = proyecto?.expense_approval && !g.approved_at
-                      const motivo = faltaF ? 'Falta la firma de ' + nombreFirmante(g)
-                        : faltaS ? 'Falta la aprobación firmada del socio' : ''
-                      return (
-                        <button className="btn-ghost" onClick={() => confirmar(g)} disabled={!!motivo}
-                          title={motivo || 'El dinero ya se entregó'}
-                          style={motivo ? { opacity: .45, cursor: 'not-allowed' } : undefined}>
-                          {motivo ? '🔒 Confirmar pago' : 'Confirmar pago'}
-                        </button>
-                      )
-                    })()}{' '}
-                    {['admin', 'superuser'].includes(role) &&
-                      <button className="link-btn bad" onClick={async () => {
-                        if (!confirm(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`)) return
-                        const { error } = await supabase.from('expenses').delete().eq('id', g.id)
-                        setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'SOLICITUD ELIMINADA' })
-                        load()
-                      }}>eliminar</button>}
-                  </>)}
-                  {g.status === 'confirmado' && role === 'superuser' &&
-                    <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar (superuser)</button>}
-                </td>
+                <td>{docComprobante(g)}</td>
+                {/* los botones de firma viven en la columna "Firma", adelante:
+                    acá quedan las acciones de oficina */}
+                <td>{accionesOficina(g)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      )}
 
       {prt && (
           <div className="modal-bg" onClick={() => setPrt(null)}>
@@ -1015,6 +1074,12 @@ export default function Expenses() {
           onCerrar={() => setAprobar(null)}
           onHecho={t => { setAprobar(null); setMsg({ ok: true, t }); load() }}
           onPedirFirma={() => { setAprobar(null); setCambiarFirma(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+      )}
+
+      {pagar && (
+        <RegistrarPago gasto={pagar} proyecto={proyecto}
+          onCerrar={() => setPagar(null)}
+          onHecho={t => { setPagar(null); setMsg({ ok: true, t }); load() }} />
       )}
 
       {verDoc && (

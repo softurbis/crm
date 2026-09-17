@@ -87,12 +87,29 @@ export default function Layout() {
   //   · socio  → las que le toca aprobar (sql/73)
   //   · quien pidio el gasto → las que le toca firmar como solicitante (sql/74)
   const [porFirmar, setPorFirmar] = useState([])
+  //   · socio → además, los pagos aprobados que esperan su comprobante (sql/101)
+  const [porPagar, setPorPagar] = useState([])
   const irA = usarNavegacion()
   useEffect(() => {
     if (!profile?.id) return
     const esSocio = role === 'socio'
     let vivo = true
+    const contarPagos = async () => {
+      if (!esSocio) return
+      const { data, error } = await supabase.from('expenses')
+        .select('project_id, requester_id, project:projects!inner(name, expense_approval)')
+        .eq('status', 'solicitado').not('approved_at', 'is', null).is('rejected_at', null)
+        .eq('project.expense_approval', true).limit(200)
+      if (!vivo || error) return
+      const m = {}
+      for (const r of (data || [])) {
+        if (r.requester_id === profile.id) continue      // quien pidió el gasto no registra su pago
+        m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++
+      }
+      setPorPagar(Object.values(m))
+    }
     const contar = async () => {
+      contarPagos()
       const base = supabase.from('expenses')
         .select('project_id, requester_id, requester_signed_at, project:projects!inner(name, expense_approval)')
         .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).limit(200)
@@ -279,6 +296,15 @@ export default function Layout() {
           <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
             <b>✍ Esperan tu firma:</b>
             {porFirmar.map(p => (
+              <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n}</button>
+            ))}
+          </div>
+        )}
+        {porPagar.length > 0 && (
+          <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #6fdd9b' }}>
+            <b>💸 Pagos pendientes · sube el comprobante:</b>
+            {porPagar.map(p => (
               <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
                 onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n}</button>
             ))}
