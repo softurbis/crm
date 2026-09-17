@@ -1785,7 +1785,8 @@ async function agenteAtiende(projectId) {
 // con un asesor" ni aviso al dueño: el aviso de lead nuevo ya salió, y el agente le
 // avisa al asesor cuando el lead está listo (pasar_a_asesor).
 async function atenderConAgente(ses, jid, phone, lead) {
-  await setConv(phone, { project_id: lead.project_id || null, flow_state: 'ia', flow_step: null }, ses)
+  // lead_id: el turno del agente busca al lead por el chat (sin esto se quedaba callado)
+  await setConv(phone, { project_id: lead.project_id || null, flow_state: 'ia', flow_step: null, lead_id: lead.id }, ses)
   try { await VIA.asignar(lead, { phone, motivo: 'primer_mensaje', esPrueba: !!TEST_ACTIVE, directo: true }) }
   catch (e) { log('VENTAS IA registro:', String(e.message || e)) }
   await supabase.from('lead_activities').insert({ lead_id: lead.id, note: 'LO ATIENDE EL AGENTE DE VENTAS IA (PROYECTO SIN BOT)' }).then(() => {}, () => {})
@@ -1793,7 +1794,7 @@ async function atenderConAgente(ses, jid, phone, lead) {
 }
 
 async function entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo) {
-  await setConv(phone, { flow_state: 'ia', flow_step: null }, ses)
+  await setConv(phone, { flow_state: 'ia', flow_step: null, lead_id: lead.id }, ses)
   await etiquetarExperimento(ses, phone, 'AGENTE IA')
   await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', lead.id).then(() => {}, () => {})
   if (!sinSaludo) await enviar(jid, textoPasoAsesor(lead), { tipo: 'lead_flujo', lead_id: lead.id, ses })
@@ -1839,12 +1840,23 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
     const { data: convs } = await supabase.from('whatsapp_conversations')
       .select('id, phone, lead_id, flow_state, modo, is_test, session_id').eq('phone', phone).eq('flow_state', 'ia').limit(1)
     const conv = convs && convs[0]
-    if (!conv || conv.modo === 'humano' || !conv.lead_id) return
+    // Cada salida sin contestar deja su motivo en el log: el 16 sep el agente se quedaba
+    // callado sin rastro porque el chat no tenía el lead enganchado.
+    const mudo = motivo => log('VENTAS IA: no contesta a', phone, '—', motivo)
+    if (!conv) return mudo('el chat ya no está con el agente')
+    if (conv.modo === 'humano') return mudo('lo atiende una persona')
+    if (!conv.lead_id) {
+      // chats que pasaron al agente antes de que se enganchara el lead: se busca el que registró el agente
+      const { data: vl } = await supabase.from('ventas_ia_leads').select('lead_id').eq('phone', String(phone).replace(/\D/g, '')).order('asignado_at', { ascending: false }).limit(1)
+      if (!vl || !vl[0]) return mudo('el chat no tiene lead y el agente no lo tiene registrado')
+      conv.lead_id = vl[0].lead_id
+      await supabase.from('whatsapp_conversations').update({ lead_id: conv.lead_id }).eq('id', conv.id).then(() => {}, () => {})
+    }
     const { data: lead } = await supabase.from('leads').select('id, full_name, phone, project_id, source, budget_estimate, status, is_test').eq('id', conv.lead_id).maybeSingle()
-    if (!lead) return
+    if (!lead) return mudo('no existe el lead ' + conv.lead_id)
     // una prueba NUNCA sale por WhatsApp real, venga por donde venga
     const esPrueba = !!(esPruebaProgramada || conv.is_test || lead.is_test)
-    if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return
+    if (!(await flag('bot_activo')) || !(await flag('ia_activa'))) return mudo('el BOT o LEADS está apagado en el panel')
     const cfg = await VIA.config()
     if (!esPrueba && !VIA.enHorario(cfg)) return               // fuera de horario: lo retoma el barrido al abrir
     const ses = (conv.session_id && SESSIONS.get(conv.session_id)) || sesCorporativa()
@@ -1927,8 +1939,10 @@ async function barridoVentas() {
       // los más recientes primero: sin bot, todos los leads de esos proyectos son del agente
       .select('id, phone, lead_id, modo, is_test').eq('flow_state', 'ia').gte('last_message_at', hace7d).order('last_message_at', { ascending: false }).limit(50)
     for (const c of (convs || [])) {
-      if (c.modo === 'humano' || !c.lead_id || _ventasTimers.has(c.phone) || _ventasEnCurso.has(c.phone)) continue
-      const { data: v } = await supabase.from('ventas_ia_leads').select('asignado_at, ultimo_turno_at, primer_mensaje_at, es_prueba').eq('lead_id', c.lead_id).maybeSingle()
+      if (c.modo === 'humano' || _ventasTimers.has(c.phone) || _ventasEnCurso.has(c.phone)) continue
+      // sin lead enganchado (chats de antes del arreglo): por el teléfono que registró el agente
+      const qv = supabase.from('ventas_ia_leads').select('asignado_at, ultimo_turno_at, primer_mensaje_at, es_prueba')
+      const { data: v } = await (c.lead_id ? qv.eq('lead_id', c.lead_id) : qv.eq('phone', String(c.phone).replace(/\D/g, '')).order('asignado_at', { ascending: false }).limit(1)).maybeSingle()
       if (!v) continue
       const esPrueba = !!(c.is_test || v.es_prueba)
       if (!esPrueba && !VIA.enHorario(cfg)) continue
@@ -4241,6 +4255,20 @@ async function pasarListaTest(secId, sessionPhone) {
   await enviar(sessionPhone, secTpl(md, 'PREGUNTA', { nombre, lista, momento: 'hoy' }, 'Hola {nombre} 👋 ¿cómo va todo? Pasando lista de tus actividades de {momento}:\n\n{lista}\n\nRespóndeme *LISTO* si ya completaste todo, o los *números* de lo que ya está (ej: 1 y 3). 🙌'), { tipo: 'secretaria' })
 }
 
+// Un lead de prueba "escribe" al número del proyecto que nombra, como en real. Antes
+// entraba por la corporativa o, si no estaba conectada, por el PRIMER número conectado
+// (16 sep: Brisas), y ese proyecto se imponía al que decía el mensaje.
+const SES_SIN_NUMERO = { row: { id: 'legacy', is_corporate: true, label: 'PRUEBA', project_id: null }, sock: null }
+async function sesionDePruebaLead(ph, texto) {
+  // la conversación ya empezada sigue por el mismo número (si no, se partiría en dos chats)
+  const { data: cv } = await supabase.from('whatsapp_conversations').select('session_id').eq('phone', ph).order('last_message_at', { ascending: false }).limit(1)
+  if (cv && cv[0]) return (cv[0].session_id && SESSIONS.get(cv[0].session_id)) || SES_SIN_NUMERO
+  const { pr } = await detectarProyecto(texto)
+  if (pr) for (const s of SESSIONS.values()) if (s.row.project_id === pr.id) return s
+  for (const s of SESSIONS.values()) if (s.row.is_corporate) return s
+  return SES_SIN_NUMERO                          // sin número de proyecto: el bot pregunta cuál
+}
+
 async function procesarPruebas() {
   const { data } = await supabase.from('bot_test_messages').select('*').eq('status', 'pendiente').order('created_at').limit(5)
   for (const t of (data || [])) {
@@ -4268,7 +4296,7 @@ async function procesarPruebas() {
         TEST_PROFILES.set(d9, tipo)
         const jid = jidDe(ph)
         // pseudo-sesión de prueba (TEST_ACTIVE evita tocar WhatsApp real de todos modos)
-        const sesTest = sesCorporativa() || { row: { id: 'legacy', is_corporate: true, label: 'PRUEBA', project_id: null }, sock: null }
+        const sesTest = prof === 'lead' ? await sesionDePruebaLead(ph, t.text || '') : (sesCorporativa() || SES_SIN_NUMERO)
         await manejarEntrante(sesTest, jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
         // marcar como PRUEBA solo las sesiones sintéticas (lead/gerencia). Cliente/secretaria
         // usan el teléfono REAL de la entidad emulada, así que NO se marcan (son datos reales).
