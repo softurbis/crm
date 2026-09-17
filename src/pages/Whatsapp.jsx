@@ -138,6 +138,9 @@ export default function Whatsapp() {
   const puedeEscribir = ['admin', 'superuser', 'secretary', 'asesor'].includes(role)
   const [convs, setConvs] = useState([])
   const [sel, setSel] = useState(null)
+  // chat del agente de ventas: ¿es del experimento (nadie escribe) o de un proyecto sin
+  // bot (el asesor escribe cuando el agente le pasa el lead)? Sin sql/94: experimento.
+  const [iaExperimento, setIaExperimento] = useState(true)
   const [msgs, setMsgs] = useState([])
   const [busca, setBusca] = useState('')
   const [vista, setVista] = useState('lista')
@@ -681,6 +684,14 @@ export default function Whatsapp() {
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
   useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
   useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); cargarContacto(sel); marcarLeido(sel) }, [sel])
+  useEffect(() => {
+    setIaExperimento(true)
+    if (sel?.flow_state !== 'ia' || !sel?.lead_id) return
+    let vigente = true
+    supabase.rpc('ventas_ia_es_experimento', { lid: sel.lead_id })
+      .then(({ data, error }) => { if (vigente && !error) setIaExperimento(!!data) })
+    return () => { vigente = false }
+  }, [sel?.id, sel?.lead_id, sel?.flow_state])
   // pedir permiso de notificación una vez
   useEffect(() => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission() } catch {} }, [])
   // AHORRO DE EGRESS: pausar el panel cuando nadie lo usa (pestaña oculta o 5 min
@@ -1474,7 +1485,9 @@ export default function Whatsapp() {
                             cargarConvs(); setSel(x => ({ ...x, modo: 'bot' }))
                           }}>👤 EN HUMANO · 🤖 devolver al bot</button>
                       ) : sel.flow_state === 'ia' ? (
-                        <span className="wa-badge" title="Lo atiende el agente de ventas IA (experimento). Si alguien escribe aquí, el agente se calla y el lead queda marcado como tocado." style={{ color: '#8ab4f8', borderColor: '#8ab4f8' }}>🤖 AGENTE DE VENTAS ATIENDE</span>
+                        <span className="wa-badge" title={iaExperimento
+                          ? 'Lo atiende el agente de ventas IA (experimento). Si alguien escribe aquí, el agente se calla y el lead queda marcado como tocado.'
+                          : 'Lo atiende el agente de ventas IA. Si escribes aquí, el agente se calla en este chat y el cliente queda contigo.'} style={{ color: '#8ab4f8', borderColor: '#8ab4f8' }}>🤖 AGENTE DE VENTAS ATIENDE</span>
                       ) : (
                         <span className="wa-badge" title="El bot atiende este chat. Se calla solo cuando alguien responde desde el panel." style={{ color: '#9ccb86', borderColor: '#9ccb86' }}>🤖 BOT ATIENDE</span>
                       )}
@@ -1574,11 +1587,13 @@ export default function Whatsapp() {
               )}
               {sel.flow_state === 'ia' && sel.modo !== 'humano' && (
                 <p style={{ fontSize: 12, margin: '6px 0', padding: '6px 10px', borderRadius: 8, border: '1px solid #8ab4f8', color: '#8ab4f8', textTransform: 'none' }}>
-                  🤖 <b>Este cliente lo atiende el agente de ventas</b> (experimento de gerencia). No le escribas ni lo llames: si hace falta una persona, el agente avisa.
-                  {role === 'superuser' && ' Si escribes aquí, el agente se calla y el lead queda marcado como tocado.'}
+                  🤖 <b>Este cliente lo atiende el agente de ventas</b>
+                  {iaExperimento
+                    ? <> (experimento de gerencia). No le escribas ni lo llames: si hace falta una persona, el agente avisa.{role === 'superuser' && ' Si escribes aquí, el agente se calla y el lead queda marcado como tocado.'}</>
+                    : '. Cuando el cliente está listo, el agente te pasa el aviso. Si escribes aquí, el agente se calla en este chat y el cliente queda contigo.'}
                 </p>
               )}
-              {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && role !== 'superuser')
+              {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
                     quicks={quicks} esAdmin={esAdminW} onQuicks={guardarQuicks}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />

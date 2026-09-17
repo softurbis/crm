@@ -1751,11 +1751,12 @@ async function etiquetarExperimento(ses, phone, etiqueta, soloSiVacio) {
 async function marcarIntervencion(conv, por, texto) {
   try {
     if (!conv?.lead_id || conv.flow_state !== 'ia') return
-    const { data: v } = await supabase.from('ventas_ia_leads').select('grupo, es_prueba, intervenido_at, derivado_at').eq('lead_id', conv.lead_id).maybeSingle()
+    const { data: v } = await supabase.from('ventas_ia_leads').select('grupo, es_prueba, intervenido_at, derivado_at, motivo').eq('lead_id', conv.lead_id).maybeSingle()
     if (!v || v.grupo !== 'ia' || v.es_prueba || v.derivado_at) return   // derivado = el agente lo pasó: escribirle es lo que corresponde
     const corto = String(texto || '[archivo]').slice(0, 300)
     await supabase.from('lead_activities').insert({ lead_id: conv.lead_id, note: ('UNA PERSONA ESCRIBIÓ (' + por + ') EN UN CHAT DEL AGENTE IA: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}, () => {})
-    if (v.intervenido_at) return
+    // proyecto sin bot: no hay experimento que cuidar; que el asesor escriba es normal
+    if (v.motivo === 'primer_mensaje' || v.intervenido_at) return
     const { error } = await supabase.from('ventas_ia_leads').update({ intervenido_at: new Date().toISOString(), intervenido_por: por, intervenido_texto: corto }).eq('lead_id', conv.lead_id)
     if (error) log('VENTAS IA intervención (¿falta sql/92?):', error.message)
     const cfg = await VIA.config()
@@ -1766,6 +1767,24 @@ async function marcarIntervencion(conv, por, texto) {
       { tipo: 'aviso_admin', prueba: false })
     log('VENTAS IA: una persona escribió (' + por + ') en el chat del agente con', conv.phone)
   } catch (e) { log('VENTAS IA intervención:', String(e.message || e)) }
+}
+
+// ¿Este proyecto lo atiende el agente en vez del bot? Si algo falla, el bot de siempre.
+async function agenteAtiende(projectId) {
+  if (!projectId) return false
+  const modo = await VIA.modoProyecto(projectId).catch(() => 'bot')
+  return modo === 'agente' || (modo === 'prueba' && !!TEST_ACTIVE)
+}
+
+// Proyecto sin bot: el lead queda con el agente desde su primer mensaje. No hay "te paso
+// con un asesor" ni aviso al dueño: el aviso de lead nuevo ya salió, y el agente le
+// avisa al asesor cuando el lead está listo (pasar_a_asesor).
+async function atenderConAgente(ses, jid, phone, lead) {
+  await setConv(phone, { project_id: lead.project_id || null, flow_state: 'ia', flow_step: null }, ses)
+  try { await VIA.asignar(lead, { phone, motivo: 'primer_mensaje', esPrueba: !!TEST_ACTIVE, directo: true }) }
+  catch (e) { log('VENTAS IA registro:', String(e.message || e)) }
+  await supabase.from('lead_activities').insert({ lead_id: lead.id, note: 'LO ATIENDE EL AGENTE DE VENTAS IA (PROYECTO SIN BOT)' }).then(() => {}, () => {})
+  programarVentas(phone, !!TEST_ACTIVE, TEST_ACTIVE ? 1500 : undefined)
 }
 
 async function entregarAlAgente(ses, jid, phone, lead, motivo, sinSaludo) {
@@ -1852,6 +1871,8 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
         desde = Date.now()
       },
       avisar: async texto => { if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, texto, { tipo: 'aviso_admin', prueba }) },
+      // al asesor del proyecto (pases del agente, sql/94)
+      avisarA: async (tel, texto) => { const t = String(tel || '').replace(/\D/g, ''); if (t.length >= 9) await enviar(t, texto, { tipo: 'aviso_admin', prueba }) },
       pasarAHumano: async () => { await setConv(phone, { flow_state: 'humano' }, ses) },
     }
     if (esPrueba) {
@@ -1896,7 +1917,8 @@ async function barridoVentas() {
     if (!cfg) return
     const hace7d = new Date(Date.now() - 7 * 86400e3).toISOString()
     const { data: convs } = await supabase.from('whatsapp_conversations')
-      .select('id, phone, lead_id, modo, is_test').eq('flow_state', 'ia').gte('last_message_at', hace7d).limit(50)
+      // los más recientes primero: sin bot, todos los leads de esos proyectos son del agente
+      .select('id, phone, lead_id, modo, is_test').eq('flow_state', 'ia').gte('last_message_at', hace7d).order('last_message_at', { ascending: false }).limit(50)
     for (const c of (convs || [])) {
       if (c.modo === 'humano' || !c.lead_id || _ventasTimers.has(c.phone) || _ventasEnCurso.has(c.phone)) continue
       const { data: v } = await supabase.from('ventas_ia_leads').select('asignado_at, ultimo_turno_at, primer_mensaje_at, es_prueba').eq('lead_id', c.lead_id).maybeSingle()
@@ -2031,6 +2053,9 @@ async function correrFlujoInterno(ses, jid, phone, lead, proy, flow, idx) {
 // arranca el flujo del proyecto (100% configurable desde el panel).
 // Sin flujo configurado en el panel: no se inventa nada; se registra el lead y se avisa al asesor.
 async function iniciarFlujoProyecto(ses, jid, phone, lead) {
+  // Proyecto SIN BOT (sql/94, Agente de ventas → Proyectos): el agente atiende desde el
+  // primer mensaje. En modo 'prueba' solo desde Probar Bot; los clientes siguen con el bot.
+  if (await agenteAtiende(lead.project_id)) { await atenderConAgente(ses, jid, phone, lead); return }
   const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
   await setConv(phone, { project_id: lead.project_id || null }, ses)   // el chat queda etiquetado con su proyecto
   const flow = parseFlow(proy)
@@ -2369,6 +2394,13 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
   if (lead && estado === 'ia') {
     await supabase.from('lead_activities').insert({ lead_id: lead.id, note: ('WHATSAPP: ' + corto).toUpperCase().slice(0, 500) }).then(() => {}, () => {})
     programarVentas(phone, !!TEST_ACTIVE)
+    return
+  }
+
+  // PROYECTO SIN BOT (sql/94): el lead que venía del bot viejo, a medio flujo o con el
+  // flujo terminado, también pasa al agente (y si pide un asesor, lo resuelve el agente).
+  if (lead?.project_id && (estado === 'flow' || estado === 'completado') && await agenteAtiende(lead.project_id)) {
+    await atenderConAgente(ses, jid, phone, lead)
     return
   }
 

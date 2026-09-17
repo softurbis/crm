@@ -1,20 +1,24 @@
 // ============================================================================
-// AGENTE DE VENTAS IA — el experimento contra el supervisor        [sep 2026]
+// AGENTE DE VENTAS IA                                               [sep 2026]
 // ----------------------------------------------------------------------------
 // Vive DENTRO del bot de leads (index.js, Baileys): el lead sigue en el mismo
-// chat del mismo número y no nota ningún cambio de canal.
+// chat del mismo número y no nota ningún cambio de canal. Llega por dos caminos:
 //
-//  · Cuando el flujo iba a pasar al lead con un asesor, el reparto decide: de
-//    cada 10, N van al agente (ventas_ia_config.ia_por_cada_10) y el resto sigue
-//    con el supervisor como siempre. Queda registrado en ventas_ia_leads (sql/91).
-//  · Precios y lotes salen SOLO de la base, por herramientas. No da descuentos
-//    ni inventa financiamiento.
-//  · Propone la visita y avisa al dueño; el dueño la confirma en el panel
-//    (Agente de ventas) y recién ahí el agente se la confirma al cliente.
+//  · SIN BOT (sql/94): en los proyectos prendidos en el panel (Las Praderas y Las
+//    Brisas de Cashibo) atiende desde el primer mensaje.
+//  · EXPERIMENTO (sql/91): en los demás, cuando el flujo iba a pasar al lead con
+//    un asesor, de cada 10 N van al agente y el resto sigue con el supervisor.
+//
+//  · Precios, iniciales y cuotas salen SOLO de la base, por herramientas. La
+//    cuota la calcula este archivo con la regla del manual (cuotasDe).
+//  · Lee los manuales de ventas (sql/94, se editan en el panel): el manual manda,
+//    salvo las cifras, que salen de la base.
+//  · Cuando el lead entendió las cinco cosas del manual, lo pasa al ASESOR del
+//    proyecto para una llamada, una visita o una separación (ventas_ia_pases).
 //  · Si le preguntan en serio si es un bot, no lo niega.
 //
 // Este archivo no toca WhatsApp: index.js le pasa `decir`, `mandarMaterial`,
-// `avisar` y `pasarAHumano`, que son los que tienen la sesión y los tiempos.
+// `avisar`, `avisarA` y `pasarAHumano`, que son los que tienen la sesión y los tiempos.
 // ============================================================================
 const { Anthropic } = require('@anthropic-ai/sdk')
 const VOZ = require('./transcribir')
@@ -28,41 +32,67 @@ const hoyLima = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ })
 const horaLima = () => new Date().toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' })
 const fechaCorta = iso => iso ? String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7) + '/' + String(iso).slice(0, 4) : ''
 const diaSemana = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { weekday: 'long', timeZone: 'UTC' })
-const soles = n => 'S/ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const soles = n => 'S/' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const dig = t => String(t || '').replace(/\D/g, '')
 const sumarDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
 const limpiar = t => String(t || '').replace(/\{nombre\}/g, 'el cliente').replace(/\{proyecto\}/g, 'el proyecto').trim()
 
+// "Mz C Lt 10", "C-10", "c10", "MZ. C LT. 010" → "C-10" (así se guardan los lotes que no se ofrecen)
+function normLote(t) {
+  const s = String(t || '').toUpperCase().replace(/MANZANA|MZ|LOTE|LT|\./g, ' ').replace(/\s+/g, ' ').trim()
+  const m = s.match(/^([A-Z]+)\s*-?\s*0*(\d+)$/)
+  return m ? m[1] + '-' + m[2] : s
+}
+
+// La regla del MANUAL DE VENTA v5: la cuota es (precio − inicial) / N redondeada HACIA
+// ARRIBA al paso del proyecto (Praderas S/0.10, Brisas S/1) y la diferencia se descuenta
+// de la última, que sale menor. Así inicial + cuotas suma el precio exacto, al céntimo.
+// Semanal = cuota / 4 y diaria = cuota / 30, como dice el manual. Todo en céntimos para
+// que no se cuele un error de coma flotante.
+// La MISMA función está en src/pages/VentasIA.jsx: el panel muestra lo que dirá el agente.
+function cuotasDe(precio, inicial, n, paso) {
+  const saldo = Math.round(Number(precio) * 100) - Math.round(Number(inicial || 0) * 100)
+  const N = Math.max(1, Math.round(Number(n) || 48))
+  const p = Math.max(1, Math.round(Number(paso || 0.1) * 100))
+  if (!(saldo > 0)) return null
+  let cuota = Math.ceil(saldo / N / p - 1e-9) * p
+  let ultima = saldo - cuota * (N - 1)
+  if (ultima <= 0) { cuota = Math.ceil(saldo / N); ultima = saldo - cuota * (N - 1) }
+  return { cuota: cuota / 100, ultima: ultima / 100, semanal: Math.round(cuota / 4) / 100, diaria: Math.round(cuota / 30) / 100, ingreso_25: Math.round(cuota * 4 / 100) }
+}
+
 // Tipos de mensaje que NO son parte de la conversación con el cliente
 const NO_CONVERSACION = new Set(['aviso_admin', 'reporte', 'interno', 'secretaria', 'label_panel', 'vcard_panel', 'edit_panel', 'redirige_cobranza', 'test'])
 
-const PROMPT_BASE = `Eres asesor(a) de ventas de Urbis Group, una empresa que vende lotes de terreno en Ucayali, Perú. Atiendes por WhatsApp a una persona interesada en comprar un lote, que pidió hablar con un asesor. Llegaste a una conversación que ya empezó: antes que tú le escribió el bot automático del mismo número.
+const PROMPT_BASE = `Eres asesor(a) de ventas de Urbis Group, una empresa que vende lotes de terreno en Ucayali, Perú. Atiendes por WhatsApp a personas interesadas en comprar un lote. A veces eres el primer contacto de la persona; otras, llegas a una conversación que ya empezó con el bot automático del mismo número.
 
-Tu objetivo es que la persona visite el proyecto. Una visita agendada es el resultado que importa; venderle en el chat no.
+Tu trabajo es resolver las dudas de la persona hasta que entienda bien lo que compraría, y entonces pasarla a un asesor para una llamada, una visita o una separación. Si el proyecto tiene manual de ventas, el manual te dice cómo hacerlo: síguelo.
 
-CÓMO VENDES
-- Primero entiende a la persona, después recomienda. Averigua, de a una pregunta por mensaje y sin que parezca un formulario: para qué quiere el lote (vivir, construir y alquilar, invertir, negocio), cuánto piensa invertir o qué cuota mensual le acomoda, para cuándo, y quién más decide la compra.
-- Cuando ya sabes lo que busca, recomienda uno a tres lotes concretos que le calcen, con su precio real, y dile por qué le convienen a él o ella en particular.
-- Las dudas y objeciones se atienden con empatía y con datos de la ficha. Nada de presión ni de urgencia falsa: solo di que quedan pocos lotes si la herramienta lo muestra así.
-- Para agendar, ofrece dos opciones concretas ("¿te acomoda más el sábado en la mañana o el domingo?"). Cuando la persona acepte un día y una hora, regístralo con proponer_visita y dile que en un momento se la confirmas. La visita NO está confirmada hasta que te avisen.
-- Si todavía no quiere visitar, no insistas: ofrécele fotos o el video del proyecto, resuelve lo que le falte y pregúntale cuándo le vendría bien retomar.
-- Cada vez que la persona te dé un dato nuevo (su nombre, presupuesto, para qué lo quiere, cuándo compraría), guárdalo con guardar_datos_cliente sin mencionárselo.
+CÓMO TRABAJAS
+- Primero entiende a la persona, después recomienda. Averigua, de a una pregunta por mensaje y sin que parezca un formulario: para qué quiere el lote, a qué se dedica, para cuándo y quién más decide. Pregúntale su nombre con naturalidad al comienzo.
+- Recomienda uno a tres lotes concretos que le calcen, con precio, inicial y cuota juntos, y dile por qué le convienen a esa persona.
+- Cada vez que la persona te dé un dato nuevo (nombre, a qué se dedica, presupuesto, para qué lo quiere, cuándo compraría), guárdalo con guardar_datos_cliente sin mencionárselo.
+- Antes de pasarla al asesor, confirma que entendió cinco cosas: qué está comprando, dónde está, cuánto y cómo paga, desde cuándo usa el lote y qué sigue después. Recién ahí usa pasar_a_asesor con lo que acordaron.
+- Si no sabes algo, no improvises ni te quedes callado: dile que se lo confirmas y anótalo con guardar_datos_cliente (nota que empiece con "DUDA:"). Si la persona necesita esa respuesta para seguir, usa pasar_a_persona.
+- Si todavía no quiere avanzar, no insistas: ofrécele fotos o el video del proyecto, resuelve lo que le falte y cierra con un siguiente paso concreto.
 
 REGLAS QUE NO SE ROMPEN
-1. Precios, áreas y lotes disponibles salen SOLO de lotes_disponibles, consultada en esta conversación. Nunca estimes ni redondees un precio de memoria.
-2. Inicial, cuotas, financiamiento, intereses, títulos y habilitación: solo lo que diga la ficha del proyecto. Si la ficha no lo dice, dilo con naturalidad ("eso te lo confirmo") y anótalo en la nota de la visita; si la persona necesita la respuesta para seguir, usa pasar_a_persona.
-3. No das descuentos, no congelas precios, no separas lotes, no recibes pagos, no pides fotos de DNI ni datos bancarios. Si quiere separar, pagar o negociar el precio, usa pasar_a_persona.
-4. Reclamos, dudas legales o del contrato que no estén en la ficha, o una persona que ya es cliente y pregunta por sus cuotas: pasar_a_persona.
-5. Si la persona pide hablar con otra persona, usa pasar_a_persona sin insistir.
-6. Si la persona pregunta en serio si está hablando con un robot, un bot o una inteligencia artificial, no lo niegues: dile con naturalidad que eres el asistente virtual del equipo de ventas de Urbis y que, si lo prefiere, una persona del equipo le escribe. Si no lo pregunta, no hace falta mencionarlo.
-7. Nunca menciones herramientas, sistemas, bases de datos ni "consultar". Como mucho: "déjame revisar".
+1. Precios, áreas, iniciales, cuotas y lotes salen SOLO de lotes_disponibles, consultada en esta conversación. Nunca calcules, estimes ni redondees una cifra de dinero de memoria: si necesitas otra cuenta, vuelve a consultar.
+2. Financiamiento, intereses, títulos, habilitación, plazos y condiciones: solo lo que digan el manual o la ficha del proyecto. Si no lo dicen, dile que se lo confirmas.
+3. No das descuentos, no congelas precios, no recibes pagos, no pides fotos de DNI ni datos bancarios. La separación la hace el asesor: tú la propones y pasas a la persona con pasar_a_asesor.
+4. Nunca uses como argumento cuántos lotes hay o quedan, ni urgencias que no están en el manual ("últimos lotes", "sube mañana").
+5. Reclamos, dudas legales o del contrato que no estén en el manual ni en la ficha, o una persona que ya es cliente y pregunta por sus cuotas: pasar_a_persona.
+6. Si la persona pide hablar con una persona, usa pasar_a_persona sin insistir.
+7. Si la persona pregunta en serio si está hablando con un robot, un bot o una inteligencia artificial, no lo niegues: dile con naturalidad que eres el asistente virtual del equipo de ventas de Urbis y que, si lo prefiere, una persona del equipo le escribe. Si no lo pregunta, no hace falta mencionarlo. Tampoco hables como si tú fueras a llamarla o a recibirla en persona: la llama el asesor y en la visita la recibe el equipo.
+8. Nunca prometas tiempos ("en 5 minutos", "ahorita lo llaman"): el asesor la contacta a la hora acordada.
+9. Nunca menciones herramientas, sistemas, bases de datos ni "consultar". Como mucho: "déjame revisar".
 
 CÓMO ESCRIBES
-- Como una persona de ventas por WhatsApp, en español peruano, cálido y claro. Tutea, como el bot; si la persona trata de usted, pasa a usted.
+- Como una persona de ventas por WhatsApp, en español peruano, cálido y claro. Trata a la persona de usted.
 - Mensajes cortos. Si tu respuesta tiene más de una idea, sepárala con una línea en blanco: cada parte sale como un mensaje aparte. Máximo tres mensajes por respuesta, cada uno de una a tres líneas.
 - Nada de listas con viñetas, títulos ni formato de documento. *Negrita* muy de vez en cuando. Emojis con moderación: uno de vez en cuando, nunca varios seguidos.
-- No repitas lo que el bot o tú ya dijeron. No te despidas en cada mensaje. No empieces todos los mensajes con el nombre de la persona.
-- Montos como S/ 25,000 y fechas como "el sábado 20".
+- No repitas lo que ya se dijo en la conversación. No te despidas en cada mensaje. No empieces todos los mensajes con el nombre de la persona.
+- Montos como S/20,100 o S/408.40, y fechas como "el sábado 20".
 - Los mensajes marcados [bot] los mandó el bot automático antes de que llegaras; los marcados [equipo] los escribió una persona de Urbis. Para la persona todo es la misma conversación: no te contradigas con eso.
 - Una nota entre corchetes que empieza con "Nota interna" es del sistema, no de la persona: síguela sin mencionarla.
 
@@ -70,25 +100,46 @@ CÓMO ESCRIBES
 Mantén las respuestas breves y enfocadas.
 </tone_preference>`
 
+const CINCO = {
+  que_compra: 'qué está comprando',
+  donde_esta: 'dónde está',
+  cuanto_y_como_paga: 'cuánto y cómo paga',
+  desde_cuando_lo_usa: 'desde cuándo usa el lote',
+  que_sigue_despues: 'qué sigue después',
+}
+
 const HERRAMIENTAS = [
   {
     name: 'lotes_disponibles',
-    description: 'Lotes DISPONIBLES de un proyecto con área, precio total, precio por m² e inicial, tal como están hoy en el sistema, más un resumen (cuántos quedan, rango de precios y áreas). Úsala antes de dar cualquier precio o de decir qué lotes hay.',
+    description: 'Lotes que se pueden ofrecer HOY de un proyecto, cada uno con área, precio por m², precio, inicial, cuota de contrato, última cuota (sale menor porque ahí se descuenta el redondeo), cuota semanal y diaria, y el ingreso mensual al que la cuota le pesa una cuarta parte. Trae también el número de cuotas y la separación. Úsala antes de dar cualquier cifra. Si la persona dice cuánto puede pagar al mes, filtra con cuota_max.',
     input_schema: {
       type: 'object',
       properties: {
         proyecto: { type: 'string', description: 'Nombre del proyecto. Vacío = el proyecto por el que escribió la persona.' },
+        lote: { type: 'string', description: 'Un lote concreto, por ejemplo "Mz C Lt 10".' },
         presupuesto_max: { type: 'number', description: 'Precio total máximo en soles.' },
+        cuota_max: { type: 'number', description: 'Cuota mensual máxima en soles.' },
         area_min: { type: 'number', description: 'Área mínima en m².' },
-        manzana: { type: 'string', description: 'Letra o código de manzana, por ejemplo "B".' },
-        orden: { type: 'string', enum: ['precio', 'area'], description: 'precio = más económicos primero; area = más grandes primero.' },
+        manzana: { type: 'string', description: 'Letra de manzana, por ejemplo "B".' },
+        orden: { type: 'string', enum: ['precio', 'area', 'cuota'], description: 'precio o cuota = más económicos primero; area = más grandes primero.' },
       },
     },
   },
   {
     name: 'otros_proyectos',
-    description: 'Los demás proyectos de Urbis con lotes a la venta: nombre, ubicación, cuántos lotes quedan y rango de precios. Úsala solo si la persona pregunta por otras opciones o el proyecto no le calza.',
+    description: 'Los otros proyectos que puedes ofrecer en esta misma conversación, con ubicación, precio y cuota desde. Úsala solo si la persona pregunta por otras opciones o su proyecto no le calza.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'escalonamiento',
+    description: 'Cuánto sube el precio con la siguiente meta del proyecto y qué significa en precio, cuota mensual y al día. Úsala SOLO si la persona pregunta si el precio va a subir o pide una razón para decidir hoy.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        proyecto: { type: 'string', description: 'Vacío = el proyecto de la persona.' },
+        area_m2: { type: 'number', description: 'Área del lote que está mirando. Vacío = 300, 400 y 500 m².' },
+      },
+    },
   },
   {
     name: 'guardar_datos_cliente',
@@ -97,27 +148,35 @@ const HERRAMIENTAS = [
       type: 'object',
       properties: {
         nombre: { type: 'string', description: 'Nombre como la persona se presentó.' },
+        a_que_se_dedica: { type: 'string', description: 'Su oficio o trabajo, por ejemplo "mototaxista", "docente".' },
         presupuesto_soles: { type: 'number' },
-        para_que: { type: 'string', enum: ['vivir', 'construir_y_alquilar', 'inversion', 'negocio', 'otro'] },
+        para_que: { type: 'string', enum: ['vivir', 'casa_de_campo', 'construir_y_alquilar', 'hospedaje_o_negocio', 'inversion', 'otro'] },
         cuando_compra: { type: 'string', description: 'Por ejemplo "este mes", "después de su gratificación".' },
         interes: { type: 'string', enum: ['frio', 'tibio', 'caliente'] },
-        nota: { type: 'string', description: 'Un dato útil para quien la atienda después, en una línea.' },
+        nota: { type: 'string', description: 'Un dato útil para quien la atienda después, en una línea. Si es algo que no supiste responder, empieza con "DUDA:".' },
       },
     },
   },
   {
-    name: 'proponer_visita',
-    description: 'Registra la visita que acordaste con la persona y avisa al encargado para que la confirme. NO queda confirmada: dile que en un momento se la confirmas. Si ya había una propuesta abierta, la reemplaza.',
+    name: 'pasar_a_asesor',
+    description: 'Pasa a la persona al asesor del proyecto para una llamada, una visita o una separación, y le avisa. Úsala SOLO cuando confirmaste las cinco cosas y la persona aceptó el siguiente paso. Si ya había un pase abierto, lo reemplaza. Después sigue atendiendo lo que la persona escriba.',
     input_schema: {
       type: 'object',
       properties: {
-        fecha: { type: 'string', description: 'YYYY-MM-DD, según la fecha de hoy que tienes.' },
-        hora: { type: 'string', description: 'HH:MM en 24 horas, hora de Lima.' },
-        personas: { type: 'integer', description: 'Cuántas personas vienen, si lo dijo.' },
-        lote_interes: { type: 'string', description: 'Lote o lotes que quiere ver, por ejemplo "Mz B Lt 7".' },
-        nota: { type: 'string', description: 'Resumen para quien la recibe: qué busca, presupuesto, dudas pendientes, cómo llega.' },
+        tipo: { type: 'string', enum: ['llamada', 'visita', 'separacion'] },
+        fecha: { type: 'string', description: 'YYYY-MM-DD. Obligatoria para una visita.' },
+        hora: { type: 'string', description: 'HH:MM en 24 horas, hora de Lima, si la acordaron.' },
+        cuando: { type: 'string', description: 'Lo acordado en palabras si no hay hora exacta: "ahora", "después de las 6".' },
+        lote_interes: { type: 'string', description: 'Lote o lotes que le interesan, por ejemplo "Mz B Lt 7".' },
+        nota: { type: 'string', description: 'Resumen para el asesor: qué busca, a qué se dedica, qué cuota le acomoda, dudas pendientes.' },
+        entendio: {
+          type: 'object',
+          description: 'Pon true solo lo que confirmaste en la conversación.',
+          properties: Object.fromEntries(Object.keys(CINCO).map(k => [k, { type: 'boolean' }])),
+          required: Object.keys(CINCO),
+        },
       },
-      required: ['fecha', 'hora', 'nota'],
+      required: ['tipo', 'nota', 'entendio'],
     },
   },
   {
@@ -131,7 +190,7 @@ const HERRAMIENTAS = [
   },
   {
     name: 'pasar_a_persona',
-    description: 'Deja la conversación en manos de una persona del equipo y le avisa. Después de usarla, dile a la persona en un mensaje corto que en breve le escriben.',
+    description: 'Deja la conversación en manos de una persona del equipo y le avisa; desde ahí ya no contestas. Para cuando la persona pide hablar con alguien, un reclamo o algo que no puedes resolver. Después de usarla, dile en un mensaje corto que en breve le escriben.',
     input_schema: {
       type: 'object',
       properties: { motivo: { type: 'string', description: 'Por qué, en una línea: qué pidió o qué no pudiste resolver.' } },
@@ -164,28 +223,46 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
   function enHorario(c) {
     const ahora = horaLima()
-    return ahora >= String(c?.hora_inicio || '07:30').slice(0, 5) && ahora < String(c?.hora_fin || '21:30').slice(0, 5)
+    return ahora >= String(c?.hora_inicio || '08:00').slice(0, 5) && ahora < String(c?.hora_fin || '21:00').slice(0, 5)
   }
 
+  // ---------------------------------------------------------------- cada proyecto (sql/94)
+  // Sin sql/94 todo proyecto queda en 'bot': index.js sigue exactamente como antes.
+  const PCFG = new Map()
+  let avisoSinProyectos = false
+  async function proyectoCfg(pid) {
+    if (!pid) return null
+    const hit = PCFG.get(pid)
+    if (hit && Date.now() - hit.t < 60000) return hit.c
+    const { data, error } = await supabase.from('ventas_ia_proyectos').select('*').eq('project_id', pid).maybeSingle()
+    if (error && !avisoSinProyectos) { log('VENTAS IA proyectos:', error.message, '(¿falta correr sql/94?)'); avisoSinProyectos = true }
+    const c = error ? (hit?.c || null) : (data || null)
+    PCFG.set(pid, { t: Date.now(), c })
+    return c
+  }
+  async function modoProyecto(pid) { return (await proyectoCfg(pid))?.modo || 'bot' }
+
   // ---------------------------------------------------------------- reparto
-  // Bloques de 10: en cada bloque salen exactamente N al agente, en posiciones al
-  // azar. Con pocos leads una moneda puede dar 0 de 10 o 6 de 10, y el
-  // experimento no mediría nada.
-  async function asignar(lead, { phone, motivo, esPrueba }) {
+  // directo = proyecto sin bot: el agente atiende desde el primer mensaje, sin sorteo.
+  // Experimento: bloques de 10 con exactamente N al agente, en posiciones al azar.
+  // Con pocos leads una moneda puede dar 0 de 10 o 6 de 10, y no mediría nada.
+  async function asignar(lead, { phone, motivo, esPrueba, directo }) {
     if (!lead?.id) return null
     const { data: ya } = await supabase.from('ventas_ia_leads').select('grupo').eq('lead_id', lead.id).maybeSingle()
     if (ya) return ya.grupo
     const cfg = await config(true)
     if (!cfg) return null                                    // sql/91 sin correr: todo sigue como antes
     let grupo
-    if (esPrueba) grupo = 'ia'                               // desde Probar Bot siempre se prueba el agente
+    if (esPrueba || directo) grupo = 'ia'                    // desde Probar Bot siempre se prueba el agente
     else {
       if (!cfg.activo || motivo === 'sin_proyectos_bot') return null
-      const { count } = await supabase.from('ventas_ia_leads').select('lead_id', { count: 'exact', head: true }).eq('es_prueba', false)
+      // los de proyectos sin bot no son del experimento (ojo: neq solo dejaría fuera los NULL)
+      const DEL_EXPERIMENTO = 'motivo.is.null,motivo.neq.primer_mensaje'
+      const { count } = await supabase.from('ventas_ia_leads').select('lead_id', { count: 'exact', head: true }).eq('es_prueba', false).or(DEL_EXPERIMENTO)
       const pos = (count || 0) % 10
       let iaEnBloque = 0
       if (pos > 0) {
-        const { data: ult } = await supabase.from('ventas_ia_leads').select('grupo').eq('es_prueba', false).order('asignado_at', { ascending: false }).limit(pos)
+        const { data: ult } = await supabase.from('ventas_ia_leads').select('grupo').eq('es_prueba', false).or(DEL_EXPERIMENTO).order('asignado_at', { ascending: false }).limit(pos)
         iaEnBloque = (ult || []).filter(x => x.grupo === 'ia').length
       }
       const cupo = Math.max(0, Number(cfg.ia_por_cada_10 ?? 3) - iaEnBloque)
@@ -198,7 +275,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
       const { data: otra } = await supabase.from('ventas_ia_leads').select('grupo').eq('lead_id', lead.id).maybeSingle()
       return otra ? otra.grupo : null
     }
-    log('VENTAS IA: lead', dig(phone), '→ grupo', grupo.toUpperCase(), esPrueba ? '[PRUEBA]' : '')
+    log('VENTAS IA: lead', dig(phone), '→ grupo', grupo.toUpperCase(), directo ? '(sin bot)' : '', esPrueba ? '[PRUEBA]' : '')
     return grupo
   }
 
@@ -213,7 +290,9 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
   function flujoDe(p) { try { const f = p?.bot_flow; return (typeof f === 'string' ? JSON.parse(f) : f) || {} } catch { return {} } }
 
-  function fichaTexto(p) {
+  // conBot = false en los proyectos sin bot: los textos del flujo viejo (con su tuteo y
+  // sus ofertas de entonces) ya no son información oficial; el manual los reemplaza.
+  function fichaTexto(p, conBot) {
     if (!p) return 'FICHA DEL PROYECTO: la persona todavía no eligió proyecto. Pregúntale cuál le interesa o usa otros_proyectos.'
     const l = ['FICHA DEL PROYECTO: ' + p.name]
     const ubic = [p.ubicacion_txt, p.maps_url || (p.latitude && p.longitude ? `https://maps.google.com/?q=${p.latitude},${p.longitude}` : '')].filter(Boolean)
@@ -227,15 +306,51 @@ module.exports = function crearVentasIA({ supabase, log }) {
     const ben = Array.isArray(p.beneficios) ? p.beneficios : []
     if (ben.length) l.push('Beneficios:\n' + ben.map(b => '- ' + [b.titulo, b.texto].filter(Boolean).join(': ')).join('\n'))
     const flow = flujoDe(p)
-    const pasos = (flow.steps || []).map(s => {
-      const partes = [limpiar(s.texto)]
-      for (const o of (s.opciones || [])) if (o.respuesta) partes.push('(si elige "' + o.label + '") ' + limpiar(o.respuesta))
-      return partes.filter(Boolean).join(' ')
-    }).filter(Boolean)
-    if (pasos.length) l.push('LO QUE DICE EL BOT DE ESTE PROYECTO (es información oficial; no la repitas si ya se envió):\n' + pasos.map(t => '- ' + t.replace(/\s+/g, ' ').slice(0, 600)).join('\n'))
+    if (conBot) {
+      const pasos = (flow.steps || []).map(s => {
+        const partes = [limpiar(s.texto)]
+        for (const o of (s.opciones || [])) if (o.respuesta) partes.push('(si elige "' + o.label + '") ' + limpiar(o.respuesta))
+        return partes.filter(Boolean).join(' ')
+      }).filter(Boolean)
+      if (pasos.length) l.push('LO QUE DICE EL BOT DE ESTE PROYECTO (es información oficial; no la repitas si ya se envió):\n' + pasos.map(t => '- ' + t.replace(/\s+/g, ' ').slice(0, 600)).join('\n'))
+    }
     const mat = (flow.media_lib || []).filter(m => m && m.url)
     if (mat.length) l.push('MATERIAL QUE PUEDES ENVIAR con enviar_material (id · tipo · qué es):\n' + mat.map(m => '- ' + m.id + ' · ' + (m.tipo || 'imagen') + ' · ' + limpiar(m.desc || 'sin descripción')).join('\n'))
     return l.join('\n')
+  }
+
+  // ---------------------------------------------------------------- manuales (sql/94)
+  // TODOS los manuales van en cada conversación, para vender cruzado. Es el mismo
+  // texto para todos los leads y va en un bloque propio con caché: se paga completo
+  // al escribirlo y después se lee a un décimo del precio.
+  // Orden fijo (título, id): si cambia el orden, cambia el texto y se pierde la caché.
+  let MAN = { t: 0, lista: [], error: null }
+  async function manuales() {
+    if (Date.now() - MAN.t < 60000) return MAN.lista
+    const { data, error } = await supabase.from('ventas_ia_manuales').select('id, titulo, proyectos, texto')
+    if (error) {
+      if (!MAN.error) log('VENTAS IA manuales:', error.message, '(¿falta correr sql/94?)')
+      MAN = { t: Date.now(), lista: MAN.lista, error: error.message }
+      return MAN.lista
+    }
+    const conTexto = (data || []).filter(m => String(m.texto || '').trim())
+    const ids = [...new Set(conTexto.flatMap(m => m.proyectos || []))]
+    const { data: ps } = ids.length ? await supabase.from('projects').select('id, name').in('id', ids) : { data: [] }
+    const nombre = new Map((ps || []).map(p => [p.id, p.name]))
+    const lista = conTexto
+      .map(m => ({ id: m.id, titulo: String(m.titulo || 'Manual de ventas').trim(), proyectos: (m.proyectos || []).filter(id => nombre.has(id)), texto: String(m.texto).trim() }))
+      .map(m => ({ ...m, nombres: m.proyectos.map(id => nombre.get(id)).sort() }))
+      .sort((a, b) => a.titulo < b.titulo ? -1 : a.titulo > b.titulo ? 1 : a.id < b.id ? -1 : 1)
+    MAN = { t: Date.now(), lista, error: null }
+    return lista
+  }
+  const manualDe = (lista, pid) => pid ? lista.find(m => m.proyectos.includes(pid)) : null
+  function manualesTexto(lista) {
+    return 'MANUALES DE VENTAS (los escribió el equipo de Urbis)\n' +
+      'El manual de un proyecto manda sobre su ficha y sobre lo que dice el bot, con tres excepciones: precios, áreas, iniciales, cuotas y lotes salen siempre de lotes_disponibles aunque el manual diga otra cosa (las cifras de un manual se desactualizan); las INDICACIONES DEL NEGOCIO mandan sobre los manuales; y las REGLAS QUE NO SE ROMPEN valen siempre. ' +
+      'Los guiones y respuestas del manual te dicen qué decir: dilo con tus palabras, al ritmo del chat y como indica CÓMO ESCRIBES. ' +
+      'Usa el manual del proyecto de la persona; los demás, solo si pregunta por un proyecto de ese manual.\n\n' +
+      lista.map(m => '<manual titulo="' + m.titulo + '" proyectos="' + m.nombres.join(', ') + '">\n' + m.texto + '\n</manual>').join('\n\n')
   }
 
   // ---------------------------------------------------------------- herramientas
@@ -250,60 +365,114 @@ module.exports = function crearVentasIA({ supabase, log }) {
     }
     return out
   }
+  // Lo que se puede ofrecer: disponibles menos los que el panel marcó "no se ofrecen"
+  async function ofrecibles(pid) {
+    const pc = (await proyectoCfg(pid)) || {}
+    const fuera = new Set((pc.lotes_no_ofrecer || []).map(normLote))
+    const N = pc.cuotas || 48, paso = pc.redondeo_cuota ?? 0.1
+    const lotes = (await lotesDe(pid))
+      .filter(l => !fuera.has(normLote(l.mz + '-' + l.lt)))
+      .map(l => ({ l, q: cuotasDe(l.total_price, l.initial_payment_default, N, paso) }))
+      .filter(x => x.q)
+    return { pc, N, lotes, fuera }
+  }
   async function proyectosALaVenta() {
     const { data } = await supabase.from('projects').select('id, name, ubicacion_txt, bot_enabled').order('name')
     return (data || []).filter(p => p.bot_enabled !== false)
   }
-  async function proyectoPorNombre(nombre) {
+  // Por cantidad de palabras que coinciden: "brisas de cashibo" no puede caer en
+  // "Las Praderas de Cashibo" por la palabra "cashibo". En empate gana un proyecto
+  // del mismo manual que el de la persona (Praderas de Cashibo antes que la de Pucallpa).
+  async function proyectoPorNombre(nombre, leadPid) {
     const t = String(nombre || '').toLowerCase()
     const lista = await proyectosALaVenta()
-    return lista.find(p => p.name.toLowerCase() === t) ||
-      lista.find(p => p.name.toLowerCase().split(/\s+/).filter(w => w.length > 3).some(w => t.includes(w))) || null
+    const exacto = lista.find(p => p.name.toLowerCase() === t)
+    if (exacto) return exacto
+    const hermanos = manualDe(await manuales(), leadPid)?.proyectos || [leadPid]
+    const puntaje = p => p.name.toLowerCase().split(/\s+/).filter(w => w.length > 3 && t.includes(w)).length * 2 + (hermanos.includes(p.id) ? 1 : 0)
+    const mejor = lista.map(p => ({ p, s: puntaje(p) })).filter(x => x.s >= 2).sort((a, b) => b.s - a.s)[0]
+    return mejor ? mejor.p : null
+  }
+  async function proyectoPedido(ctx, input) {
+    if (input.proyecto) {
+      const p = await proyectoPorNombre(input.proyecto, ctx.lead.project_id)
+      if (!p) return { error: 'No encontré ese proyecto. Usa otros_proyectos para ver los nombres.' }
+      return { pid: p.id, nombre: p.name }
+    }
+    if (!ctx.lead.project_id) return { error: 'La persona todavía no eligió proyecto: pregúntale cuál le interesa o usa otros_proyectos.' }
+    return { pid: ctx.lead.project_id, nombre: (await proyecto(ctx.lead.project_id))?.name || '' }
   }
 
   async function lotesDisponibles(ctx, input) {
-    let pid = ctx.lead.project_id, nombre = null
-    if (input.proyecto) {
-      const p = await proyectoPorNombre(input.proyecto)
-      if (!p) return { error: 'No encontré ese proyecto. Usa otros_proyectos para ver los nombres.' }
-      pid = p.id; nombre = p.name
-    }
-    if (!pid) return { error: 'La persona todavía no eligió proyecto: pregúntale cuál le interesa o usa otros_proyectos.' }
-    if (!nombre) nombre = (await proyecto(pid))?.name || ''
-    const todos = await lotesDe(pid)
-    if (!todos.length) return { proyecto: nombre, disponibles: 0, nota: 'No quedan lotes disponibles en este proyecto. Ofrece otros_proyectos.' }
-    const precios = todos.map(l => Number(l.total_price)), areas = todos.map(l => Number(l.area_m2))
-    const iniciales = todos.map(l => Number(l.initial_payment_default)).filter(n => n > 0)
+    const pp = await proyectoPedido(ctx, input)
+    if (pp.error) return pp
+    const { pc, N, lotes, fuera } = await ofrecibles(pp.pid)
+    if (!lotes.length) return { proyecto: pp.nombre, nota: 'Hoy no hay lotes para ofrecer en este proyecto. Ofrece otros_proyectos.' }
+    const buscado = input.lote ? normLote(input.lote) : ''
     const mz = String(input.manzana || '').trim().toUpperCase()
-    let lista = todos.filter(l =>
+    const lista = lotes.filter(({ l, q }) =>
+      (!buscado || normLote(l.mz + '-' + l.lt) === buscado) &&
       (!input.presupuesto_max || Number(l.total_price) <= Number(input.presupuesto_max)) &&
+      (!input.cuota_max || q.cuota <= Number(input.cuota_max)) &&
       (!input.area_min || Number(l.area_m2) >= Number(input.area_min)) &&
-      (!mz || String(l.mz).toUpperCase() === mz))
-    lista.sort(input.orden === 'area' ? (a, b) => b.area_m2 - a.area_m2 : (a, b) => a.total_price - b.total_price)
-    return {
-      proyecto: nombre,
-      disponibles: todos.length,
-      precio_desde: soles(Math.min(...precios)), precio_hasta: soles(Math.max(...precios)),
-      area_desde_m2: Math.min(...areas), area_hasta_m2: Math.max(...areas),
-      inicial_mas_comun: iniciales.length ? soles(moda(iniciales)) : null,
-      cumplen_el_filtro: lista.length,
-      lotes: lista.slice(0, 8).map(l => ({
-        lote: 'Mz ' + l.mz + ' Lt ' + l.lt, area_m2: Number(l.area_m2),
-        precio_total: soles(l.total_price), precio_m2: soles(l.price_per_m2), inicial: soles(l.initial_payment_default),
+      (!mz || String(l.mz).trim().toUpperCase() === mz))
+    lista.sort(input.orden === 'area' ? (a, b) => b.l.area_m2 - a.l.area_m2
+      : input.orden === 'cuota' ? (a, b) => a.q.cuota - b.q.cuota
+      : (a, b) => a.l.total_price - b.l.total_price)
+    const out = {
+      proyecto: pp.nombre,
+      numero_de_cuotas: N,
+      ...(pc.project_id ? { separacion: soles(pc.separacion) } : {}),
+      precio_desde: soles(Math.min(...lotes.map(x => x.l.total_price))), precio_hasta: soles(Math.max(...lotes.map(x => x.l.total_price))),
+      cuota_desde: soles(Math.min(...lotes.map(x => x.q.cuota))),
+      area_desde_m2: Math.min(...lotes.map(x => Number(x.l.area_m2))), area_hasta_m2: Math.max(...lotes.map(x => Number(x.l.area_m2))),
+      lotes: lista.slice(0, 8).map(({ l, q }) => ({
+        lote: 'Mz ' + l.mz + ' Lt ' + l.lt, area_m2: Number(l.area_m2), precio_m2: soles(l.price_per_m2),
+        precio: soles(l.total_price), inicial: soles(l.initial_payment_default),
+        cuota_mensual: soles(q.cuota), ultima_cuota: soles(q.ultima), cuota_semanal: soles(q.semanal), cuota_diaria: soles(q.diaria),
+        ingreso_al_que_pesa_25: soles(q.ingreso_25),
       })),
+      hay_mas_opciones: lista.length > 8,
+      para_ti: 'Precio, inicial y cuota se dicen juntos. No digas cuántos lotes hay o quedan.',
     }
+    if (buscado && !lista.length) out.para_ti = fuera.has(buscado)
+      ? 'Ese lote no se ofrece por ahora: sin dar explicaciones, ofrécele uno parecido.'
+      : 'Ese lote no está disponible: ofrécele uno parecido.'
+    else if (!lista.length) out.para_ti = 'Ningún lote cumple lo que pidió: ofrécele lo más cercano (el precio o la cuota más baja) sin decir cuántos hay.'
+    return out
   }
-  function moda(arr) { const c = new Map(); for (const x of arr) c.set(x, (c.get(x) || 0) + 1); return [...c.entries()].sort((a, b) => b[1] - a[1])[0][0] }
 
-  async function otrosProyectos() {
+  // Los otros proyectos que comparten manual con el de la persona ("dos agentes, un solo
+  // entorno"). Si su proyecto no tiene manual, todos los que están a la venta.
+  async function otrosProyectos(ctx) {
+    const mans = await manuales()
+    const m = manualDe(mans, ctx.lead.project_id)
+    const todos = await proyectosALaVenta()
+    const candidatos = todos.filter(p => p.id !== ctx.lead.project_id && (!m || m.proyectos.includes(p.id)))
     const out = []
-    for (const p of await proyectosALaVenta()) {
-      const ls = await lotesDe(p.id)
-      if (!ls.length) continue
-      const pr = ls.map(l => Number(l.total_price))
-      out.push({ proyecto: p.name, ubicacion: p.ubicacion_txt || null, disponibles: ls.length, precio_desde: soles(Math.min(...pr)), precio_hasta: soles(Math.max(...pr)) })
+    for (const p of candidatos) {
+      const { lotes } = await ofrecibles(p.id)
+      if (!lotes.length) continue
+      out.push({
+        proyecto: p.name, ubicacion: p.ubicacion_txt || null,
+        precio_desde: soles(Math.min(...lotes.map(x => x.l.total_price))), cuota_desde: soles(Math.min(...lotes.map(x => x.q.cuota))),
+      })
     }
-    return { proyectos: out }
+    return { proyectos: out, para_ti: out.length ? 'Ofrécelo en este mismo chat, con las cifras de ese proyecto: nunca lo derives a otro número.' : 'No hay otro proyecto que ofrecer.' }
+  }
+
+  async function escalonamiento(ctx, input) {
+    const pp = await proyectoPedido(ctx, input)
+    if (pp.error) return pp
+    const pc = await proyectoCfg(pp.pid)
+    if (!pc || !(Number(pc.subida_m2) > 0)) return { error: 'Este proyecto no tiene escalonamiento cargado: si pregunta, dile que se lo confirmas.' }
+    const N = pc.cuotas || 48, sube = Number(pc.subida_m2)
+    const areas = Number(input.area_m2) > 0 ? [Number(input.area_m2)] : [300, 400, 500]
+    return {
+      proyecto: pp.nombre, sube_por_m2_con_cada_meta: soles(sube), siguiente_meta: pc.siguiente_meta || null,
+      impacto: areas.map(a => ({ area_m2: a, sube_el_precio: soles(a * sube), sube_la_cuota_al_mes: soles(a * sube / N), sube_al_dia: soles(a * sube / N / 30) })),
+      para_ti: 'Sin fecha: depende del avance de la obra. Explícalo, no lo uses como amenaza.',
+    }
   }
 
   async function guardarDatos(ctx, input) {
@@ -318,6 +487,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
       Object.assign(ctx.lead, upd)
     }
     const partes = [
+      input.a_que_se_dedica && 'OFICIO: ' + input.a_que_se_dedica,
       input.para_que && 'PARA: ' + input.para_que.replace(/_/g, ' '),
       upd.budget_estimate && 'PRESUPUESTO: ' + soles(upd.budget_estimate),
       input.cuando_compra && 'COMPRA: ' + input.cuando_compra,
@@ -327,37 +497,62 @@ module.exports = function crearVentasIA({ supabase, log }) {
     return { ok: true }
   }
 
-  async function proponerVisita(ctx, input) {
-    const fecha = String(input.fecha || '').trim(), hora = String(input.hora || '').trim().slice(0, 5)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || isNaN(new Date(fecha + 'T12:00:00Z'))) return { error: 'Fecha inválida: usa YYYY-MM-DD.' }
-    if (!/^\d{2}:\d{2}$/.test(hora)) return { error: 'Hora inválida: usa HH:MM en 24 horas.' }
+  async function pasarAAsesor(ctx, input) {
+    const tipo = String(input.tipo || '')
+    if (!['llamada', 'visita', 'separacion'].includes(tipo)) return { error: 'tipo tiene que ser llamada, visita o separacion.' }
+    const falta = Object.keys(CINCO).filter(k => input.entendio?.[k] !== true)
+    if (falta.length) return { error: 'Todavía no confirmaste que entendió: ' + falta.map(k => CINCO[k]).join(', ') + '. Explícaselo y confírmalo antes de pasarla. Si la persona quiere hablar con alguien ya, usa pasar_a_persona.' }
+    const fecha = String(input.fecha || '').trim() || null
+    const hora = String(input.hora || '').trim().slice(0, 5) || null
+    const cuando = String(input.cuando || '').trim().slice(0, 120) || null
     const hoy = hoyLima()
-    if (fecha < hoy) return { error: 'Esa fecha ya pasó. Hoy es ' + hoy + '.' }
-    if (fecha > sumarDias(hoy, 45)) return { error: 'Es muy lejos: propón una fecha dentro de las próximas seis semanas.' }
-    if (fecha === hoy && hora <= horaLima()) return { error: 'Esa hora de hoy ya pasó. Son las ' + horaLima() + '.' }
-    if (hora < '07:00' || hora > '18:30') return { error: 'Las visitas son de día: propón una hora entre 07:00 y 18:30.' }
-    const fila = {
-      lead_id: ctx.lead.id, project_id: ctx.lead.project_id || null, fecha, hora,
-      personas: Number(input.personas) > 0 ? Math.round(Number(input.personas)) : null,
-      lote_interes: input.lote_interes || null, nota: String(input.nota || '').slice(0, 1000) || null,
-      es_prueba: !!ctx.esPrueba, updated_at: new Date().toISOString(),
+    if (fecha) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || isNaN(new Date(fecha + 'T12:00:00Z'))) return { error: 'Fecha inválida: usa YYYY-MM-DD.' }
+      if (fecha < hoy) return { error: 'Esa fecha ya pasó. Hoy es ' + hoy + '.' }
+      if (fecha > sumarDias(hoy, 45)) return { error: 'Es muy lejos: acuerda una fecha dentro de las próximas seis semanas.' }
     }
-    const { data: abierta } = await supabase.from('ventas_ia_citas').select('id').eq('lead_id', ctx.lead.id).eq('estado', 'por_confirmar').maybeSingle()
-    const r = abierta
-      ? await supabase.from('ventas_ia_citas').update(fila).eq('id', abierta.id)
-      : await supabase.from('ventas_ia_citas').insert(fila)
+    if (hora && !/^\d{2}:\d{2}$/.test(hora)) return { error: 'Hora inválida: usa HH:MM en 24 horas.' }
+    if (fecha === hoy && hora && hora <= horaLima()) return { error: 'Esa hora de hoy ya pasó. Son las ' + horaLima() + '.' }
+    if (tipo === 'visita' && !fecha) return { error: 'Para una visita acuerda el día.' }
+    if (tipo === 'visita' && hora && (hora < '07:00' || hora > '18:30')) return { error: 'Las visitas son de día: acuerda una hora entre 07:00 y 18:30.' }
+    if (tipo === 'llamada' && !hora && !cuando) return { error: 'Para una llamada acuerda cuándo: ahora, o a qué hora.' }
+
+    const pid = ctx.lead.project_id || null
+    const [pc, p, cfg] = await Promise.all([proyectoCfg(pid), pid ? proyecto(pid) : null, config()])
+    const asesorTel = dig(pc?.asesor_phone) || dig(p?.lead_notify_phone) || dig(cfg?.aviso_phone)
+    const fila = {
+      lead_id: ctx.lead.id, project_id: pid, tipo, fecha, hora, cuando,
+      lote_interes: input.lote_interes || null, nota: String(input.nota || '').slice(0, 1000) || null,
+      entendio: input.entendio, asesor_phone: asesorTel || null, es_prueba: !!ctx.esPrueba, updated_at: new Date().toISOString(),
+    }
+    const { data: abierto, error: e1 } = await supabase.from('ventas_ia_pases').select('id').eq('lead_id', ctx.lead.id).eq('estado', 'pendiente').maybeSingle()
+    if (e1) return { error: e1.message }
+    const r = abierto
+      ? await supabase.from('ventas_ia_pases').update(fila).eq('id', abierto.id)
+      : await supabase.from('ventas_ia_pases').insert(fila)
     if (r.error) return { error: r.error.message }
-    await supabase.from('leads').update({ temperature: 'caliente' }).eq('id', ctx.lead.id).then(() => {}, () => {})
-    const cuando = diaSemana(fecha) + ' ' + fechaCorta(fecha) + ' · ' + hora
-    await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA PROPUSO VISITA: ' + cuando + (fila.lote_interes ? ' · ' + fila.lote_interes : '')).toUpperCase() })
-    const p = ctx.lead.project_id ? await proyecto(ctx.lead.project_id) : null
-    await ctx.avisar(
-      '🤖📅 *VISITA PROPUESTA POR EL AGENTE*' + (abierta ? ' (cambió la anterior)' : '') +
+
+    await supabase.from('leads').update({ status: tipo === 'visita' ? 'visita_agendada' : 'negociacion', temperature: 'caliente' }).eq('id', ctx.lead.id).then(() => {}, () => {})
+    const cuandoTxt = [fecha && diaSemana(fecha) + ' ' + fechaCorta(fecha), hora, cuando].filter(Boolean).join(' · ')
+    const TITULO = { llamada: '📞 LLAMAR AL CLIENTE', visita: '📍 VISITA', separacion: '💰 QUIERE SEPARAR' }[tipo]
+    await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA PASÓ AL ASESOR: ' + TITULO + (cuandoTxt ? ' · ' + cuandoTxt : '') + (fila.lote_interes ? ' · ' + fila.lote_interes : '')).toUpperCase().slice(0, 500) })
+    const texto = '🤖 *' + TITULO + '* — pase del agente de ventas' + (abierto ? ' (cambió el anterior)' : '') +
       '\nCliente: ' + (ctx.lead.full_name || '-') + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + (p?.name || '-') +
-      '\nCuándo: ' + cuando + (fila.personas ? '\nPersonas: ' + fila.personas : '') + (fila.lote_interes ? '\nQuiere ver: ' + fila.lote_interes : '') +
+      (cuandoTxt ? '\nCuándo: ' + cuandoTxt : '') + (fila.lote_interes ? '\nLote: ' + fila.lote_interes : '') +
       (fila.nota ? '\n\n📝 ' + fila.nota : '') +
-      '\n\n👉 Confírmala o cámbiale la hora: ' + PANEL + '/ventas-ia')
-    return { ok: true, estado: 'por confirmar', cuando, para_ti: 'Dile que en un momento le confirmas la visita. No la des por confirmada.' }
+      '\n\n✅ Ya entendió qué compra, dónde está, cuánto paga, desde cuándo lo usa y qué sigue.' +
+      '\n👉 El chat: ' + PANEL + '/whatsapp'
+    if (asesorTel && ctx.avisarA) await ctx.avisarA(asesorTel, texto)
+    else await ctx.avisar(texto)
+    const quien = pc?.asesor_nombre ? pc.asesor_nombre + ', asesor del proyecto,' : 'un asesor del proyecto'
+    return {
+      ok: true,
+      para_ti: {
+        llamada: 'Dile que ' + quien + ' la llama ' + (hora || cuando ? 'a la hora acordada' : 'para afinar los detalles') + '. No prometas minutos.',
+        visita: 'Dile que ' + quien + ' le confirma la visita y cómo llegar. No la des por confirmada.',
+        separacion: 'Dile que ' + quien + ' le escribe para hacer la separación. Tú no recibes el pago ni pides datos bancarios.',
+      }[tipo] + ' Si sigue escribiendo, sigue atendiéndola.',
+    }
   }
 
   async function enviarMaterial(ctx, input) {
@@ -376,17 +571,23 @@ module.exports = function crearVentasIA({ supabase, log }) {
     await supabase.from('ventas_ia_leads').update({ derivado_at: new Date().toISOString(), derivado_motivo: motivo }).eq('lead_id', ctx.lead.id)
     await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA PASÓ A UNA PERSONA: ' + motivo).toUpperCase().slice(0, 500) })
     const p = ctx.lead.project_id ? await proyecto(ctx.lead.project_id) : null
-    await ctx.avisar('🙋 *EL AGENTE TE PASA UN LEAD*\nCliente: ' + (ctx.lead.full_name || '-') + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + (p?.name || '-') +
-      '\nMotivo: ' + motivo + '\n\nEl agente ya no le contesta: escríbele tú. 👉 ' + PANEL + '/whatsapp')
+    const pc = await proyectoCfg(ctx.lead.project_id)
+    const texto = '🙋 *EL AGENTE TE PASA UN LEAD*\nCliente: ' + (ctx.lead.full_name || '-') + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + (p?.name || '-') +
+      '\nMotivo: ' + motivo + '\n\nEl agente ya no le contesta: escríbele tú. 👉 ' + PANEL + '/whatsapp'
+    // en un proyecto sin bot el lead es del asesor; en el experimento, del dueño
+    const asesorTel = pc && pc.modo !== 'bot' ? (dig(pc.asesor_phone) || dig(p?.lead_notify_phone)) : ''
+    if (asesorTel && ctx.avisarA) await ctx.avisarA(asesorTel, texto)
+    else await ctx.avisar(texto)
     ctx.derivado = true
     return { ok: true, para_ti: 'Ya avisé al equipo. Dile en un mensaje corto que en breve le escribe una persona.' }
   }
 
   async function ejecutar(nombre, input, ctx) {
     if (nombre === 'lotes_disponibles') return lotesDisponibles(ctx, input)
-    if (nombre === 'otros_proyectos') return otrosProyectos()
+    if (nombre === 'otros_proyectos') return otrosProyectos(ctx)
+    if (nombre === 'escalonamiento') return escalonamiento(ctx, input)
     if (nombre === 'guardar_datos_cliente') return guardarDatos(ctx, input)
-    if (nombre === 'proponer_visita') return proponerVisita(ctx, input)
+    if (nombre === 'pasar_a_asesor') return pasarAAsesor(ctx, input)
     if (nombre === 'enviar_material') return enviarMaterial(ctx, input)
     if (nombre === 'pasar_a_persona') return pasarAPersona(ctx, input)
     return { error: 'Herramienta desconocida: ' + nombre }
@@ -479,19 +680,24 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
 
   // ---------------------------------------------------------------- el turno
-  // ctx: { conv, lead, phone, esPrueba, nota?, decir(texto), mandarMaterial(ids), avisar(texto), pasarAHumano() }
+  // ctx: { conv, lead, phone, esPrueba, nota?, decir(texto), mandarMaterial(ids), avisar(texto), avisarA(tel, texto), pasarAHumano() }
   async function responder(ctx) {
     if (!ia) throw new Error('no hay clave de Claude (VENTAS_ANTHROPIC_API_KEY o ANTHROPIC_API_KEY)')
     const cfg = (await config()) || {}
     const inicio = new Date().toISOString()
     const { mensajes, agenteHablo: enElHistorial } = await historial(ctx)
     // el historial trae los últimos 40 mensajes: en una conversación larga la
-    // presentación ya no aparece, pero el registro del experimento sí lo sabe
-    const { data: yaHablo } = await supabase.from('ventas_ia_leads').select('primer_mensaje_at').eq('lead_id', ctx.lead.id).maybeSingle()
-    const agenteHablo = enElHistorial || !!yaHablo?.primer_mensaje_at
+    // presentación ya no aparece, pero el registro del agente sí lo sabe
+    const { data: reg } = await supabase.from('ventas_ia_leads').select('primer_mensaje_at, motivo').eq('lead_id', ctx.lead.id).maybeSingle()
+    const agenteHablo = enElHistorial || !!reg?.primer_mensaje_at
+    const pid = ctx.lead.project_id || null
+    const [p, pc, mans] = await Promise.all([pid ? proyecto(pid) : null, proyectoCfg(pid), manuales()])
+    const sinBot = !!pc && pc.modo !== 'bot'
 
     const notas = []
-    if (!agenteHablo) notas.push('Nota interna: es tu primer mensaje. La persona pidió hablar con un asesor y ahora la atiendes tú. Preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y sigue desde donde quedó la conversación, sin repetir lo que ya le mandó el bot.')
+    if (!agenteHablo) notas.push(reg?.motivo === 'primer_mensaje' || (sinBot && !reg)
+      ? 'Nota interna: es tu primer mensaje y nadie le ha respondido todavía. Salúdala, preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y responde lo que escribió.'
+      : 'Nota interna: es tu primer mensaje. La persona pidió hablar con un asesor y ahora la atiendes tú. Preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y sigue desde donde quedó la conversación, sin repetir lo que ya le mandó el bot.')
     if (ctx.nota) notas.push('Nota interna: ' + ctx.nota)
     if (notas.length) {
       const bloque = { type: 'text', text: '[' + notas.join(' ') + ']' }
@@ -501,18 +707,23 @@ module.exports = function crearVentasIA({ supabase, log }) {
     }
     if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') return { enviados: 0 }
 
-    const p = ctx.lead.project_id ? await proyecto(ctx.lead.project_id) : null
-    const { data: acts } = await supabase.from('lead_activities').select('note').eq('lead_id', ctx.lead.id).order('created_at').limit(40)
+    const [{ data: acts }, { data: pase }] = await Promise.all([
+      supabase.from('lead_activities').select('note').eq('lead_id', ctx.lead.id).order('created_at').limit(40),
+      supabase.from('ventas_ia_pases').select('tipo, fecha, hora, cuando, created_at').eq('lead_id', ctx.lead.id).eq('estado', 'pendiente').maybeSingle(),
+    ])
     const respuestasFlujo = (acts || []).filter(a => /^P: /.test(a.note)).map(a => '- ' + a.note.replace(/^P:\s*/, '').replace(/\s*→\s*R:\s*/, ' → '))
     const hoy = hoyLima()
     const proximos = [0, 1, 2, 3, 4, 5, 6].map(n => { const d = sumarDias(hoy, n); return diaSemana(d) + ' ' + fechaCorta(d) + ' = ' + d }).join('; ')
+    const manual = manualDe(mans, pid)
 
     const persona = cfg.nombre_agente ? 'Te llamas ' + cfg.nombre_agente + '.' : 'No uses un nombre propio: preséntate como del equipo de ventas de Urbis.'
     const system = [
       { type: 'text', text: PROMPT_BASE, cache_control: { type: 'ephemeral' } },
+      ...(mans.length ? [{ type: 'text', text: manualesTexto(mans), cache_control: { type: 'ephemeral' } }] : []),
       {
         type: 'text',
-        text: persona + '\n\n' + fichaTexto(p) +
+        text: persona + '\n\n' + fichaTexto(p, !sinBot) +
+          (manual ? '\n\nEl manual que manda en esta conversación es «' + manual.titulo + '».' : '') +
           (cfg.punto_encuentro ? '\n\nPunto de encuentro para las visitas: ' + cfg.punto_encuentro : '') +
           (cfg.notas ? '\n\nINDICACIONES DEL NEGOCIO (mandan sobre lo demás):\n' + cfg.notas : ''),
         cache_control: { type: 'ephemeral' },
@@ -523,6 +734,9 @@ module.exports = function crearVentasIA({ supabase, log }) {
           '\nPersona: ' + (ctx.lead.full_name && ctx.lead.full_name !== 'POR CONFIRMAR' ? ctx.lead.full_name : 'todavía no dio su nombre') +
           (ctx.lead.budget_estimate ? ' · presupuesto anotado ' + soles(ctx.lead.budget_estimate) : '') +
           (String(ctx.lead.source || '').startsWith('campaña') ? ' · llegó por un anuncio' : '') +
+          (pase ? '\nYa la pasaste al asesor para ' + { llamada: 'una llamada', visita: 'una visita', separacion: 'una separación' }[pase.tipo] +
+            ([pase.fecha && diaSemana(pase.fecha) + ' ' + fechaCorta(pase.fecha), pase.hora && String(pase.hora).slice(0, 5), pase.cuando].filter(Boolean).length ? ' (' + [pase.fecha && diaSemana(pase.fecha) + ' ' + fechaCorta(pase.fecha), pase.hora && String(pase.hora).slice(0, 5), pase.cuando].filter(Boolean).join(' · ') + ')' : '') +
+            ': no la vuelvas a pasar salvo que cambie lo acordado; resuelve lo que pregunte.' : '') +
           (respuestasFlujo.length ? '\nLo que respondió al bot:\n' + respuestasFlujo.join('\n') : ''),
       },
     ]
@@ -556,7 +770,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
       uso.cache += r.usage?.cache_read_input_tokens || 0
       if (r.stop_reason === 'refusal') {
         await pasarAPersona(ctx, { motivo: 'el agente no pudo responder este mensaje' })
-        await ctx.decir('Déjame consultarlo con mi compañero y te escribimos en breve 🙌')
+        await ctx.decir('Déjeme consultarlo con mi compañero y le escribimos en breve 🙌')
         enviados++
         terminado = true
         break
@@ -576,7 +790,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
     }
     if (!terminado && !ctx.derivado) {
       await pasarAPersona(ctx, { motivo: 'el agente no llegó a una respuesta' })
-      if (!enviados) { await ctx.decir('Dame un momento y te escribo 🙌'); enviados++ }
+      if (!enviados) { await ctx.decir('Deme un momento y le escribo 🙌'); enviados++ }
     }
 
     const { data: fila } = await supabase.from('ventas_ia_leads').select('turnos, tokens_in, tokens_out, tokens_cache, primer_mensaje_at').eq('lead_id', ctx.lead.id).maybeSingle()
@@ -591,6 +805,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
 
   // Nota para el agente cuando el dueño confirma o cancela una visita en el panel
+  // (visitas del experimento, sql/91; los proyectos sin bot pasan al asesor)
   function notaDeCita(c) {
     const cuando = diaSemana(c.fecha) + ' ' + fechaCorta(c.fecha) + ' a las ' + String(c.hora).slice(0, 5)
     if (c.estado === 'confirmada') return 'el encargado CONFIRMÓ la visita para el ' + cuando + (c.cambio_hora ? ' (es un día u hora distinto al que habían acordado: pregúntale si le queda bien)' : '') + '. Díselo de forma natural y recuérdale el punto de encuentro si lo tienes.'
@@ -610,11 +825,15 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
 
   async function latido() {
+    const mans = await manuales()
     await supabase.from('ventas_ia_config').update({
       latido: new Date().toISOString(),
-      latido_info: { ia: !!ia, clave_propia: CLAVE_PROPIA, modelo: (CFG && CFG.modelo) || MODELO_POR_DEFECTO },
+      // manuales: cuántos lee el bot (null = no encuentra la tabla); si falta, el bot tiene el código viejo
+      latido_info: { ia: !!ia, clave_propia: CLAVE_PROPIA, modelo: (CFG && CFG.modelo) || MODELO_POR_DEFECTO, manuales: MAN.error ? null : mans.length, version: 2 },
     }).eq('id', 1).then(() => {}, () => {})
   }
 
-  return { config, esperaLectura, enHorario, asignar, responder, notaDeCita, explicarError, latido, activo: () => !!ia }
+  return { config, esperaLectura, enHorario, modoProyecto, asignar, responder, notaDeCita, explicarError, latido, activo: () => !!ia, cuotasDe, normLote }
 }
+module.exports.cuotasDe = cuotasDe
+module.exports.normLote = normLote
