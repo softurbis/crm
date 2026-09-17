@@ -5,7 +5,7 @@
 // En Cloudflare cada cara es un Worker de solo archivos (wrangler.publico.jsonc /
 // wrangler.panel.jsonc) en modo SPA: /p/<slug> responde index.html con 200. Por
 // eso aquí no se crea 404.html.
-import { renameSync, copyFileSync, writeFileSync } from 'node:fs'
+import { renameSync, copyFileSync, writeFileSync, appendFileSync } from 'node:fs'
 
 const cara = process.argv[2]
 const salida = { panel: 'dist-panel', publico: 'dist-publico' }[cara]
@@ -24,6 +24,9 @@ if (cara === 'publico') {
   writeFileSync(`${salida}/robots.txt`, 'User-agent: *\nAllow: /\n')
 } else {
   cabeceras([...comunes, 'X-Frame-Options: DENY', 'X-Robots-Tag: noindex, nofollow'])
+  // la app instalable: el celular revisa el service worker en cada visita (si lo
+  // guardara en caché, podría quedarse con uno viejo)
+  appendFileSync(`${salida}/_headers`, '/sw.js\n  Cache-Control: no-cache\n/manifest.webmanifest\n  Cache-Control: no-cache\n')
   writeFileSync(`${salida}/robots.txt`, 'User-agent: *\nDisallow: /\n')
 }
 
