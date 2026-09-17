@@ -611,7 +611,9 @@ export default function Expenses() {
     )
     const BLOQ = { TABLA_DETALLE: TablaDetalle, FIRMA_RECEPTOR: Firma }
 
-    const tpl = proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
+    // firmada: manda la copia del texto que se guardó al firmar (sql/102). Cambiar la
+    // plantilla después no puede cambiar lo que alguien ya firmó.
+    const tpl = g.plantilla_firmada || proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
     let primera = true
     return tpl.split('\n').map((ln, i) => {
       const t = ln.trim()
@@ -730,6 +732,9 @@ export default function Expenses() {
       {tplOpen && role === 'superuser' && (
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
           <p><b>PLANTILLA DE CONSTANCIA DE RECEPCION — {proyecto?.name}</b></p>
+          <p className="small warn" style={{ textTransform: 'none' }}>
+            🔒 Los gastos que ya están firmados conservan el texto con que se firmaron. Cambiar la plantilla solo afecta a las solicitudes que todavía no tienen firma.
+          </p>
           <p className="small">VARIABLES: {GASTO_VARS.map(v => <code key={v} className="tok">{'{{' + v + '}}'}</code>)}</p>
           <p className="small">BLOQUES: {GASTO_BLOQUES.map(v => <code key={v} className="tok tok2">{'{{' + v + '}}'}</code>)}</p>
           <textarea rows="14" value={tplText} spellCheck="false"
@@ -1032,6 +1037,11 @@ export default function Expenses() {
               <div className="print-area contract">
                 <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(prt)}</b></p>
                 {prt.rejected_at && <p style={{ textAlign: 'center', border: '2px solid #c0392b', color: '#c0392b', padding: 6 }}><b>SOLICITUD RECHAZADA</b> · {prt.rejected_reason}</p>}
+                {prt.plantilla_firmada && proyecto?.expense_template && prt.plantilla_firmada !== proyecto.expense_template && (
+                  <p className="no-print small" style={{ textAlign: 'center', color: '#6b5a1e', background: '#fff6d6', padding: 4, borderRadius: 4 }}>
+                    🔒 Texto fijado al firmar: la plantilla del proyecto cambió después y esta constancia no la toma.
+                  </p>
+                )}
                 {constanciaDe(prt)}
                 <table className="ctable firmas"><tbody><tr>
                   {/* las DOS firmas de la constancia. Cada una sale con su
