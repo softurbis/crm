@@ -46,8 +46,8 @@ En Supabase → SQL Editor, ejecuta **`sql/48_telegram_seguimiento.sql`**
 
 ## 4. Que cada persona se vincule (30 segundos c/u)
 
-Pásale a tu equipo el enlace del bot: `https://t.me/urbis_asistente_bot`
-(con el usuario que elegiste). Cada uno:
+Pásale a tu equipo el enlace del bot: **`https://t.me/UrbisAgenteBot`**
+(el bot se llama "Urbis Agente", usuario `@UrbisAgenteBot`). Cada uno:
 
 1. Abre el bot y toca **Iniciar / Start**.
 2. Toca el botón **📱 Compartir mi número** que aparece abajo (en la PC, si no se
