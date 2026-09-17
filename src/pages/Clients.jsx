@@ -4,6 +4,7 @@ import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
+import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
 
 // 'phone' se maneja aparte (abajo): son 2 celulares, cada uno con nota y check de bot.
 const CAMPOS = [
@@ -39,6 +40,7 @@ export default function Clients() {
   const [dniModo, setDniModo] = useState('unico')     // 'unico' | 'caras'
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
+  const [ctaVenta, setCtaVenta] = useState('')
   const [fproj, setFproj] = useState('todos') // filtro por proyecto
   const [falta, setFalta] = useState('todos')
   const [deletingId, setDeletingId] = useState(null)
@@ -108,6 +110,9 @@ export default function Clients() {
 
   // ---- estado de cuenta: ventas + cuotas + pagos con voucher ----
   useEffect(() => {
+    setCtaVenta('')
+    setCtaData(null)
+    let cancelled = false
     if (!cta) { setCtaData(null); return }
     async function loadCta() {
       const [v, p] = await Promise.all([
@@ -120,10 +125,11 @@ export default function Clients() {
       ])
       const ventas = (v.data || []).filter(x => x.lot?.project_id && allowed.has(x.lot.project_id))
       const pagos = (p.data || []).filter(x => !x.lot?.project_id || allowed.has(x.lot.project_id))
-      setCtaData({ ventas, pagos, ocultas: (v.data || []).length - ventas.length })
+      if (!cancelled) setCtaData({ ventas, pagos, ocultas: (v.data || []).length - ventas.length })
     }
     loadCta()
-  }, [cta])
+    return () => { cancelled = true }
+  }, [cta, allowed])
 
   const filtrada = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -401,7 +407,11 @@ export default function Clients() {
           <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head no-print">
               <h2>Estado de cuenta</h2>
-              <button className="btn-primary" onClick={() => window.print()}>Exportar PDF</button>
+              <select aria-label="Ventas a incluir en el PDF" value={ctaVenta} onChange={e => setCtaVenta(e.target.value)}>
+                <option value="">Todas las ventas</option>
+                {(ctaData?.ventas || []).map(v => <option key={v.id} value={v.id}>{nombreProyFull(v.lot?.project_id)} · Mz {v.lot?.mz} Lt {v.lot?.lt}</option>)}
+              </select>
+              <EstadoCuentaDownload key={cta.id + ctaVenta} cliente={cta} saleId={ctaVenta || undefined} />
               <button className="btn-ghost" onClick={() => setCta(null)}>&#10005;</button>
             </div>
 

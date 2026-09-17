@@ -5,6 +5,7 @@ import { upload } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
 
 const COLORS = {
   disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
@@ -1484,6 +1485,7 @@ export default function Lots() {
                     )
                   })()}
                   <p><button className="btn-ghost" onClick={() => cargarDesglose(true)}>📑 Ver desglosado de pagos</button></p>
+                  <p><EstadoCuentaDownload key={detail.sale.id} cliente={detail.sale.client || {}} saleId={detail.sale.id} /></p>
                   {detail.sale.client?.phone_valid
                     ? <a className="btn-primary btn-link" href={waMessage()} target="_blank" rel="noreferrer">Mensaje de cobro por WhatsApp</a>
                     : <p className="error">Telefono no valido - actualizar en la ficha del cliente</p>}
