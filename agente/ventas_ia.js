@@ -13,12 +13,15 @@
 //    cuota la calcula este archivo con la regla del manual (cuotasDe).
 //  · Lee los manuales de ventas (sql/94, se editan en el panel): el manual manda,
 //    salvo las cifras, que salen de la base.
-//  · Cuando el lead entendió las cinco cosas del manual, lo pasa al ASESOR del
-//    proyecto para una llamada, una visita o una separación (ventas_ia_pases).
+//  · Cuando el lead entendió las cinco cosas del manual (decisión del dueño, 16 sep):
+//      - VISITA: la agenda el agente mismo. Queda en Visitas (con los recordatorios
+//        de siempre), avisa al asesor y el agente sigue con el chat.
+//      - LLAMADA o SEPARACIÓN: avisa al asesor y el chat pasa a él; el agente se calla.
+//    Los avisos al asesor van SOLO por Telegram; si no lo tiene vinculado, al dueño.
 //  · Si le preguntan en serio si es un bot, no lo niega.
 //
 // Este archivo no toca WhatsApp: index.js le pasa `decir`, `mandarMaterial`,
-// `avisar`, `avisarA` y `pasarAHumano`, que son los que tienen la sesión y los tiempos.
+// `avisar`, `avisarA`, `notaPrueba` y `pasarAHumano`, que tienen la sesión y los tiempos.
 // ============================================================================
 const { Anthropic } = require('@anthropic-ai/sdk')
 const VOZ = require('./transcribir')
@@ -66,13 +69,15 @@ const NO_CONVERSACION = new Set(['aviso_admin', 'reporte', 'interno', 'secretari
 
 const PROMPT_BASE = `Eres asesor(a) de ventas de Urbis Group, una empresa que vende lotes de terreno en Ucayali, Perú. Atiendes por WhatsApp a personas interesadas en comprar un lote. A veces eres el primer contacto de la persona; otras, llegas a una conversación que ya empezó con el bot automático del mismo número.
 
-Tu trabajo es resolver las dudas de la persona hasta que entienda bien lo que compraría, y entonces pasarla a un asesor para una llamada, una visita o una separación. Si el proyecto tiene manual de ventas, el manual te dice cómo hacerlo: síguelo.
+Tu trabajo es resolver las dudas de la persona hasta que entienda bien lo que compraría, y entonces llevarla al siguiente paso: agendarle tú la visita al proyecto, o pasarla al asesor para una llamada o una separación. Si el proyecto tiene manual de ventas, el manual te dice cómo hacerlo: síguelo.
 
 CÓMO TRABAJAS
 - Primero entiende a la persona, después recomienda. Averigua, de a una pregunta por mensaje y sin que parezca un formulario: para qué quiere el lote, a qué se dedica, para cuándo y quién más decide. Pregúntale su nombre con naturalidad al comienzo.
 - Recomienda uno a tres lotes concretos que le calcen, con precio, inicial y cuota juntos, y dile por qué le convienen a esa persona.
 - Cada vez que la persona te dé un dato nuevo (nombre, a qué se dedica, presupuesto, para qué lo quiere, cuándo compraría), guárdalo con guardar_datos_cliente sin mencionárselo.
-- Antes de pasarla al asesor, confirma que entendió cinco cosas: qué está comprando, dónde está, cuánto y cómo paga, desde cuándo usa el lote y qué sigue después. Recién ahí usa pasar_a_asesor con lo que acordaron.
+- Antes de agendar una visita o pasarla al asesor, confirma que entendió cinco cosas: qué está comprando, dónde está, cuánto y cómo paga, desde cuándo usa el lote y qué sigue después.
+- Si quiere ver el proyecto, la visita la agendas tú con agendar_visita: acuerda el día y la hora, y confírmasela con el punto de encuentro. Tú sigues atendiéndola: si después la quiere cambiar, vuelve a usar agendar_visita; si ya no va, cancelar_visita.
+- Si quiere una llamada, o ya eligió y quiere separar, usa pasar_a_asesor con lo que acordaron. Desde ahí la atiende el asesor y tú ya no contestas: dile en un mensaje corto lo que sigue.
 - Si no sabes algo, no improvises ni te quedes callado: dile que se lo confirmas y anótalo con guardar_datos_cliente (nota que empiece con "DUDA:"). Si la persona necesita esa respuesta para seguir, usa pasar_a_persona.
 - Si todavía no quiere avanzar, no insistas: ofrécele fotos o el video del proyecto, resuelve lo que le falte y cierra con un siguiente paso concreto.
 
@@ -158,13 +163,43 @@ const HERRAMIENTAS = [
     },
   },
   {
-    name: 'pasar_a_asesor',
-    description: 'Pasa a la persona al asesor del proyecto para una llamada, una visita o una separación, y le avisa. Úsala SOLO cuando confirmaste las cinco cosas y la persona aceptó el siguiente paso. Si ya había un pase abierto, lo reemplaza. Después sigue atendiendo lo que la persona escriba.',
+    name: 'agendar_visita',
+    description: 'Agenda la visita de la persona al proyecto: queda en el calendario de Visitas y se le avisa al asesor. Úsala SOLO cuando confirmaste las cinco cosas y la persona aceptó un día y una hora. Si ya tenía una visita, la cambia al nuevo día y hora. Después sigues atendiéndola.',
     input_schema: {
       type: 'object',
       properties: {
-        tipo: { type: 'string', enum: ['llamada', 'visita', 'separacion'] },
-        fecha: { type: 'string', description: 'YYYY-MM-DD. Obligatoria para una visita.' },
+        fecha: { type: 'string', description: 'YYYY-MM-DD.' },
+        hora: { type: 'string', description: 'HH:MM en 24 horas, hora de Lima.' },
+        proyecto: { type: 'string', description: 'Proyecto que va a visitar. Vacío = el proyecto por el que escribió la persona.' },
+        lote_interes: { type: 'string', description: 'Lote o lotes que quiere ver, por ejemplo "Mz B Lt 7".' },
+        nota: { type: 'string', description: 'Resumen para el asesor: qué busca, a qué se dedica, qué cuota le acomoda, con quién viene, dudas pendientes.' },
+        entendio: {
+          type: 'object',
+          description: 'Pon true solo lo que confirmaste en la conversación.',
+          properties: Object.fromEntries(Object.keys(CINCO).map(k => [k, { type: 'boolean' }])),
+          required: Object.keys(CINCO),
+        },
+      },
+      required: ['fecha', 'hora', 'nota', 'entendio'],
+    },
+  },
+  {
+    name: 'cancelar_visita',
+    description: 'Cancela la visita agendada cuando la persona dice que ya no va. Si solo quiere cambiar el día o la hora, usa agendar_visita.',
+    input_schema: {
+      type: 'object',
+      properties: { motivo: { type: 'string', description: 'Por qué no va, en una línea.' } },
+      required: ['motivo'],
+    },
+  },
+  {
+    name: 'pasar_a_asesor',
+    description: 'Pasa a la persona al asesor del proyecto para una llamada o una separación, y le avisa. Desde ahí la atiende el asesor: tú ya no contestas. Úsala SOLO cuando confirmaste las cinco cosas y la persona aceptó. Para una visita usa agendar_visita.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo: { type: 'string', enum: ['llamada', 'separacion'] },
+        fecha: { type: 'string', description: 'YYYY-MM-DD, si la llamada quedó para otro día.' },
         hora: { type: 'string', description: 'HH:MM en 24 horas, hora de Lima, si la acordaron.' },
         cuando: { type: 'string', description: 'Lo acordado en palabras si no hay hora exacta: "ahora", "después de las 6".' },
         lote_interes: { type: 'string', description: 'Lote o lotes que le interesan, por ejemplo "Mz B Lt 7".' },
@@ -497,61 +532,202 @@ module.exports = function crearVentasIA({ supabase, log }) {
     return { ok: true }
   }
 
-  async function pasarAAsesor(ctx, input) {
-    const tipo = String(input.tipo || '')
-    if (!['llamada', 'visita', 'separacion'].includes(tipo)) return { error: 'tipo tiene que ser llamada, visita o separacion.' }
+  // ---------------------------------------------------------------- pases y visitas
+  const cuandoDe = (fecha, hora, cuando) => [fecha && diaSemana(fecha) + ' ' + fechaCorta(fecha), hora && String(hora).slice(0, 5), cuando].filter(Boolean).join(' · ')
+  const YA_ENTENDIO = '\n\n✅ Ya entendió qué compra, dónde está, cuánto paga, desde cuándo lo usa y qué sigue.'
+
+  function faltaEntender(input) {
     const falta = Object.keys(CINCO).filter(k => input.entendio?.[k] !== true)
-    if (falta.length) return { error: 'Todavía no confirmaste que entendió: ' + falta.map(k => CINCO[k]).join(', ') + '. Explícaselo y confírmalo antes de pasarla. Si la persona quiere hablar con alguien ya, usa pasar_a_persona.' }
-    const fecha = String(input.fecha || '').trim() || null
-    const hora = String(input.hora || '').trim().slice(0, 5) || null
-    const cuando = String(input.cuando || '').trim().slice(0, 120) || null
+    return falta.length ? 'Todavía no confirmaste que entendió: ' + falta.map(k => CINCO[k]).join(', ') + '. Explícaselo y confírmalo antes. Si la persona quiere hablar con alguien ya, usa pasar_a_persona.' : null
+  }
+  function errorFechaHora(fecha, hora) {
     const hoy = hoyLima()
     if (fecha) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || isNaN(new Date(fecha + 'T12:00:00Z'))) return { error: 'Fecha inválida: usa YYYY-MM-DD.' }
-      if (fecha < hoy) return { error: 'Esa fecha ya pasó. Hoy es ' + hoy + '.' }
-      if (fecha > sumarDias(hoy, 45)) return { error: 'Es muy lejos: acuerda una fecha dentro de las próximas seis semanas.' }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || isNaN(new Date(fecha + 'T12:00:00Z'))) return 'Fecha inválida: usa YYYY-MM-DD.'
+      if (fecha < hoy) return 'Esa fecha ya pasó. Hoy es ' + hoy + '.'
+      if (fecha > sumarDias(hoy, 45)) return 'Es muy lejos: acuerda una fecha dentro de las próximas seis semanas.'
     }
-    if (hora && !/^\d{2}:\d{2}$/.test(hora)) return { error: 'Hora inválida: usa HH:MM en 24 horas.' }
-    if (fecha === hoy && hora && hora <= horaLima()) return { error: 'Esa hora de hoy ya pasó. Son las ' + horaLima() + '.' }
-    if (tipo === 'visita' && !fecha) return { error: 'Para una visita acuerda el día.' }
-    if (tipo === 'visita' && hora && (hora < '07:00' || hora > '18:30')) return { error: 'Las visitas son de día: acuerda una hora entre 07:00 y 18:30.' }
-    if (tipo === 'llamada' && !hora && !cuando) return { error: 'Para una llamada acuerda cuándo: ahora, o a qué hora.' }
-
-    const pid = ctx.lead.project_id || null
+    if (hora && !/^\d{2}:\d{2}$/.test(hora)) return 'Hora inválida: usa HH:MM en 24 horas.'
+    if (fecha === hoy && hora && hora <= horaLima()) return 'Esa hora de hoy ya pasó. Son las ' + horaLima() + '.'
+    return null
+  }
+  // la hora de Lima dentro de una hora, "HH:MM" (pasada la medianoche da "24:xx", que igual compara bien)
+  function enUnaHora() {
+    const [h, m] = horaLima().split(':').map(Number)
+    const t = h * 60 + m + 60
+    return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0')
+  }
+  async function asesorDe(pid) {
     const [pc, p, cfg] = await Promise.all([proyectoCfg(pid), pid ? proyecto(pid) : null, config()])
-    const asesorTel = dig(pc?.asesor_phone) || dig(p?.lead_notify_phone) || dig(cfg?.aviso_phone)
-    const fila = {
-      lead_id: ctx.lead.id, project_id: pid, tipo, fecha, hora, cuando,
-      lote_interes: input.lote_interes || null, nota: String(input.nota || '').slice(0, 1000) || null,
-      entendio: input.entendio, asesor_phone: asesorTel || null, es_prueba: !!ctx.esPrueba, updated_at: new Date().toISOString(),
-    }
-    const { data: abierto, error: e1 } = await supabase.from('ventas_ia_pases').select('id').eq('lead_id', ctx.lead.id).eq('estado', 'pendiente').maybeSingle()
-    if (e1) return { error: e1.message }
+    return { pc, p, cfg, tel: dig(pc?.asesor_phone) || dig(p?.lead_notify_phone) || dig(cfg?.aviso_phone) }
+  }
+  // Al asesor SOLO por Telegram (el dueño, 16 sep): el WhatsApp del proyecto es para
+  // los clientes. Si no tiene Telegram vinculado, el aviso le llega al dueño para que no se pierda.
+  async function avisarAsesor(ctx, tel, texto) {
+    const llego = tel && ctx.avisarA ? await ctx.avisarA(tel, texto) : false
+    if (!llego) await ctx.avisar(texto + '\n\n⚠️ *Este aviso no le llegó al asesor*' + (tel ? ' (+' + tel + '): no tiene Telegram vinculado.' : ': el proyecto no tiene asesor cargado.') + ' Pásaselo tú.')
+    return llego
+  }
+  // un solo pase abierto por lead: si cambia lo acordado, se actualiza el mismo
+  async function guardarPase(ctx, fila) {
+    const { data: abierto, error } = await supabase.from('ventas_ia_pases').select('id').eq('lead_id', ctx.lead.id).eq('estado', 'pendiente').maybeSingle()
+    if (error) return { error: error.message }
     const r = abierto
       ? await supabase.from('ventas_ia_pases').update(fila).eq('id', abierto.id)
       : await supabase.from('ventas_ia_pases').insert(fila)
-    if (r.error) return { error: r.error.message }
+    return r.error ? { error: r.error.message } : { abierto }
+  }
+  // La visita que tiene programada (la agendó el agente o una persona): una por cliente
+  async function visitaProgramada(ctx) {
+    const { data, error } = await supabase.from('visits').select('id, project_id, date, time')
+      .like('client_phone', '%' + dig(ctx.phone).slice(-9)).eq('tipo', 'visita').eq('status', 'programada')
+      .gte('date', hoyLima()).order('date').limit(1)
+    if (error) throw new Error(error.message)
+    return data?.[0] || null
+  }
 
-    await supabase.from('leads').update({ status: tipo === 'visita' ? 'visita_agendada' : 'negociacion', temperature: 'caliente' }).eq('id', ctx.lead.id).then(() => {}, () => {})
-    const cuandoTxt = [fecha && diaSemana(fecha) + ' ' + fechaCorta(fecha), hora, cuando].filter(Boolean).join(' · ')
-    const TITULO = { llamada: '📞 LLAMAR AL CLIENTE', visita: '📍 VISITA', separacion: '💰 QUIERE SEPARAR' }[tipo]
+  // VISITA: la agenda el agente y sigue con el chat. En Visitas le llegan al cliente y al
+  // asesor los recordatorios de siempre (index.js, visitasTick).
+  async function agendarVisita(ctx, input) {
+    const falta = faltaEntender(input)
+    if (falta) return { error: falta }
+    const fecha = String(input.fecha || '').trim()
+    const hora = String(input.hora || '').trim().slice(0, 5)
+    if (!fecha || !hora) return { error: 'Para agendar la visita acuerda el día y la hora.' }
+    const eFH = errorFechaHora(fecha, hora)
+    if (eFH) return { error: eFH }
+    if (hora < '07:00' || hora > '18:30') return { error: 'Las visitas son de día: acuerda una hora entre 07:00 y 18:30.' }
+    const hoy = hoyLima()
+    if (fecha === hoy && hora < enUnaHora()) return { error: 'Para hoy acuerda una hora con al menos una hora de margen, para que el asesor llegue. Son las ' + horaLima() + '.' }
+    const nombre = String(ctx.lead.full_name || '').trim()
+    if (!nombre || nombre === 'POR CONFIRMAR') return { error: 'Antes de agendar la visita pregúntale su nombre y guárdalo con guardar_datos_cliente.' }
+    const pp = await proyectoPedido(ctx, input)          // puede ir a ver el otro proyecto del manual
+    if (pp.error) return pp
+    const { pc, p, cfg, tel } = await asesorDe(pp.pid)
+    if (!tel) return { error: 'Este proyecto no tiene asesor para recibir la visita: usa pasar_a_persona.' }
+    const punto = String(cfg?.punto_encuentro || '').trim() || (p?.office_address ? 'Oficina: ' + String(p.office_address).trim() : '')
+    const lote = String(input.lote_interes || '').trim().slice(0, 120) || null
+    const nota = String(input.nota || '').trim().slice(0, 1000) || null
+
+    let cambio = false
+    if (!ctx.esPrueba) {                                  // una prueba no va al calendario: le llegarían recordatorios de verdad
+      let ya
+      try { ya = await visitaProgramada(ctx) } catch (e) { return { error: e.message } }
+      const fila = {
+        project_id: pp.pid, client_name: nombre.toUpperCase(), client_phone: dig(ctx.phone),
+        encargado_name: String(pc?.asesor_nombre || cfg?.encargado_nombre || '').trim().toUpperCase() || null, encargado_phone: tel,
+        date: fecha, time: hora, meeting_point: (punto || 'POR COORDINAR CON EL ASESOR').toUpperCase(),
+        notes: ('AGENDADA POR EL AGENTE DE VENTAS IA' + (lote ? ' · LOTE ' + lote : '') + (nota ? ' · ' + nota : '')).toUpperCase().slice(0, 1000),
+      }
+      // El recordatorio de "mañana" sale apenas se abre su ventana: a quien agenda para hoy o
+      // mañana le llegaría un minuto después de confirmarle. Esos se dan por mandados.
+      const ahora = new Date().toISOString()
+      const recordatorios = { reminded_at: null, reminded_dia_at: fecha <= sumarDias(hoy, 1) ? ahora : null, reminded_hora_at: fecha === hoy ? ahora : null }
+      if (ya) {
+        cambio = ya.date !== fecha || String(ya.time).slice(0, 5) !== hora
+        const { error } = await supabase.from('visits').update({ ...fila, ...(cambio ? recordatorios : {}) }).eq('id', ya.id)
+        if (error) return { error: error.message }
+      } else {
+        const { error } = await supabase.from('visits').insert({ ...fila, ...recordatorios, tipo: 'visita', status: 'programada' })
+        if (error) return { error: error.message }
+      }
+    }
+    const g = await guardarPase(ctx, {
+      lead_id: ctx.lead.id, project_id: pp.pid, tipo: 'visita', fecha, hora, cuando: null, lote_interes: lote, nota,
+      entendio: input.entendio, asesor_phone: tel, es_prueba: !!ctx.esPrueba, updated_at: new Date().toISOString(),
+    })
+    if (g.error) return g
+    if (g.abierto && ctx.esPrueba) cambio = true
+
+    await supabase.from('leads').update({ status: 'visita_agendada', temperature: 'caliente' }).eq('id', ctx.lead.id).then(() => {}, () => {})
+    const cuandoTxt = cuandoDe(fecha, hora)
+    await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA ' + (cambio ? 'CAMBIÓ LA VISITA' : 'AGENDÓ VISITA') + ': ' + cuandoTxt + ' · ' + pp.nombre + (lote ? ' · ' + lote : '')).toUpperCase().slice(0, 500) })
+    const texto = '🤖 *📍 VISITA AGENDADA*' + (cambio ? ' (cambió de día u hora)' : '') + ' — la agendó el agente de ventas' +
+      '\nCliente: ' + nombre + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + pp.nombre + '\nCuándo: ' + cuandoTxt +
+      '\nPunto de encuentro: ' + (punto || '⚠️ sin cargar: coordínalo con el cliente') + (lote ? '\nLote: ' + lote : '') +
+      (nota ? '\n\n📝 ' + nota : '') + YA_ENTENDIO +
+      '\n📅 Quedó en Visitas. El agente sigue con el chat: si no puedes ese día, escríbele tú al cliente y el agente se calla.' +
+      '\n👉 ' + PANEL + '/visitas'
+    await avisarAsesor(ctx, tel, texto)
+    if (ctx.esPrueba && ctx.notaPrueba) await ctx.notaPrueba('Con un cliente real esta visita quedaría en Visitas (' + cuandoTxt + '), con los recordatorios al cliente y al asesor.')
+    return {
+      ok: true,
+      para_ti: 'La visita quedó agendada' + (cambio ? ' con el nuevo día y hora' : '') + '. Confírmasela con el día y la hora' +
+        (punto ? ' y el punto de encuentro (' + punto + ')' : ', y dile que el punto de encuentro se lo confirma el asesor') +
+        '. En la visita la recibe el equipo, no tú. Si sigue escribiendo, sigue atendiéndola.',
+    }
+  }
+
+  async function cancelarVisita(ctx, input) {
+    const motivo = String(input.motivo || '').trim().slice(0, 300) || 'sin motivo'
+    const { data: pase } = await supabase.from('ventas_ia_pases').select('id, project_id, fecha, hora, asesor_phone')
+      .eq('lead_id', ctx.lead.id).eq('estado', 'pendiente').eq('tipo', 'visita').maybeSingle()
+    let visita = null
+    if (!ctx.esPrueba) { try { visita = await visitaProgramada(ctx) } catch (e) { return { error: e.message } } }
+    if (!pase && !visita) return { error: 'No tiene ninguna visita agendada.' }
+    if (visita) {
+      const { error } = await supabase.from('visits').update({ status: 'cancelada' }).eq('id', visita.id)
+      if (error) return { error: error.message }
+    }
+    const ahora = new Date().toISOString()
+    if (pase) await supabase.from('ventas_ia_pases').update({ estado: 'cancelado', resuelto_at: ahora, updated_at: ahora }).eq('id', pase.id)
+    await supabase.from('leads').update({ status: 'contactado', temperature: 'tibio' }).eq('id', ctx.lead.id).then(() => {}, () => {})
+    await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA CANCELÓ LA VISITA: ' + motivo).toUpperCase().slice(0, 500) })
+    const pid = visita?.project_id || pase?.project_id || ctx.lead.project_id || null
+    const { p, tel } = await asesorDe(pid)
+    await avisarAsesor(ctx, dig(pase?.asesor_phone) || tel,
+      '🤖 *❌ VISITA CANCELADA* — el cliente le avisó al agente de ventas' +
+      '\nCliente: ' + (ctx.lead.full_name || '-') + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + (p?.name || '-') +
+      '\nEra: ' + cuandoDe(visita?.date || pase?.fecha, visita?.time || pase?.hora) + '\nMotivo: ' + motivo +
+      '\n\nEl agente sigue con el chat. 👉 ' + PANEL + '/visitas')
+    return { ok: true, para_ti: 'Quedó cancelada. No insistas: pregúntale con naturalidad si prefiere otro día o si le quedó alguna duda.' }
+  }
+
+  // LLAMADA o SEPARACIÓN: el chat pasa al asesor y el agente se calla (el dueño, 16 sep)
+  async function pasarAAsesor(ctx, input) {
+    const tipo = String(input.tipo || '')
+    if (tipo === 'visita') return { error: 'La visita la agendas tú con agendar_visita.' }
+    if (!['llamada', 'separacion'].includes(tipo)) return { error: 'tipo tiene que ser llamada o separacion.' }
+    const falta = faltaEntender(input)
+    if (falta) return { error: falta }
+    const fecha = String(input.fecha || '').trim() || null
+    const hora = String(input.hora || '').trim().slice(0, 5) || null
+    const cuando = String(input.cuando || '').trim().slice(0, 120) || null
+    const eFH = errorFechaHora(fecha, hora)
+    if (eFH) return { error: eFH }
+    if (tipo === 'llamada' && !hora && !cuando) return { error: 'Para una llamada acuerda cuándo: ahora, o a qué hora.' }
+
+    const pid = ctx.lead.project_id || null
+    const { pc, p, tel } = await asesorDe(pid)
+    const fila = {
+      lead_id: ctx.lead.id, project_id: pid, tipo, fecha, hora, cuando,
+      lote_interes: input.lote_interes || null, nota: String(input.nota || '').slice(0, 1000) || null,
+      entendio: input.entendio, asesor_phone: tel || null, es_prueba: !!ctx.esPrueba, updated_at: new Date().toISOString(),
+    }
+    const g = await guardarPase(ctx, fila)
+    if (g.error) return g
+
+    // primero se calla: si la persona escribe mientras sale el aviso, ya no le contesta el agente
+    await ctx.pasarAHumano()
+    ctx.derivado = true
+    await supabase.from('ventas_ia_leads').update({ derivado_at: new Date().toISOString(), derivado_motivo: 'pase al asesor: ' + tipo }).eq('lead_id', ctx.lead.id)
+    await supabase.from('leads').update({ status: 'negociacion', temperature: 'caliente' }).eq('id', ctx.lead.id).then(() => {}, () => {})
+    const cuandoTxt = cuandoDe(fecha, hora, cuando)
+    const TITULO = { llamada: '📞 LLAMAR AL CLIENTE', separacion: '💰 QUIERE SEPARAR' }[tipo]
     await supabase.from('lead_activities').insert({ lead_id: ctx.lead.id, note: ('AGENTE IA PASÓ AL ASESOR: ' + TITULO + (cuandoTxt ? ' · ' + cuandoTxt : '') + (fila.lote_interes ? ' · ' + fila.lote_interes : '')).toUpperCase().slice(0, 500) })
-    const texto = '🤖 *' + TITULO + '* — pase del agente de ventas' + (abierto ? ' (cambió el anterior)' : '') +
+    await avisarAsesor(ctx, tel, '🤖 *' + TITULO + '* — pase del agente de ventas' + (g.abierto ? ' (cambió el anterior)' : '') +
       '\nCliente: ' + (ctx.lead.full_name || '-') + '\nTel: +' + dig(ctx.phone) + '\nProyecto: ' + (p?.name || '-') +
       (cuandoTxt ? '\nCuándo: ' + cuandoTxt : '') + (fila.lote_interes ? '\nLote: ' + fila.lote_interes : '') +
-      (fila.nota ? '\n\n📝 ' + fila.nota : '') +
-      '\n\n✅ Ya entendió qué compra, dónde está, cuánto paga, desde cuándo lo usa y qué sigue.' +
-      '\n👉 El chat: ' + PANEL + '/whatsapp'
-    if (asesorTel && ctx.avisarA) await ctx.avisarA(asesorTel, texto)
-    else await ctx.avisar(texto)
+      (fila.nota ? '\n\n📝 ' + fila.nota : '') + YA_ENTENDIO +
+      '\n🙋 *Desde ahora el chat es tuyo:* el agente ya no le contesta.' +
+      '\n👉 El chat: ' + PANEL + '/whatsapp')
     const quien = pc?.asesor_nombre ? pc.asesor_nombre + ', asesor del proyecto,' : 'un asesor del proyecto'
     return {
       ok: true,
       para_ti: {
         llamada: 'Dile que ' + quien + ' la llama ' + (hora || cuando ? 'a la hora acordada' : 'para afinar los detalles') + '. No prometas minutos.',
-        visita: 'Dile que ' + quien + ' le confirma la visita y cómo llegar. No la des por confirmada.',
         separacion: 'Dile que ' + quien + ' le escribe para hacer la separación. Tú no recibes el pago ni pides datos bancarios.',
-      }[tipo] + ' Si sigue escribiendo, sigue atendiéndola.',
+      }[tipo] + ' Desde aquí la atiende el asesor y tú ya no contestas: despídete en un mensaje corto.',
     }
   }
 
@@ -576,10 +752,21 @@ module.exports = function crearVentasIA({ supabase, log }) {
       '\nMotivo: ' + motivo + '\n\nEl agente ya no le contesta: escríbele tú. 👉 ' + PANEL + '/whatsapp'
     // en un proyecto sin bot el lead es del asesor; en el experimento, del dueño
     const asesorTel = pc && pc.modo !== 'bot' ? (dig(pc.asesor_phone) || dig(p?.lead_notify_phone)) : ''
-    if (asesorTel && ctx.avisarA) await ctx.avisarA(asesorTel, texto)
+    if (asesorTel) await avisarAsesor(ctx, asesorTel, texto)
     else await ctx.avisar(texto)
     ctx.derivado = true
     return { ok: true, para_ti: 'Ya avisé al equipo. Dile en un mensaje corto que en breve le escribe una persona.' }
+  }
+
+  // Lo que el agente tiene que saber del pase abierto. Los recordatorios de Visitas no
+  // salen en su historial (son mensajes del sistema): por eso se le cuenta aquí.
+  function notaPase(pase, hoy) {
+    const cuando = cuandoDe(pase.fecha, pase.hora, pase.cuando)
+    if (pase.tipo === 'visita') return pase.fecha && pase.fecha < hoy
+      ? 'Tenía una visita agendada para el ' + cuando + ', que ya pasó: no sabes si fue, no lo des por hecho.'
+      : 'Ya le agendaste una visita para el ' + cuando + '. Antes de la visita el sistema le manda un recordatorio que no ves en la conversación: si escribe por eso, confírmale la visita, cámbiala con agendar_visita o cancélala con cancelar_visita si ya no va.'
+    return 'Ya la pasaste al asesor para ' + ({ llamada: 'una llamada', separacion: 'una separación' }[pase.tipo] || pase.tipo) + (cuando ? ' (' + cuando + ')' : '') +
+      ': no la vuelvas a pasar salvo que cambie lo acordado; resuelve lo que pregunte.'
   }
 
   async function ejecutar(nombre, input, ctx) {
@@ -587,6 +774,8 @@ module.exports = function crearVentasIA({ supabase, log }) {
     if (nombre === 'otros_proyectos') return otrosProyectos(ctx)
     if (nombre === 'escalonamiento') return escalonamiento(ctx, input)
     if (nombre === 'guardar_datos_cliente') return guardarDatos(ctx, input)
+    if (nombre === 'agendar_visita') return agendarVisita(ctx, input)
+    if (nombre === 'cancelar_visita') return cancelarVisita(ctx, input)
     if (nombre === 'pasar_a_asesor') return pasarAAsesor(ctx, input)
     if (nombre === 'enviar_material') return enviarMaterial(ctx, input)
     if (nombre === 'pasar_a_persona') return pasarAPersona(ctx, input)
@@ -680,7 +869,8 @@ module.exports = function crearVentasIA({ supabase, log }) {
   }
 
   // ---------------------------------------------------------------- el turno
-  // ctx: { conv, lead, phone, esPrueba, nota?, decir(texto), mandarMaterial(ids), avisar(texto), avisarA(tel, texto), pasarAHumano() }
+  // ctx: { conv, lead, phone, esPrueba, nota?, decir(texto), mandarMaterial(ids), avisar(texto),
+  //        avisarA(tel, texto) → true si llegó por Telegram, notaPrueba(texto), pasarAHumano() }
   async function responder(ctx) {
     if (!ia) throw new Error('no hay clave de Claude (VENTAS_ANTHROPIC_API_KEY o ANTHROPIC_API_KEY)')
     const cfg = (await config()) || {}
@@ -734,9 +924,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
           '\nPersona: ' + (ctx.lead.full_name && ctx.lead.full_name !== 'POR CONFIRMAR' ? ctx.lead.full_name : 'todavía no dio su nombre') +
           (ctx.lead.budget_estimate ? ' · presupuesto anotado ' + soles(ctx.lead.budget_estimate) : '') +
           (String(ctx.lead.source || '').startsWith('campaña') ? ' · llegó por un anuncio' : '') +
-          (pase ? '\nYa la pasaste al asesor para ' + { llamada: 'una llamada', visita: 'una visita', separacion: 'una separación' }[pase.tipo] +
-            ([pase.fecha && diaSemana(pase.fecha) + ' ' + fechaCorta(pase.fecha), pase.hora && String(pase.hora).slice(0, 5), pase.cuando].filter(Boolean).length ? ' (' + [pase.fecha && diaSemana(pase.fecha) + ' ' + fechaCorta(pase.fecha), pase.hora && String(pase.hora).slice(0, 5), pase.cuando].filter(Boolean).join(' · ') + ')' : '') +
-            ': no la vuelvas a pasar salvo que cambie lo acordado; resuelve lo que pregunte.' : '') +
+          (pase ? '\n' + notaPase(pase, hoy) : '') +
           (respuestasFlujo.length ? '\nLo que respondió al bot:\n' + respuestasFlujo.join('\n') : ''),
       },
     ]

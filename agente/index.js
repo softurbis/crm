@@ -925,7 +925,9 @@ async function enviar(phone, texto, meta = {}) {
   if (PRUEBA) {
     const rp = String(phone).includes('@') ? telDeJid(String(phone)) : String(phone).replace(/\D/g, '')
     const esSesion = rp.slice(-9) === String(PRUEBA).slice(-9)
-    const body = esSesion ? texto : '📨 (aviso interno → +' + rp + '):\n' + texto
+    // la prueba también dice la verdad sobre Telegram: sin vincular, no le llega (y el aviso va al dueño)
+    if (!esSesion && meta.soloTelegram && !(TGREG && await TGREG.chatDe(rp))) return false
+    const body = esSesion ? texto : '📨 (aviso interno' + (meta.soloTelegram ? ' por Telegram' : '') + ' → +' + rp + '):\n' + texto
     await supabase.from('scheduled_messages').insert({
       recipient_phone: PRUEBA, body, tipo: 'test_' + (meta.tipo || 'msj'),
       lead_id: meta.lead_id || null, client_id: meta.client_id || null,
@@ -964,6 +966,9 @@ async function enviar(phone, texto, meta = {}) {
       log((ok ? 'TELEGRAM ✔' : 'TELEGRAM ✗') + ' [' + (meta.tipo || 'msj') + '] a', digTg)
       return ok
     }
+    // Avisos que van SOLO por Telegram (los del agente de ventas al asesor): si la persona
+    // no vinculó su Telegram, no salen por el WhatsApp del proyecto. Quien llama decide.
+    if (meta.soloTelegram) { log('SOLO TELEGRAM: +' + (digTg || phone) + ' no tiene Telegram vinculado, no se envía [' + (meta.tipo || 'msj') + ']'); return false }
   }
   if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); espejo('⛔ SIN SESIÓN de WhatsApp: no se pudo enviar a +' + phone); return false }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
@@ -1871,8 +1876,10 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
         desde = Date.now()
       },
       avisar: async texto => { if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, texto, { tipo: 'aviso_admin', prueba }) },
-      // al asesor del proyecto (pases del agente, sql/94)
-      avisarA: async (tel, texto) => { const t = String(tel || '').replace(/\D/g, ''); if (t.length >= 9) await enviar(t, texto, { tipo: 'aviso_admin', prueba }) },
+      // al asesor del proyecto (pases del agente, sql/94): solo por Telegram; false = no le llegó
+      avisarA: async (tel, texto) => { const t = String(tel || '').replace(/\D/g, ''); return t.length >= 9 ? !!(await enviar(t, texto, { tipo: 'aviso_admin', prueba, soloTelegram: true })) : false },
+      // una línea en la consola de Probar Bot (el agente no la ve: empieza con "(prueba)")
+      notaPrueba: async texto => { if (esPrueba) await enviar(phone, '(prueba) ' + texto, { tipo: 'test', prueba }) },
       pasarAHumano: async () => { await setConv(phone, { flow_state: 'humano' }, ses) },
     }
     if (esPrueba) {

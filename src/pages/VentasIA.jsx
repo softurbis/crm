@@ -9,7 +9,8 @@ import { textoDeWord } from '../lib/manualWord'
 // ----------------------------------------------------------------------------
 // El agente (agente/ventas_ia.js) conversa en el mismo chat del número del
 // proyecto. Aquí el dueño:
-//   · ve los PASES que el agente le hizo al asesor (llamada, visita, separación),
+//   · ve los PASES del agente: las visitas que agendó (van también a Visitas) y las
+//     llamadas y separaciones que le pasó al asesor (esas el chat ya es del asesor),
 //   · decide por PROYECTO quién atiende (bot, prueba o agente sin bot), a qué
 //     asesor pasa, cómo se arma la cuota y qué lotes no se ofrecen; y ve la tabla
 //     de precios y cuotas que va a decir el agente, calculada desde la base,
@@ -361,7 +362,7 @@ function Proyectos({ puede, profile, setMsg }) {
               </select>
             </label>
             <label>Nombre del asesor <span className="muted small">(el agente lo nombra al pasar)</span><input value={f.asesor_nombre} onChange={campo('asesor_nombre')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
-            <label>Celular del asesor <span className="muted small">(le llegan los pases)</span><input value={f.asesor_phone} onChange={campo('asesor_phone')} disabled={!puede} placeholder="51987654321" /></label>
+            <label>Celular del asesor <span className="muted small">(le llegan los pases, solo por Telegram)</span><input value={f.asesor_phone} onChange={campo('asesor_phone')} disabled={!puede} placeholder="51987654321" /></label>
           </div>
           {!manualDe(sel) && f.modo !== 'bot' && <p className="small error" style={{ textTransform: 'none' }}>⚠ Este proyecto no tiene manual: el agente solo tendría la ficha de la landing. Cárgalo en 📘 Manual.</p>}
 
