@@ -1207,3 +1207,14 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
   .buscar-lote .bsc-menu { min-width: 0; }
 }
 .fl-dl a, .fl-links a, .fl-tabla a, .fl-card p a { color: var(--accent-strong); }
+
+/* ===== Cobrar desde la ficha (components/CobroModal.jsx) ===== */
+.cobro-modal { max-width: 920px; width: 96%; max-height: 92vh; overflow-y: auto; }
+.cobro-caja { padding: .7rem .8rem; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); margin: 0 0 .7rem; }
+.cobro-opcion { display: flex !important; align-items: center; gap: .45rem; font-weight: 400 !important; margin: .2rem 0; cursor: pointer; }
+.cobro-opcion input { width: auto; }
+.cobro-resumen { margin: .7rem 0 0; padding: .6rem .8rem; border-radius: 10px; font-size: .85rem;
+  background: color-mix(in srgb, var(--accent) 9%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); }
+.cobro-hecho { padding: .4rem .2rem; }
+.cobro-hecho-t { font-size: 1.25rem; font-weight: 800; margin: 0 0 .4rem; }
+.fp .form-grid { gap: .6rem; }

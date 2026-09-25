@@ -9,6 +9,7 @@ import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
 import BuscarLote from '../components/BuscarLote'
 import Buscador from '../components/Buscador'
 import DetallePago from '../components/DetallePago'
+import CobroModal from '../components/CobroModal'
 import { COLORS, LBL, hoyPeru, fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import { soles, agruparPagos, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
@@ -99,6 +100,7 @@ export default function FichaLote() {
   const [emsg, setEmsg] = useState(null)
   const [msg, setMsg] = useMsg(null)
   const [verPago, setVerPago] = useState(null)
+  const [cobro, setCobro] = useState(null)   // separacion | inicial | cuota | cuadre (fase 2: se cobra aqui mismo)
   const [pagoQ, setPagoQ] = useState('')
   const [pagoFiltro, setPagoFiltro] = useState('todos')   // todos | sin_voucher | sin_comprobante
 
@@ -1087,7 +1089,6 @@ export default function FichaLote() {
 
   const sale = detail.sale
   const cobrar = !readOnly
-  const irCobro = tipo => irA(`/pagos?tipo=${tipo}&lote=${sel.id}`)
   const tabs = [
     ['resumen', 'Resumen'],
     sale && ['cuotas', `Cuotas (${detail.inst.length})`, resumen?.vencidas.length ? `${resumen.vencidas.length} vencida${resumen.vencidas.length > 1 ? 's' : ''}` : null],
@@ -1119,14 +1120,14 @@ export default function FichaLote() {
       {/* ---- lo que se puede hacer con este lote AHORA, segun su estado ---- */}
       <div className="fl-acciones">
         {cobrar && sel.status === 'disponible' && !detail.sep && (<>
-          <button className="btn-primary" onClick={() => irCobro('separacion')}>&#10133; Separar</button>
-          <button className="btn-act" onClick={() => irCobro('inicial')}>&#128181; Vender directo (inicial)</button>
+          <button className="btn-primary" onClick={() => setCobro('separacion')}>&#10133; Separar</button>
+          <button className="btn-act" onClick={() => setCobro('inicial')}>&#128181; Vender directo (inicial)</button>
         </>)}
         {cobrar && detail.sep && !sale && (sepInfo?.vencida
           ? <span className="fl-aviso bad">&#128274; Separación vencida: el administrador debe extender el plazo o marcarla perdida antes de cobrar la inicial.</span>
-          : <button className="btn-primary" onClick={() => irCobro('inicial')}>&#128181; Cobrar inicial</button>)}
+          : <button className="btn-primary" onClick={() => setCobro('inicial')}>&#128181; Cobrar inicial</button>)}
         {cobrar && sale?.status === 'en_proceso' && ['vendido', 'entregado'].includes(sel.status) &&
-          <button className="btn-primary" onClick={() => irCobro('cuota')}>&#128181; Cobrar cuota</button>}
+          <button className="btn-primary" onClick={() => setCobro('cuota')}>&#128181; Cobrar cuota</button>}
         {sale && (sale.client?.phone_valid
           ? <a className="btn-act" href={waMessage()} target="_blank" rel="noreferrer">&#128172; WhatsApp de cobro</a>
           : <span className="fl-aviso warn">Celular no válido: corrígelo en los datos del cliente</span>)}
@@ -1295,6 +1296,8 @@ export default function FichaLote() {
             {role === 'superuser' && (<>
               <button className="btn-ghost" style={{ fontSize: 12 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
                 onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
+              <button className="btn-ghost" style={{ fontSize: 12 }} title="Registrar una inicial o separación que no se cargó en la migración, sobre esta venta. No crea venta ni toca el cronograma."
+                onClick={() => setCobro('cuadre')}>&#9998; Cuadre inicial / separación</button>
               <button className="btn-ghost" style={{ fontSize: 12 }} title="Crear una cuota que faltó en la migración (ej. la 11). No toca las demás."
                 onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
             </>)}
@@ -1548,6 +1551,12 @@ export default function FichaLote() {
       )}
 
       {/* ---- detalle de un pago: sus documentos a la vista ---- */}
+      {/* ---- cobrar aqui mismo: separacion, inicial, cuota o cuadre ---- */}
+      {cobro && (
+        <CobroModal tipo={cobro} lote={sel} detail={detail}
+          onClose={() => setCobro(null)} onListo={() => { setCobro(null); reload() }} />
+      )}
+
       {verPago && (
         <DetallePago key={verPago.id} pago={verPago} pagos={pagos} naOk={naOk}
           onClose={() => setVerPago(null)} onCambio={reload} />
