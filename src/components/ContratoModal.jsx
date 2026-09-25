@@ -64,7 +64,8 @@ export default function ContratoModal({ saleId, onClose }) {
   if (!p.copia_literal_url) problemas.push('FALTA SUBIR LA PARTIDA REGISTRAL (Proyectos > Editar)')
   else if (!p.copia_literal_expiry || p.copia_literal_expiry < hoyStr) problemas.push('LA PARTIDA REGISTRAL ESTA VENCIDA O SIN FECHA DE VIGENCIA')
   if (p.carta_poder_url && (!p.poder_expiry || p.poder_expiry < hoyStr)) problemas.push('LA VIGENCIA DE PODER ESTA VENCIDA O SIN FECHA')
-  const puedeFirmar = problemas.length === 0
+  // Solo AVISAN: el contrato se imprime igual aunque la partida o el poder esten
+  // vencidos (decision del usuario, 25 sep 2026). Antes bloqueaban la impresion.
 
   const vars = {
     PROYECTO: p.name || '', VENDEDOR: p.titular_name || 'URBIS GROUP',
@@ -231,14 +232,14 @@ export default function ContratoModal({ saleId, onClose }) {
         <div className="modal-head no-print">
           <h2>Contrato - {c.full_name}</h2>
           <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
-          {puedeFirmar && <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => window.print(), 100) }}>Imprimir / PDF</button>}
+          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => window.print(), 100) }}>Imprimir / PDF</button>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
-        {!puedeFirmar && (
-          <div className="chg-box no-print">
-            <p className="bad"><b>&#9940; NO SE PUEDE FIRMAR ESTE CONTRATO:</b></p>
-            {problemas.map((x, i) => <p key={i} className="bad">&#8226; {x}</p>)}
-            <p className="muted small">Regulariza los documentos legales en PROYECTOS &#8594; EDITAR y vuelve a generar.</p>
+        {problemas.length > 0 && (
+          <div className="no-print" style={{ padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(224,178,63,.1)', border: '1px solid rgba(224,178,63,.35)' }}>
+            <p className="warn" style={{ margin: 0 }}><b>&#9888; Ojo con los documentos del proyecto</b> (el contrato se puede imprimir igual):</p>
+            {problemas.map((x, i) => <p key={i} className="warn small" style={{ margin: '2px 0 0' }}>&#8226; {x}</p>)}
+            <p className="muted small" style={{ margin: '4px 0 0' }}>Se regularizan en PROYECTOS &#8594; EDITAR.</p>
           </div>
         )}
         {editDoc && <p className="no-print" style={{ color: '#e0b34c', fontSize: 12, margin: '0 0 8px' }}>✎ MODO EDICIÓN: haz clic sobre el texto y corrige lo que necesites. Los cambios aplican a esta impresión.</p>}
