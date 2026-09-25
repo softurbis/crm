@@ -1841,8 +1841,12 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
   _ventasEnCurso.add(phone)
   let tomoMutex = false
   try {
+    // si la persona habla con el agente en los dos números, se contesta en el chat
+    // donde acaba de escribir (cada mensaje entrante renueva last_message_at);
+    // sin el orden podía salir la respuesta por el otro número
     const { data: convs } = await supabase.from('whatsapp_conversations')
-      .select('id, phone, lead_id, flow_state, modo, is_test, session_id').eq('phone', phone).eq('flow_state', 'ia').limit(1)
+      .select('id, phone, lead_id, flow_state, modo, is_test, session_id').eq('phone', phone).eq('flow_state', 'ia')
+      .order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
     const conv = convs && convs[0]
     // Cada salida sin contestar deja su motivo en el log: el 16 sep el agente se quedaba
     // callado sin rastro porque el chat no tenía el lead enganchado.
@@ -2324,25 +2328,48 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     return
   }
   // PALABRA DE SEGURIDAD: "iniciourbis2026" reinicia el bot para este chat (modo prueba)
+  // SOLO en el número donde se escribió (25 sep): escrita en el de Brisas reinicia
+  // Brisas y el chat con Cashibo sigue igual, y al revés.
   if (corto.toLowerCase() === 'iniciourbis2026') {
-    // TODAS las conversaciones del numero (puede haber dos: la del telefono y la
-    // del LID). Antes usaba maybeSingle(): con dos filas devolvia error y no
-    // borraba ninguna — el "reinicio" dejaba el chat viejo con su estado viejo.
-    const { data: convsR } = await supabase.from('whatsapp_conversations').select('id, lead_id').ilike('phone', `%${phone.slice(-9)}%`)
-    const { data: leadsR } = await supabase.from('leads').select('id').ilike('phone', `%${phone.slice(-9)}%`)
-    for (const L of (leadsR || [])) {
-      await supabase.from('lead_activities').delete().eq('lead_id', L.id)
-      await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', L.id)
-      await supabase.from('leads').delete().eq('id', L.id)
-    }
+    const sid = sesId(ses)
+    // las conversaciones de ESTE número con esa persona (puede haber dos: la del
+    // teléfono y la del LID). Antes borraba las de todos los números.
+    let qc = supabase.from('whatsapp_conversations').select('id, lead_id').ilike('phone', `%${phone.slice(-9)}%`)
+    qc = sid ? qc.eq('session_id', sid) : qc.is('session_id', null)
+    const { data: convsR } = await qc
     for (const convR of (convsR || [])) {
       await supabase.from('whatsapp_messages').delete().eq('conversation_id', convR.id)
-      await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
+      const { error } = await supabase.from('whatsapp_conversations').delete().eq('id', convR.id)
+      if (error) log('RESET conv', convR.id, ':', error.message)
     }
-    // por WhatsApp: es la respuesta a algo que se escribio por WhatsApp, y ademas
-    // quien prueba necesita verla en el mismo chat que acaba de reiniciar
-    await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte', canal: 'whatsapp' })
-    log('RESET iniciourbis2026 para', phone)
+    _convSesCache.delete(phone)
+    // El lead es uno por persona para todos los números. Si todavía conversa con el
+    // otro número se queda, y aquí solo se borra lo del proyecto de este número
+    // para que el agente empiece de cero; si no queda ningún chat, se borra entero
+    // (primero los chats: whatsapp_conversations.lead_id no borra en cascada).
+    const pidAqui = ses?.row?.project_id || null
+    const { data: otras } = await supabase.from('whatsapp_conversations').select('id, project_id, lead_id')
+      .ilike('phone', `%${phone.slice(-9)}%`).order('last_message_at', { ascending: false, nullsFirst: false })
+    const { data: leadsR } = await supabase.from('leads').select('id').ilike('phone', `%${phone.slice(-9)}%`)
+    for (const L of (leadsR || [])) {
+      if ((otras || []).length) {
+        await supabase.from('ventas_ia_leads').delete().eq('lead_id', L.id)
+        if (pidAqui) {
+          await supabase.from('ventas_ia_citas').delete().eq('lead_id', L.id).eq('project_id', pidAqui)
+          await supabase.from('ventas_ia_pases').delete().eq('lead_id', L.id).eq('project_id', pidAqui)
+        }
+        const pidOtro = otras[0].project_id
+        if (pidOtro) await supabase.from('leads').update({ project_id: pidOtro }).eq('id', L.id)
+        continue
+      }
+      await supabase.from('lead_activities').delete().eq('lead_id', L.id)
+      await supabase.from('scheduled_messages').update({ lead_id: null }).eq('lead_id', L.id)
+      const { error } = await supabase.from('leads').delete().eq('id', L.id)
+      if (error) log('RESET lead', L.id, ':', error.message)
+    }
+    // por el MISMO número: quien prueba necesita verla en el chat que acaba de reiniciar
+    await enviar(jid, '🔄 BOT REINICIADO PARA ESTE CHAT (modo prueba). Escriba cualquier mensaje para comenzar de nuevo.', { tipo: 'reporte', canal: 'whatsapp', ses })
+    log('RESET iniciourbis2026 para', phone, 'en', ses?.row?.label || sid || 'corporativo', (otras || []).length ? '(el chat con el otro número sigue)' : '')
     return
   }
 
