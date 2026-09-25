@@ -433,11 +433,11 @@ export default function Contracts() {
         const Firmas = (
           <table className="ctable firmas" key="fi"><tbody><tr>
             <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-              ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type} N. {c.doc_number}
-              {gen.co_client && (<><br /><br />______________________________<br /><b>EL COMPRADOR (2)</b><br />{gen.co_client.full_name}<br />{gen.co_client.doc_type} N. {gen.co_client.doc_number}</>)}
+              ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type || 'DNI'}: {c.doc_number}
+              {gen.co_client && (<><br /><br />______________________________<br /><b>EL COMPRADOR (2)</b><br />{gen.co_client.full_name}<br />{gen.co_client.doc_type || 'DNI'}: {gen.co_client.doc_number}</>)}
             </td>
             <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-              ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI N. {vars.VENDEDOR_DNI}
+              ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI: {vars.VENDEDOR_DNI}
             </td>
           </tr></tbody></table>
         )
