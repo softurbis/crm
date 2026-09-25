@@ -1865,6 +1865,15 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
     if (!esPrueba && !VIA.enHorario(cfg)) return               // fuera de horario: lo retoma el barrido al abrir
     const ses = (conv.session_id && SESSIONS.get(conv.session_id)) || sesCorporativa()
     if (!esPrueba && ses?.row && ses.row.leads_activo === false) return
+    // El NUMERO al que escribió manda (decisión del 25 sep): el agente atiende el
+    // proyecto de ese número y no pregunta cuál. Un lead que venía de otro número, o
+    // que quedó registrado sin proyecto, pasa al proyecto de este.
+    const pidNumero = ses?.row?.project_id || null
+    if (pidNumero && lead.project_id !== pidNumero && (await VIA.modoProyecto(pidNumero).catch(() => 'bot')) !== 'bot') {
+      await supabase.from('leads').update({ project_id: pidNumero }).eq('id', lead.id).then(() => {}, () => {})
+      await supabase.from('whatsapp_conversations').update({ project_id: pidNumero }).eq('id', conv.id).then(() => {}, () => {})
+      lead.project_id = pidNumero
+    }
     const jid = jidDe(phone)
     const factor = esPrueba ? 0.1 : 1
     const prueba = esPrueba ? phone : false                     // explícito: ver enviar()
@@ -4362,11 +4371,13 @@ async function pasarListaTest(secId, sessionPhone) {
 // entraba por la corporativa o, si no estaba conectada, por el PRIMER número conectado
 // (16 sep: Brisas), y ese proyecto se imponía al que decía el mensaje.
 const SES_SIN_NUMERO = { row: { id: 'legacy', is_corporate: true, label: 'PRUEBA', project_id: null }, sock: null }
-async function sesionDePruebaLead(ph, texto) {
+async function sesionDePruebaLead(ph, texto, pid) {
   // la conversación ya empezada sigue por el mismo número (si no, se partiría en dos chats)
   const { data: cv } = await supabase.from('whatsapp_conversations').select('session_id').eq('phone', ph).order('last_message_at', { ascending: false }).limit(1)
   if (cv && cv[0]) return (cv[0].session_id && SESSIONS.get(cv[0].session_id)) || SES_SIN_NUMERO
-  const { pr } = await detectarProyecto(texto)
+  // proyecto elegido en Probar Bot = se escribe a SU número
+  if (pid) for (const s of SESSIONS.values()) if (s.row.project_id === pid) return s
+  const { pr } = pid ? { pr: { id: pid } } : await detectarProyecto(texto)
   if (pr) for (const s of SESSIONS.values()) if (s.row.project_id === pr.id) return s
   for (const s of SESSIONS.values()) if (s.row.is_corporate) return s
   return SES_SIN_NUMERO                          // sin número de proyecto: el bot pregunta cuál
@@ -4385,13 +4396,13 @@ async function procesarPruebas() {
       if (prof === 'cobranza_now') { TEST_PROFILES.set(d9, 'cliente'); await cobranzaTest(t.emulate_id, ph) }
       else if (prof === 'pasar_lista_now') { TEST_PROFILES.set(d9, 'secretaria'); await pasarListaTest(t.emulate_id, ph) }
       else {
-        // lead nuevo: igual que WhatsApp real, el proyecto se DETECTA del mensaje.
-        // Si el mensaje no identifica uno (o es ambiguo entre varios), queda en null y el
-        // bot PREGUNTA cuál (no se fuerza el del dropdown).
+        // lead nuevo: el proyecto elegido en Probar Bot es el NUMERO al que escribe, igual
+        // que en WhatsApp real (cada proyecto tiene su número y ese número manda). Sin
+        // proyecto elegido, se detecta del mensaje como en la corporativa.
         if (prof === 'lead') {
           const { data: exL } = await supabase.from('leads').select('id').ilike('phone', '%' + d9 + '%').limit(1)
           if (!exL || !exL.length) {
-            const { pr } = await detectarProyecto(t.text || '')
+            const pr = t.project_id ? { id: t.project_id } : (await detectarProyecto(t.text || '')).pr
             await supabase.from('leads').insert({ full_name: 'POR CONFIRMAR', phone: ph, source: 'whatsapp', status: 'nuevo', project_id: pr?.id || null, is_test: true, optin_whatsapp: true, optin_date: new Date().toISOString() }).then(() => {}).catch(() => {})
           }
         }
@@ -4399,7 +4410,7 @@ async function procesarPruebas() {
         TEST_PROFILES.set(d9, tipo)
         const jid = jidDe(ph)
         // pseudo-sesión de prueba (TEST_ACTIVE evita tocar WhatsApp real de todos modos)
-        const sesTest = prof === 'lead' ? await sesionDePruebaLead(ph, t.text || '') : (sesCorporativa() || SES_SIN_NUMERO)
+        const sesTest = prof === 'lead' ? await sesionDePruebaLead(ph, t.text || '', t.project_id) : (sesCorporativa() || SES_SIN_NUMERO)
         await manejarEntrante(sesTest, jid, jid, t.text || '', prof === 'lead' ? undefined : 'PRUEBA')
         // marcar como PRUEBA solo las sesiones sintéticas (lead/gerencia). Cliente/secretaria
         // usan el teléfono REAL de la entidad emulada, así que NO se marcan (son datos reales).

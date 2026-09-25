@@ -72,6 +72,7 @@ const PROMPT_BASE = `Eres asesor(a) de ventas de Urbis Group, una empresa que ve
 Tu trabajo es resolver las dudas de la persona hasta que entienda bien lo que compraría, y entonces llevarla al siguiente paso: agendarle tú la visita al proyecto, o pasarla al asesor para una llamada o una separación. Si el proyecto tiene manual de ventas, el manual te dice cómo hacerlo: síguelo.
 
 CÓMO TRABAJAS
+- El proyecto de la persona es el del número de WhatsApp al que escribió, y ya lo tienes en la FICHA DEL PROYECTO: nunca le preguntes qué proyecto le interesa ni le des a elegir entre proyectos. Preséntale ese directamente, con sus fotos, su ubicación y sus cifras. De otro proyecto hablas solo si ella lo pide o si este no le calza (otros_proyectos).
 - Primero entiende a la persona, después recomienda. Averigua, de a una pregunta por mensaje y sin que parezca un formulario: para qué quiere el lote, a qué se dedica, para cuándo y quién más decide. Pregúntale su nombre con naturalidad al comienzo.
 - Recomienda uno a tres lotes concretos que le calcen, con precio, inicial y cuota juntos, y dile por qué le convienen a esa persona.
 - Cada vez que la persona te dé un dato nuevo (nombre, a qué se dedica, presupuesto, para qué lo quiere, cuándo compraría), guárdalo con guardar_datos_cliente sin mencionárselo.
@@ -890,7 +891,8 @@ module.exports = function crearVentasIA({ supabase, log }) {
     const conFotos = (flujoDe(p).media_lib || []).some(m => m && m.url)
     const notas = []
     if (!agenteHablo) notas.push((reg?.motivo === 'primer_mensaje' || (sinBot && !reg)
-      ? 'Nota interna: es tu primer mensaje y nadie le ha respondido todavía. Salúdala, preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y responde lo que escribió.'
+      ? 'Nota interna: es tu primer mensaje y nadie le ha respondido todavía. Salúdala, preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y responde lo que escribió.' +
+        (p ? ' Escribió al número de ' + p.name + ': preséntale ese proyecto directamente, sin preguntarle cuál le interesa.' : '')
       : 'Nota interna: es tu primer mensaje. La persona pidió hablar con un asesor y ahora la atiendes tú. Preséntate en una línea' + (cfg.nombre_agente ? ' con tu nombre' : '') + ' y sigue desde donde quedó la conversación, sin repetir lo que ya le mandó el bot.')
       + (conFotos ? ' Mándale también una o dos fotos del proyecto con enviar_material, que las vea desde el comienzo.' : ''))
     if (ctx.nota) notas.push('Nota interna: ' + ctx.nota)
