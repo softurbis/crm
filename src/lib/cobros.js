@@ -156,10 +156,17 @@ export async function avanzarLead({ leadId, clienteId, telefonos = [], pid, esta
 
 // -------------------------------------------------------------------- pago --
 
-// El voucher se sube con el N° de operacion en la ruta (como siempre).
-async function filaPago({ pidOp, loteId, clienteId, pago, profile }) {
+// El voucher se sube ANTES de escribir nada: si la subida falla, no queda una
+// separacion o una venta a medias sin su pago (lo destapo la prueba del 24 sep).
+// Va con el N° de operacion en la ruta, como siempre.
+export async function subirVoucher(pago) {
   const op = (String(pago.nroOp || '').trim() || 'SIN-REF').toUpperCase()
   const voucherUrl = pago.file ? await upload(`vouchers/${op.replace(/[^A-Z0-9-]/g, '')}`, pago.file) : null
+  return { op, voucherUrl }
+}
+
+function filaPago({ pidOp, loteId, clienteId, pago, profile, subida }) {
+  const { op, voucherUrl } = subida
   return {
     project_id: pidOp, lot_id: loteId, client_id: clienteId, date: pago.fecha,
     operation_number: op, operation_type: pago.opTipo,
@@ -195,13 +202,16 @@ export function planCascada(pendientes, monto) {
 
 // --------------------------------------------------------------- separacion --
 
-export async function registrarSeparacion({ pidOp, lote, clienteId, pago, vence, advisorId, recordarA = [], secs = [], profile, leadId }) {
+// clienteId de alguien ya registrado, o nuevaPersona = { nombre, celular } (queda pendiente de DNI)
+export async function registrarSeparacion({ pidOp, lote, clienteId, nuevaPersona, pago, subida, vence, advisorId, recordarA = [], secs = [], profile, leadId }) {
+  subida = subida || await subirVoucher(pago)
+  if (!clienteId) clienteId = (await crearPendiente(nuevaPersona)).id
   const { data: sep, error: e1 } = await supabase.from('separations').insert({
     lot_id: lote.id, client_id: clienteId, amount: Number(pago.monto),
     date: pago.fecha, expiration_date: vence, status: 'vigente', advisor_id: advisorId || null, created_by: profile?.id || null,
   }).select().single()
   if (e1) throw new Error('No se pudo crear la separación: ' + e1.message)
-  const base = await filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile })
+  const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })
   const { error: e2 } = await supabase.from('daily_income').insert({ ...base, amount: Number(pago.monto), income_type: 'separacion', separation_id: sep.id })
   if (e2) throw new Error('La separación se creó pero el pago NO se registró: ' + e2.message)
   const { error: e3 } = await supabase.from('lots').update({ status: 'separado' }).eq('id', lote.id)
@@ -227,9 +237,10 @@ export async function registrarSeparacion({ pidOp, lote, clienteId, pago, vence,
 // a la venta (asi sale en el estado de cuenta).
 
 export async function registrarInicial({
-  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, precio, meses, primeraCuota,
+  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, precio, meses, primeraCuota,
   advisorId, comision, comUrbis, profile, leadId, telefonos = [],
 }) {
+  subida = subida || await subirVoucher(pago)
   const precioN = r2(precio), inicial = r2(pago.monto), sepMonto = sep ? r2(sep.amount) : 0
   const financiado = r2(precioN - inicial - sepMonto)
   const montos = repartirCuotas(financiado, meses)
@@ -248,7 +259,7 @@ export async function registrarInicial({
   const filas = montos.map((amt, i) => ({ sale_id: sale.id, installment_number: i + 1, due_date: sumarMeses(primeraCuota, i), amount: amt }))
   const { error: e2 } = await supabase.from('installments').insert(filas)
   if (e2) throw new Error('La venta se creó pero el cronograma NO: ' + e2.message + ' — genéralo desde la ficha (pestaña Cuotas).')
-  const base = await filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile })
+  const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })
   const { error: e3 } = await supabase.from('daily_income').insert({ ...base, amount: inicial, income_type: 'inicial', sale_id: sale.id })
   if (e3) throw new Error('Venta y cronograma creados, pero el pago de la inicial NO se registró: ' + e3.message)
   await supabase.from('lots').update({ status: 'vendido' }).eq('id', lote.id)
@@ -277,7 +288,7 @@ export async function registrarInicial({
 export async function registrarCuota({ pidOp, lote, sale, pago, plan, profile }) {
   if (!plan?.parts?.length) throw new Error('Monto inválido.')
   if (plan.sobra > 0.01) throw new Error('El monto excede la deuda total del lote en S/ ' + plan.sobra.toFixed(2) + '.')
-  const base = await filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago, profile })
+  const base = filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago, profile, subida: await subirVoucher(pago) })
   for (const p of plan.parts) {
     const { error } = await supabase.from('daily_income').insert({ ...base, amount: p.take, income_type: 'cuota', sale_id: sale.id, installment_id: p.q.id })
     if (error) throw new Error('Error al aplicar a la cuota ' + p.q.installment_number + ': ' + error.message)
@@ -289,7 +300,7 @@ export async function registrarCuota({ pidOp, lote, sale, pago, plan, profile })
 // sobre una venta que ya existe. No crea venta ni toca el cronograma.
 
 export async function registrarCuadre({ pidOp, lote, sale, pago, tipo, profile }) {
-  const base = await filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago, profile })
+  const base = filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago, profile, subida: await subirVoucher(pago) })
   const nota = ('CUADRE ' + tipo.toUpperCase() + ' POR SUPERUSUARIO' + (pago.obs ? ' | ' + String(pago.obs).toUpperCase() : '')).slice(0, 400)
   const { error } = await supabase.from('daily_income').insert({ ...base, amount: r2(pago.monto), income_type: tipo, sale_id: sale.id, observation: nota })
   if (error) throw new Error(error.message)

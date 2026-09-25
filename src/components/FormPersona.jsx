@@ -59,11 +59,23 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
   const falta = faltanParaContrato(persona, archivo)
   const repetidoConTitular = excluirDoc && docVisible && docVisible.toUpperCase() === String(excluirDoc).toUpperCase()
 
+  // Si el documento ya es de otra ficha, es la misma persona registrada antes:
+  // se cargan SUS datos (nombre legal, domicilio, DNI) para revisarlos, en vez
+  // de pisarlos con lo que se escribio rapido al separar. Lo que ella no tenga
+  // se completa con lo de aqui.
   async function revisarDoc() {
     setOtra(null)
     if (!docVisible.trim()) return
     const c = await buscarPorDocumento(tipoDoc, docVisible)
-    if (c && c.id !== persona.id) setOtra(c)
+    if (!c || c.id === persona.id) return
+    setOtra(c)
+    const lleno = v => v !== null && v !== undefined && String(v).trim() !== ''
+    setPersona(p => {
+      const n = { ...p }
+      for (const k of ['full_name', 'phone', 'phone2', 'address', 'district', 'province', 'department', 'civil_status', 'nationality', 'dni_url', 'dni_front_url', 'dni_back_url'])
+        if (lleno(c[k])) n[k] = c[k]
+      return n
+    })
   }
 
   return (
@@ -112,7 +124,7 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
       {otra && (
         <p className="hint small" style={{ margin: '6px 0 0' }}>
           &#128279; Ese documento ya está registrado a nombre de <b>{otra.full_name}</b>. Es la misma persona:
-          al registrar se usa esa ficha y se le completan los datos (no queda duplicada).
+          arriba se cargaron sus datos registrados — revísalos. Al registrar se usa esa ficha (no queda duplicada).
         </p>
       )}
       {repetidoConTitular && <p className="error small">El co-comprador no puede tener el mismo documento que el titular.</p>}

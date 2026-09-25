@@ -10,7 +10,7 @@ import { fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import {
   hoyPe, sumarDias, sumarMeses, digitos, celularValido, esPendiente, faltanParaContrato,
-  buscarPorCelular, crearPendiente, guardarPersona, validarPago, planCascada,
+  buscarPorCelular, guardarPersona, validarPago, planCascada, subirVoucher,
   registrarSeparacion, registrarInicial, registrarCuota, registrarCuadre,
 } from '../lib/cobros'
 
@@ -170,17 +170,22 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo }) {
       if (esInicial && !['disponible', 'separado'].includes(ahora?.status)) throw new Error('Este lote ya no se puede vender (ahora figura ' + (ahora?.status || '?').toUpperCase() + '). Recarga la ficha.')
 
       if (modo === 'separacion') {
-        const clienteId = clienteSel !== 'nuevo' ? clienteSel : (await crearPendiente({ nombre, celular: cel })).id
-        await registrarSeparacion({ pidOp, lote, clienteId, pago, vence, advisorId, recordarA, secs, profile, leadId: hallado?.lead?.id })
+        await registrarSeparacion({
+          pidOp, lote, pago, vence, advisorId, recordarA, secs, profile, leadId: hallado?.lead?.id,
+          clienteId: clienteSel !== 'nuevo' ? clienteSel : null,
+          nuevaPersona: clienteSel === 'nuevo' ? { nombre, celular: cel } : null,
+        })
         setHecho({ titulo: 'Separación registrada', texto: `MZ ${lote.mz} LT ${lote.lt} queda SEPARADO hasta el ${fechaPe(vence)}. Los datos del contrato (DNI, dirección…) se piden al cobrar la inicial.` })
       }
       if (esInicial) {
+        // el voucher primero: si no sube, no se toca ninguna ficha ni se crea la venta
+        const subida = await subirVoucher(pago)
         const { cliente } = await guardarPersona(titular, archTit)
         const coCli = co ? (await guardarPersona(co, archCo)).cliente : null
         const r = await registrarInicial({
           pidOp, lote, sep, clienteId: cliente.id,
           clientePendienteId: sep && sep.client_id !== cliente.id ? sep.client_id : null,
-          coClienteId: coCli?.id || null, pago, precio, meses: nMeses, primeraCuota,
+          coClienteId: coCli?.id || null, pago, subida, precio, meses: nMeses, primeraCuota,
           advisorId, comision, comUrbis, profile, telefonos: [cliente.phone, cliente.phone2],
         })
         setHecho({
