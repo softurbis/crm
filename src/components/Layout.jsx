@@ -43,6 +43,8 @@ const haceCuanto = desde => {
 }
 
 const GLOBAL = [
+  // "Hoy": el buscador y lo urgente del dia; siempre visible (no depende de los paneles del usuario)
+  { to: '/hoy', label: 'Hoy', icon: '🏠', siempre: true, color: '#9ccb86' },
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
   { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482', grupo: 'Comunicación' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Comunicación' },
@@ -74,7 +76,7 @@ const PROYECTO = [
 ]
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
 // Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
-export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && !m.cobranza && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
+export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && !m.cobranza && !m.siempre && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
@@ -138,7 +140,7 @@ export default function Layout() {
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
-  const enPanel = m => role === 'superuser' || m.to === '/' || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to)
+  const enPanel = m => role === 'superuser' || m.to === '/' || m.siempre || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to)
   // Cobranza IA la abre el permiso especial (sql/76), no el rol ni los paneles.
   // El administrador la ve para consultar; la pantalla le quita los botones.
   const tieneCobranza = ['admin', 'superuser'].includes(role) || (profile?.permisos || []).includes('cobranza')
@@ -205,8 +207,10 @@ export default function Layout() {
           {role === 'asesor'
             ? GLOBAL.filter(m => m.to === '/whatsapp').map(Item)
             : (<>
-                {/* Dashboard suelto arriba */}
-                {GLOBAL.filter(m => m.to === '/' && verItem(m)).map(Item)}
+                {/* Hoy y Dashboard sueltos arriba. La secretaria entra a Hoy (App.jsx):
+                    su Dashboard vive en /dashboard */}
+                {GLOBAL.filter(m => m.to === '/hoy' && verItem(m)).map(Item)}
+                {GLOBAL.filter(m => m.to === '/' && verItem(m)).map(m => Item(role === 'secretary' ? { ...m, to: '/dashboard', end: false } : m))}
 
                 {/* Mega-grupos: Comunicación, Comercial, Administración */}
                 {ORDEN_GRUPOS.map(g => {

@@ -10,6 +10,8 @@ import BuscarLote from '../components/BuscarLote'
 import Buscador from '../components/Buscador'
 import DetallePago from '../components/DetallePago'
 import CobroModal from '../components/CobroModal'
+import ContratoModal from '../components/ContratoModal'
+import { subirContratoFirmado } from '../lib/contrato'
 import { COLORS, LBL, hoyPeru, fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import { soles, agruparPagos, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
@@ -101,6 +103,7 @@ export default function FichaLote() {
   const [msg, setMsg] = useMsg(null)
   const [verPago, setVerPago] = useState(null)
   const [cobro, setCobro] = useState(null)   // separacion | inicial | cuota | cuadre (fase 2: se cobra aqui mismo)
+  const [contrato, setContrato] = useState(null)   // id de la venta cuyo contrato se genera aqui mismo (fase 3)
   const [pagoQ, setPagoQ] = useState('')
   const [pagoFiltro, setPagoFiltro] = useState('todos')   // todos | sin_voucher | sin_comprobante
 
@@ -957,6 +960,15 @@ export default function FichaLote() {
     reload()
   }
 
+  // ---- el contrato firmado, desde la tarjeta de la venta ----
+  async function subirFirmado(file) {
+    try {
+      const t = await subirContratoFirmado({ ...detail.sale, lot: sel }, file)
+      if (!t) return
+      setMsg({ ok: true, t }); savedFx(); reload()
+    } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
+  }
+
   // ---- documentos de un pago desde la pestaña de pagos ----
   async function subirDoc(row, file, campo) {
     try {
@@ -1132,7 +1144,7 @@ export default function FichaLote() {
           ? <a className="btn-act" href={waMessage()} target="_blank" rel="noreferrer">&#128172; WhatsApp de cobro</a>
           : <span className="fl-aviso warn">Celular no válido: corrígelo en los datos del cliente</span>)}
         {sale && <EstadoCuentaDownload key={sale.id} cliente={sale.client || {}} saleId={sale.id} />}
-        {sale && <Link className="btn-act alt" to={`/contratos?venta=${sale.id}`}>&#128196; Contrato{sale.signed_contract_url ? ' (firmado)' : ''}</Link>}
+        {sale && <button className="btn-act alt" onClick={() => setContrato(sale.id)}>&#128196; Generar contrato</button>}
       </div>
 
       {emsg && <p className={emsg.startsWith('ERROR') || emsg.startsWith('NO SE') ? 'error' : 'ok'} style={{ margin: '0 0 10px' }}>{emsg}</p>}
@@ -1236,9 +1248,18 @@ export default function FichaLote() {
                 <dt>Inicial</dt><dd>{soles(resumen.iniReal)}</dd>
                 <dt>Financiado</dt><dd>{soles(sale.financed_amount)} en {sale.installments_count} cuotas{sale.monthly_amount ? ' de ~' + soles(sale.monthly_amount) : ''}</dd>
                 <dt>Asesor</dt><dd>{sale.advisor?.code || '—'}</dd>
-                <dt>Contrato</dt><dd>{sale.signed_contract_url
-                  ? <a href={sale.signed_contract_url} target="_blank" rel="noreferrer">ver contrato firmado</a>
-                  : <span className="warn">sin contrato firmado subido</span>}</dd>
+                <dt>Contrato</dt><dd>
+                  {sale.signed_contract_url
+                    ? <a href={sale.signed_contract_url} target="_blank" rel="noreferrer">ver contrato firmado</a>
+                    : <span className="warn">sin contrato firmado</span>}
+                  {/* el firmado se sube aqui mismo; reemplazar uno ya subido queda para el superusuario */}
+                  {puedeEditar && (!sale.signed_contract_url || role === 'superuser') && (
+                    <label className="upload-btn" style={{ marginLeft: 8 }}>{sale.signed_contract_url ? 'reemplazar' : '⬆ subir firmado'}
+                      <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(e.target.files[0])} />
+                    </label>
+                  )}
+                  {sale.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{sale.contract_note}</div>}
+                </dd>
                 <dt>Cobranza automática</dt><dd>
                   {sale.auto_cobranza !== false
                     ? <span className="st-chip st-ok">ACTIVA</span>
@@ -1554,7 +1575,13 @@ export default function FichaLote() {
       {/* ---- cobrar aqui mismo: separacion, inicial, cuota o cuadre ---- */}
       {cobro && (
         <CobroModal tipo={cobro} lote={sel} detail={detail}
-          onClose={() => setCobro(null)} onListo={() => { setCobro(null); reload() }} />
+          onClose={() => setCobro(null)} onListo={() => { setCobro(null); reload() }}
+          onContrato={saleId => { setCobro(null); reload(); setContrato(saleId) }} />
+      )}
+
+      {/* ---- el contrato de la venta, generado aqui mismo ---- */}
+      {contrato && (
+        <ContratoModal saleId={contrato} onClose={() => setContrato(null)} />
       )}
 
       {verPago && (

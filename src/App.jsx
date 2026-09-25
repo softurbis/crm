@@ -11,6 +11,7 @@ import { SITIO_PUBLICO } from './lib/sitios'
 // de JavaScript de golpe al entrar, con pantallas que la secretaria nunca usa
 // (bot, marketing, migracion). Si se publica una version nueva con la pestaña
 // abierta, main.jsx recarga sola (vite:preloadError).
+const Inicio = lazy(() => import('./pages/Inicio'))
 const Lots = lazy(() => import('./pages/Lots'))
 const FichaLote = lazy(() => import('./pages/FichaLote'))
 const Sales = lazy(() => import('./pages/Sales'))
@@ -43,10 +44,13 @@ function Protected({ children }) {
   return children
 }
 
-// el rol ASESOR entra directo a su chat (no ve el Dashboard del negocio)
+// el rol ASESOR entra directo a su chat (no ve el Dashboard del negocio) y la
+// SECRETARIA a "Hoy": el buscador y lo urgente del dia (decision del 24 sep).
+// Ella llega al Dashboard por /dashboard, desde el menu.
 function Home() {
   const { role } = useAuth()
   if (role === 'asesor') return <Navigate to="/whatsapp" replace />
+  if (role === 'secretary') return <Navigate to="/hoy" replace />
   return <Dashboard />
 }
 
@@ -77,6 +81,8 @@ export default function App() {
         <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
         <Route path="/" element={<Protected><Layout /></Protected>}>
           <Route index element={<Home />} />
+          <Route path="hoy" element={<Inicio />} />
+          <Route path="dashboard" element={<Dashboard />} />
           <Route path="whatsapp" element={<Whatsapp />} />
           <Route path="probar-bot" element={<TestBot />} />
           <Route path="cobranza-ia" element={<CobranzaIA />} />

@@ -22,7 +22,7 @@ const TITULO = { separacion: 'Separar', inicial: 'Cobrar inicial', directa: 'Ven
 // Cobrar desde la ficha del lote (fase 2, 24 sep 2026): separacion, inicial
 // (con o sin separacion previa), cuota y cuadre del superusuario. Todo en una
 // ventana, con los pasos a la vista. La escritura vive en lib/cobros.js.
-export default function CobroModal({ tipo, lote, detail, onClose, onListo }) {
+export default function CobroModal({ tipo, lote, detail, onClose, onListo, onContrato }) {
   const { profile, role } = useAuth()
   const pidOp = lote.project_id
   const sep = detail.sep
@@ -230,7 +230,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo }) {
             {(hecho.avisos || []).map((a, i) => <p key={i} className="warn">{a}</p>)}
             <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>
             <div className="acc-row" style={{ marginTop: 10 }}>
-              {hecho.saleId && <Link className="btn-primary" to={`/contratos?venta=${hecho.saleId}`}>&#128196; Generar contrato</Link>}
+              {hecho.saleId && (onContrato
+                ? <button className="btn-primary" onClick={() => onContrato(hecho.saleId)}>&#128196; Generar contrato</button>
+                : <Link className="btn-primary" to={`/contratos?venta=${hecho.saleId}`}>&#128196; Generar contrato</Link>)}
               <button className="btn-ghost" onClick={onListo}>Volver a la ficha</button>
             </div>
           </div>

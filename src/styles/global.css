@@ -1218,3 +1218,28 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
 .cobro-hecho { padding: .4rem .2rem; }
 .cobro-hecho-t { font-size: 1.25rem; font-weight: 800; margin: 0 0 .4rem; }
 .fp .form-grid { gap: .6rem; }
+
+/* ===== "Hoy": inicio de la secretaria (pages/Inicio.jsx) ===== */
+.hoy-fecha { font-size: .9rem; font-weight: 600; text-transform: none; }
+.hoy-buscar { padding: 1rem 1.1rem; margin-bottom: 1rem; }
+.hoy-buscar .buscar-lote .bsc-in { font-size: 1rem; padding-top: .7rem; padding-bottom: .7rem; }
+.hoy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: .9rem; align-items: start; }
+.hoy-ancho { grid-column: 1 / -1; }
+.hoy-n { display: inline-block; min-width: 1.6em; padding: 0 .45em; margin-left: .3em; border-radius: 10px; font-size: .75rem; text-align: center;
+  background: rgba(255,255,255,.08); color: var(--text); vertical-align: middle; }
+.hoy-n.bad { background: rgba(224,82,82,.2); color: var(--error); }
+.hoy-fila { display: grid; grid-template-columns: minmax(110px, auto) 1fr auto; gap: .3rem .8rem; align-items: center; width: 100%;
+  text-align: left; background: none; border: none; border-top: 1px solid rgba(255,255,255,.06); padding: .5rem .3rem; color: var(--text);
+  font-size: .82rem; cursor: pointer; border-radius: 6px; }
+.hoy-fila:hover, .hoy-fila-main:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.hoy-lote { font-weight: 800; color: var(--accent-strong); white-space: nowrap; }
+.hoy-quien { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hoy-fila-acc { display: flex; gap: .4rem; padding: 0; cursor: default; }
+.hoy-fila-acc:hover { background: none; }
+.hoy-fila-main { flex: 1; display: grid; grid-template-columns: minmax(110px, auto) 1fr auto; gap: .3rem .8rem; align-items: center; text-align: left;
+  background: none; border: none; padding: .5rem .3rem; color: var(--text); font-size: .82rem; cursor: pointer; border-radius: 6px; min-width: 0; }
+.hoy-wa { align-self: center; padding: .3rem .5rem; }
+@media (max-width: 760px) {
+  .hoy-grid { grid-template-columns: 1fr; }
+  .hoy-fila, .hoy-fila-main { grid-template-columns: 1fr; gap: .1rem; }
+}
