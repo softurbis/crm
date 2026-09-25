@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
@@ -123,13 +124,19 @@ export default function Contracts() {
     loadData()
   }, [gen])
 
+  // ?venta=<id>: se llega desde la ficha del lote y se muestra solo esa venta
+  const [searchParams, setSearchParams] = useSearchParams()
+  const soloVenta = searchParams.get('venta')
+  const ventaFicha = soloVenta ? ventas.find(v => v.id === soloVenta) : null
+
   const filtradas = useMemo(() => {
+    if (soloVenta) return ventas.filter(v => v.id === soloVenta)
     const t = q.trim().toLowerCase()
     if (!t) return ventas
     return ventas.filter(v =>
       (v.client?.full_name || '').toLowerCase().includes(t) ||
       `${v.lot?.mz}-${v.lot?.lt}`.toLowerCase().includes(t))
-  }, [ventas, q])
+  }, [ventas, q, soloVenta])
 
   async function subirFirmado(v, file) {
     // todo documento se sube con su nota/comentario. Si ya habia contrato, esto lo REEMPLAZA.
@@ -267,9 +274,17 @@ export default function Contracts() {
         </div>
       )}
 
-      <div className="toolbar">
-        <input className="search" placeholder="Buscar por cliente o lote..." value={q} onChange={e => setQ(e.target.value)} />
-      </div>
+      {soloVenta ? (
+        <div className="toolbar">
+          {ventaFicha?.lot?.id && <Link className="btn-ghost" to={`/lotes/${ventaFicha.lot.id}`}>&#8592; Volver a la ficha del lote</Link>}
+          <span className="hint">Mostrando solo el contrato de MZ {ventaFicha?.lot?.mz || '?'} LT {ventaFicha?.lot?.lt || '?'}.</span>
+          <button className="link-btn" onClick={() => setSearchParams({}, { replace: true })}>ver todos los contratos</button>
+        </div>
+      ) : (
+        <div className="toolbar">
+          <input className="search" placeholder="Buscar por cliente o lote..." value={q} onChange={e => setQ(e.target.value)} />
+        </div>
+      )}
       {sinFirmar > 0 && <p className="hint"><span className="bad">&#9888; {sinFirmar} venta(s) sin contrato firmado subido.</span></p>}
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 

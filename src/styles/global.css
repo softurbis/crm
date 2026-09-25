@@ -489,6 +489,9 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 /* ---- mas espacio util: el contenido respira menos margen inutil ---- */
 .content { padding: 1.1rem 1.2rem; }
 .sidebar { width: 222px; padding: 1rem .8rem; }
+/* en pantalla angosta el boton ☰ flota arriba a la izquierda: el contenido
+   arranca debajo, si no tapa el titulo de cada pantalla */
+@media (max-width: 820px) { .content { padding: 4.2rem .9rem 1rem; } }
 
 /* ---- tablas: encabezado FIJO al hacer scroll en listas largas ----
    La tabla scrollea dentro de su propia caja (con tope de alto): asi el
@@ -1118,3 +1121,80 @@ select { cursor: pointer; }
 
 /* textos de marketing (landing de proyectos): se ven tal cual se escriben, sin MAYÚSCULAS */
 .sin-mayus, .sin-mayus input, .sin-mayus textarea, .sin-mayus select, .sin-mayus button { text-transform: none; }
+
+/* ===== Ficha del lote a pantalla completa (pages/FichaLote.jsx) ===== */
+a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-items: center; }
+.mapa-buscar { flex: 1 1 280px; max-width: 520px; min-width: 200px; }
+.buscar-lote .bsc-menu { min-width: 320px; }
+.bl-op { align-items: center; }
+.bl-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.bl-lote { flex: none; min-width: 44px; color: var(--accent-strong); }
+
+.fl-top { display: flex; align-items: flex-start; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.fl-titulo { flex: 1 1 320px; min-width: 0; }
+.fl-titulo h1 { margin: 0; flex-wrap: wrap; font-size: 1.55rem; }
+.fl-titulo h1 .badge, .fl-titulo h1 .st-chip { font-family: 'Inter', 'Segoe UI', sans-serif; letter-spacing: 0; }
+.fl-titulo p { margin: .25rem 0 0 1.1rem; }
+.fl-buscar { flex: 0 1 340px; min-width: 220px; }
+
+.fl-acciones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .9rem; }
+.fl-acciones .btn-primary { padding: .55rem 1rem; font-weight: 700; }
+.fl-aviso { font-size: .8rem; font-weight: 600; padding: .35rem .6rem; border-radius: 8px; background: rgba(255,255,255,.04); }
+
+.fl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
+.fl-kpi { padding: .75rem .95rem; display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.fl-kpi span { font-size: .68rem; font-weight: 700; letter-spacing: .06em; color: var(--muted); }
+.fl-kpi b { font-size: 1.3rem; font-family: 'Montserrat', 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-kpi small { font-size: .72rem; color: var(--muted); }
+.fl-barra { height: 5px; border-radius: 4px; background: rgba(255,255,255,.08); margin-top: .35rem; overflow: hidden; }
+.fl-barra i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--ok)); }
+
+.fl-tabs { display: flex; gap: .2rem; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 1rem; overflow-x: auto; scrollbar-width: thin; }
+.fl-tab {
+  background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  color: var(--muted); font-weight: 700; font-size: .85rem; padding: .6rem .9rem; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
+}
+.fl-tab:hover { color: var(--text); }
+.fl-tab.on { color: var(--accent-strong); border-bottom-color: var(--accent); }
+.fl-tab-nota { font-size: .66rem; padding: .1rem .45rem; border-radius: 10px; background: rgba(224,82,82,.18); color: var(--error); }
+
+.fl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: .9rem; align-items: start; }
+.fl-card { padding: 1rem 1.1rem; min-width: 0; }
+.fl-card h3 { font-size: .95rem; margin: 0 0 .7rem; letter-spacing: .03em; }
+.fl-ancho { grid-column: 1 / -1; }
+.fl-panel { padding: 1rem 1.1rem; }
+.fl-persona { padding: .6rem .75rem; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); margin-bottom: .6rem; }
+.fl-persona p { margin: .15rem 0; }
+.fl-lbl { font-size: .66rem; font-weight: 700; letter-spacing: .08em; color: var(--muted); }
+.fl-nombre { font-size: 1rem; font-weight: 700; }
+.fl-links { display: flex; gap: .8rem; flex-wrap: wrap; }
+.fl-falta { font-size: .74rem; font-weight: 600; color: #e0b23f; background: rgba(224,178,63,.1); border: 1px solid rgba(224,178,63,.3); border-radius: 8px; padding: .3rem .5rem; margin-top: .35rem !important; }
+.fl-co { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-top: .3rem; }
+.fl-co .bsc { flex: 1 1 220px; }
+.fl-dl { display: grid; grid-template-columns: minmax(110px, auto) 1fr; gap: .3rem .8rem; margin: 0 0 .5rem; font-size: .86rem; }
+.fl-dl dt { color: var(--muted); font-size: .78rem; }
+.fl-dl dd { margin: 0; min-width: 0; }
+.fl-admin { margin-top: .8rem; padding-top: .7rem; border-top: 1px dashed rgba(255,255,255,.12); }
+.fl-tabla { max-height: none; padding: 0; }
+.fl-tabla table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.fl-tabla td, .fl-tabla th { padding: .42rem .5rem; text-align: left; }
+.fl-fila-ini td { background: rgba(80,160,120,.07); }
+.fl-fila-venc td { background: rgba(224,82,82,.07); }
+.fl-fila-prox td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.fl-fila-total td { border-top: 2px solid rgba(255,255,255,.2) !important; font-weight: 700; }
+.fl-prox { margin-left: .4rem; font-size: .6rem; font-weight: 800; padding: .05rem .35rem; border-radius: 6px; background: var(--accent); color: #0d150f; vertical-align: middle; }
+.fl-obs { text-transform: none; max-width: 320px; }
+.fl-vacio { padding: 1.4rem; max-width: 520px; }
+
+@media (max-width: 760px) {
+  .fl-titulo h1 { font-size: 1.25rem; }
+  .fl-titulo p { margin-left: 0; }
+  .fl-buscar, .mapa-buscar { flex: 1 1 100%; max-width: none; }
+  .fl-grid { grid-template-columns: 1fr; }
+  .fl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fl-kpi b { font-size: 1.05rem; }
+  .fl-acciones > * { flex: 1 1 auto; justify-content: center; }
+  .buscar-lote .bsc-menu { min-width: 0; }
+}
+.fl-dl a, .fl-links a, .fl-tabla a, .fl-card p a { color: var(--accent-strong); }

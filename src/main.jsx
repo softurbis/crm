@@ -13,6 +13,20 @@ import './styles/global.css'
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}) })
 }
+// ---- VERSION NUEVA PUBLICADA CON LA PESTAÑA ABIERTA ----
+// Cada pantalla se baja recien cuando se abre (App.jsx). Si mientras tanto se
+// publico una version nueva, el pedazo viejo ya no existe en el servidor: en vez
+// de quedarse en blanco, se recarga sola UNA vez y trae la version nueva.
+window.addEventListener('vite:preloadError', e => {
+  e.preventDefault()
+  const k = 'urbis.recarga-version'
+  try {
+    const ultima = Number(sessionStorage.getItem(k) || 0)
+    if (Date.now() - ultima < 60000) return   // ya se recargo hace nada: no entrar en bucle
+    sessionStorage.setItem(k, String(Date.now()))
+  } catch { /* sin almacenamiento: se recarga igual */ }
+  window.location.reload()
+})
 window.addEventListener('beforeinstallprompt', e => {
   window.__pedirInstalar = e
   window.dispatchEvent(new Event('urbis-instalable'))

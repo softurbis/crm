@@ -61,7 +61,7 @@ export default function Secretarias() {
     setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || []); setAccesos(sa.data || [])
   }
   useEffect(() => { cargar() }, [mes])
-  useEffect(() => { const t = setInterval(cargar, 15000); return () => clearInterval(t) }, [mes])
+  useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 15000); return () => clearInterval(t) }, [mes])
 
   if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useProject, colorProyecto } from '../context/ProjectContext'
@@ -128,8 +128,12 @@ export default function Layout() {
       setPorFirmar(Object.values(m))
     }
     contar()
-    const t = setInterval(contar, 60000)
-    return () => { vivo = false; clearInterval(t) }
+    // con la pestaña escondida no se pregunta: cada pestaña olvidada abierta
+    // era una consulta mas por minuto al servidor. Al volver se cuenta de una.
+    const t = setInterval(() => { if (!document.hidden) contar() }, 60000)
+    const alVolver = () => { if (!document.hidden) contar() }
+    document.addEventListener('visibilitychange', alVolver)
+    return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', alVolver) }
   }, [role, profile?.id])
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
@@ -166,7 +170,7 @@ export default function Layout() {
         .then(({ data }) => setConectados(data || []))
     }
     cargar()
-    const t = setInterval(cargar, 20000)
+    const t = setInterval(() => { if (!document.hidden) cargar() }, 20000)
     return () => clearInterval(t)
   }, [esAdmin])
 
@@ -312,7 +316,10 @@ export default function Layout() {
             ))}
           </div>
         )}
-        <Outlet />
+        {/* cada pantalla se baja al abrirla (App.jsx): mientras llega, el menu queda quieto */}
+        <Suspense fallback={<p className="muted" style={{ padding: '1rem 0' }}>Cargando…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
       <VolverArriba />
       <SaveFx />

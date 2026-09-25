@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
@@ -7,84 +8,15 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import { leerVoucher, esImagen } from '../lib/leerVoucher'
 import VoucherReview from '../components/VoucherReview'
-import VisorDoc from '../components/VisorDoc'
+import DetallePago, { EstadoChip } from '../components/DetallePago'
 import Buscador from '../components/Buscador'
+import { repartirCuotas, textoCuotas } from '../lib/cronograma'
+import {
+  soles, estadoDe, conceptoPago, agruparPagos, COLS_PAGO as COLS, COLS_PAGO_NA as COLS_NA,
+  subirDocPago, marcarNoAplica as marcarNA, quitarNoAplica as quitarNA,
+} from '../lib/pagos'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
-// El estado del pago sale PRIMERO de la venta a la que pertenece: un pago de una
-// venta expropiada ES expropiado aunque nadie lo haya escrito en la observacion.
-// El texto queda de respaldo por los pagos sin venta (separaciones perdidas) y
-// por los que el panel sello a mano. Sin esto, los pagos de las expropiaciones
-// MIGRADAS de Excel (16 lotes, ~S/ 40.000) salian como ACEPTADO mezclados con
-// los pagos activos del lote — descubierto el 25 ago 2026.
-const estadoDe = r => {
-  if (r.sale?.status === 'expropiado') return 'EXPROPIADO'
-  const o = (r.observation || '').toUpperCase()
-  if (o.includes('EXPROP')) return 'EXPROPIADO'
-  if (o.includes('PERDIDA')) return 'PERDIDA'
-  return 'ACEPTADO'
-}
-const EstadoChip = ({ r }) => {
-  const e = estadoDe(r)
-  const cls = e === 'EXPROPIADO' ? 'st-exp' : e === 'PERDIDA' ? 'st-per' : 'st-ok'
-  return <span className={'st-chip ' + cls}>{e}</span>
-}
-const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-
-const conceptoPago = p => p.income_type === 'cuota' && p.installment
-  ? `CUOTA N ${p.installment.installment_number}`
-  : (p.income_type || '-').toUpperCase()
-
-// Una cascada genera varias aplicaciones de un único depósito. La operación, la
-// fecha y la cuenta identifican ese depósito sin mezclar los pagos sin referencia.
-function agruparPagos(pagos) {
-  const grupos = new Map()
-  for (const pago of pagos) {
-    const op = String(pago.operation_number || '').trim().toUpperCase()
-    const key = !op || op === 'SIN-REF'
-      ? `fila:${pago.id}`
-      : `${pago.date || ''}|${op}|${pago.financial_account_id || ''}`
-    if (!grupos.has(key)) grupos.set(key, { key, items: [], referencia: pago })
-    grupos.get(key).items.push(pago)
-  }
-  return [...grupos.values()].map(g => {
-    const { items } = g
-    const cuotas = items.filter(p => p.income_type === 'cuota' && p.installment)
-      .map(p => p.installment.installment_number).sort((a, b) => a - b)
-    const conceptos = [...new Set(items.map(conceptoPago))]
-    const lotes = [...new Set(items.map(p => p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'))]
-    const clientes = [...new Set(items.map(p => p.client?.full_name || '-'))]
-    const voucher = items.find(p => p.voucher_url)
-    const comprobante = items.find(p => p.receipt_url)
-    // "no aplica": el deposito nunca va a tener ese documento (cascada, cuadre,
-    // canje). Vale para todo el grupo, que es como lo ve y lo marca el operador.
-    const voucherNA = items.every(p => p.voucher_na)
-    const comprobanteNA = items.every(p => p.receipt_na)
-    return {
-      ...g,
-      total: items.reduce((s, p) => s + Number(p.amount || 0), 0),
-      concepto: cuotas.length === items.length
-        ? `CUOTA${cuotas.length > 1 ? 'S' : ''} N ${cuotas.join(' + ')}`
-        : conceptos.join(' + '),
-      lotes: lotes.join(' + '),
-      clientes: clientes.join(' + '),
-      voucherUrl: voucher?.voucher_url || null,
-      voucherNA, voucherNAMotivo: items.find(p => p.voucher_na_reason)?.voucher_na_reason || null,
-      voucherFaltante: items.some(p => !p.voucher_url && !p.voucher_na),
-      comprobanteUrl: comprobante?.receipt_url || null,
-      comprobanteNA, comprobanteNAMotivo: items.find(p => p.receipt_na_reason)?.receipt_na_reason || null,
-      comprobanteFaltante: items.some(p => !p.receipt_url && !p.receipt_na),
-    }
-  })
-}
-
-const COLS = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, sale:sales(status), lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
-const COLS_NA = ', voucher_na, voucher_na_reason, receipt_na, receipt_na_reason'   // sql/49
-
-// voucher_url -> voucher_na / voucher_na_reason (idem receipt_url)
-const campoNA = campo => campo.replace('_url', '_na')
-const campoNAMotivo = campo => campo.replace('_url', '_na_reason')
-const nombreDoc = campo => campo === 'voucher_url' ? 'VOUCHER DEL CLIENTE' : 'COMPROBANTE INTERNO'
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00')
@@ -104,7 +36,15 @@ function addMonths(dateStr, n) {
 export default function Payments() {
   const { profile, role } = useAuth()
   const { pidOp } = useProject()
-  const [tipo, setTipo] = useState('cuota')
+  // Llegando desde la ficha del lote (?tipo=cuota&lote=<id>) el formulario ya
+  // viene con ese tipo y ese lote elegidos: la secretaria no los vuelve a buscar.
+  const [searchParams] = useSearchParams()
+  const loteFicha = searchParams.get('lote')
+  const preLote = useRef(loteFicha)
+  const [tipo, setTipo] = useState(() => {
+    const t = searchParams.get('tipo')
+    return ['cuota', 'separacion', 'inicial'].includes(t) ? t : 'cuota'
+  })
   const [cuadreTipo, setCuadreTipo] = useState('inicial') // 'inicial' | 'separacion' (modo cuadre superusuario)
   const [lots, setLots] = useState([])
   const [clients, setClients] = useState([])
@@ -118,10 +58,6 @@ export default function Payments() {
   const [fdoc, setFdoc] = useState('todos') // todos | sin_voucher | sin_comprobante
   const [fest, setFest] = useState('todos')
   const [coId, setCoId] = useState('')
-  const [obsEdit, setObsEdit] = useState('')
-  const [opEdit, setOpEdit] = useState('')
-  const [accEdit, setAccEdit] = useState('')
-  const [amtEdit, setAmtEdit] = useState('')
 
   const [lotId, setLotId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -218,6 +154,12 @@ export default function Payments() {
     // debe poder recibir ese pago. Antes solo 'vendido' los ocultaba.
     return lots.filter(l => ['vendido', 'entregado'].includes(l.status))
   }, [lots, tipo])
+
+  // el lote que mando la ficha se elige una sola vez, cuando ya cargo la lista
+  useEffect(() => {
+    if (!preLote.current || !lotesFiltrados.some(l => l.id === preLote.current)) return
+    setLotId(preLote.current); preLote.current = null
+  }, [lotesFiltrados])
 
   useEffect(() => {
     setCtx(null)
@@ -401,7 +343,10 @@ export default function Payments() {
         const precio = Number(precioVenta)
         const inicial = Number(monto)
         const financiado = precio - inicial - (ctx?.sep ? Number(ctx.sep.amount) : 0)
-        const cuotaBase = Math.round(financiado / meses * 100) / 100
+        // cuotas redondeadas a 10 centimos y la ultima menor (lib/cronograma)
+        const montos = repartirCuotas(financiado, meses)
+        if (!montos.length) throw new Error('No queda saldo por financiar: revisa el precio, la inicial y la separación.')
+        const cuotaBase = montos[0]
         const { data: sale, error: e1 } = await supabase.from('sales').insert({
           lot_id: lotId, client_id: clientId, co_client_id: coId || null, separation_id: ctx?.sep?.id || null, advisor_id: advId || ctx?.sep?.advisor_id || null,
           total_sale_price: precio, initial_amount_paid: inicial,
@@ -409,13 +354,7 @@ export default function Payments() {
           monthly_amount: cuotaBase, sale_date: fecha, status: 'en_proceso',
         }).select().single()
         if (e1) throw e1
-        const rows = []
-        let acumulado = 0
-        for (let n = 1; n <= meses; n++) {
-          const amt = n === meses ? Math.round((financiado - acumulado) * 100) / 100 : cuotaBase
-          acumulado += amt
-          rows.push({ sale_id: sale.id, installment_number: n, due_date: addMonths(fecha, n), amount: amt })
-        }
+        const rows = montos.map((amt, i) => ({ sale_id: sale.id, installment_number: i + 1, due_date: addMonths(fecha, i + 1), amount: amt }))
         const { error: e2 } = await supabase.from('installments').insert(rows)
         if (e2) throw e2
         const { error: e3 } = await supabase.from('daily_income').insert({ ...base, amount: inicial, income_type: 'inicial', sale_id: sale.id })
@@ -462,171 +401,28 @@ export default function Payments() {
     setBusy(false)
   }
 
-  const campoNota = campo => campo.replace('_url', '_note')   // voucher_url -> voucher_note
-
   async function subirDoc(row, file, campo) {
     try {
-      // todo documento se sube con su nota/comentario
-      const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
-      if (nota === null) return   // cancelo: no se sube nada
-      const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
-      const patch = { [campo]: url, [campoNota(campo)]: nota.trim() || null }
-      // si el documento aparecio despues de todo, la marca "no aplica" ya no vale
-      if (naOk) { patch[campoNA(campo)] = false; patch[campoNAMotivo(campo)] = null }
-      await supabase.from('daily_income').update(patch).eq('id', row.id)
-      setMsg({ ok: true, t: campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO' })
+      const t = await subirDocPago(row, file, campo, naOk)
+      if (!t) return   // cancelo la nota: no se sube nada
+      setMsg({ ok: true, t })
       loadBase()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
   }
 
-  // ---- DOCUMENTOS QUE NO APLICAN ----
-  // La cascada aplica un deposito a varias cuotas y los cuadres/canjes no tienen
-  // voucher: pedirlos para siempre obligaba a subir el mismo papel varias veces.
-  // Aqui se marca, con motivo (bitacora), y deja de contar como faltante.
-  // `filas` son todas las aplicaciones del mismo deposito: se marcan juntas.
+  // `filas` son todas las aplicaciones del mismo deposito: se marcan juntas (lib/pagos)
   async function marcarNoAplica(filas, campo) {
-    const doc = nombreDoc(campo)
-    const motivo = prompt('¿Por qué este pago NO va a tener ' + doc + '?\n\n' +
-      'Ej: es parte de una cascada y el voucher está en el primer pago / cuadre de migración sin documento.\n' +
-      'El motivo queda en la bitácora (obligatorio, mínimo 5 caracteres):')
-    if (motivo === null) return
-    if (motivo.trim().length < 5) { setMsg({ ok: false, t: 'MOTIVO OBLIGATORIO (mínimo 5 caracteres).' }); return }
-    const texto = motivo.trim().toUpperCase().slice(0, 300)
-    const ids = filas.map(p => p.id)
-    const { error } = await supabase.from('daily_income')
-      .update({ [campoNA(campo)]: true, [campoNAMotivo(campo)]: texto }).in('id', ids)
-    if (error) { setMsg({ ok: false, t: 'NO SE PUDO MARCAR: ' + error.message }); return }
-    await registrarNoAplica(filas, campo, texto, true)
-    setMsg({ ok: true, t: doc + ' MARCADO COMO NO APLICA' + (ids.length > 1 ? ' (' + ids.length + ' aplicaciones del mismo pago)' : '') + '. MOTIVO EN BITÁCORA.' })
-    if (view && ids.includes(view.id)) setView(v => ({ ...v, [campoNA(campo)]: true, [campoNAMotivo(campo)]: texto }))
-    loadBase()
+    const r = await marcarNA(filas, campo, { email: profile?.email, pidOp })
+    if (!r) return
+    setMsg(r)
+    if (r.ok) loadBase()
   }
 
   async function quitarNoAplica(filas, campo) {
-    const doc = nombreDoc(campo)
-    if (!confirm('¿Volver a pedir el ' + doc + ' de este pago?\n\nDejará de estar marcado como "no aplica" y volverá a la lista de faltantes.')) return
-    const ids = filas.map(p => p.id)
-    const { error } = await supabase.from('daily_income')
-      .update({ [campoNA(campo)]: false, [campoNAMotivo(campo)]: null }).in('id', ids)
-    if (error) { setMsg({ ok: false, t: 'NO SE PUDO QUITAR LA MARCA: ' + error.message }); return }
-    await registrarNoAplica(filas, campo, null, false)
-    setMsg({ ok: true, t: 'MARCA QUITADA: EL ' + doc + ' VUELVE A PEDIRSE.' })
-    if (view && ids.includes(view.id)) setView(v => ({ ...v, [campoNA(campo)]: false, [campoNAMotivo(campo)]: null }))
-    loadBase()
-  }
-
-  const registrarNoAplica = (filas, campo, motivo, marcado) => supabase.from('activity_log').insert({
-    action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
-    details: {
-      cambio: marcado ? 'documento_no_aplica' : 'documento_vuelve_a_pedirse',
-      documento: nombreDoc(campo), motivo,
-      operacion: filas[0]?.operation_number || null,
-      lote: filas[0]?.lot ? filas[0].lot.mz + '-' + filas[0].lot.lt : null,
-      cliente: filas[0]?.client?.full_name || null,
-      monto: filas.reduce((s, p) => s + Number(p.amount || 0), 0),
-      aplicaciones: filas.length, project_id: pidOp,
-    },
-  })
-
-  // Todas las aplicaciones del mismo deposito (misma fecha + N° operacion + cuenta),
-  // igual que las agrupa el historial. Un pago SIN-REF va solo.
-  const filasDelPago = r => {
-    const op = String(r.operation_number || '').trim().toUpperCase()
-    if (!op || op === 'SIN-REF') return [r]
-    return pagos.filter(x => (x.date || '') === (r.date || '') &&
-      String(x.operation_number || '').trim().toUpperCase() === op &&
-      (x.financial_account_id || '') === (r.financial_account_id || ''))
-  }
-
-  // editar/agregar la nota de un documento ya subido
-  async function notaDoc(campo) {
-    const kn = campoNota(campo)
-    const nota = prompt('Comentario / nota de este documento:', view[kn] || '')
-    if (nota === null) return
-    const { error } = await supabase.from('daily_income').update({ [kn]: nota.trim() || null }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: error.message }); return }
-    setMsg({ ok: true, t: 'NOTA GUARDADA' })
-    setView(v => ({ ...v, [kn]: nota.trim() || null })); loadBase()
-  }
-
-  // ---- correcciones del SUPERUSUARIO ----
-  async function quitarDoc(campo) {
-    if (!confirm('¿Quitar este documento del pago? (podrás subir otro)')) return
-    const { error } = await supabase.from('daily_income').update({ [campo]: null, [campoNota(campo)]: null }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: error.message }); return }
-    setMsg({ ok: true, t: 'DOCUMENTO QUITADO' })
-    setView(v => ({ ...v, [campo]: null, [campoNota(campo)]: null })); loadBase()
-  }
-  async function editarFecha() {
-    const nueva = prompt('NUEVA FECHA del pago (AAAA-MM-DD):', view.date)
-    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) alert('Formato inválido. Ej: 2026-06-15'); return }
-    const { error } = await supabase.from('daily_income').update({ date: nueva, observation: ((view.observation || '') + ' | FECHA CORREGIDA POR SUPERUSUARIO (antes ' + view.date + ')').slice(0, 400) }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: error.message }); return }
-    setMsg({ ok: true, t: 'FECHA CORREGIDA' }); setView(v => ({ ...v, date: nueva })); loadBase()
-  }
-  async function borrarPago() {
-    if (!confirm('¿ELIMINAR ESTE PAGO de ' + soles(view.amount) + '?\n\nSi está aplicado a una cuota, la cuota se revierte (vuelve a deber ese monto). Esta acción no se puede deshacer.')) return
-    if (view.installment_id) {
-      const { data: q } = await supabase.from('installments').select('id, amount, amount_paid').eq('id', view.installment_id).maybeSingle()
-      if (q) {
-        const nuevoPagado = Math.max(0, Number(q.amount_paid) - Number(view.amount))
-        await supabase.from('installments').update({
-          amount_paid: nuevoPagado,
-          status: nuevoPagado <= 0.01 ? 'pendiente' : (Number(q.amount) - nuevoPagado) <= 2 ? 'pagado' : 'pendiente',
-          paid_date: nuevoPagado <= 0.01 ? null : undefined,
-        }).eq('id', q.id)
-      }
-    }
-    const { error } = await supabase.from('daily_income').delete().eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: error.message }); return }
-    setMsg({ ok: true, t: 'PAGO ELIMINADO Y CUOTA REVERTIDA' }); setView(null); loadBase()
-  }
-
-  async function guardarNroOp() {
-    const nuevo = (opEdit || '').trim().toUpperCase() || 'SIN-REF'
-    const anterior = view.operation_number
-    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL N DE OPERACION' }); return }
-    const { error } = await supabase.from('daily_income').update({ operation_number: nuevo }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    await supabase.from('activity_log').insert({
-      action: 'UPDATE', entity_type: 'daily_income',
-      user_email: profile?.email || null,
-      details: { cambio: 'operation_number', antes: anterior, despues: nuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, monto: view.amount, project_id: pidOp },
-    })
-    setMsg({ ok: true, t: 'N DE OPERACION CORREGIDO: ' + anterior + ' -> ' + nuevo + ' (QUEDA EN BITACORA)' })
-    setView(v => ({ ...v, operation_number: nuevo }))
-    loadBase()
-  }
-
-  async function guardarBanco() {
-    const nuevo = accEdit || null
-    const anterior = view.financial_account_id || null
-    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL BANCO/CUENTA' }); return }
-    const { error } = await supabase.from('daily_income').update({ financial_account_id: nuevo }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    const nombreNuevo = accounts.find(a => a.id === nuevo)?.name || '(sin cuenta)'
-    await supabase.from('activity_log').insert({
-      action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
-      details: { cambio: 'financial_account', antes: view.account?.name || null, despues: nombreNuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, monto: view.amount, project_id: pidOp },
-    })
-    setMsg({ ok: true, t: 'BANCO/CUENTA CORREGIDO -> ' + nombreNuevo + ' (QUEDA EN BITACORA)' })
-    setView(v => ({ ...v, financial_account_id: nuevo, account: { name: nombreNuevo } })); loadBase()
-  }
-  async function guardarMonto() {
-    const nuevo = Math.round(Number(amtEdit) * 100) / 100
-    const anterior = Number(view.amount)
-    if (!nuevo || nuevo <= 0) { setMsg({ ok: false, t: 'MONTO INVALIDO' }); return }
-    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL MONTO' }); return }
-    if (!confirm('¿Corregir el monto de ' + soles(anterior) + ' a ' + soles(nuevo) + '?\nSi el pago está aplicado a una cuota, su saldo se recalcula automáticamente.')) return
-    const obs = ((view.observation || '') + ' | MONTO CORREGIDO POR SUPERUSUARIO (antes ' + soles(anterior) + ')').slice(0, 400)
-    const { error } = await supabase.from('daily_income').update({ amount: nuevo, observation: obs }).eq('id', view.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    await supabase.from('activity_log').insert({
-      action: 'UPDATE', entity_type: 'daily_income', user_email: profile?.email || null,
-      details: { cambio: 'amount', antes: anterior, despues: nuevo, lote: view.lot ? view.lot.mz + '-' + view.lot.lt : null, project_id: pidOp },
-    })
-    setMsg({ ok: true, t: 'MONTO CORREGIDO: ' + soles(anterior) + ' -> ' + soles(nuevo) + ' (CUOTA RECALCULADA, QUEDA EN BITACORA)' })
-    setView(v => ({ ...v, amount: nuevo, observation: obs })); loadBase()
+    const r = await quitarNA(filas, campo, { email: profile?.email, pidOp })
+    if (!r) return
+    setMsg(r)
+    if (r.ok) loadBase()
   }
 
   function editarReparto(g) {
@@ -802,10 +598,7 @@ export default function Payments() {
   const noAplica = gruposTotales.filter(g => g.voucherNA || g.comprobanteNA).length
   const hayFiltro = !!fq || ftipo !== 'todos' || fdoc !== 'todos' || fest !== 'todos'
   const limpiarFiltros = () => { setFq(''); setFtipo('todos'); setFdoc('todos'); setFest('todos') }
-  const abrirPago = r => {
-    setView(r); setObsEdit(r.observation || ''); setOpEdit(r.operation_number || '')
-    setAccEdit(r.financial_account_id || ''); setAmtEdit(r.amount)
-  }
+  const abrirPago = r => setView(r)
   // Celda de VOUCHER / COMPROBANTE del historial: el documento, o el boton para
   // subirlo, o la marca "no aplica" cuando ese pago no va a tener documento.
   function celdaDoc(g, campo) {
@@ -845,6 +638,7 @@ export default function Payments() {
   return (
     <>
       <div className="toolbar">
+        {loteFicha && <Link className="btn-ghost" to={`/lotes/${loteFicha}`}>&#8592; Volver a la ficha del lote</Link>}
         <h1 style={{ margin: 0, flex: 1 }}>Cuotas mensuales</h1>
         <ProjectPicker />
       </div>
@@ -1009,7 +803,7 @@ export default function Payments() {
         )}
         {tipo === 'inicial' && ctx?.sep && <p className="hint">Separacion vigente de {soles(ctx.sep.amount)} ({ctx.sep.client?.full_name}). Se descuenta del financiado.</p>}
         {tipo === 'inicial' && precioVenta && monto && (
-          <p className="hint">Se generara la venta con <b>{meses} cuotas</b> de aprox. {soles((Number(precioVenta) - Number(monto) - (ctx?.sep ? Number(ctx.sep.amount) : 0)) / meses)}</p>
+          <p className="hint">Se generara la venta con <b>{textoCuotas(repartirCuotas(Number(precioVenta) - Number(monto) - (ctx?.sep ? Number(ctx.sep.amount) : 0), meses)) || 'saldo cero: revisa precio e inicial'}</b></p>
         )}
 
         {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
@@ -1110,121 +904,8 @@ export default function Payments() {
       <Paginador {...pag} />
 
       {view && (
-        <div className="modal-bg" onClick={() => setView(null)}>
-          <div className="glass modal docs-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>
-                {view.lot ? `MZ ${view.lot.mz} LT ${view.lot.lt}` : ''} |{' '}
-                {view.income_type === 'cuota' && view.installment ? `CUOTA N ${view.installment.installment_number}` : view.income_type} |{' '}
-                <span className="accent">{soles(view.amount)}</span>
-              </h2>
-              <button className="btn-ghost" onClick={() => setView(null)}>&#10005;</button>
-            </div>
-            <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | {view.account?.name || '-'} | <EstadoChip r={view} /></p>
-            {(() => {
-              const hermanos = pagos.filter(x => x.id !== view.id && x.operation_number === view.operation_number && x.operation_number !== 'SIN-REF')
-              return hermanos.length > 0 && (
-                <p className="hint">&#128279; MISMA OPERACION ({view.operation_number}) cubre tambien:{' '}
-                  {hermanos.map(h => `${h.lot ? h.lot.mz + '-' + h.lot.lt : ''} ${h.income_type === 'cuota' && h.installment ? 'CUOTA ' + h.installment.installment_number : h.income_type} (${soles(h.amount)})`).join(' | ')}
-                </p>
-              )
-            })()}
-            <div className="form-grid">
-              {!readOnly && <label className="span2">Observacion / comentario del pago
-                <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
-              </label>}
-              {readOnly && view.observation && <p className="muted span2" style={{ margin: 0 }}>OBS: {view.observation}</p>}
-              {role === 'superuser' && (<>
-                <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
-                  <span style={{ display: 'flex', gap: '.4rem' }}>
-                    <input value={opEdit} onChange={e => setOpEdit(e.target.value)} style={{ flex: 1 }} />
-                    <button type="button" className="btn-ghost" onClick={guardarNroOp}>Corregir N Op.</button>
-                  </span>
-                </label>
-                <label className="span2">Banco / cuenta del pago (corregir si no coincide con el voucher - queda en bitacora)
-                  <span style={{ display: 'flex', gap: '.4rem' }}>
-                    <select value={accEdit} onChange={e => setAccEdit(e.target.value)} style={{ flex: 1 }}>
-                      <option value="">(sin cuenta)</option>
-                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                    <button type="button" className="btn-ghost" onClick={guardarBanco}>Corregir banco</button>
-                  </span>
-                </label>
-                <label className="span2">Monto del pago (corregir si no coincide con el voucher - recalcula la cuota, queda en bitacora)
-                  <span style={{ display: 'flex', gap: '.4rem' }}>
-                    <input type="number" step="0.01" min="0" value={amtEdit} onChange={e => setAmtEdit(e.target.value)} style={{ flex: 1 }} />
-                    <button type="button" className="btn-ghost" onClick={guardarMonto}>Corregir monto</button>
-                  </span>
-                </label>
-              </>)}
-              {!readOnly && <div>
-                <button type="button" className="btn-ghost" onClick={async () => {
-                  await supabase.from('daily_income').update({ observation: obsEdit.toUpperCase() }).eq('id', view.id)
-                  setMsg({ ok: true, t: 'OBSERVACION GUARDADA' }); loadBase()
-                  setView(v => ({ ...v, observation: obsEdit.toUpperCase() }))
-                }}>Guardar observacion</button>
-              </div>}
-              <div>
-                {view.extra_url
-                  ? <a href={view.extra_url} target="_blank" rel="noreferrer">VER ANEXO ADICIONAL</a>
-                  : readOnly ? null
-                  : <label className="upload-btn">+ Adjuntar anexo adicional (2do voucher, boleta, etc.)
-                      <input type="file" accept="image/*,.pdf" hidden onChange={async e => {
-                        if (!e.target.files[0]) return
-                        try {
-                          const nota = prompt('Comentario / nota de este anexo (opcional, Enter para saltar):')
-                          if (nota === null) return
-                          const url = await upload(`anexos/${view.id}`, e.target.files[0])
-                          await supabase.from('daily_income').update({ extra_url: url, extra_note: nota.trim() || null }).eq('id', view.id)
-                          setMsg({ ok: true, t: 'ANEXO SUBIDO' }); loadBase()
-                          setView(v => ({ ...v, extra_url: url, extra_note: nota.trim() || null }))
-                        } catch (err) { setMsg({ ok: false, t: err.message }) }
-                      }} />
-                    </label>}
-                {view.extra_url && !readOnly && <> <button className="link-btn" onClick={() => notaDoc('extra_url')}>&#128221; nota</button></>}
-                {view.extra_note && <p className="muted small" style={{ textTransform: 'none', margin: '2px 0 0' }}>{view.extra_note}</p>}
-              </div>
-            </div>
-            <div className="docs-grid">
-              {role === 'superuser' && (
-                <div className="chg-box" style={{ marginBottom: 10 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700 }}>🛠 CORRECCIONES (SUPERUSUARIO)</p>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={editarFecha}>📅 CORREGIR FECHA</button>
-                    {view.voucher_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('voucher_url')}>🗑 QUITAR VOUCHER</button>}
-                    {view.receipt_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('receipt_url')}>🗑 QUITAR COMPROBANTE</button>}
-                    {view.extra_url && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('extra_url')}>🗑 QUITAR ANEXO</button>}
-                    <button className="btn-ghost" style={{ fontSize: 12, color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarPago}>🗑 ELIMINAR PAGO</button>
-                  </div>
-                  <p className="muted" style={{ fontSize: 10 }}>El N° de operación se corrige arriba. Al eliminar un pago de cuota, la cuota vuelve a deber ese monto.</p>
-                </div>
-              )}
-              {[['VOUCHER DEL CLIENTE', view.voucher_url, 'voucher_url'], ['COMPROBANTE INTERNO', view.receipt_url, 'receipt_url']].map(([t, u, campo]) => (
-                <div key={t} className="doc-panel">
-                  <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}
-                    {u && !readOnly && <> | <button className="link-btn" onClick={() => notaDoc(campo)}>&#128221; nota</button></>}</p>
-                  {view[campoNota(campo)] && <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{view[campoNota(campo)]}</p>}
-                  {!u
-                    ? view[campoNA(campo)]
-                      // marcado a proposito: este pago no va a tener este documento
-                      ? <>
-                          <p className="muted big-alert" style={{ color: '#b9bcc2' }}>NO APLICA</p>
-                          <p className="muted small" style={{ textTransform: 'none' }}>{view[campoNAMotivo(campo)] || 'sin motivo registrado'}</p>
-                          {!readOnly && <button className="btn-ghost" style={{ fontSize: 12 }}
-                            onClick={() => quitarNoAplica(filasDelPago(view), campo)}>&#8634; Volver a pedirlo</button>}
-                        </>
-                      : <>
-                          <p className="bad big-alert">&#9888; NO SUBIDO</p>
-                          {!readOnly && naOk && <button className="btn-ghost" style={{ fontSize: 12 }}
-                            title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo y queda en bitácora."
-                            onClick={() => marcarNoAplica(filasDelPago(view), campo)}>No aplica a este pago</button>}
-                        </>
-                    : <VisorDoc url={u} titulo={t} />}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <DetallePago key={view.id} pago={view} pagos={pagos} accounts={accounts} naOk={naOk}
+          onClose={() => setView(null)} onCambio={loadBase} />
       )}
     </>
   )

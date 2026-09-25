@@ -86,7 +86,7 @@ export default function Visitas() {
   }
   useEffect(() => { cargar() }, [semana, mes])
   useEffect(() => { cargarCfg() }, [])
-  useEffect(() => { const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [semana, mes])
+  useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 20000); return () => clearInterval(t) }, [semana, mes])
 
   if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
   const puedeCrear = role !== 'manager'

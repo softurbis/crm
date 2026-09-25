@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
@@ -107,6 +108,18 @@ export default function Clients() {
     }
   }
   useEffect(() => { load() }, [])
+
+  // ?cliente=<id> abre su ficha directo (se llega asi desde la ficha del lote)
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const cid = searchParams.get('cliente')
+    if (!cid || !list.length) return
+    const c = list.find(x => x.id === cid)
+    // la lista viene cortada en 1000 filas por el servidor: si no esta, se pide sola
+    if (c) abrir(c)
+    else supabase.from('clients').select('*').eq('id', cid).maybeSingle().then(({ data }) => data && abrir(data))
+    setSearchParams({}, { replace: true })
+  }, [list])
 
   // ---- estado de cuenta: ventas + cuotas + pagos con voucher ----
   useEffect(() => {

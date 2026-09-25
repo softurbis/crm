@@ -26,11 +26,22 @@ async function todas(hacer) {
   const out = []
   for (let desde = 0; ; desde += 1000) {
     const { data, error } = await hacer().range(desde, desde + 999)
-    if (error || !data || !data.length) break
+    // Antes el error se tragaba y la pantalla mostraba 0 como si fuera verdad
+    // (ej. "0 cuotas vencidas" cuando el servidor corto la consulta por lenta).
+    // Ahora la lista sale marcada y el tablero avisa que esta incompleto.
+    if (error) { out.fallo = error.message || 'error'; break }
+    if (!data || !data.length) break
     out.push(...data)
     if (data.length < 1000) break
   }
   return out
+}
+
+// ultimo dia del mes: "2026-09" -> "2026-09-30". Pedir el dia 31 de un mes de
+// 30 dias hace que el servidor rechace la consulta entera.
+const finDeMes = ym => {
+  const [y, m] = ym.split('-').map(Number)
+  return ym + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0')
 }
 
 export default function Dashboard() {
@@ -48,42 +59,58 @@ export default function Dashboard() {
       const ids = pid === 'general' ? projects.map(p => p.id) : [pid]
       if (!ids.length) return
       const COLS_GASTOS = 'id, project_id, amount, issue_date, reception_date, status, type, recipient, description'
-      let gastos = await todas(() => supabase.from('expenses').select(COLS_GASTOS).in('project_id', ids).order('id'))
-      if (!gastos.length) gastos = await todas(() => supabase.from('expenses').select(COLS_GASTOS.replace(', status', '')).in('project_id', ids).order('id'))
-
       const hoy = new Date().toISOString().slice(0, 10)
       const ym = hoy.slice(0, 7)
       const en180 = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10)
 
+      // TODO en paralelo. Antes iba en fila (gastos -> sumas -> el resto) y los
+      // tiempos se sumaban: ~10 s medidos el 24 sep. Ahora tarda lo que la mas lenta.
       // Las sumas del cronograma y de la caja las hace Postgres (sql/65): eso baja
       // la pantalla de 2.11 MB a ~30 KB. Si las funciones no estan creadas, se cae
       // al camino de antes y todo sigue igual, solo que pesado.
-      const [aggCuotas, aggPagos] = await Promise.all([
-        supabase.rpc('dash_cuotas', { proyectos: ids }).then(r => (r.error ? null : r.data), () => null),
-        supabase.rpc('dash_pagos', { proyectos: ids }).then(r => (r.error ? null : r.data), () => null),
-      ])
-      const liviano = !!(aggCuotas && aggPagos)
-
-      const [lots, income, salesR, venc, seps, delMes, proximas, crono, leads] = await Promise.all([
+      const [gastos0, aggCuotas, aggPagos, lots, salesR, venc, seps, leads] = await Promise.all([
+        todas(() => supabase.from('expenses').select(COLS_GASTOS).in('project_id', ids).order('id')),
+        supabase.rpc('dash_cuotas', { proyectos: ids }).then(r => r, error => ({ error })),
+        supabase.rpc('dash_pagos', { proyectos: ids }).then(r => r, error => ({ error })),
         // los lotes ELIMINADOS no existen en el terreno: no suman al total del proyecto
         // (sus pagos si siguen contando, porque salen de daily_income)
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
-        liviano ? [] : todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation, sale:sales(status)').in('project_id', ids).order('id')),
         todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
         todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         todas(() => supabase.from('separations').select('id, amount, date, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
-        // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
-        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', ym + '-31').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
-        // lo que viene: 6 meses hacia adelante, para planificar la caja
-        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
-        // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
-        liviano ? [] : todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         todas(() => supabase.from('leads').select('id, status, project_id').in('project_id', ids).order('id')),
       ])
+      const gastos = gastos0.length ? gastos0
+        : await todas(() => supabase.from('expenses').select(COLS_GASTOS.replace(', status', '')).in('project_id', ids).order('id'))
+      const liviano = !aggCuotas.error && !aggPagos.error && !!aggCuotas.data && !!aggPagos.data
+      // El camino viejo (bajar las filas y sumarlas aca) es SOLO para una base sin
+      // sql/65. Si las funciones existen pero fallaron por lentitud, bajar miles de
+      // filas mas empeoraba justo lo que estaba saturado: se avisa y ya.
+      const noExiste = r => /PGRST202|could not find|does not exist/i.test(`${r.error?.code || ''} ${r.error?.message || ''}`)
+      const caminoViejo = !liviano && (noExiste(aggCuotas) || noExiste(aggPagos))
+      const totalesFallaron = !liviano && !caminoViejo
+
+      // camino viejo (sin sql/65): se bajan las filas y se suman aca
+      const [income, delMes, proximas, crono] = !caminoViejo ? [[], [], [], []] : await Promise.all([
+        todas(() => supabase.from('daily_income').select('id, project_id, amount, date, observation, sale:sales(status)').in('project_id', ids).order('id')),
+        // cuotas que VENCEN este mes: contra esto se mide la cobranza del mes
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, sales!inner(status, lot:lots!inner(project_id))').gte('due_date', ym + '-01').lte('due_date', finDeMes(ym)).eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        // lo que viene: 6 meses hacia adelante, para planificar la caja
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').gt('due_date', hoy).lte('due_date', en180).neq('status', 'pagado').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        // cronograma COMPLETO: para la curva de "lo que debió entrar" contra lo real
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, lot:lots!inner(project_id))').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+      ])
       const mio = v => ids.includes(v.sales?.lot?.project_id) && v.sales?.status === 'en_proceso'
+      // que parte no llego (el servidor corto la consulta): se avisa arriba
+      const incompleto = [
+        [venc, 'cuotas vencidas'], [lots, 'lotes'], [salesR, 'ventas'], [seps, 'separaciones'],
+        [gastos, 'gastos'], [leads, 'leads'], [income, 'pagos'], [delMes, 'cobranza del mes'],
+        [proximas, 'próximos meses'], [crono, 'cronograma'],
+      ].filter(([x]) => x.fallo).map(([, n]) => n)
+      if (totalesFallaron) incompleto.unshift('los totales de cobranza')
       setRaw({
-        ids, hoy,
+        ids, hoy, incompleto,
         lots, income, expenses: gastos,
         sales: salesR.filter(s => ids.includes(s.lot?.project_id)),
         venc: venc.filter(mio),
@@ -91,7 +118,7 @@ export default function Dashboard() {
         cuotasMes: delMes.filter(mio),
         proximas: proximas.filter(mio),
         crono: crono.filter(mio),
-        agg: liviano ? { cuotas: aggCuotas, pagos: aggPagos } : null,
+        agg: liviano ? { cuotas: aggCuotas.data, pagos: aggPagos.data } : null,
         _t: Date.now(),
         leads: leads.filter(l => !l.project_id || ids.includes(l.project_id)),
       })
@@ -100,18 +127,30 @@ export default function Dashboard() {
   }, [pid, projects, tic])
 
   // EN VIVO: cuando entra un pago, se registra una venta o cambia un lote, el
-  // panel se recarga solo. Se espera 4 segundos y se junta todo lo que haya
-  // pasado en ese rato: una cobranza puede insertar varias filas seguidas y no
-  // tiene sentido recargar cinco veces.
+  // panel se recarga solo. Se junta todo lo que pase en un rato: una cobranza
+  // inserta varias filas seguidas y no tiene sentido recargar cinco veces.
+  // Con cuidado, porque cada recarga baja el tablero entero de TODOS los
+  // proyectos (24 sep 2026: era parte de "el sistema se pone lento"):
+  //   · como mucho una recarga cada 20 s, aunque entren pagos sin parar
+  //   · con la pestaña escondida NO recarga: se anota y recarga al volver
+  //   · 'installments' ya no se escucha: toda cuota pagada llega tambien como
+  //     pago en daily_income, y el cron que marca vencidas movia cientos de filas
   useEffect(() => {
-    let t = null
-    const patear = () => { clearTimeout(t); t = setTimeout(() => setTic(x => x + 1), 4000) }
+    let t = null, pendiente = false, ultima = Date.now()
+    const recargar = () => { clearTimeout(t); t = null; pendiente = false; ultima = Date.now(); setTic(x => x + 1) }
+    const patear = () => {
+      if (document.hidden) { pendiente = true; return }
+      if (t) return   // ya hay una recarga en camino: esta entra en esa
+      t = setTimeout(recargar, Math.max(4000, 20000 - (Date.now() - ultima)))
+    }
+    const alVolver = () => { if (!document.hidden && pendiente) recargar() }
+    document.addEventListener('visibilitychange', alVolver)
     const ch = supabase.channel('dash-vivo')
-    for (const tabla of ['daily_income', 'sales', 'lots', 'installments', 'separations', 'expenses']) {
+    for (const tabla of ['daily_income', 'sales', 'lots', 'separations', 'expenses']) {
       ch.on('postgres_changes', { event: '*', schema: 'public', table: tabla }, patear)
     }
     ch.subscribe()
-    return () => { clearTimeout(t); supabase.removeChannel(ch) }
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', alVolver); supabase.removeChannel(ch) }
   }, [])
 
   const D = useMemo(() => {
@@ -169,7 +208,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (fmes === 'todos' || !raw) { setDet(null); return }
     let vivo = true
-    const desde = fmes + '-01', hasta = fmes + '-31'
+    const desde = fmes + '-01', hasta = finDeMes(fmes)
     ;(async () => {
       const [pagos, ventas, seps] = await Promise.all([
         todas(() => supabase.from('daily_income')
@@ -428,6 +467,12 @@ export default function Dashboard() {
         <ProjectPicker withGeneral={conGeneral}
           generalLabel={role === 'admin' ? 'GENERAL (todos los proyectos)' : 'TOTAL (mis proyectos)'} />
       </div>
+      {raw?.incompleto?.length > 0 && (
+        <div className="glass" style={{ padding: '10px 14px', margin: '0 0 12px', borderLeft: '4px solid #e0b23f', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="warn">&#9888; <b>Números incompletos:</b> no llegaron {raw.incompleto.join(', ')} (el servidor tardó demasiado). No los tomes como definitivos.</span>
+          <button className="btn-ghost" onClick={() => setTic(x => x + 1)}>&#8635; Reintentar</button>
+        </div>
+      )}
 
       {/* ---- LO PRIMERO QUE SE VE: a que ritmo se vende y cuando se acaba ---- */}
       {comp && (

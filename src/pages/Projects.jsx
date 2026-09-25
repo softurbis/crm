@@ -103,7 +103,7 @@ export default function Projects() {
   useEffect(() => {
     cargarSesiones()
     const esperando = sesiones.some(s => s.estado === 'esperando_qr')
-    const t = setInterval(cargarSesiones, esperando ? 5000 : 30000)
+    const t = setInterval(() => { if (!document.hidden) cargarSesiones() }, esperando ? 5000 : 30000)
     return () => clearInterval(t)
   }, [sesiones.some(s => s.estado === 'esperando_qr')])
 

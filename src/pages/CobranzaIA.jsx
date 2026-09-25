@@ -50,7 +50,7 @@ export default function CobranzaIA() {
   useEffect(() => {
     if (!ve) return
     cargarCfg()
-    const t = setInterval(cargarCfg, 30000)
+    const t = setInterval(() => { if (!document.hidden) cargarCfg() }, 30000)
     return () => clearInterval(t)
   }, [ve])
 
@@ -103,7 +103,7 @@ function PorValidar({ puede, setMsg }) {
     ])
     setLista(p.data || []); setRecientes(r.data || [])
   }
-  useEffect(() => { cargar(); const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [])
+  useEffect(() => { cargar(); const t = setInterval(() => { if (!document.hidden) cargar() }, 20000); return () => clearInterval(t) }, [])
 
   return (
     <>
@@ -440,12 +440,12 @@ function Conversaciones({ puede, profile, setMsg }) {
     const { data } = await supabase.from('cobranza_mensajes').select('*').eq('chat_id', id).order('created_at', { ascending: false }).limit(200)
     setMsgs((data || []).reverse())
   }
-  useEffect(() => { cargarChats(); const t = setInterval(cargarChats, 10000); return () => clearInterval(t) }, [])
+  useEffect(() => { cargarChats(); const t = setInterval(() => { if (!document.hidden) cargarChats() }, 10000); return () => clearInterval(t) }, [])
   useEffect(() => {
     if (!sel) return
     cargarMsgs(sel)
     if (puede) supabase.from('cobranza_chats').update({ no_leidos: 0 }).eq('id', sel).then(() => {}, () => {})
-    const t = setInterval(() => cargarMsgs(sel), 5000)
+    const t = setInterval(() => { if (!document.hidden) cargarMsgs(sel) }, 5000)
     return () => clearInterval(t)
   }, [sel])
 
@@ -554,7 +554,7 @@ function Probar({ puede, vivo, setMsg }) {
     const { data } = await supabase.from('cobranza_mensajes').select('*').eq('chat_id', c.id).order('created_at', { ascending: false }).limit(100)
     setMsgs((data || []).reverse())
   }
-  useEffect(() => { cargar(); if (!tel) return; const t = setInterval(cargar, 3000); return () => clearInterval(t) }, [tel])
+  useEffect(() => { cargar(); if (!tel) return; const t = setInterval(() => { if (!document.hidden) cargar() }, 3000); return () => clearInterval(t) }, [tel])
 
   async function mandar(extra) {
     const { error } = await supabase.from('cobranza_pruebas').insert({ client_id: cli.id, phone: tel, ...extra })

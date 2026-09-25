@@ -69,7 +69,7 @@ export default function VentasIA() {
   useEffect(() => {
     if (!ve) return
     cargarCfg()
-    const t = setInterval(cargarCfg, 30000)
+    const t = setInterval(() => { if (!document.hidden) cargarCfg() }, 30000)
     return () => clearInterval(t)
   }, [ve])
 
@@ -128,7 +128,7 @@ function Pases({ puede, profile, setMsg }) {
     if (a.error) { setFalta(/ventas_ia_pases/.test(a.error.message) ? FALTA_94 : 'ERROR: ' + a.error.message); return }
     setFalta(''); setAbiertos(a.data || []); setRecientes(r.data || [])
   }
-  useEffect(() => { cargar(); const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [verPruebas])
+  useEffect(() => { cargar(); const t = setInterval(() => { if (!document.hidden) cargar() }, 20000); return () => clearInterval(t) }, [verPruebas])
 
   async function resolver(p, estado) {
     if (estado === 'cancelado' && !confirm('¿Cancelar este pase?\n\nAl cliente no se le avisa nada: si ya quedaron en algo, escríbele tú.')) return
@@ -701,7 +701,7 @@ function Leads() {
       .eq('grupo', 'ia').eq('es_prueba', verPruebas).order('asignado_at', { ascending: false }).limit(100)
     setLista(data || [])
   }
-  useEffect(() => { cargar(); const t = setInterval(cargar, 30000); return () => clearInterval(t) }, [verPruebas])
+  useEffect(() => { cargar(); const t = setInterval(() => { if (!document.hidden) cargar() }, 30000); return () => clearInterval(t) }, [verPruebas])
 
   return (
     <>
