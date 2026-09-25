@@ -1,0 +1,190 @@
+CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACIÓN URBANA PROGRESIVA – “EL TRIUNFO DE NESHUYA”
+Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitación Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:
+EL VENDEDOR: {{VENDEDOR}}, identificada con DNI N° {{VENDEDOR_DNI}}, con domicilio en Junta Vecinal Manuel Gambini Mz C Lt 20, distrito de Neshuya, provincia de Padre Abad, departamento de Ucayali, a quien en adelante se denominará EL VENDEDOR; y de la otra parte:
+EL COMPRADOR: {{COMPRADORES}}, con domicilio en {{COMPRADOR_DOMICILIO}}, a quien en adelante se denominará EL COMPRADOR.
+Las partes celebran el presente contrato bajo los términos y condiciones siguientes:
+
+CLÁUSULA PRIMERA: ANTECEDENTES DEL PREDIO Y DEL PROYECTO
+1.1. EL VENDEDOR declara tener derechos suficientes sobre el predio matriz denominado Parcelación Neshuya II Etapa, Parcela N.° 07, con un área de 14 hectáreas 800 m² (140,800 m²), ubicado en el Km 64 de la Carretera Federico Basadre, Sector El Triunfo, distrito de Neshuya, provincia de Padre Abad, departamento de Ucayali, inscrito en la Partida N.° {{PARTIDA}} del Registro de Propiedad Inmueble de la Zona Registral N.° VI — Sede Pucallpa, en las condiciones registrales que correspondan a la fecha de firma del presente contrato.
+Para efectos de precisión territorial, las partes dejan constancia de que el distrito de Neshuya fue creado por la Ley N.° 30310, de marzo de 2015, sobre territorio que hasta esa fecha correspondía al distrito de Irazola. En consecuencia, los antecedentes registrales del predio matriz, anteriores a dicha ley, consignan el distrito de Irazola, mientras que el predio se encuentra actualmente comprendido en la jurisdicción del distrito de Neshuya.
+1.2. Sobre el predio matriz se viene desarrollando la Habilitación Urbana Progresiva denominada “EL TRIUNFO DE NESHUYA” (en adelante, EL PROYECTO), la cual comprende la lotización, apertura de vías, ejecución progresiva de obras de habilitación urbana, obtención de autorizaciones, recepción de obras, independización y futura transferencia de lotes resultantes, conforme a la normativa aplicable.
+1.3. Las partes reconocen que el presente contrato no constituye, por sí solo, licencia de habilitación urbana, título individual independizado ni transferencia definitiva inscrita. Su finalidad es reservar y comprometer la futura transferencia del lote descrito en este contrato, dentro del proceso de formalización y ejecución de EL PROYECTO.
+
+CLÁUSULA SEGUNDA: NATURALEZA DE LA H.U.P. Y ALCANCE DE LA PROMESA COMERCIAL
+2.1. EL COMPRADOR declara conocer y aceptar que EL PROYECTO corresponde a una Habilitación Urbana Progresiva, por lo que las obras, licencias, recepción, independización y transferencia definitiva se desarrollarán por etapas conforme al expediente técnico aprobado, la autorización municipal, la normativa urbanística y el cronograma de ejecución de EL PROYECTO.
+2.2. EL VENDEDOR se obliga a informar de manera clara y razonable el estado real del proyecto.
+2.3. EL COMPRADOR reconoce que la naturaleza progresiva de la H.U.P. permite adquirir un lote a precio de inversión y con condiciones de pago directas, sin intereses ni intermediación bancaria, lo que implica que determinadas obras y formalizaciones serán ejecutadas progresivamente y no necesariamente estarán concluidas al momento de la firma del presente contrato.
+2.4. La formalidad del proyecto, la ejecución visible de obras y la información contractual transparente son condiciones esenciales para proteger la inversión de EL COMPRADOR, la reputación de EL PROYECTO y la rentabilidad necesaria para culminar las obras comprometidas.
+
+CLÁUSULA TERCERA: MODALIDAD DE LICENCIA Y CALIDAD DE OBRAS
+3.1. La modalidad administrativa aplicable a EL PROYECTO será determinada por el expediente técnico, el certificado de zonificación y vías, la ubicación del predio, su colindancia con área urbana, el Plan de Desarrollo Urbano vigente y la evaluación de la municipalidad competente, la modalidad definitiva será la que apruebe la autoridad competente.
+3.2. Para efectos comerciales y de claridad contractual, EL PROYECTO se estructura sobre una calidad mínima de obras Tipo E o equivalente técnico permitido por la autoridad competente, lo que puede comprender: calles afirmadas o enripiadas, aceras en diseño, solución de agua conforme a factibilidad, solución sanitaria aprobada, energía eléctrica pública y domiciliaria de acuerdo a la disponibilidad de la entidad estatal de abastecimiento eléctrico, áreas de aporte para otros usos, áreas verdes y vías conforme al plano aprobado.
+
+CLÁUSULA CUARTA: OBJETO DEL CONTRATO Y DESCRIPCIÓN DEL LOTE
+4.1. Por el presente contrato, EL VENDEDOR otorga a favor de EL COMPRADOR la separación, reserva y compromiso de futura transferencia del lote identificado como:
+{{TABLA_LOTE}}
+4.2. Las medidas y linderos indicados son referenciales y están sujetos a los ajustes técnicos, municipales y registrales que resulten del expediente aprobado y de la independización definitiva. Variaciones no sustanciales de medidas, linderos, nomenclatura o numeración que no afecten el área, uso ni valor comercial del lote serán incorporadas mediante adenda o en el documento definitivo de transferencia.
+4.3. EL COMPRADOR declara conocer que el lote forma parte de un predio matriz y que la transferencia definitiva individual dependerá de la aprobación de la habilitación urbana, independización registral y demás actos que correspondan conforme a ley.
+
+CLÁUSULA QUINTA: PRECIO, FORMA DE PAGO Y DESTINO DE LOS INGRESOS
+5.1. El precio total del lote materia del presente contrato se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagará de la siguiente manera:
+{{SI_SEPARACION}}• Separación: {{SEPARACION}} ({{SEPARACION_LETRAS}} SOLES) pagado el día {{SEPARACION_FECHA}}.
+• Inicial: {{INICIAL}} ({{INICIAL_LETRAS}} SOLES) pagado el día {{FECHA_VENTA}}.
+• Saldo financiado: {{SALDO}} ({{SALDO_LETRAS}} SOLES), en {{CUOTAS_DETALLE}}, conforme al cronograma del Anexo 1.
+5.2. Los pagos se realizarán mediante depósito o transferencia bancaria a la cuenta designada por EL VENDEDOR, todo ingreso vinculado a EL PROYECTO tiene naturaleza de ingreso del proyecto y será registrado administrativamente.
+5.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) días hábiles siguientes al depósito o transferencia, mediante el canal oficial indicado en el cuadro a continuación, la falta de envío del comprobante no invalida el pago si puede ser identificado bancariamente, pero puede retrasar la actualización del estado de cuenta.
+| Banco | BBVA Continental |
+| N.° de cuenta | 0011-0814-190282641076 |
+| Titular | Yomaira del Carmen Macedo Orbezo |
+| Billetera Plin | 912 690 670 |
+| CCI | 011-814-000282641076-19 |
+| WhatsApp oficial | 986 598 614 |
+| Correo oficial | urbisgrouprealestate@gmail.com |
+| Oficina de atención | Jr. Augusto B. Leguía N°482, Callería, Pucallpa. |
+| Monto pagado a la firma | {{PAGADO_FIRMA}} |
+| Saldo pendiente | {{SALDO}} |
+| Fecha de primera cuota | {{PRIMERA_CUOTA}} |
+| Asesor responsable | {{ASESOR}} |
+5.4. EL VENDEDOR entregará, a solicitud de EL COMPRADOR, su estado de cuenta actualizado, la emisión de comprobantes de pago se sujetará a la condición tributaria del vendedor y a la estructura fiscal del proyecto.
+5.5. EL COMPRADOR reconoce que los ingresos de ventas se destinan a sostener la ejecución del proyecto: gastos técnicos, trámites, licencias, aportes, obras, administración, saneamiento registral y demás obligaciones necesarias para culminar la H.U.P.
+El cumplimiento oportuno de los pagos por parte de todos los compradores es indispensable para sostener el ritmo de ejecución de las obras comprometidas.
+
+CLÁUSULA SEXTA: MORA, COBRANZA Y REPROGRAMACIÓN
+6.1. Las cuotas deberán pagarse en las fechas establecidas en el Anexo 1. EL COMPRADOR tendrá un plazo de gracia de 5 días hábiles contados desde la fecha de vencimiento de cada cuota. Vencido dicho plazo sin haberse efectuado el pago, se devengará una penalidad moratoria de 0.5 % del monto de la cuota por cada día calendario de atraso, computada a partir del día siguiente al vencimiento del plazo de gracia y hasta la fecha efectiva de pago.
+6.2. La penalidad por mora tiene naturaleza compensatoria por los costos administrativos de cobranza, seguimiento, actualización contable y afectación del flujo de caja del proyecto.
+6.3. Si EL COMPRADOR tuviera dificultades temporales de pago, podrá solicitar por escrito una reprogramación, EL VENDEDOR podrá aceptarla o rechazarla según el historial de pagos, avance del proyecto y disponibilidad del lote, toda reprogramación deberá constar por escrito y no implica condonación automática de penalidades, salvo acuerdo expreso.
+6.4. La tolerancia ocasional en la recepción de pagos fuera de fecha no modifica el cronograma, no elimina penalidades futuras ni constituye renuncia a resolver el contrato en caso de incumplimiento reiterado.
+
+CLÁUSULA SÉPTIMA: INCUMPLIMIENTO, RESOLUCIÓN CONTRACTUAL Y RECUPERACIÓN DEL LOTE
+7.1. Constituyen causales de incumplimiento grave por parte de EL COMPRADOR:
+• No pagar dos (2) cuotas consecutivas o tres (3) cuotas acumuladas.
+• Negarse a regularizar documentos necesarios para la futura transferencia.
+• Realizar construcciones, ocupaciones, cercos o mejoras no autorizadas que afecten el trazo urbano, vías, aportes o colindancias del proyecto.
+• Ceder, transferir o revender derechos sobre el lote sin autorización escrita de EL VENDEDOR.
+• Usar el lote para fines incompatibles con el uso residencial, la zonificación o el reglamento del proyecto.
+7.2. Verificada una causal de incumplimiento, EL VENDEDOR cursará una comunicación formal de requerimiento de pago o subsanación a los medios de contacto, otorgando un plazo de quince (15) días hábiles para que EL COMPRADOR responda y regularice o comunique su situación.
+7.3. Si EL COMPRADOR responde dentro del plazo de quince (15) días hábiles y comunica activamente su situación, las partes procederán a una coordinación para encontrar una solución que no perjudique a ninguna de ellas, si EL COMPRADOR no responde dentro del plazo establecido, EL VENDEDOR podrá resolver el contrato de pleno derecho, recuperar la disponibilidad comercial y posesoria del lote, y actualizar el padrón del proyecto para ofrecer el lote a terceros, esta resolución no requiere acción judicial adicional.
+7.4. Penalidad compensatoria. Resuelto el contrato conforme al numeral 7.3, o por incomunicación total debidamente acreditada mediante la notificación formal correspondiente, las partes acuerdan, al amparo de los artículos 1341 y siguientes del Código Civil, una penalidad compensatoria a favor de EL VENDEDOR equivalente a los montos pagados por EL COMPRADOR hasta la fecha de la resolución.
+Las partes dejan constancia de que esta penalidad ha sido fijada en atención a los siguientes conceptos, que EL VENDEDOR asume desde la suscripción del contrato y no recupera con la resolución: la comisión de venta pagada al asesor, los gastos de gestión administrativa y de cobranza, los costos de publicidad y recolocación comercial del lote, el período durante el cual el lote permaneció fuera del mercado, y la afectación del flujo de caja destinado a la ejecución de las obras de EL PROYECTO.
+EL COMPRADOR declara haber sido informado de esta penalidad con anterioridad a la suscripción del presente contrato, comprender su alcance y considerarla proporcional a los conceptos señalados.
+7.5. Las mejoras realizadas por EL COMPRADOR sin autorización o antes de la transferencia definitiva no generarán derecho automático de reembolso, si las mejoras fueran removibles, EL COMPRADOR podrá retirarlas dentro del plazo que se le otorgue, vencido dicho plazo, las mejoras quedarán en beneficio del lote.
+
+CLÁUSULA OCTAVA: RESERVA DE PROPIEDAD Y MOMENTO DE TRANSFERENCIA
+8.1. Al amparo del artículo 1583 del Código Civil, las partes pactan reserva de propiedad a favor de EL VENDEDOR, en consecuencia, EL VENDEDOR conservará la propiedad del predio matriz y del lote comprometido hasta que EL COMPRADOR haya pagado la totalidad del precio, penalidades y conceptos pendientes, y se encuentre habilitada la documentación legal y registral para la transferencia definitiva.
+8.2. La firma del presente contrato, la asignación del lote, la emisión de un estado de cuenta o la eventual entrega de posesión no equivalen a transferencia de propiedad inscrita, la propiedad se transferirá mediante minuta y escritura pública de compraventa definitiva, o el instrumento que corresponda, una vez cumplidas las condiciones contractuales, técnicas, municipales y registrales aplicables.
+8.3. Si por razones administrativas, municipales, registrales o técnicas se modificara la nomenclatura del lote, manzana o vías, ello no afectará el compromiso de transferencia, siempre que se mantenga la correspondencia sustancial del lote asignado.
+
+CLÁUSULA NOVENA: POSESIÓN, USO DEL LOTE Y CONSTRUCCIÓN
+9.1. Entrega de posesión. EL VENDEDOR entregará a EL COMPRADOR la posesión física de su lote una vez que este se encuentre delimitado en campo conforme al plano de lotización de EL PROYECTO. La delimitación forma parte de las primeras obras de EL PROYECTO. La entrega se formalizará mediante acta suscrita por ambas partes, en la que se dejará constancia de las medidas y colindancias del lote entregado.
+9.2. Condición para la entrega. Para recibir la posesión, EL COMPRADOR deberá encontrarse al día en sus pagos conforme al cronograma del Anexo 1, salvo acuerdo escrito distinto.
+9.3. Posesión y propiedad. La entrega de posesión permite a EL COMPRADOR ocupar y usar su lote. No modifica la reserva de propiedad pactada en la cláusula octava, que se mantiene hasta la transferencia definitiva.
+9.4. Construcción. EL COMPRADOR podrá cercar, limpiar, mantener y construir su vivienda en el lote, previa autorización escrita de EL VENDEDOR. Dicha autorización se otorgará una vez delimitado el lote y verificada la conformidad de la construcción proyectada con el plano de lotización, las secciones viales, los retiros y las áreas de aporte de EL PROYECTO. La autorización no tiene costo para EL COMPRADOR.
+9.5. Áreas de uso común. Las vías, áreas de aporte, servidumbres, drenajes y áreas verdes de EL PROYECTO no forman parte del lote. EL COMPRADOR se obliga a respetar su trazo y a no ocuparlas, en beneficio de todos los compradores de EL PROYECTO.
+9.6. Ajustes durante la habilitación. Ambas partes reconocen que EL PROYECTO se encuentra en proceso de habilitación urbana progresiva y que la autoridad municipal o registral puede requerir ajustes en el trazo, las secciones viales, los linderos o la numeración de los lotes. Si un ajuste de esa naturaleza afectara una construcción ejecutada por EL COMPRADOR con autorización de EL VENDEDOR, las partes coordinarán de buena fe la solución que corresponda, que podrá consistir en el ajuste de linderos del lote o en la reubicación a un lote equivalente en área y valor, sin costo alguno para EL COMPRADOR. Esta es la vía acordada por las partes para atender dicho supuesto.
+9.7. Cuenta y riesgo. Las construcciones y mejoras que EL COMPRADOR ejecute en su lote son de su cuenta, costo y riesgo. EL VENDEDOR no asume responsabilidad por daños derivados de desastres naturales, fenómenos climáticos extraordinarios, caso fortuito, fuerza mayor u otros eventos no imputables a EL VENDEDOR que afecten el lote o sus mejoras.
+
+CLÁUSULA DÉCIMA: OBRAS OFRECIDAS, SOLUCIÓN SANITARIA
+10.1. EL VENDEDOR oferta el lote dentro de una H.U.P. con obras progresivas y calidad Tipo F o equivalente aprobado, las obras ofrecidas se detallan en el Anexo 2 y están sujetas al expediente técnico aprobado.
+10.2. De manera referencial, las obras pueden comprender: apertura, trazo y conformación de vías internas; calles afirmadas o enripiadas conforme al diseño técnico; aceras en condición de diseño; delimitación de manzanas y lotes; solución de agua conforme a factibilidad; solución sanitaria conforme al numeral 10.3; energía eléctrica pública y domiciliaria conforme a factibilidad; y áreas de aporte y vías conforme al plano aprobado.
+10.3. Solución Sanitaria: Pozo Séptico o Biodigestor.
+La solución sanitaria estándar que EL PROYECTO ejecutará para cada lote es la instalación de un pozo séptico en la parte trasera del lote, alejado de la calle, como parte de las obras de la H.U.P. Esta solución está incluida en el precio del lote y será ejecutada por EL PROYECTO sin costo adicional para EL COMPRADOR.
+**EL COMPRADOR podrá optar por reemplazar el pozo séptico por un biodigestor, sujetándose estrictamente a las siguientes reglas:**
+a) Ventana de decisión: EL COMPRADOR podrá comunicar por escrito su decisión de optar por biodigestor desde el momento en que tome posesión del lote y hasta la fecha límite que EL VENDEDOR comunique para tal efecto, la cual será informada con una anticipación no menor de seis (6) meses. Vencida dicha fecha sin que EL COMPRADOR haya comunicado su decisión, EL PROYECTO ejecutará automáticamente el pozo séptico en el lote sin posibilidad de cambio posterior.
+b) Obligación de entrega del biodigestor: Una vez que EL COMPRADOR solicite formalmente la opción de biodigestor y EL VENDEDOR apruebe la coordinación de fecha para la apertura del espacio, EL COMPRADOR deberá tener su biodigestor físicamente presente y disponible en el proyecto el día exacto fijado para la apertura del espacio de instalación. El biodigestor deberá ser adquirido por cuenta y costo exclusivo de EL COMPRADOR.
+c) Si, EL COMPRADOR entrega el biodigestor el día exacto: EL PROYECTO abrirá el espacio, instalará el biodigestor y proveerá todos los accesorios necesarios para su correcto funcionamiento y conexión, incluyendo los materiales de instalación que el equipo requiere para operar, no están incluidos los accesorios interiores de la vivienda tales como lavatorios, inodoros, duchas u otros. Este beneficio de instalación y accesorios es proporcionado por EL PROYECTO sin costo adicional para EL COMPRADOR.
+d) EL COMPRADOR no tiene el biodigestor el día exacto: EL COMPRADOR pierde de forma definitiva el beneficio de instalación y accesorios proporcionados por EL PROYECTO, si EL COMPRADOR entrega el biodigestor dentro de los quince (15) días calendario siguientes a la fecha pactada, EL PROYECTO procederá a la instalación, pero todos los costos de instalación serán asumidos íntegramente por EL COMPRADOR.
+e) Si, EL COMPRADOR no entrega el biodigestor dentro de los plazos establecidos, EL VENDEDOR ejecutara la solución sanitaria descrita en la cláusula 10.3. EL COMPRADOR no tendrá derecho a cuestionar dicho accionar por ser de necesidad fundamental para la realización de la Habilitación urbana.
+10.4. Soluciones provisionales. Las soluciones de agua y energía descritas en los numerales anteriores forman parte de las obras de la H.U.P. y se ejecutarán progresivamente. EL VENDEDOR podrá, sin que ello constituya obligación a su cargo, implementar o facilitar soluciones provisionales de agua o energía para los lotes que hayan recibido posesión. De hacerlo, sus condiciones técnicas, económicas y de duración se establecerán en un acuerdo independiente suscrito entre las partes, de vigencia temporal, que no forma parte del presente contrato. La existencia, inexistencia, suspensión o término de una solución provisional no constituye incumplimiento de EL VENDEDOR ni faculta a EL COMPRADOR a suspender el pago de sus cuotas o a resolver el contrato.
+10.5. Instalaciones a cargo de EL COMPRADOR. Mientras no se encuentren disponibles los servicios definitivos, EL COMPRADOR podrá implementar por su cuenta, costo y riesgo una solución propia para su lote, previa autorización escrita de EL VENDEDOR, otorgada sin costo junto con la autorización del numeral 9.4, y sujeta a lo siguiente:
+a) El pozo o punto de captación de agua deberá ubicarse a una distancia no menor de 8 metros de cualquier pozo séptico o biodigestor, propio o de lotes vecinos, y en posición topográfica que evite el arrastre hacia la fuente.
+b) En materia eléctrica, solo se admiten grupo electrógeno, sistema fotovoltaico o suministro contratado directamente con la empresa concesionaria.
+c) Queda prohibida toda conexión de agua o energía no autorizada, así como el uso de redes, medidores o instalaciones de terceros o del proyecto sin acuerdo escrito.
+d) Las instalaciones no podrán ocupar vías, áreas de aporte, servidumbres ni lotes de terceros.
+e) Disponible el servicio definitivo, EL COMPRADOR deberá migrar a él y retirar sus instalaciones dentro de los sesenta (30) días calendario siguientes a la comunicación de EL VENDEDOR, por su cuenta y costo.
+
+CLÁUSULA UNDÉCIMA: TRÁMITES, LICENCIAS, RECEPCIÓN DE OBRAS E INDEPENDIZACIÓN
+11.1. EL VENDEDOR realizará, directamente o mediante profesionales contratados, las gestiones razonables y necesarias para obtener los documentos necesarios para EL PROYECTO, incluyendo: certificado de zonificación y vías, factibilidades de servicios, planeamiento integral, expediente técnico de habilitación urbana, licencia, estudios técnicos, autorizaciones, recepción de obras, independización y actos registrales.
+11.2. Los trámites descritos dependen de entidades públicas, empresas prestadoras de servicios, revisores técnicos, registros públicos y terceros, por lo que los plazos informados al comprador son estimados y pueden variar por causas no imputables a EL VENDEDOR.
+11.3. EL VENDEDOR no responderá por demoras ocasionadas por observaciones municipales, cambios normativos, falta de factibilidad externa, huelgas, demoras registrales, eventos climáticos, fuerza mayor, caso fortuito, oposición de terceros, requerimientos técnicos adicionales o falta de pago de compradores que afecte la caja del proyecto, siempre que demuestre gestión razonable para superar dichos eventos.
+11.4. Una vez cumplidas las condiciones técnicas, municipales y registrales, EL VENDEDOR otorgará los documentos de transferencia definitiva a favor de EL COMPRADOR, siempre que este haya cancelado íntegramente el precio y no mantenga obligaciones pendientes.
+
+CLÁUSULA DUODÉCIMA: APORTES REGLAMENTARIOS, ÁREAS COMUNES Y VÍAS
+12.1. Las áreas destinadas a vías, aportes, equipamientos, servidumbres, drenajes y uso público no forman parte del lote materia de este contrato. EL COMPRADOR no podrá ocuparlas, cercarlas, construir sobre ellas ni impedir su uso técnico o público.
+12.2. La ubicación, área y destino de los aportes reglamentarios podrán ser ajustados por exigencia municipal o por el expediente técnico. Si ello no afecta sustancialmente el área del lote comprometido, no dará lugar a resolución ni reducción automática del precio.
+
+CLÁUSULA DECIMOTERCERA: DECLARACIONES DE EL COMPRADOR
+**EL COMPRADOR declara expresamente que:**
+• Ha recibido explicación sobre la naturaleza progresiva de EL PROYECTO y la acepta.
+• Conoce que el lote forma parte de un predio matriz y que la transferencia definitiva dependerá de actos técnicos, municipales y registrales, en los tiempos establecidos por la ley.
+• Conoce la calidad de obras ofrecida y acepta que no se prometen obras superiores a las descritas en este contrato y sus anexos.
+• Ha revisado o tiene a su disposición el plano referencial de lotización, el cronograma de pagos (Anexo 1), la ficha técnica de obras (Anexo 2).
+• Compra el lote como inversión inmobiliaria de desarrollo progresivo, entendiendo que el precio se relaciona con el estado actual del proyecto.
+• Se obliga a pagar puntualmente para no afectar el flujo de caja que permite cumplir obras, trámites y obligaciones con todos los compradores.
+• Se abstendrá de difundir información falsa, alterar el proyecto, invadir áreas no vendidas o transferir derechos sin autorización.
+
+CLÁUSULA DECIMOCUARTA: DECLARACIONES Y OBLIGACIONES DE EL VENDEDOR
+**EL VENDEDOR declara y se obliga a:**
+• Mantener o acreditar derechos suficientes sobre el predio matriz para comprometer la futura transferencia del lote.
+• Informar al comprador, de manera razonable y periódica, el estado real de la habilitación y sus documentos relevantes.
+• No comprometer el mismo lote a otro comprador mientras EL COMPRADOR cumpla sus obligaciones.
+• Gestionar la formalización progresiva de EL PROYECTO con todos los recursos técnicos, legales y municipales disponibles.
+• Otorgar documento definitivo de transferencia cuando EL COMPRADOR haya cancelado el precio y existan condiciones técnicas, legales y registrales para hacerlo.
+
+CLÁUSULA DECIMOQUINTA: COMPROMISO ANTE ESCENARIO ADVERSO EN EL PROCESO H.U.P.
+15.1. EL VENDEDOR asume el compromiso de ejecutar el proceso de Habilitación Urbana Progresiva con plena seriedad, utilizando todos los recursos legales, técnicos y municipales disponibles para obtener la licencia, la recepción de obras, la independización registral y la transferencia individual de cada lote, este compromiso es demostrable y EL COMPRADOR tiene el derecho de ser informado sobre el avance del proceso de manera razonable.
+15.2. En el supuesto de que durante la ejecución del proceso H.U.P. se presenten observaciones, dificultades técnicas, administrativas o municipales, EL VENDEDOR se obliga a activar todos los mecanismos de subsanación, apelación y gestión que correspondan, dejando constancia documentada de las acciones realizadas. EL COMPRADOR será informado de dichas gestiones en lo que resulte pertinente.
+15.3. Solo en el CASO EXCEPCIONAL de que, agotados de manera demostrable todos los recursos legales y técnicos disponibles, resultará definitiva e irremediablemente imposible obtener la habilitación urbana o la independización registral de los lotes, EL VENDEDOR procederá de la siguiente manera como último recurso:
+a) A los compradores que hayan cancelado íntegramente el precio de su lote, EL VENDEDOR les otorgará las acciones y derechos que les corresponden sobre el lote adquirido, mediante el instrumento legal que resulte aplicable.
+b) A los compradores que se encuentren en proceso de pago y estén cumpliendo con sus obligaciones contractuales, EL VENDEDOR formalizará el compromiso escrito de otorgarles acciones y derechos sobre el lote materia de este contrato.
+c) Los compradores que hubieran incumplido sus obligaciones de pago y cuyo contrato hubiera sido resuelto no tendrán derecho a esta protección.
+* La existencia de esta cláusula no debe interpretarse como una anticipación de fracaso ni como una reducción del compromiso de EL VENDEDOR con la plena formalización del proyecto, refleja, por el contrario, la responsabilidad y transparencia de EL VENDEDOR frente a EL COMPRADOR, reconociendo que existen circunstancias de muy baja probabilidad pero que, de materializarse, no pueden quedar sin una solución adecuada para quienes han cumplido con sus compromisos.
+
+CLÁUSULA DECIMOSEXTA: GASTOS NOTARIALES, REGISTRALES Y TRIBUTARIOS
+16.1. Los gastos notariales, registrales, municipales, alcabalas, formularios, derechos, tasas, constancias, legalizaciones y cualquier otro gasto relacionado con la futura transferencia individual del lote serán asumidos por EL COMPRADOR, salvo pacto escrito distinto.
+16.2. Los gastos generales de habilitación urbana, estudios, licencias, aportes, obras y saneamiento del predio matriz serán asumidos por EL VENDEDOR conforme a su estructura de costos.
+16.3. Una vez transferido el lote, serán de cargo de EL COMPRADOR los tributos municipales, arbitrios, impuesto predial y tasas que correspondan al lote individual, conforme a ley.
+
+CLÁUSULA DECIMOSEPTIMA: CESIÓN DE POSICIÓN CONTRACTUAL
+17.1. EL COMPRADOR no podrá ceder, transferir, prometer, revender ni gravar derechos sobre el lote a terceros sin autorización escrita de EL VENDEDOR y sin encontrarse al día en sus pagos.
+17.2. En caso se autorice una cesión, el nuevo comprador deberá suscribir el documento correspondiente, aceptar íntegramente el presente contrato y asumir las obligaciones pendientes, EL COMPRADOR cedente deberá pagar los siguientes gastos administrativos de cambio de titularidad:
+• S/ 100.00 (Cien y 00/100 Soles) por cada parte interviniente en la cesión.
+• Total por operación de cesión: S/ 200.00 (Doscientos y 00/100 Soles).
+• Gastos de legalización notarial de firmas: a cargo de EL COMPRADOR, siempre que los solicite.
+17.3. Toda cesión no autorizada podrá constituir causal de resolución contractual.
+
+CLÁUSULA DECIMOCTAVA: COMUNICACIONES Y DOMICILIOS
+18.1. Las partes señalan como domicilios los consignados en el encabezado del presente contrato. Cualquier cambio deberá ser comunicado por escrito.
+18.2. Son medios válidos de comunicación: carta simple con cargo de recepción, carta notarial, correo electrónico, WhatsApp al número oficial registrado, mensajes de texto y estado de cuenta digital, EL COMPRADOR se obliga a mantener actualizados sus datos de contacto, la falta de actualización no podrá ser invocada para desconocer notificaciones cursadas a los datos registrados.
+
+CLÁUSULA DECIMONOVENA: SOLUCIÓN DE CONTROVERSIAS
+19.1. Las partes procurarán resolver cualquier controversia mediante trato directo, dejando constancia escrita de los acuerdos.
+19.2. Si no se logra acuerdo en un plazo de quince (15) días calendario, las partes podrán acudir a conciliación extrajudicial ante un Centro de Conciliación autorizado en la ciudad de Pucallpa.
+19.3. De persistir la controversia, las partes se someten a la competencia de los jueces y tribunales de la provincia de Coronel Portillo, Distrito Judicial de Ucayali.
+19.4. Interpretación. En caso de discrepancia entre una cantidad expresada en letras y en números en el presente contrato o en sus anexos, prevalecerá la expresada en letras.
+
+CLÁUSULA VIGÉSIMA: ACEPTACIÓN FINAL
+Leído que fue el presente contrato por las partes y encontrándolo conforme a su voluntad, lo suscriben por duplicado en la ciudad de Pucallpa, a los {{DIA}} días del mes de {{MES}} del {{ANIO}}.
+{{FIRMAS}}
+
+{{SALTO_PAGINA}}
+ANEXO 1: CRONOGRAMA DE PAGOS
+El siguiente cronograma deberá completarse conforme al precio pactado, fecha de firma, inicial, saldo y número de cuotas.
+{{TABLA_CRONOGRAMA}}
+Nota: El cronograma completo de {{NUM_CUOTAS}} cuotas debe ser impreso y adjuntado firmado como parte del contrato.
+
+{{SALTO_PAGINA}}
+ANEXO 2: FICHA TÉCNICA DE H.U.P. Y CALIDAD DE OBRAS OFRECIDAS
+Este anexo debe ser explicado al comprador antes de la firma. Su finalidad es dejar constancia precisa de lo que se ofrece, lo que está en trámite y lo que no está incluido salvo pacto escrito.
+| Componente | Estado proyectado | Condición |
+|---|---|---|
+| Naturaleza del proyecto | Habilitación Urbana Progresiva | Sujeta a expediente y aprobación municipal |
+| Modalidad de licencia | [C/D según expediente] | Determina la autoridad competente |
+| Tipo de obras | Tipo F o equivalente técnico | No implica asfalto ni vereda completa desde inicio |
+| Vías | Apertura y afirmado/enripiado por etapas | No prometer asfalto salvo anexo expreso |
+| Aceras/veredas | Diseño o ejecución progresiva | Conforme a secciones viales aprobadas |
+| Agua | Conexión y distribución matriz | Sujeto a EPS o autoridad competente |
+| Saneamiento | Pozo séptico estándar (ver opción biodigestor en Cláusula 10.3) | Instalado por el proyecto |
+| Energía eléctrica | Pública y domiciliaria | Sujeta a empresa eléctrica |
+| Título individual | Futuro, no inmediato | Después de recepción e independización |
+| Entrega de posesión | Una vez delimitado el lote en campo, conforme al plano de lotización | Condicionada al cumplimiento de pagos (cláusula 9.2) |
+| Servicios provisionales | Facultativos, no comprometidos | De existir, se rigen por acuerdo independiente (cláusula 10.4) |

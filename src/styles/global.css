@@ -1149,9 +1149,9 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
 .fl-barra { height: 5px; border-radius: 4px; background: rgba(255,255,255,.08); margin-top: .35rem; overflow: hidden; }
 .fl-barra i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--ok)); }
 
-.fl-tabs { display: flex; gap: .2rem; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 1rem; overflow-x: auto; scrollbar-width: thin; }
+.fl-tabs { display: flex; gap: .2rem; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 1rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .fl-tab {
-  background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; border: none; border-bottom: 2px solid transparent;
   color: var(--muted); font-weight: 700; font-size: .85rem; padding: .6rem .9rem; white-space: nowrap;
   display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
 }
@@ -1176,7 +1176,16 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
 .fl-dl dt { color: var(--muted); font-size: .78rem; }
 .fl-dl dd { margin: 0; min-width: 0; }
 .fl-admin { margin-top: .8rem; padding-top: .7rem; border-top: 1px dashed rgba(255,255,255,.12); }
-.fl-tabla { max-height: none; padding: 0; }
+/* en la ficha la tabla crece entera y baja con la pagina: sin esto la rueda del
+   mouse se trababa encima de la tabla (el overscroll "contain" de .table-wrap) */
+.fl-tabla { max-height: none; padding: 0; overscroll-behavior: auto; }
+/* en pantalla ancha: pestañas y titulos de columna quedan fijos al bajar */
+@media (min-width: 821px) {
+  .fl-tabs { position: sticky; top: 0; z-index: 6; margin-left: -.4rem; margin-right: -.4rem; padding: 0 .4rem;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
+  .fl-tabla { overflow: visible; }
+  .fl-tabla thead th { top: 37px; }
+}
 .fl-tabla table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .fl-tabla td, .fl-tabla th { padding: .42rem .5rem; text-align: left; }
 .fl-fila-ini td { background: rgba(80,160,120,.07); }

@@ -1,9 +1,10 @@
 // Montos del cronograma de una venta nueva.
 //
-// Cada cuota se redondea HACIA ARRIBA a los 10 céntimos (777.33 -> 777.40) para
-// que el cliente deposite un monto limpio, y la ULTIMA cuota absorbe la
-// diferencia: sale un poco menor que las demas. La suma de todas sigue siendo
-// exactamente lo financiado (pedido del 24 sep 2026).
+// Cada cuota se redondea HACIA ARRIBA al sol entero (481.25 -> 482.00) para que
+// el cliente deposite un monto limpio, y la ULTIMA cuota absorbe la diferencia:
+// sale menor que las demas. La suma de todas sigue siendo exactamente lo
+// financiado. Asi viene en el contrato modelo de Neshuya (24 sep 2026):
+// S/ 23,100 en 48 cuotas = 47 de S/ 482.00 y la ultima de S/ 446.00.
 //
 // Solo se usa al CREAR un cronograma. Los cronogramas que ya existen salen de
 // contratos firmados y no se tocan.
@@ -15,8 +16,8 @@ export function repartirCuotas(financiado, meses) {
   if (!(n >= 1) || !(total > 0)) return []
   if (n === 1) return [total]
   const exacta = r2(total / n)
-  // el -1e-9 evita que 777.40 (guardado como 7774.000000001) suba a 777.50
-  let cuota = Math.ceil(exacta * 10 - 1e-9) / 10
+  // el -1e-9 evita que 700.00 (guardado como 700.0000000001) suba a 701
+  let cuota = Math.ceil(exacta - 1e-9)
   let ultima = r2(total - cuota * (n - 1))
   // cuotas muy chicas: el redondeo podria dejar la ultima en cero o negativa.
   // Ahi se vuelve al reparto exacto de siempre.

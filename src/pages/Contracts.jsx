@@ -8,7 +8,9 @@ import Logo from '../components/Logo'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+// "setiembre": asi se escribe en Peru y asi viene en los contratos modelo
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre']
+const fechaPe = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : '-'
 
 function letras(num) {
   const U = ['','UNO','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE','DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISEIS','DIECISIETE','DIECIOCHO','DIECINUEVE','VEINTE']
@@ -39,8 +41,26 @@ function letras(num) {
   return out.trim() + ' CON ' + String(cent).padStart(2, '0') + '/100'
 }
 
-const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_FECHA','INICIAL','FECHA_VENTA','SALDO','NUM_CUOTAS','CUOTA','MORA','PARTIDA','DIA','MES','ANIO']
-const BLOQUES = ['TABLA_LOTE','TABLA_CUENTA','FIRMAS','ANEXO_CRONOGRAMA','ANEXO_FICHA']
+const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_LETRAS','SEPARACION_FECHA','INICIAL','INICIAL_LETRAS','FECHA_VENTA','SALDO','SALDO_LETRAS','NUM_CUOTAS','CUOTA','CUOTAS_DETALLE','PRIMERA_CUOTA','PAGADO_FIRMA','ASESOR','MORA','PARTIDA','DIA','MES','ANIO']
+const BLOQUES = ['TABLA_LOTE','TABLA_CUENTA','TABLA_CRONOGRAMA','FIRMAS','ANEXO_CRONOGRAMA','ANEXO_FICHA','SALTO_PAGINA']
+
+// "47 cuotas mensuales de S/ 482.00 y 1 cuota de S/ 446.00", sacado del
+// cronograma REAL de la venta (no de una formula): si se corrigio una cuota,
+// el contrato dice lo mismo que el sistema.
+function detalleCuotas(inst) {
+  const grupos = []
+  for (const i of inst) {
+    const a = Math.round(Number(i.amount) * 100) / 100
+    const g = grupos[grupos.length - 1]
+    if (g && Math.abs(g.a - a) < 0.005) g.n++
+    else grupos.push({ a, n: 1 })
+  }
+  const partes = grupos.map((g, k) => `${g.n} ${g.n === 1 ? 'cuota' : 'cuotas'}${k === 0 && g.n > 1 ? ' mensuales' : ''} de ${soles(g.a)}`)
+  return partes.length > 1 ? partes.slice(0, -1).join(', ') + ' y ' + partes[partes.length - 1] : (partes[0] || '-')
+}
+
+// **negrita** dentro de una linea de la plantilla
+const conNegritas = t => t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (/^\*\*[^*]+\*\*$/.test(x) ? <b key={i}>{x.slice(2, -2)}</b> : x))
 
 const DEFAULT_TEMPLATE = `CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACION URBANA PROGRESIVA CON RESERVA DE PROPIEDAD
 
@@ -99,7 +119,7 @@ export default function Contracts() {
     if (!pidOp) return
     const [v, p] = await Promise.all([
       supabase.from('sales')
-        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
+        .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)')
         .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
         .order('sale_date', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
@@ -260,7 +280,12 @@ export default function Contracts() {
           <p><b>PLANTILLA DEL CONTRATO — {proyecto?.name}</b></p>
           <p className="muted small">
             Cada proyecto tiene su propia plantilla. Escribe el texto libremente y usa variables entre dobles llaves.
-            Lineas que empiezan con "CLAUSULA" o "ANEXO" salen como titulos.
+            Lineas que empiezan con "CLAUSULA" o "ANEXO" salen como titulos. <b>**texto**</b> sale en negrita.
+          </p>
+          <p className="muted small" style={{ textTransform: 'none' }}>
+            Tablas propias: cada fila en su linea, con las celdas separadas por <code>|</code> (ej. <code>| Banco | BBVA |</code>).
+            Una fila <code>|---|---|</code> debajo de la primera la vuelve encabezado.
+            Al inicio de una linea, <code>{'{{SI_SEPARACION}}'}</code> o <code>{'{{SI_CO_COMPRADOR}}'}</code> hace que salga solo si la venta tuvo separacion o co-comprador.
           </p>
           <p className="small">VARIABLES: {VARIABLES.map(v => <code key={v} className="tok">{'{{' + v + '}}'}</code>)}</p>
           <p className="small">BLOQUES (tablas automaticas, en linea propia): {BLOQUES.map(v => <code key={v} className="tok tok2">{'{{' + v + '}}'}</code>)}</p>
@@ -351,8 +376,8 @@ export default function Contracts() {
         const col = b.colindancias || {}
         const banco = data.accts.find(a => a.type === 'bank' && a.account_number) || data.accts[0] || {}
         const domicilio = [c.address, c.district, c.province, c.department].filter(Boolean).join(', ') || '____________________'
-        const compradores = `${c.full_name}, identificado/a con ${c.doc_type} N. ${c.doc_number}` +
-          (gen.co_client ? `, y ${gen.co_client.full_name}, identificado/a con ${gen.co_client.doc_type} N. ${gen.co_client.doc_number}` : '')
+        const persona = x => `${x.full_name}, de nacionalidad ${String(x.nationality || 'peruana').toLowerCase()}, identificado/a con ${x.doc_type || 'DNI'} N° ${x.doc_number}`
+        const compradores = persona(c) + (gen.co_client ? `, y ${persona(gen.co_client)}` : '')
 
         const hoyStr = new Date().toISOString().slice(0, 10)
         const problemas = []
@@ -369,10 +394,17 @@ export default function Contracts() {
           MZ: l.mz, LT: l.lt, AREA: l.area_m2,
           PRECIO: soles(gen.total_sale_price), PRECIO_LETRAS: letras(Number(gen.total_sale_price)),
           SEPARACION: data.sep ? soles(data.sep.amount) : 'S/ 0.00',
-          SEPARACION_FECHA: data.sep?.date || '-',
-          INICIAL: soles(gen.initial_amount_paid), FECHA_VENTA: gen.sale_date,
-          SALDO: soles(gen.financed_amount), NUM_CUOTAS: gen.installments_count,
-          CUOTA: soles(gen.monthly_amount), MORA: Number(p.late_penalty_rate || 1.5).toFixed(2),
+          SEPARACION_LETRAS: letras(Number(data.sep?.amount || 0)),
+          SEPARACION_FECHA: fechaPe(data.sep?.date),
+          INICIAL: soles(gen.initial_amount_paid), INICIAL_LETRAS: letras(Number(gen.initial_amount_paid || 0)),
+          FECHA_VENTA: fechaPe(gen.sale_date),
+          SALDO: soles(gen.financed_amount), SALDO_LETRAS: letras(Number(gen.financed_amount || 0)),
+          NUM_CUOTAS: gen.installments_count,
+          CUOTA: soles(gen.monthly_amount), CUOTAS_DETALLE: detalleCuotas(data.inst),
+          PRIMERA_CUOTA: fechaPe(data.inst[0]?.due_date),
+          PAGADO_FIRMA: soles(Number(data.sep?.amount || 0) + Number(gen.initial_amount_paid || 0)),
+          ASESOR: gen.advisor?.full_name || gen.advisor?.code || '__________',
+          MORA: Number(p.late_penalty_rate || 1.5).toFixed(2),
           PARTIDA: p.partida_number || '__________',
           DIA: hoy.getDate(), MES: MESES[hoy.getMonth()], ANIO: hoy.getFullYear(),
         }
@@ -382,11 +414,11 @@ export default function Contracts() {
           <table className="ctable" key="tl"><tbody>
             <tr><td><b>Manzana</b></td><td>{l.mz}</td></tr>
             <tr><td><b>Lote</b></td><td>{l.lt}</td></tr>
-            <tr><td><b>Area aproximada</b></td><td>{l.area_m2} m2</td></tr>
-            <tr><td><b>Frente</b></td><td>{med.frente || '-'} colindando con {col.frente || '-'}</td></tr>
-            <tr><td><b>Derecha</b></td><td>{med.derecha || '-'} colindando con {col.derecha || '-'}</td></tr>
-            <tr><td><b>Izquierda</b></td><td>{med.izquiera || med.izquierda || '-'} colindando con {col.izquiera || col.izquierda || '-'}</td></tr>
-            <tr><td><b>Fondo</b></td><td>{med.fondo || '-'} colindando con {col.fondo || '-'}</td></tr>
+            <tr><td><b>Área aproximada</b></td><td>{l.area_m2} m²</td></tr>
+            <tr><td><b>Frente</b></td><td>{med.frente || '-'} colinda con {col.frente || '-'}</td></tr>
+            <tr><td><b>Derecha</b></td><td>{med.derecha || '-'} colinda con {col.derecha || '-'}</td></tr>
+            <tr><td><b>Izquierda</b></td><td>{med.izquiera || med.izquierda || '-'} colinda con {col.izquiera || col.izquierda || '-'}</td></tr>
+            <tr><td><b>Fondo</b></td><td>{med.fondo || '-'} colinda con {col.fondo || '-'}</td></tr>
           </tbody></table>
         )
         const TablaCuenta = (
@@ -447,20 +479,71 @@ export default function Contracts() {
             </table>
           </div>
         )
-        const BLOQ = { TABLA_LOTE: TablaLote, TABLA_CUENTA: TablaCuenta, FIRMAS: Firmas, ANEXO_CRONOGRAMA: Anexo1, ANEXO_FICHA: Anexo2 }
+        // el cronograma como en los contratos modelo: cuota, numero, monto, dia, mes y año
+        const TablaCronograma = (
+          <table className="ctable" key="tcr">
+            <thead><tr><th>CUOTA</th><th>Nº</th><th>MONTO</th><th>DÍA</th><th>MES</th><th>AÑO</th></tr></thead>
+            <tbody>
+              {data.inst.map(i => {
+                const [y, m, d] = String(i.due_date || '').split('-')
+                return (
+                  <tr key={i.installment_number}>
+                    <td>Cuota</td><td>{i.installment_number}</td><td>{soles(i.amount)}</td>
+                    <td>{Number(d) || '-'}</td><td>{(MESES[Number(m) - 1] || '-').toUpperCase()}</td><td>{y || '-'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )
+        const SaltoPagina = <div key="sp" style={{ pageBreakBefore: 'always', breakBefore: 'page' }} />
+        const BLOQ = { TABLA_LOTE: TablaLote, TABLA_CUENTA: TablaCuenta, TABLA_CRONOGRAMA: TablaCronograma, FIRMAS: Firmas, ANEXO_CRONOGRAMA: Anexo1, ANEXO_FICHA: Anexo2, SALTO_PAGINA: SaltoPagina }
 
+        // Como se lee la plantilla (cada proyecto tiene la suya):
+        //   · {{BLOQUE}} solo en su linea        -> tabla automatica o salto de pagina
+        //   · lineas que empiezan con "|"        -> tabla escrita en la plantilla
+        //     (una fila "|---|---|" marca la de arriba como encabezado)
+        //   · {{SI_SEPARACION}} / {{SI_CO_COMPRADOR}} al inicio -> la linea sale
+        //     solo si la venta tuvo separacion / co-comprador
+        //   · CLAUSULA... / ANEXO...             -> titulo;  **texto** -> negrita
         const tpl = p.contract_template || DEFAULT_TEMPLATE
-        const lineas = tpl.split('\n')
+        const lineas = []
+        for (const ln of tpl.split('\n')) {
+          let t = ln.trim()
+          if (!t) continue
+          if (t.startsWith('{{SI_SEPARACION}}')) { if (!data.sep) continue; t = t.slice(17).trim() }
+          if (t.startsWith('{{SI_CO_COMPRADOR}}')) { if (!gen.co_client) continue; t = t.slice(19).trim() }
+          lineas.push(t)
+        }
+        const cuerpo = []
         let primera = true
-        const cuerpo = lineas.map((ln, i) => {
-          const t = ln.trim()
-          if (!t) return null
+        for (let i = 0; i < lineas.length; i++) {
+          const t = lineas[i]
+          if (t.startsWith('|')) {
+            const filas = []
+            while (i < lineas.length && lineas[i].startsWith('|')) filas.push(lineas[i++])
+            i--
+            const celdas = f => f.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+            const esSeparador = f => /^\|?\s*:?-{2,}/.test(f)
+            const conEncabezado = filas.length > 1 && esSeparador(filas[1])
+            const cuerpoT = filas.filter((f, k) => !(conEncabezado && k === 1)).map(celdas)
+            const [enc, ...resto] = conEncabezado ? cuerpoT : [null, ...cuerpoT]
+            cuerpo.push(
+              <table className="ctable" key={'t' + i}>
+                {enc && <thead><tr>{enc.map((c, k) => <th key={k}>{conNegritas(fill(c))}</th>)}</tr></thead>}
+                <tbody>{resto.map((f, r) => (
+                  <tr key={r}>{f.map((c, k) => <td key={k}>{k === 0 && !enc ? <b>{conNegritas(fill(c))}</b> : conNegritas(fill(c))}</td>)}</tr>
+                ))}</tbody>
+              </table>
+            )
+            continue
+          }
           const mb = t.match(/^\{\{(\w+)\}\}$/)
-          if (mb && BLOQ[mb[1]]) return <div key={i}>{BLOQ[mb[1]]}</div>
-          if (primera) { primera = false; return <h2 key={i} style={{ textAlign: 'center' }}>{fill(t)}</h2> }
-          if (/^(CLAUSULA|CLÁUSULA|ANEXO)/i.test(t)) return <h3 key={i}>{fill(t)}</h3>
-          return <p key={i}>{fill(t)}</p>
-        })
+          if (mb && BLOQ[mb[1]]) { cuerpo.push(<div key={i}>{BLOQ[mb[1]]}</div>); continue }
+          if (primera) { primera = false; cuerpo.push(<h2 key={i} style={{ textAlign: 'center' }}>{conNegritas(fill(t))}</h2>); continue }
+          if (/^(CLAUSULA|CLÁUSULA|ANEXO)/i.test(t)) { cuerpo.push(<h3 key={i}>{conNegritas(fill(t))}</h3>); continue }
+          cuerpo.push(<p key={i}>{conNegritas(fill(t))}</p>)
+        }
 
         return (
           <div className="modal-bg" onClick={() => { setGen(null); setEditDoc(false) }}>
