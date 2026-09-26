@@ -33,8 +33,8 @@
 | 2 | App `urbis-cobranza-agente` | tú ✅ hecho | no hay dónde generar el token |
 | 3 | Usuario del sistema | tú ✅ hecho | el token caduca en horas |
 | 4 | Workspace de Claude | tú | el agente usa la clave general |
-| 5 | Token y clave en el servidor | juntos | el agente no habla con Meta |
-| 6 | Las 5 plantillas (un comando) | juntos | los avisos no salen |
+| 5 | Token y clave en el servidor (script 11) | tú, un comando | el agente no habla con Meta |
+| 6 | Las 5 plantillas aprobadas (un comando) | juntos | los avisos no salen |
 | 7 | Webhook | tú + un comando | los clientes escriben y nadie contesta |
 | 8 | Prender, en orden | tú | — |
 
@@ -110,48 +110,31 @@ tu contraseña de Facebook.
 > Sirve para ver el gasto del agente aparte y poder anular esa clave sola, sin
 > tocar el asistente interno del bot.
 
-## Paso 5 (juntos) · Poner el token y la clave en el servidor
+## Paso 5 (tú, un comando) · Poner el token y la clave en el servidor
 
-Hazlo con la terminal del servidor abierta en otra ventana.
+Desde el 26 sep ya no se edita el `.env` a mano: lo hace el script 11.
 
-1. Entra y abre el archivo de claves:
-
-```bash
-ssh root@157.245.8.78
-```
-
-   y adentro:
-
-```bash
-cd /root/crm/agente && nano .env
-```
-
-2. Busca la línea `WA_PHONE_NUMBER_ID=1270870216103126` (es el número de **prueba**
-   de julio) y cámbiala por:
-
-```
-WA_PHONE_NUMBER_ID=1316329454896872
-```
-
-3. **Genera el token de Meta:** business.facebook.com → Usuarios del sistema →
+1. **Genera el token de Meta:** business.facebook.com → Usuarios del sistema →
    `agente-cobranza` → **Generar token** → app `urbis-cobranza-agente` → caducidad
    **Nunca** → permisos `whatsapp_business_messaging` y
    `whatsapp_business_management` → Generar → **Copiar**.
-4. Al final del `.env` escribe `WA_TOKEN=` y pega el token, sin espacios.
-5. **Genera la clave de Claude:** console.anthropic.com → workspace **Cobranza** →
-   **API keys → Create key** → nombre `agente-cobranza` → **Copiar**.
-6. En otra línea escribe `COBRANZA_ANTHROPIC_API_KEY=` y pega la clave.
-7. Guarda con **Ctrl+O**, **Enter**, **Ctrl+X**. Si ya había una línea `WA_TOKEN=`,
-   deja una sola.
-8. Reinicia y revisa TODO de una (no muestra ningún secreto):
+2. (Opcional) **Genera la clave de Claude:** console.anthropic.com → workspace
+   **Cobranza** → **API keys → Create key** → nombre `agente-cobranza` → **Copiar**.
+   Si todavía no existe el workspace, sáltala: el agente usa la clave general.
+3. En PowerShell:
 
 ```bash
-ssh root@157.245.8.78 "cd /root/crm/agente && pm2 restart cobranza-agente --update-env && node cobranza_meta.js listo"
+scp "C:\Claude\Projects\Sistema CRM\migracion\11_cobranza_token_meta.sh" root@157.245.8.78:/root/ ; ssh -t root@157.245.8.78 'bash /root/11_cobranza_token_meta.sh'
 ```
+
+   Te pide el token y la clave: pégalos ahí (**no se ven al pegar**, es normal).
+   El script cambia el número de prueba de julio por el real (`1316329454896872`),
+   guarda copia del `.env` anterior, reinicia solo el agente de cobranza y corre
+   `node cobranza_meta.js listo`.
 
    Eso imprime, en una sola pasada: el número y si está en coexistencia, el id de la
    cuenta de WhatsApp, si el webhook está suscrito, cómo van las plantillas y si la
-   clave de Claude responde. **Mándame esa salida entera.**
+   clave de Claude responde. **No muestra ningún secreto. Mándame esa salida entera.**
 
    > Los dos permisos del token importan: con `whatsapp_business_messaging` solo se
    > envían mensajes; el que deja **crear las plantillas** y suscribir el webhook es
@@ -159,7 +142,9 @@ ssh root@157.245.8.78 "cd /root/crm/agente && pm2 restart cobranza-agente --upda
 
 ## Paso 6 (juntos) · Las 5 plantillas, de un comando
 
-Los textos ya están escritos y aprobados en `PLANTILLAS_COBRANZA.md`. En vez de
+Los textos son los de la **propuesta aprobada el 26 sep** (`PLANTILLAS_COBRANZA.md`),
+con nombres `urbis_cobranza_*`. Sus nombres, los días y los plazos ya los dejó en
+el panel `sql/107_cobranza_propuesta_aprobada.sql`. En vez de
 copiarlos a mano en la web de Meta (cinco veces, y cualquier tilde de más los
 rechaza), los crea el servidor:
 
@@ -212,11 +197,13 @@ ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js suscribir"
 2. **Prender el agente** (Configuración → 🤖 Agente) en horario de oficina, con la
    secretaria mirando **Conversaciones**. Si un chat se complica, lo toma con
    **"Tomar yo"**.
-3. Escribir en Configuración los **nombres de las 5 plantillas** apenas Meta las
-   apruebe, revisar **desde cuántas cuotas** sale el aviso de resolución (viene en
-   4; el contrato considera grave 2 seguidas o 3 acumuladas), dejar marcado
-   **📅 Solo días hábiles**, poner un **tope diario bajo** el primer día (por
-   ejemplo 20) y recién ahí prender **📨 Avisos**.
+3. Cuando `node cobranza_meta.js plantillas` muestre las 5 en ✅: los nombres ya
+   están en Configuración (sql/107), igual que la escalera aprobada (3 días antes,
+   el día, 2 y 5 días después y cada 7; aviso por contrato desde 4 cuotas, cada
+   semana, con 7 días de plazo). Dejar marcado **📅 Solo días hábiles**, poner un
+   **tope diario bajo** el primer día (por ejemplo 20) y recién ahí prender
+   **📨 Avisos**. Antes, en 🧪 Probar agente, el comando `/aviso` muestra qué
+   mensaje le tocaría hoy a un cliente, con el texto exacto.
 
    > **Solo días hábiles** no es una preferencia: el art. 62 de la Ley 29571
    > considera cobranza abusiva escribirle al deudor sábados, domingos, feriados

@@ -107,7 +107,7 @@ async function plantillas() {
   const faltan = nuestras.filter(n => !lista.some(x => x.name === n))
   if (faltan.length) nota('FALTAN por crear: ' + faltan.join(', '))
   const aprobadas = lista.filter(x => nuestras.includes(x.name) && x.status === 'APPROVED')
-  if (aprobadas.length === nuestras.length) ok('Las 5 plantillas de cobranza estan aprobadas: ya se pueden escribir sus nombres en el panel.')
+  if (aprobadas.length === nuestras.length) ok('Las 5 plantillas de cobranza estan aprobadas. Sus nombres ya estan en el panel (sql/107): se pueden prender los avisos.')
   else if (!faltan.length) nota('Meta todavia esta revisando alguna. Suele tardar de minutos a 24 h.')
 }
 
@@ -135,7 +135,7 @@ function textos() {
   for (const p of PLANTILLAS) {
     titulo(p.nombre)
     console.log('Cuando sale: ' + p.cuando)
-    console.log('Categoria: Utilidad · Idioma: Español · sin encabezado, sin pie, sin botones')
+    console.log('Categoria: Utilidad · Idioma: Español · sin encabezado, sin pie, sin botones (la linea en cursiva va dentro del cuerpo)')
     console.log('\nCUERPO (pegar tal cual):\n' + p.cuerpo)
     console.log('\nEJEMPLOS: ' + p.ejemplo.map((e, i) => '{{' + (i + 1) + '}} ' + e).join(' · '))
     console.log('ASI LE LLEGA AL CLIENTE:\n' + comoSeVe(p))

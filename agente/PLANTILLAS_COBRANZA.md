@@ -1,117 +1,132 @@
-# Los avisos de cobranza — para aprobar
+# Los avisos de cobranza — APROBADOS (26 sep 2026)
 
-> Esto es lo ÚNICO que el sistema le manda solo a un cliente. Todo lo demás es
-> respuesta a algo que el cliente escribió primero.
+> Propuesta aprobada por el dueño. Número oficial de cobranzas: **+51 986 598 614**.
 >
-> Nada sale hasta que alguien prenda **📨 Avisos** en el panel. Los textos ya
-> están en el sistema (`plantillas_cobranza.js`): si se cambia una palabra hay
-> que volver a pedirle permiso a Meta, y eso tarda hasta 24 h.
+> Esto es lo ÚNICO que el sistema le manda solo a un cliente. Todo lo demás es
+> respuesta a algo que el cliente escribió primero. Nada sale hasta que alguien
+> prenda **📨 Avisos** en el panel. Los textos viven en `plantillas_cobranza.js`:
+> si se cambia una palabra hay que volver a pedirle permiso a Meta (hasta 24 h) y
+> crear la plantilla con **otro nombre**.
 
 ## La escalera
 
-Un cliente recibe **un solo mensaje por vuelta**, nunca dos el mismo día.
+Los mensajes suben de tono según cuántas cuotas debe el cliente. **Un solo
+mensaje por día**, y entre dos avisos de deuda vencida pasan al menos 2 días.
 
-| Cuándo | Qué recibe | Tono |
+| # | Plantilla | Cuándo |
 |---|---|---|
-| 3 días antes de vencer | `urbis_cuota_recordatorio` | recordatorio amable |
-| el día que vence | `urbis_cuota_vence_hoy` | recordatorio amable |
-| 2 y 5 días después | `urbis_cuota_vencida` | "si ya pagó, mándenos el voucher" |
-| después, cada 7 días | `urbis_cuota_vencida` | el mismo |
-| **desde 4 cuotas vencidas** | **`urbis_cuotas_atrasadas`** | **menciona la resolución del contrato** |
-| quedó en pagar una fecha | `urbis_promesa_pago` | recordatorio de lo acordado |
+| 1 | `urbis_cobranza_recordatorio` | 3 días antes del vencimiento |
+| 2 | `urbis_cobranza_vence_hoy` | el día del vencimiento |
+| 3 | `urbis_cobranza_pago_vencido` | 1 a 3 cuotas vencidas: a los 2 y 5 días de la más antigua, luego cada 7 días |
+| 4 | `urbis_cobranza_aviso_contrato` | 4 o más cuotas vencidas: una vez por semana (reemplaza al 3) |
+| 5 | `urbis_cobranza_promesa` | 1 día antes de la fecha que el cliente prometió |
 
-Los días y el número de cuotas se cambian en el panel (Cobranza IA →
-Configuración) sin tocar los textos ni volver a pedirle permiso a Meta.
+**Días hábiles, 9:00 a.m.** Nunca sábados, domingos ni feriados, ni después de
+las 8 p.m. (Ley 29571, art. 62). Lo que caía en uno de esos días **no se pierde**:
+- el pago vencido y el aviso por contrato salen el siguiente día hábil;
+- el recordatorio y el de promesa salen el día hábil **anterior**;
+- si vence un día no hábil, no sale "vence hoy" (ya salió el recordatorio).
 
-**Quien queda fuera de la lista ese día:** el que ya prometió una fecha, el que
-ya mandó su voucher y espera validación, y el lote con la cobranza automática
-pausada.
+**Quien queda fuera ese día:** el que tiene una promesa de pago vigente, el que
+mandó su voucher y espera validación, y el lote con la cobranza automática
+**pausada** en su ficha (Ficha del lote → Cobranza automática → pausar), por
+ejemplo mientras dure un acuerdo de pago. Si ese cliente escribe, el agente igual
+le responde.
 
-**Cuándo NO sale nada, aunque toque:** sábados, domingos, feriados y después de
-las 8 p.m. No es una preferencia nuestra: el art. 62 de la Ley 29571 considera
-**cobranza abusiva** comunicarse con el deudor esos días y a esas horas. Lo que
-le tocaba a un cliente el sábado le llega el lunes.
+**Plazo para comunicarse: 7 días.** Quien recibió el aviso por contrato y no
+escribe en 7 días aparece en el resumen diario por Telegram de la secretaria,
+para evaluar la carta notarial. Sigue apareciendo cada semana mientras no conteste.
 
-> ⚠️ **Lo que hay que decidir: desde cuántas cuotas.** El sistema viene en **4**.
-> El contrato (cláusula 5.1) considera incumplimiento grave **2 cuotas seguidas
-> o 3 acumuladas**, así que en 4 el aviso llega *después* de que el
-> incumplimiento ya existe. Se puede bajar a 3 en el panel, en un segundo.
+Días, cuotas y plazos se cambian en el panel (Cobranza IA → Configuración) sin
+tocar los textos ni volver a pedirle permiso a Meta.
 
 ## Los cinco textos
 
-Lo que está entre `{{ }}` lo llena el sistema con los datos reales del cliente.
+Lo que está entre `{{ }}` lo llena el sistema con los datos reales. La primera
+línea va en cursiva.
 
-### 1 · `urbis_cuota_recordatorio` — faltan días
+### 1 · `urbis_cobranza_recordatorio`
 
-Hola **{{1}}**, le saludamos de Urbis Group. Le recordamos que su cuota N° **{{2}}**
-del lote **{{3}}** del proyecto **{{4}}** vence el **{{5}}** por S/ **{{6}}**. Si ya
-realizó el pago, envíe la foto de su voucher por este chat para registrarlo.
-Gracias.
+> _Urbis Group · Cobranzas_
+> Estimado(a) Juan: le recordamos que su cuota N° 12 del lote Mz B Lt 7 del
+> proyecto Las Praderas de Cashibo vence el 30/09/2026, por S/ 350.00. Le pedimos
+> por favor, realizar su pago a tiempo. Si ya pagó, envíe la foto de su voucher
+> por este chat para registrarlo, gracias.
 
-> Hola Juan, le saludamos de Urbis Group. Le recordamos que su cuota N° 12 del
-> lote Mz B Lt 7 del proyecto Las Praderas de Cashibo vence el 30/09/2026 por
-> S/ 350.00. Si ya realizó el pago, envíe la foto de su voucher por este chat
-> para registrarlo. Gracias.
+Variables: nombre · N° de cuota · lote · proyecto · vencimiento · monto
 
-### 2 · `urbis_cuota_vence_hoy` — vence hoy
+### 2 · `urbis_cobranza_vence_hoy`
 
-Hola **{{1}}**, le saludamos de Urbis Group. Hoy vence su cuota N° **{{2}}** del lote
-**{{3}}** del proyecto **{{4}}** por S/ **{{5}}**. Cuando realice el pago, envíe la foto
-de su voucher por este chat y lo registraremos. Gracias.
+> _Urbis Group · Cobranzas_
+> Estimado(a) Juan: hoy vence su cuota N° 12 del lote Mz B Lt 7 del proyecto Las
+> Praderas de Cashibo, por S/ 350.00. Por favor realizar su pago hoy para mantener
+> su cuenta al día. Si ya pagó, envíe la foto de su voucher por este chat, gracias.
 
-> Hola Juan, le saludamos de Urbis Group. Hoy vence su cuota N° 12 del lote
-> Mz B Lt 7 del proyecto Las Praderas de Cashibo por S/ 350.00. Cuando realice
-> el pago, envíe la foto de su voucher por este chat y lo registraremos. Gracias.
+Variables: nombre · N° de cuota · lote · proyecto · monto
 
-### 3 · `urbis_cuota_vencida` — ya venció
+### 3 · `urbis_cobranza_pago_vencido`
 
-Hola **{{1}}**, le saludamos de Urbis Group. Su cuota N° **{{2}}** del lote **{{3}}** del
-proyecto **{{4}}** venció el **{{5}}** y tiene un saldo pendiente de S/ **{{6}}**. Si ya
-pagó, envíenos el voucher por este chat; si necesita coordinar una fecha,
-escríbanos por aquí. Gracias.
+> _Urbis Group · Pago vencido_
+> Estimado(a) Juan: su lote Mz B Lt 7 del proyecto Las Praderas de Cashibo tiene
+> un saldo vencido de S/ 700.00, pendiente desde el 30/08/2026. Le solicitamos
+> por favor, regularizar su pago a la brevedad. Si ya pagó, envíe su voucher por
+> este chat. Si tiene algún inconveniente, escríbanos por aquí para coordinar una
+> fecha de pago, gracias.
 
-> Hola Juan, le saludamos de Urbis Group. Su cuota N° 12 del lote Mz B Lt 7 del
-> proyecto Las Praderas de Cashibo venció el 30/08/2026 y tiene un saldo
-> pendiente de S/ 350.00. Si ya pagó, envíenos el voucher por este chat; si
-> necesita coordinar una fecha, escríbanos por aquí. Gracias.
+Variables: nombre · lote · proyecto · saldo vencido (todas las cuotas vencidas) ·
+desde (la cuota vencida más antigua)
 
-### 4 · `urbis_cuotas_atrasadas` — varias cuotas acumuladas
+### 4 · `urbis_cobranza_aviso_contrato`
 
-Hola **{{1}}**, le saludamos de Urbis Group. Su contrato registra **{{2}}** cuotas
-vencidas del lote **{{3}}** del proyecto **{{4}}**, con un saldo total de S/ **{{5}}**. La
-acumulación de cuotas impagas es causal de resolución del contrato. Antes de
-llegar a eso queremos coordinar con usted: responda por este chat para acordar
-una fecha de pago o enviarnos su voucher. Gracias.
+> _Aviso importante sobre su contrato_
+> Estimado(a) Juan: su lote Mz B Lt 7 del proyecto Las Praderas de Cashibo
+> registra 5 cuotas vencidas, con un saldo vencido de S/ 1,750.00. Según lo
+> establecido en su contrato, la falta de pago de las cuotas es causal de
+> resolución del contrato.
+> Para regularizar su situación o acordar un plan de pago, comuníquese por favor
+> con nosotros por este chat el día de hoy. Si ya realizó pagos que no figuran,
+> envíenos sus vouchers, gracias.
 
-> Hola Juan, le saludamos de Urbis Group. Su contrato registra 4 cuotas vencidas
-> del lote Mz B Lt 7 del proyecto Las Praderas de Cashibo, con un saldo total de
-> S/ 1,400.00. La acumulación de cuotas impagas es causal de resolución del
-> contrato. Antes de llegar a eso queremos coordinar con usted: responda por
-> este chat para acordar una fecha de pago o enviarnos su voucher. Gracias.
+Variables: nombre · lote · proyecto · cuántas cuotas vencidas · saldo vencido
 
-**Por qué está escrito así:** avisa sin amenazar y sin dar por resuelto nada. No
-anuncia expropiación, no pone plazo perentorio y no habla de penalidades: para
-eso está la carta notarial, que es otra cosa y la firma una persona. Este
-mensaje solo dice dónde está parado el cliente e invita a conversar.
+### 5 · `urbis_cobranza_promesa`
 
-### 5 · `urbis_promesa_pago` — lo que el cliente prometió
+> _Urbis Group · Cobranzas_
+> Estimado(a) Juan: le recordamos que para el 15/10/2026 se comprometió a pagar
+> S/ 350.00 del lote Mz B Lt 7 del proyecto Las Praderas de Cashibo. Cuando
+> realice el pago, envíe la foto de su voucher por este chat, gracias.
+> Si el pago no se registra en la fecha acordada, su cuenta seguirá el proceso de
+> cobranza.
 
-Hola **{{1}}**, le saludamos de Urbis Group. Le recordamos que para el **{{2}}** quedó
-en realizar su pago de S/ **{{3}}** del lote **{{4}}** del proyecto **{{5}}**. Cuando lo
-realice, envíe la foto de su voucher por este chat. Gracias.
+Variables: nombre · fecha prometida · monto · lote · proyecto
 
-> Hola Juan, le saludamos de Urbis Group. Le recordamos que para el 15/10/2026
-> quedó en realizar su pago de S/ 350.00 del lote Mz B Lt 7 del proyecto Las
-> Praderas de Cashibo. Cuando lo realice, envíe la foto de su voucher por este
-> chat. Gracias.
+## Cuando el cliente responde
+
+El agente con IA le dice cuánto debe, recibe vouchers y anota promesas de pago.
+Descuentos, refinanciamiento, planes de pago en partes, dudas del contrato o
+temas legales pasan directo a la secretaria. **El agente no negocia** y nunca
+habla de demandas, abogados, embargos, centrales de riesgo ni de perder lo pagado.
+
+## Límites
+
+- **Meta revisa cada plantilla** y rechaza las que amenazan con acciones legales.
+  El aviso 4 solo informa lo que dice el contrato y pide comunicarse. Si Meta lo
+  rechaza igual, se sube una versión más neutra con otro nombre.
+- **Si muchos clientes bloquean o reportan el número, Meta lo limita.** Es el mismo
+  número que usa la secretaria en su celular.
+- **Tope de 250 conversaciones iniciadas por día** mientras el negocio no esté
+  verificado en Meta: el tope diario del panel va por debajo.
+- **El WhatsApp no reemplaza la carta notarial:** la resolución formal se notifica
+  según el procedimiento del contrato. El modelo de contrato considera
+  incumplimiento grave 2 cuotas consecutivas o 3 acumuladas.
 
 ## Lo que cuesta
 
-Meta cobra por mensaje de estos (categoría *Utilidad*, centavos de dólar). Lo
-que el cliente conteste y lo que el agente le responda dentro de las 24 h
-siguientes **no se cobra**. Por eso conviene que el mensaje invite a responder:
-la conversación que abre el cliente sale gratis.
+Meta cobra cada aviso (categoría *Utilidad*, centavos de dólar). Lo que el
+cliente conteste y lo que el agente le responda dentro de las 24 h siguientes
+**no se cobra**: por eso todos los avisos invitan a responder por el chat.
 
 ---
-*Los textos se cambian en `crm/agente/plantillas_cobranza.js`, y se vuelven a
-crear en Meta con `node cobranza_meta.js crear_plantillas`.*
+*Los textos se cambian en `crm/agente/plantillas_cobranza.js` y se crean en Meta
+con `node cobranza_meta.js crear_plantillas`. Los nombres y los días los carga
+`sql/107_cobranza_propuesta_aprobada.sql`.*

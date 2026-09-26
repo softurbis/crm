@@ -673,6 +673,10 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
         avisos_dias_habiles: !!f.avisos_dias_habiles,
         feriados: [...new Set(String(f.feriados || '').split(/[,;\s]+/).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort(),
       } : {}),
+      ...('plazo_contrato_dias' in cfg ? {                                       // sql/107
+        repetir_contrato_dias: Math.min(30, Math.max(1, Number(f.repetir_contrato_dias) || 7)),
+        plazo_contrato_dias: Math.min(60, Math.max(1, Number(f.plazo_contrato_dias) || 7)),
+      } : {}),
       ...('numero_cobranza' in cfg ? { numero_cobranza: String(f.numero_cobranza || '').replace(/\D/g, '') || '51986598614' } : {}),   // sql/77
     })
   }
@@ -701,9 +705,9 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
       <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardarForm}>
         <p><b>Avisos y promesas</b></p>
         <div className="form-grid">
-          <label>Días ANTES de vencer (0 = el mismo día)<input value={f.dias_antes} onChange={campo('dias_antes')} disabled={!puede} placeholder="3, 0" /></label>
-          <label>Días DESPUÉS de vencida<input value={f.dias_despues} onChange={campo('dias_despues')} disabled={!puede} placeholder="2, 5" /></label>
-          <label>Después, repetir cada (días)<input type="number" min="1" value={f.repetir_cada} onChange={campo('repetir_cada')} disabled={!puede} /></label>
+          <label>Recordatorio: días ANTES de vencer (0 = "vence hoy")<input value={f.dias_antes} onChange={campo('dias_antes')} disabled={!puede} placeholder="3, 0" /></label>
+          <label>Pago vencido: días DESPUÉS de la cuota más antigua<input value={f.dias_despues} onChange={campo('dias_despues')} disabled={!puede} placeholder="2, 5" /></label>
+          <label>Pago vencido: después, repetir cada (días)<input type="number" min="1" value={f.repetir_cada} onChange={campo('repetir_cada')} disabled={!puede} /></label>
           <label>Hora de envío (Lima)<input type="time" value={f.hora_avisos} onChange={campo('hora_avisos')} disabled={!puede} /></label>
           <label>Tope de avisos por día<input type="number" min="0" value={f.tope_diario} onChange={campo('tope_diario')} disabled={!puede} /></label>
           <label>Promesa: recordar N días antes<input type="number" min="0" max="15" value={f.promesa_avisar_dias} onChange={campo('promesa_avisar_dias')} disabled={!puede} /></label>
@@ -728,18 +732,23 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
 
         <p><b>Nombres de las plantillas aprobadas en Meta</b> <span className="muted small">(exactos; vacío = ese aviso no sale)</span></p>
         <div className="form-grid">
-          <label>Recordatorio antes de vencer<input value={f.plantilla_recordatorio || ''} onChange={campo('plantilla_recordatorio')} disabled={!puede} placeholder="urbis_cuota_recordatorio" style={{ textTransform: 'none' }} /></label>
-          <label>Vence hoy<input value={f.plantilla_vence_hoy || ''} onChange={campo('plantilla_vence_hoy')} disabled={!puede} placeholder="urbis_cuota_vence_hoy" style={{ textTransform: 'none' }} /></label>
-          <label>Cuota vencida<input value={f.plantilla_vencida || ''} onChange={campo('plantilla_vencida')} disabled={!puede} placeholder="urbis_cuota_vencida" style={{ textTransform: 'none' }} /></label>
-          <label>Recordatorio de promesa<input value={f.plantilla_promesa || ''} onChange={campo('plantilla_promesa')} disabled={!puede} placeholder="urbis_promesa_pago" style={{ textTransform: 'none' }} /></label>
+          <label>1 · Recordatorio<input value={f.plantilla_recordatorio || ''} onChange={campo('plantilla_recordatorio')} disabled={!puede} placeholder="urbis_cobranza_recordatorio" style={{ textTransform: 'none' }} /></label>
+          <label>2 · Vence hoy<input value={f.plantilla_vence_hoy || ''} onChange={campo('plantilla_vence_hoy')} disabled={!puede} placeholder="urbis_cobranza_vence_hoy" style={{ textTransform: 'none' }} /></label>
+          <label>3 · Pago vencido<input value={f.plantilla_vencida || ''} onChange={campo('plantilla_vencida')} disabled={!puede} placeholder="urbis_cobranza_pago_vencido" style={{ textTransform: 'none' }} /></label>
           {'grave_desde_cuotas' in cfg && <>
-            <label>Varias cuotas vencidas <span className="muted small">(reemplaza al de arriba)</span><input value={f.plantilla_vencida_grave || ''} onChange={campo('plantilla_vencida_grave')} disabled={!puede} placeholder="urbis_cuotas_atrasadas" style={{ textTransform: 'none' }} /></label>
+            <label>4 · Aviso por contrato <span className="muted small">(reemplaza al 3)</span><input value={f.plantilla_vencida_grave || ''} onChange={campo('plantilla_vencida_grave')} disabled={!puede} placeholder="urbis_cobranza_aviso_contrato" style={{ textTransform: 'none' }} /></label>
             <label>…desde cuántas cuotas vencidas<input type="number" min="2" max="12" value={f.grave_desde_cuotas ?? 4} onChange={campo('grave_desde_cuotas')} disabled={!puede} /></label>
           </>}
+          {'plazo_contrato_dias' in cfg && <>
+            <label>…se repite cada (días)<input type="number" min="1" max="30" value={f.repetir_contrato_dias ?? 7} onChange={campo('repetir_contrato_dias')} disabled={!puede} /></label>
+            <label>…plazo para comunicarse (días)<input type="number" min="1" max="60" value={f.plazo_contrato_dias ?? 7} onChange={campo('plazo_contrato_dias')} disabled={!puede} /></label>
+          </>}
+          <label>5 · Promesa de pago<input value={f.plantilla_promesa || ''} onChange={campo('plantilla_promesa')} disabled={!puede} placeholder="urbis_cobranza_promesa" style={{ textTransform: 'none' }} /></label>
         </div>
         {'grave_desde_cuotas' in cfg && <p className="small muted" style={{ textTransform: 'none' }}>
-          Al llegar a esa cantidad de cuotas vencidas, el cliente recibe el aviso que menciona la <b>resolución del contrato</b> en vez del recordatorio normal (nunca los dos).
-          El contrato considera incumplimiento grave <b>2 cuotas seguidas o 3 acumuladas</b>: por encima de 4 el aviso llega tarde.
+          Al llegar a esa cantidad de cuotas vencidas, el cliente recibe el aviso que menciona la <b>resolución del contrato</b> en vez del de pago vencido (nunca los dos).
+          Si pasa el plazo para comunicarse y no escribió, aparece en el resumen diario por Telegram para evaluar la carta notarial: el WhatsApp no reemplaza a la carta.
+          El contrato considera incumplimiento grave <b>2 cuotas seguidas o 3 acumuladas</b>.
         </p>}
 
         <label style={{ marginTop: 10, display: 'block' }}>Indicaciones para el agente <span className="muted small">(horario de atención, cómo se llama la secretaria, avisos del mes…)</span>

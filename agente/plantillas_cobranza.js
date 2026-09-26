@@ -14,55 +14,61 @@
 //     MARKETING, el mensaje se cobra distinto y pide consentimiento.
 //   · el cuerpo no empieza ni termina en variable, y no hay dos variables
 //     pegadas: con eso Meta rechaza la plantilla.
-//   · sin encabezado, sin pie y sin botones.
+//   · sin encabezado, sin pie y sin botones: la primera linea en cursiva
+//     (_Urbis Group · Cobranzas_) va DENTRO del cuerpo, como en la propuesta.
+//
+// 26 sep 2026: textos de la PROPUESTA APROBADA por el dueno. Nombres nuevos
+// (urbis_cobranza_*): cambiaron el texto y el orden de las variables, y Meta no
+// deja reusar el nombre de una plantilla borrada durante semanas.
 // ============================================================================
 
 const PLANTILLAS = [
   {
     campo: 'plantilla_recordatorio',
-    nombre: 'urbis_cuota_recordatorio',
-    cuando: 'Faltan dias para que venza la cuota (Configuracion → dias ANTES de vencer).',
+    nombre: 'urbis_cobranza_recordatorio',
+    cuando: '3 días antes del vencimiento (si cae en sábado, domingo o feriado, sale el día hábil anterior).',
     variables: ['nombre', 'N° de cuota', 'lote', 'proyecto', 'fecha de vencimiento', 'monto'],
-    cuerpo: 'Hola {{1}}, le saludamos de Urbis Group. Le recordamos que su cuota N° {{2}} del lote {{3}} del proyecto {{4}} vence el {{5}} por S/ {{6}}. Si ya realizó el pago, envíe la foto de su voucher por este chat para registrarlo. Gracias.',
+    cuerpo: '_Urbis Group · Cobranzas_\nEstimado(a) {{1}}: le recordamos que su cuota N° {{2}} del lote {{3}} del proyecto {{4}} vence el {{5}}, por S/ {{6}}. Le pedimos por favor, realizar su pago a tiempo. Si ya pagó, envíe la foto de su voucher por este chat para registrarlo, gracias.',
     ejemplo: ['Juan', '12', 'Mz B Lt 7', 'Las Praderas de Cashibo', '30/09/2026', '350.00'],
   },
   {
     campo: 'plantilla_vence_hoy',
-    nombre: 'urbis_cuota_vence_hoy',
-    cuando: 'El mismo dia del vencimiento (dias ANTES incluye el 0).',
+    nombre: 'urbis_cobranza_vence_hoy',
+    cuando: 'El día del vencimiento (si cae en sábado, domingo o feriado no sale: ya salió el recordatorio).',
     variables: ['nombre', 'N° de cuota', 'lote', 'proyecto', 'monto'],
-    cuerpo: 'Hola {{1}}, le saludamos de Urbis Group. Hoy vence su cuota N° {{2}} del lote {{3}} del proyecto {{4}} por S/ {{5}}. Cuando realice el pago, envíe la foto de su voucher por este chat y lo registraremos. Gracias.',
+    cuerpo: '_Urbis Group · Cobranzas_\nEstimado(a) {{1}}: hoy vence su cuota N° {{2}} del lote {{3}} del proyecto {{4}}, por S/ {{5}}. Por favor realizar su pago hoy para mantener su cuenta al día. Si ya pagó, envíe la foto de su voucher por este chat, gracias.',
     ejemplo: ['Juan', '12', 'Mz B Lt 7', 'Las Praderas de Cashibo', '350.00'],
   },
   {
     campo: 'plantilla_vencida',
-    nombre: 'urbis_cuota_vencida',
-    cuando: 'La cuota ya vencio (dias DESPUES, y luego cada N dias) mientras sean pocas cuotas.',
-    variables: ['nombre', 'N° de cuota', 'lote', 'proyecto', 'fecha en que vencio', 'monto pendiente'],
-    cuerpo: 'Hola {{1}}, le saludamos de Urbis Group. Su cuota N° {{2}} del lote {{3}} del proyecto {{4}} venció el {{5}} y tiene un saldo pendiente de S/ {{6}}. Si ya pagó, envíenos el voucher por este chat; si necesita coordinar una fecha, escríbanos por aquí. Gracias.',
-    ejemplo: ['Juan', '12', 'Mz B Lt 7', 'Las Praderas de Cashibo', '30/08/2026', '350.00'],
+    nombre: 'urbis_cobranza_pago_vencido',
+    cuando: 'De 1 a 3 cuotas vencidas: a los 2 y 5 días de vencida la más antigua, luego cada 7 días.',
+    variables: ['nombre', 'lote', 'proyecto', 'saldo vencido', 'pendiente desde'],
+    cuerpo: '_Urbis Group · Pago vencido_\nEstimado(a) {{1}}: su lote {{2}} del proyecto {{3}} tiene un saldo vencido de S/ {{4}}, pendiente desde el {{5}}. Le solicitamos por favor, regularizar su pago a la brevedad. Si ya pagó, envíe su voucher por este chat. Si tiene algún inconveniente, escríbanos por aquí para coordinar una fecha de pago, gracias.',
+    ejemplo: ['Juan', 'Mz B Lt 7', 'Las Praderas de Cashibo', '700.00', '30/08/2026'],
   },
   {
     campo: 'plantilla_vencida_grave',
-    nombre: 'urbis_cuotas_atrasadas',
-    cuando: 'Desde N cuotas vencidas acumuladas (Configuracion → "aviso grave desde"). Reemplaza al anterior, no se suma.',
-    variables: ['nombre', 'cuántas cuotas vencidas', 'lote', 'proyecto', 'total vencido'],
-    cuerpo: 'Hola {{1}}, le saludamos de Urbis Group. Su contrato registra {{2}} cuotas vencidas del lote {{3}} del proyecto {{4}}, con un saldo total de S/ {{5}}. La acumulación de cuotas impagas es causal de resolución del contrato. Antes de llegar a eso queremos coordinar con usted: responda por este chat para acordar una fecha de pago o enviarnos su voucher. Gracias.',
-    ejemplo: ['Juan', '4', 'Mz B Lt 7', 'Las Praderas de Cashibo', '1,400.00'],
+    nombre: 'urbis_cobranza_aviso_contrato',
+    cuando: 'Desde 4 cuotas vencidas, una vez por semana. Reemplaza al de pago vencido, no se suma.',
+    variables: ['nombre', 'lote', 'proyecto', 'cuántas cuotas vencidas', 'saldo vencido'],
+    cuerpo: '_Aviso importante sobre su contrato_\nEstimado(a) {{1}}: su lote {{2}} del proyecto {{3}} registra {{4}} cuotas vencidas, con un saldo vencido de S/ {{5}}. Según lo establecido en su contrato, la falta de pago de las cuotas es causal de resolución del contrato.\nPara regularizar su situación o acordar un plan de pago, comuníquese por favor con nosotros por este chat el día de hoy. Si ya realizó pagos que no figuran, envíenos sus vouchers, gracias.',
+    ejemplo: ['Juan', 'Mz B Lt 7', 'Las Praderas de Cashibo', '5', '1,750.00'],
   },
   {
     campo: 'plantilla_promesa',
-    nombre: 'urbis_promesa_pago',
-    cuando: 'El cliente quedo en pagar una fecha y esa fecha se acerca.',
+    nombre: 'urbis_cobranza_promesa',
+    cuando: '1 día antes de la fecha que el cliente prometió (si cae en sábado, domingo o feriado, el día hábil anterior).',
     variables: ['nombre', 'fecha prometida', 'monto', 'lote', 'proyecto'],
-    cuerpo: 'Hola {{1}}, le saludamos de Urbis Group. Le recordamos que para el {{2}} quedó en realizar su pago de S/ {{3}} del lote {{4}} del proyecto {{5}}. Cuando lo realice, envíe la foto de su voucher por este chat. Gracias.',
+    cuerpo: '_Urbis Group · Cobranzas_\nEstimado(a) {{1}}: le recordamos que para el {{2}} se comprometió a pagar S/ {{3}} del lote {{4}} del proyecto {{5}}. Cuando realice el pago, envíe la foto de su voucher por este chat, gracias.\nSi el pago no se registra en la fecha acordada, su cuenta seguirá el proceso de cobranza.',
     ejemplo: ['Juan', '15/10/2026', '350.00', 'Mz B Lt 7', 'Las Praderas de Cashibo'],
   },
 ]
 
-// Cuerpo con los ejemplos puestos: asi se ve el mensaje que le llega al cliente.
-function comoSeVe(p) {
-  return p.cuerpo.replace(/\{\{(\d+)\}\}/g, (_, n) => p.ejemplo[Number(n) - 1] ?? `{{${n}}}`)
+// El cuerpo con los valores puestos: asi le llega al cliente. Sin valores, los
+// del ejemplo.
+function comoSeVe(p, valores = p.ejemplo) {
+  return p.cuerpo.replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? `{{${n}}}`)
 }
 
 // Lo que Meta espera en POST /{WABA_ID}/message_templates

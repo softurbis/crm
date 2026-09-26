@@ -915,7 +915,9 @@ export default function FichaLote() {
 
   async function toggleCobranza() {
     const nuevoVal = detail.sale.auto_cobranza === false
-    if (!confirm(nuevoVal ? 'Reactivar la cobranza automatica para esta venta?' : 'Desactivar la cobranza automatica? El agente dejara de escribirle y pasa a gestion humana.')) return
+    if (!confirm(nuevoVal
+      ? 'Reactivar los avisos automaticos de cobranza para esta venta?'
+      : 'Pausar los avisos automaticos de cobranza para esta venta (por ejemplo, mientras dure un acuerdo de pago)?\n\nNo le llega ningun recordatorio ni aviso de pago vencido hasta que se reactive. Si el cliente escribe al numero de cobranzas, el agente igual le responde.')) return
     const { error } = await supabase.from('sales').update({ auto_cobranza: nuevoVal }).eq('id', detail.sale.id)
     if (error) { setEmsg('ERROR: ' + error.message); return }
     setEmsg(nuevoVal ? 'COBRANZA AUTOMATICA REACTIVADA' : 'COBRANZA AUTOMATICA DESACTIVADA')
@@ -1263,8 +1265,8 @@ export default function FichaLote() {
                 <dt>Cobranza automática</dt><dd>
                   {sale.auto_cobranza !== false
                     ? <span className="st-chip st-ok">ACTIVA</span>
-                    : <span className="st-chip st-per">DESACTIVADA (gestión humana)</span>}
-                  {puedeEditar && <> <button className="link-btn" onClick={toggleCobranza}>{sale.auto_cobranza === false ? 'reactivar' : 'desactivar'}</button></>}
+                    : <span className="st-chip st-per">PAUSADA (acuerdo de pago / gestión humana)</span>}
+                  {puedeEditar && <> <button className="link-btn" onClick={toggleCobranza}>{sale.auto_cobranza === false ? 'reactivar' : 'pausar'}</button></>}
                 </dd>
               </dl>
               {detail.grupo && <p className="hint small">&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
