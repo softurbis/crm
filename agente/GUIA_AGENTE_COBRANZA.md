@@ -6,6 +6,28 @@
 > ⚠️ **Regla de oro:** el token de Meta, la clave de Claude y los datos de la tarjeta
 > **nunca** van por el chat. Van directo al servidor o a Meta.
 
+## ⚠ 26 sep 2026 — cambio de plan: COEXISTENCIA (celular + API)
+
+Los clientes van a **llamar** a la secretaria, así que el 986 tiene que estar
+también en el **WhatsApp Business de su celular**. Estando solo en la API, ningún
+celular lo acepta ("no disponible, intenta en 1 hora"). La solución de Meta es la
+**coexistencia**: el número vive en la app del celular (llamadas y chats como
+siempre) y además en la API (agente y avisos). Solo funciona en ese orden:
+primero el celular, después la API. Por eso:
+
+1. **Borrar el número de la API** en Meta (🗑). Alex confirmó que no lo usa. Se puede
+   porque nunca salieron mensajes pagados; Meta tarda hasta 1 hora en liberarlo.
+2. **Registrarlo en WhatsApp Business** (no el normal) en el celular de la secretaria.
+3. **Usarlo al menos 7 días** (requisito de Meta).
+4. **Conectarlo en coexistencia**: la secretaria escanea un QR desde la app. Solo lo
+   puede hacer un partner de Meta (Solution Partner o Tech Provider).
+5. Recién ahí siguen los pasos de abajo desde el 5, con el **identificador NUEVO**
+   del número (Meta le da otro al reconectarlo): `bash 11_cobranza_token_meta.sh EL_ID`.
+
+En coexistencia las llamadas siguen en el celular (por la API no hay llamadas), lo
+que la secretaria escribe desde el celular lo ve el agente y se calla en ese chat,
+y si el celular no abre la app en ~14 días Meta desconecta el número de la API.
+
 ## Qué vamos a conectar
 
 - **Número de cobranza:** +51 986 598 614. Ya figura **Conectado** en Meta, dentro del
@@ -18,7 +40,7 @@
 ## Lo que NO se toca
 
 - En el Administrador de WhatsApp: **ni** "Agregar número de teléfono" **ni** el 🗑
-  del número.
+  del número (salvo el borrado a propósito del 26 sep para la coexistencia).
 - La secretaria **no** desinstala WhatsApp Business, **no** cambia de celular y
   **abre la app al menos una vez cada 13 días**. Si no, Meta desconecta el número de
   la API.
