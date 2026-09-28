@@ -38,7 +38,17 @@ export function letras(num) {
   return out.trim() + ' CON ' + String(cent).padStart(2, '0') + '/100'
 }
 
-export const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_LETRAS','SEPARACION_FECHA','INICIAL','INICIAL_LETRAS','FECHA_VENTA','SALDO','SALDO_LETRAS','NUM_CUOTAS','CUOTA','CUOTAS_DETALLE','PRIMERA_CUOTA','PAGADO_FIRMA','ASESOR','MORA','PARTIDA','DIA','MES','ANIO']
+// Fecha(s) de DEPÓSITO de la separación o de la inicial: la del voucher, que se
+// registra al cobrar (daily_income.date). Pagada en partes = todas las fechas.
+// Sin pagos registrados (ventas migradas) → la fecha de respaldo.
+export function fechasDeDeposito(pagos, tipo, respaldo) {
+  const f = [...new Set((pagos || []).filter(p => p.income_type === tipo && p.date).map(p => String(p.date).slice(0, 10)))].sort()
+  if (!f.length) return fechaPe(respaldo)
+  const t = f.map(fechaPe)
+  return t.length === 1 ? t[0] : t.slice(0, -1).join(', el ') + ' y el ' + t[t.length - 1]
+}
+
+export const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_LETRAS','SEPARACION_FECHA','INICIAL','INICIAL_LETRAS','INICIAL_FECHA','FECHA_VENTA','SALDO','SALDO_LETRAS','NUM_CUOTAS','CUOTA','CUOTAS_DETALLE','PRIMERA_CUOTA','PAGADO_FIRMA','ASESOR','MORA','PARTIDA','DIA','MES','ANIO']
 export const BLOQUES = ['TABLA_LOTE','TABLA_CUENTA','TABLA_CRONOGRAMA','FIRMAS','ANEXO_CRONOGRAMA','ANEXO_FICHA','SALTO_PAGINA']
 
 // "47 cuotas mensuales de S/ 482.00 y 1 cuota de S/ 446.00", sacado del
@@ -92,7 +102,7 @@ CLAUSULA SEGUNDA: OBJETO DEL CONTRATO Y DESCRIPCION DEL LOTE
 2.2. Las medidas y linderos indicados son referenciales y estan sujetos a los ajustes tecnicos, municipales y registrales que resulten del expediente aprobado y de la independizacion definitiva.
 
 CLAUSULA TERCERA: PRECIO Y FORMA DE PAGO
-3.1. El precio total del lote se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagara asi: Separacion: {{SEPARACION}}, pagada en fecha {{SEPARACION_FECHA}}. Inicial: {{INICIAL}}, pagada en fecha {{FECHA_VENTA}}. Saldo financiado: {{SALDO}}, en {{NUM_CUOTAS}} cuotas mensuales de {{CUOTA}}, conforme al cronograma del Anexo 1.
+3.1. El precio total del lote se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagara asi: Separacion: {{SEPARACION}}, pagada en fecha {{SEPARACION_FECHA}}. Inicial: {{INICIAL}}, pagada en fecha {{INICIAL_FECHA}}. Saldo financiado: {{SALDO}}, en {{NUM_CUOTAS}} cuotas mensuales de {{CUOTA}}, conforme al cronograma del Anexo 1.
 3.2. Los pagos se realizaran mediante deposito o transferencia a la cuenta designada por EL VENDEDOR:
 {{TABLA_CUENTA}}
 3.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) dias habiles siguientes al deposito, por el canal oficial.

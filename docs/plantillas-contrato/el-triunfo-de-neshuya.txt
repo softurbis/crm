@@ -29,7 +29,7 @@ CLÁUSULA CUARTA: OBJETO DEL CONTRATO Y DESCRIPCIÓN DEL LOTE
 CLÁUSULA QUINTA: PRECIO, FORMA DE PAGO Y DESTINO DE LOS INGRESOS
 5.1. El precio total del lote materia del presente contrato se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagará de la siguiente manera:
 {{SI_SEPARACION}}• Separación: {{SEPARACION}} ({{SEPARACION_LETRAS}} SOLES) pagado el día {{SEPARACION_FECHA}}.
-• Inicial: {{INICIAL}} ({{INICIAL_LETRAS}} SOLES) pagado el día {{FECHA_VENTA}}.
+• Inicial: {{INICIAL}} ({{INICIAL_LETRAS}} SOLES) pagado el día {{INICIAL_FECHA}}.
 • Saldo financiado: {{SALDO}} ({{SALDO_LETRAS}} SOLES), en {{CUOTAS_DETALLE}}, conforme al cronograma del Anexo 1.
 5.2. Los pagos se realizarán mediante depósito o transferencia bancaria a la cuenta designada por EL VENDEDOR, todo ingreso vinculado a EL PROYECTO tiene naturaleza de ingreso del proyecto y será registrado administrativamente.
 5.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) días hábiles siguientes al depósito o transferencia, mediante el canal oficial indicado en el cuadro a continuación, la falta de envío del comprobante no invalida el pago si puede ser identificado bancariamente, pero puede retrasar la actualización del estado de cuenta.

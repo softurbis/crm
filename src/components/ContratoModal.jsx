@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import { soles } from '../lib/pagos'
-import { MESES, fechaPe, letras, detalleCuotas, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
+import { MESES, fechaPe, letras, detalleCuotas, fechasDeDeposito, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
+import { imprimirConPie, descargarPdf, descargarWord } from '../lib/contratoArchivos'
 
 // **negrita** dentro de una linea de la plantilla
 const conNegritas = t => t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (/^\*\*[^*]+\*\*$/.test(x) ? <b key={i}>{x.slice(2, -2)}</b> : x))
@@ -16,6 +17,8 @@ export default function ContratoModal({ saleId, onClose }) {
   const [data, setData] = useState(null)
   const [editDoc, setEditDoc] = useState(false)
   const [error, setError] = useState(null)
+  const [bajando, setBajando] = useState(null)  // 'pdf' | 'word' mientras se arma el archivo
+  const hoja = useRef(null)
 
   useEffect(() => {
     let vivo = true
@@ -23,17 +26,21 @@ export default function ContratoModal({ saleId, onClose }) {
       const { data: v, error: e } = await supabase.from('sales').select(COLS_VENTA_CONTRATO).eq('id', saleId).single()
       if (!vivo) return
       if (e || !v) { setError('No se pudo cargar la venta: ' + (e?.message || 'no existe')); return }
-      const [p, inst, sep, acct] = await Promise.all([
+      const [p, inst, sep, acct, dep] = await Promise.all([
         supabase.from('projects').select('*').eq('id', v.lot.project_id).single(),
         supabase.from('installments').select('installment_number, due_date, amount, status').eq('sale_id', v.id).order('installment_number'),
         v.separation_id
           ? supabase.from('separations').select('amount, date').eq('id', v.separation_id).single()
           : Promise.resolve({ data: null }),
         supabase.from('financial_accounts').select('*').eq('project_id', v.lot.project_id).eq('active', true),
+        // los depósitos de la separación y la inicial: su fecha es la del voucher
+        supabase.from('daily_income').select('date, income_type')
+          .or('sale_id.eq.' + v.id + (v.separation_id ? ',separation_id.eq.' + v.separation_id : ''))
+          .in('income_type', ['separacion', 'inicial']),
       ])
       if (!vivo) return
       setGen(v); setProyecto(p.data || {})
-      setData({ inst: inst.data || [], sep: sep.data, accts: acct.data || [] })
+      setData({ inst: inst.data || [], sep: sep.data, accts: acct.data || [], dep: dep.data || [] })
     })()
     return () => { vivo = false }
   }, [saleId])
@@ -76,8 +83,11 @@ export default function ContratoModal({ saleId, onClose }) {
     PRECIO: soles(gen.total_sale_price), PRECIO_LETRAS: letras(Number(gen.total_sale_price)),
     SEPARACION: data.sep ? soles(data.sep.amount) : 'S/ 0.00',
     SEPARACION_LETRAS: letras(Number(data.sep?.amount || 0)),
-    SEPARACION_FECHA: fechaPe(data.sep?.date),
+    // la fecha de cada depósito según su voucher (antes: el día en que se registró
+    // la separación y la fecha de la venta)
+    SEPARACION_FECHA: fechasDeDeposito(data.dep, 'separacion', data.sep?.date),
     INICIAL: soles(gen.initial_amount_paid), INICIAL_LETRAS: letras(Number(gen.initial_amount_paid || 0)),
+    INICIAL_FECHA: fechasDeDeposito(data.dep, 'inicial', gen.sale_date),
     FECHA_VENTA: fechaPe(gen.sale_date),
     SALDO: soles(gen.financed_amount), SALDO_LETRAS: letras(Number(gen.financed_amount || 0)),
     NUM_CUOTAS: gen.installments_count,
@@ -226,13 +236,27 @@ export default function ContratoModal({ saleId, onClose }) {
     cuerpo.push(<p key={i}>{conNegritas(fill(t))}</p>)
   }
 
+  // PDF y Word salen de la hoja TAL COMO SE VE (con lo corregido a mano)
+  const titulo = `Contrato ${p.name || ''} Mz ${l.mz} Lt ${l.lt} - ${c.full_name || ''}`
+  async function descargar(tipo) {
+    setEditDoc(false)
+    setBajando(tipo)
+    try {
+      await (tipo === 'pdf' ? descargarPdf : descargarWord)(hoja.current, titulo)
+    } catch (e) {
+      alert('No se pudo armar el ' + (tipo === 'pdf' ? 'PDF' : 'Word') + ': ' + (e?.message || e))
+    } finally { setBajando(null) }
+  }
+
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head no-print">
           <h2>Contrato - {c.full_name}</h2>
           <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
-          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => window.print(), 100) }}>Imprimir / PDF</button>
+          <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('pdf')}>{bajando === 'pdf' ? 'Armando PDF…' : '⬇ Descargar PDF'}</button>
+          <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('word')}>{bajando === 'word' ? 'Armando Word…' : '⬇ Descargar Word'}</button>
+          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(imprimirConPie, 100) }}>🖨 Imprimir</button>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
         {problemas.length > 0 && (
@@ -243,7 +267,7 @@ export default function ContratoModal({ saleId, onClose }) {
           </div>
         )}
         {editDoc && <p className="no-print" style={{ color: '#e0b34c', fontSize: 12, margin: '0 0 8px' }}>✎ MODO EDICIÓN: haz clic sobre el texto y corrige lo que necesites. Los cambios aplican a esta impresión.</p>}
-        <div className="print-area contract" contentEditable={editDoc} suppressContentEditableWarning
+        <div ref={hoja} className="print-area contract" contentEditable={editDoc} suppressContentEditableWarning
           style={editDoc ? { outline: '2px dashed #e0b34c', outlineOffset: 4 } : undefined}>
           <div className="contract-head" contentEditable={false}>
             {p.logo_url
