@@ -11,6 +11,8 @@
 
 export const PIE = 'Documento generado por Urbis Control · Sistema de gestión de Urbis Group Inmobiliaria'
 const WEB = 'panel.urbisgroupinmobiliaria.com'
+// Foliado de cada hoja, abajo a la derecha: "1 de 10", "2 de 10"...
+const folio = (n, total) => n + ' de ' + total
 const ahoraPe = () => new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 // ---------------------------------------------------------------- leer la pantalla
@@ -290,14 +292,16 @@ export async function armarPdf(raiz) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(110)
     doc.text(latin(PIE), M.izq, yp + 4)
     doc.text(latin(WEB + ' · generado el ' + cuando), M.izq, yp + 7.5)
-    doc.text('Página ' + i + ' de ' + total, A4.w - M.der, yp + 4, { align: 'right' })
+    // foliado: "1 de 10", "2 de 10"...
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(17)
+    doc.text(folio(i, total), A4.w - M.der, yp + 5.5, { align: 'right' })
   }
   return doc.output('blob')
 }
 
 // ---------------------------------------------------------------- Word
 export async function armarWord(raiz, titulo) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Footer, PageNumber } = await import('docx')
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Footer, PageNumber, Tab, TabStopType } = await import('docx')
   const bloques = leerContrato(raiz)
   const hijos = []
   let saltoPendiente = false
@@ -356,12 +360,18 @@ export async function armarWord(raiz, titulo) {
 
   const cuando = ahoraPe()
   const gris = { font: 'Arial', size: 15, color: '6E6E6E' }
+  // a la izquierda Urbis Control; a la derecha el foliado "1 de 10" (campos de
+  // Word: se numeran solos aunque se edite el documento)
   const pie = new Footer({ children: [
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 },
+    new Paragraph({ spacing: { after: 0 },
+      tabStops: [{ type: TabStopType.RIGHT, position: 11906 - 1247 * 2 }],   // el borde derecho del texto (A4 menos márgenes)
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB', space: 4 } },
-      children: [new TextRun({ text: PIE, ...gris })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 },
-      children: [new TextRun({ ...gris, children: [WEB + ' · generado el ' + cuando + ' · Página ', PageNumber.CURRENT, ' de ', PageNumber.TOTAL_PAGES] })] }),
+      children: [
+        new TextRun({ text: PIE, ...gris }),
+        new TextRun({ font: 'Arial', size: 20, bold: true, color: '111111', children: [new Tab(), PageNumber.CURRENT, ' de ', PageNumber.TOTAL_PAGES] }),
+      ] }),
+    new Paragraph({ spacing: { after: 0 },
+      children: [new TextRun({ text: WEB + ' · generado el ' + cuando, ...gris })] }),
   ] })
 
   const doc = new Document({
@@ -383,7 +393,7 @@ export function imprimirConPie() {
   const st = document.createElement('style')
   st.textContent = `@media print { @page { margin: 16mm 16mm 18mm;
     @bottom-left { content: "${PIE} · ${WEB}"; font: 7pt Arial, sans-serif; color: #6e6e6e; }
-    @bottom-right { content: "Página " counter(page) " de " counter(pages); font: 7pt Arial, sans-serif; color: #6e6e6e; } } }`
+    @bottom-right { content: counter(page) " de " counter(pages); font: bold 10pt Arial, sans-serif; color: #111; } } }`
   document.head.appendChild(st)
   const quitar = () => { st.remove(); window.removeEventListener('afterprint', quitar) }
   window.addEventListener('afterprint', quitar)

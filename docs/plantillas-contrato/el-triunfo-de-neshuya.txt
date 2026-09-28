@@ -1,6 +1,6 @@
 CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACIÓN URBANA PROGRESIVA – “EL TRIUNFO DE NESHUYA”
 Conste por el presente instrumento privado el Contrato de Compromiso de Compraventa de Lote en Habilitación Urbana Progresiva, con Reserva de Propiedad, que celebran de una parte:
-EL VENDEDOR: {{VENDEDOR}}, identificada con DNI N° {{VENDEDOR_DNI}}, con domicilio en Junta Vecinal Manuel Gambini Mz C Lt 20, distrito de Neshuya, provincia de Padre Abad, departamento de Ucayali, a quien en adelante se denominará EL VENDEDOR; y de la otra parte:
+EL VENDEDOR: {{VENDEDOR}}, identificada con DNI N° {{VENDEDOR_DNI}}, con domicilio en Jr. Progreso N.° 163, distrito de Callería, provincia de Coronel Portillo, departamento de Ucayali, a quien en adelante se denominará EL VENDEDOR; y de la otra parte:
 EL COMPRADOR: {{COMPRADORES}}, con domicilio en {{COMPRADOR_DOMICILIO}}, a quien en adelante se denominará EL COMPRADOR.
 Las partes celebran el presente contrato bajo los términos y condiciones siguientes:
 

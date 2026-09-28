@@ -62,7 +62,9 @@ export default function ContratoModal({ saleId, onClose }) {
   const med = b.medidas || {}
   const col = b.colindancias || {}
   const banco = data.accts.find(a => a.type === 'bank' && a.account_number) || data.accts[0] || {}
-  const domicilio = [c.address, c.district, c.province, c.department].filter(Boolean).join(', ') || '____________________'
+  // como el contrato modelo: "Caserío San Jacinto, distrito de Nauta, provincia de Loreto, departamento de Loreto"
+  const domicilio = [c.address, c.district && 'distrito de ' + c.district, c.province && 'provincia de ' + c.province, c.department && 'departamento de ' + c.department]
+    .filter(Boolean).join(', ') || '____________________'
   const persona = x => `${x.full_name}, de nacionalidad ${String(x.nationality || 'peruana').toLowerCase()}, identificado/a con ${x.doc_type || 'DNI'} N° ${x.doc_number}`
   const compradores = persona(c) + (gen.co_client ? `, y ${persona(gen.co_client)}` : '')
 
@@ -121,14 +123,15 @@ export default function ContratoModal({ saleId, onClose }) {
       <tr><td><b>WhatsApp oficial</b></td><td>{p.titular_phone || '-'}</td></tr>
     </tbody></table>
   )
+  // primero EL VENDEDOR y después EL COMPRADOR, como en el contrato modelo
   const Firmas = (
     <table className="ctable firmas" key="fi"><tbody><tr>
       <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-        ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type || 'DNI'}: {c.doc_number}
-        {gen.co_client && (<><br /><br />______________________________<br /><b>EL COMPRADOR (2)</b><br />{gen.co_client.full_name}<br />{gen.co_client.doc_type || 'DNI'}: {gen.co_client.doc_number}</>)}
+        ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI: {vars.VENDEDOR_DNI}
       </td>
       <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-        ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI: {vars.VENDEDOR_DNI}
+        ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type || 'DNI'}: {c.doc_number}
+        {gen.co_client && (<><br /><br />______________________________<br /><b>EL COMPRADOR (2)</b><br />{gen.co_client.full_name}<br />{gen.co_client.doc_type || 'DNI'}: {gen.co_client.doc_number}</>)}
       </td>
     </tr></tbody></table>
   )
@@ -279,7 +282,6 @@ export default function ContratoModal({ saleId, onClose }) {
             </div>
           </div>
           {cuerpo}
-          <p style={{ textAlign: 'center' }}>Pucallpa, Ucayali, Peru — {hoy.getFullYear()}</p>
         </div>
       </div>
     </div>
