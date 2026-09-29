@@ -15,14 +15,34 @@ celular lo acepta ("no disponible, intenta en 1 hora"). La solución de Meta es 
 siempre) y además en la API (agente y avisos). Solo funciona en ese orden:
 primero el celular, después la API. Por eso:
 
-1. **Borrar el número de la API** en Meta (🗑). Alex confirmó que no lo usa. Se puede
-   porque nunca salieron mensajes pagados; Meta tarda hasta 1 hora en liberarlo.
-2. **Registrarlo en WhatsApp Business** (no el normal) en el celular de la secretaria.
-3. **Usarlo al menos 7 días** (requisito de Meta).
-4. **Conectarlo en coexistencia**: la secretaria escanea un QR desde la app. Solo lo
-   puede hacer un partner de Meta (Solution Partner o Tech Provider).
-5. Recién ahí siguen los pasos de abajo desde el 5, con el **identificador NUEVO**
-   del número (Meta le da otro al reconectarlo): `bash 11_cobranza_token_meta.sh EL_ID`.
+1. ✅ **Borrar el número de la API** en Meta (🗑). Hecho el 29 sep (Alex no lo usaba).
+2. ✅ **Registrarlo en WhatsApp Business** en el celular de la secretaria. Hecho el 29 sep.
+3. **Conectarlo en coexistencia con NUESTRA app** (sin intermediario). Meta lo
+   reserva a partners, pero en **modo desarrollo** el registro insertado funciona
+   para quien tiene un rol en la app: el dueño, que la creó. Si Meta rechaza el
+   número por poco uso en la app, se reintenta a los 7 días de registrado.
+   - **3a (tú, una vez)** · developers.facebook.com → `urbis-cobranza-agente`:
+     agregar **Inicio de sesión con Facebook para empresas** → *Configuración*:
+     "Iniciar sesión con el SDK para JavaScript" = **Sí**, dominios permitidos para
+     el SDK y URI de redireccionamiento = `https://panel.urbisgroupinmobiliaria.com/`.
+     Luego *Configuraciones* → Crear → variación **Registro insertado de WhatsApp**
+     → activos: cuentas de WhatsApp → permisos `whatsapp_business_management` y
+     `whatsapp_business_messaging` → Crear. Copiar el **id de la configuración** y
+     el **id de la app** (no son secretos).
+   - **3b · el webhook ANTES de conectar** (paso 7.1 a 7.3 de abajo), suscribiendo
+     además `history` y `smb_app_state_sync`: Meta los manda apenas se conecta.
+   - **3c · conectar** con el celular al lado:
+     `https://panel.urbisgroupinmobiliaria.com/conectar-whatsapp?app=ID_APP&config=ID_CONFIG`
+     → "Conectar el 986" → en la ventana de Meta: Urbis Group → cuenta existente de
+     WhatsApp Business → el número → QR desde el celular. La página muestra el id de
+     la cuenta (y del número, si Meta lo da) y arma el comando del paso siguiente.
+4. **Dentro de las 24 h** (si no, Meta obliga a desconectar y empezar de nuevo):
+   si la cuenta es NUEVA, asignársela a `agente-cobranza` (control total); generar
+   el token (paso 5.1) y correr el comando que dio la página:
+   `bash 11_cobranza_token_meta.sh ID_NUMERO|buscar ID_CUENTA`. El script guarda
+   todo, corre `node cobranza_meta.js sincronizar` (suscribe la app y pide a Meta
+   contactos e historial del celular) y después `listo`.
+5. Siguen los pasos de abajo desde el 6 (tarjeta antes de prender los avisos).
 
 En coexistencia las llamadas siguen en el celular (por la API no hay llamadas), lo
 que la secretaria escribe desde el celular lo ve el agente y se calla en ese chat,
@@ -30,8 +50,9 @@ y si el celular no abre la app en ~14 días Meta desconecta el número de la API
 
 ## Qué vamos a conectar
 
-- **Número de cobranza:** +51 986 598 614. Ya figura **Conectado** en Meta, dentro del
-  portafolio **Urbis Group**. Identificador del número: `1316329454896872`.
+- **Número de cobranza:** +51 986 598 614, en el portafolio **Urbis Group**. Desde el
+  29 sep vive en el WhatsApp Business de la secretaria y entra a la API en
+  coexistencia (arriba). El identificador viejo `1316329454896872` ya no sirve.
 - **El agente** corre en el servidor como un proceso **aparte** del bot de leads. El
   bot de leads no se toca.
 - **Todo nace apagado.** A ningún cliente le llega nada hasta que lo prendas desde
@@ -150,9 +171,10 @@ scp "C:\Claude\Projects\Sistema CRM\migracion\11_cobranza_token_meta.sh" root@15
 ```
 
    Te pide el token y la clave: pégalos ahí (**no se ven al pegar**, es normal).
-   El script cambia el número de prueba de julio por el real (`1316329454896872`),
-   guarda copia del `.env` anterior, reinicia solo el agente de cobranza y corre
-   `node cobranza_meta.js listo`.
+   El comando exacto (con el id del número y de la cuenta) lo arma la página
+   `conectar-whatsapp` al terminar la conexión. El script guarda copia del `.env`
+   anterior, pone el número y la cuenta nuevos, reinicia solo el agente de
+   cobranza, sincroniza la coexistencia y corre `node cobranza_meta.js listo`.
 
    Eso imprime, en una sola pasada: el número y si está en coexistencia, el id de la
    cuenta de WhatsApp, si el webhook está suscrito, cómo van las plantillas y si la
@@ -205,8 +227,9 @@ ssh root@157.245.8.78 "grep WA_VERIFY_TOKEN /root/crm/agente/.env"
    - URL de devolución de llamada: `https://hook.urbisgroupinmobiliaria.com/webhook`
    - Token de verificación: el valor que salió arriba (lo que va después del `=`)
    - **Verificar y guardar**. Con el agente corriendo, Meta lo acepta al instante.
-3. En "Campos del webhook", **Suscribirse** a `messages` y, si aparece,
-   `smb_message_echoes` (es lo que la secretaria escribe desde su celular).
+3. En "Campos del webhook", **Suscribirse** a `messages`, `smb_message_echoes` (lo
+   que la secretaria escribe desde su celular), `history` y `smb_app_state_sync`
+   (los dos últimos llegan al conectar en coexistencia; el agente los ignora).
 4. Suscribir la app a la cuenta, para que Meta empiece a mandar los mensajes:
 
 ```bash

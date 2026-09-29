@@ -80,6 +80,9 @@ async function listarPlantillas(wabaId) { return api(`${wabaId}/message_template
 async function crearPlantilla(wabaId, def) { return api(`${wabaId}/message_templates`, def) }
 async function infoCuenta(wabaId) { return api(`${wabaId}?fields=id,name,timezone_id,message_template_namespace`, null, 'GET') }
 async function numerosDe(wabaId) { return api(`${wabaId}/phone_numbers?fields=id,display_phone_number&limit=50`, null, 'GET') }
+// Coexistencia: dentro de las 24 h de conectar el numero hay que pedirle a Meta que
+// copie los contactos (smb_app_state_sync) y el historial (history) del celular.
+async function sincronizarApp(tipo) { return api(`${PHONE_ID}/smb_app_data`, { messaging_product: 'whatsapp', sync_type: tipo }) }
 
 // El id de la cuenta de WhatsApp (WABA) sin tener que buscarlo en la web de Meta.
 // Tres caminos, del mas directo al mas general; devuelve el primero que sirva.
@@ -135,6 +138,9 @@ function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () =>
             for (const m of v.messages || []) await alRecibir(m, v)
             for (const s of v.statuses || []) await alEstado(s, v)
             for (const x of v.message_echoes || []) await alEco(x, v)
+            // history (chats viejos del celular) y smb_app_state_sync (contactos) llegan
+            // al conectar en coexistencia: se ignoran a proposito (el agente no debe
+            // contestar mensajes de hace meses)
           }
         } catch (err) { console.error('webhook:', err.message) }
       })
@@ -157,7 +163,7 @@ async function bajarMedia(mediaId) {
 module.exports = {
   enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
-  infoCuenta, numerosDe, buscarWaba,
+  infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }
 
 // --- PRUEBA EN SECO ----------------------------------------------------------

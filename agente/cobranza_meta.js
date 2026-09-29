@@ -7,6 +7,7 @@
 //   node cobranza_meta.js crear_plantillas    crea en Meta las 5 plantillas de cobranza
 //   node cobranza_meta.js plantillas [WABA]   plantillas y si Meta ya las aprobo
 //   node cobranza_meta.js suscribir [WABA]    conecta la app a la cuenta (webhook)
+//   node cobranza_meta.js sincronizar         coexistencia: suscribe y pide contactos + historial (24 h)
 //   node cobranza_meta.js textos              los textos, para pegarlos a mano
 //   node cobranza_meta.js ia                  prueba la clave de Claude (cuesta centesimas de centavo)
 // Lee el .env de esta carpeta. Nada de esto le envia mensajes a un cliente.
@@ -74,7 +75,7 @@ async function waba() {
   try {
     const n = await WA.numerosDe(id)
     const propio = (n.data || []).some(x => String(x.id) === String(process.env.WA_PHONE_NUMBER_ID))
-    nota('Numeros de la cuenta: ' + (n.data || []).map(x => x.display_phone_number).join(', '))
+    nota('Numeros de la cuenta: ' + (n.data || []).map(x => x.display_phone_number + ' (id ' + x.id + ')').join(', '))
     if (propio) ok('El numero del .env pertenece a esta cuenta')
     else mal('OJO: el numero del .env NO figura en esta cuenta. Revisa WA_PHONE_NUMBER_ID.')
   } catch (e) { nota('(no pude listar los numeros: ' + e.message.slice(0, 90) + ')') }
@@ -89,6 +90,27 @@ async function suscribir() {
   if (r.success) ok('La app quedo suscrita a la cuenta ' + id + ': Meta ya manda los mensajes al webhook')
   const l = await WA.appsSuscritas(id)
   nota('Apps suscritas: ' + ((l.data || []).map(a => (a.whatsapp_business_api_data?.name || a.name || '?')).join(', ') || 'ninguna'))
+}
+
+// Coexistencia (el numero en el celular Y en la API): Meta exige, dentro de las 24 h
+// de conectarlo, pedir la copia de los contactos y del historial del celular; si no,
+// hay que desconectarlo y empezar de nuevo. Lo corre el script 11 al estrenar numero.
+async function sincronizar() {
+  if (!hayToken()) return
+  let d = {}
+  try { d = await WA.infoNumero('display_phone_number,platform_type,is_on_biz_app') }
+  catch (e) { nota('(no pude leer el numero: ' + e.message.slice(0, 120) + ')') }
+  if (d.is_on_biz_app === false) { nota('El numero no esta en coexistencia (solo API): no hay nada que sincronizar.'); return }
+  const id = await cuenta()
+  if (id) {
+    try { const r = await WA.suscribirApp(id); if (r.success) ok('App suscrita a la cuenta ' + id + ': los mensajes de los clientes llegan al webhook') }
+    catch (e) { mal('suscribir la app: ' + e.message.slice(0, 200)) }
+  }
+  for (const [tipo, que] of [['smb_app_state_sync', 'los contactos'], ['history', 'el historial de chats']]) {
+    try { await WA.sincronizarApp(tipo); ok('Meta empezo a copiar ' + que + ' del celular') }
+    catch (e) { mal(que + ': ' + e.message.slice(0, 220)) }
+  }
+  nota('Si el historial da error porque se eligio NO compartirlo, no pasa nada: el agente no lo usa.')
 }
 
 const icono = s => s === 'APPROVED' ? '✅' : s === 'REJECTED' ? '❌' : s === 'PAUSED' || s === 'DISABLED' ? '🛑' : '⏳'
@@ -179,9 +201,9 @@ async function listo() {
   nota('Copia todo esto y pegaselo a Claude.')
 }
 
-const cmds = { listo, verificar, waba, suscribir, plantillas, crear_plantillas: crearPlantillas, textos, ia: probarIA }
+const cmds = { listo, verificar, waba, suscribir, sincronizar, plantillas, crear_plantillas: crearPlantillas, textos, ia: probarIA }
 if (!cmds[cmd]) {
-  console.log('Uso: node cobranza_meta.js listo | verificar | waba | crear_plantillas | plantillas [WABA] | suscribir [WABA] | textos | ia')
+  console.log('Uso: node cobranza_meta.js listo | verificar | waba | crear_plantillas | plantillas [WABA] | suscribir [WABA] | sincronizar | textos | ia')
   process.exit(1)
 }
 Promise.resolve(cmds[cmd]()).catch(e => { mal(String(e.message || e).slice(0, 400)); process.exit(1) })

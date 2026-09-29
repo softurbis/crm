@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Conectar WhatsApp de cobranza — Urbis Control</title>
+<!--
+  Conecta el 986 598 614 del WhatsApp Business del celular a la API de Meta SIN
+  sacarlo del celular (coexistencia). Es el "registro insertado" (Embedded Signup)
+  de Meta con la app propia urbis-cobranza-agente en modo desarrollo: solo lo
+  puede completar quien tiene un rol en esa app. El id de la app y el de la
+  configuración no son secretos (van en la URL: ?app=...&config=...). Esta página
+  no toca el token: al terminar muestra el comando del script 11, que corre en el
+  servidor. Ver crm/agente/GUIA_AGENTE_COBRANZA.md.
+-->
+<style>
+  :root { --fondo: #0d1512; --tarjeta: #15201b; --borde: #26352d; --texto: #eef3ea; --suave: #9aa896; --verde: #9ccb86; --claro: #bfe3a6; --mal: #f0a58f; --aviso: #f3d27a; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--fondo); color: var(--texto); margin: 0; padding: 2rem 1rem 3rem; line-height: 1.6; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { color: var(--claro); font-size: 1.55rem; margin: 0 0 .4rem; }
+  h2 { color: var(--verde); font-size: 1.05rem; margin: 0 0 .6rem; }
+  .sub { color: var(--suave); margin: 0 0 1.4rem; }
+  .card { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 12px; padding: 1.1rem 1.2rem; margin-bottom: 1rem; }
+  .oculto { display: none; }
+  ul { margin: 0; padding-left: 1.2rem; }
+  li { margin: .25rem 0; }
+  label { display: block; font-size: .9rem; color: var(--suave); margin-bottom: .7rem; }
+  input { display: block; width: 100%; margin-top: .25rem; padding: .6rem .7rem; border-radius: 8px; border: 1px solid var(--borde); background: #0f1814; color: var(--texto); font-size: 1rem; font-family: ui-monospace, Consolas, monospace; }
+  button { background: var(--verde); color: #0d1512; border: 0; border-radius: 8px; padding: .7rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.sec { background: transparent; color: var(--verde); border: 1px solid var(--verde); padding: .45rem .9rem; font-size: .9rem; }
+  .nota { color: var(--suave); font-size: .85rem; margin: .7rem 0 0; }
+  .estado { margin: .8rem 0 0; font-weight: 600; }
+  .estado.ok { color: var(--claro); } .estado.mal { color: var(--mal); } .estado.aviso { color: var(--aviso); }
+  pre { background: #0a110e; border: 1px solid var(--borde); border-radius: 8px; padding: .8rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: .82rem; margin: .5rem 0; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0 0 .8rem; }
+  dt { color: var(--suave); } dd { margin: 0; overflow-wrap: anywhere; font-weight: 600; }
+  @media (max-width: 560px) { dl { grid-template-columns: 1fr; gap: 0; } dd { margin-bottom: .5rem; } }
+  ol { margin: .4rem 0 0; padding-left: 1.3rem; } ol li { margin: .45rem 0; }
+  .plazo { color: var(--aviso); font-weight: 600; }
+  details { color: var(--suave); font-size: .85rem; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Conectar el WhatsApp de cobranza</h1>
+  <p class="sub">Pasa el <b>+51 986 598 614</b> a la API de Meta <b>sin sacarlo del celular</b>
+  (coexistencia): la secretaria sigue con sus chats y sus llamadas en WhatsApp Business, y el
+  agente de cobranza trabaja en el mismo número.</p>
+
+  <section class="card">
+    <h2>1 · Antes de empezar</h2>
+    <ul>
+      <li>El celular de la secretaria al lado, con <b>WhatsApp Business actualizado</b> y abierto en el 986.</li>
+      <li>En esta computadora, Facebook abierto con la cuenta que <b>administra la app urbis-cobranza-agente</b> y el portafolio <b>Urbis Group</b>.</li>
+      <li>Si el navegador bloquea ventanas emergentes, permítelas para esta página.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>2 · Datos de la app de Meta</h2>
+    <label>Identificador de la app
+      <input id="app" inputmode="numeric" autocomplete="off" placeholder="solo números">
+    </label>
+    <label>Identificador de la configuración
+      <input id="config" inputmode="numeric" autocomplete="off" placeholder="solo números">
+    </label>
+    <p class="nota">Ninguno de los dos es secreto. El de la app sale arriba en developers.facebook.com →
+    urbis-cobranza-agente; el de la configuración, en <i>Inicio de sesión con Facebook para empresas →
+    Configuraciones</i>.</p>
+  </section>
+
+  <section class="card">
+    <h2>3 · Conectar</h2>
+    <button id="conectar" disabled>Conectar el 986</button>
+    <p id="estado" class="estado">Cargando el componente de Facebook…</p>
+    <p class="nota">Se abre una ventana de Meta: entra con Facebook, elige <b>Urbis Group</b>, elige
+    conectar tu <b>cuenta existente de WhatsApp Business</b>, escribe el 986 598 614 y sigue lo que
+    pide en el celular (normalmente escanear un código QR desde WhatsApp Business). Si pregunta si
+    compartir el historial de chats, da igual la respuesta: el agente no lo necesita.</p>
+  </section>
+
+  <section class="card oculto" id="resultado">
+    <h2>4 · Conectado: ahora el token (dentro de 24 horas)</h2>
+    <dl>
+      <dt>Número</dt><dd id="r-numero"></dd>
+      <dt>Cuenta de WhatsApp</dt><dd id="r-waba"></dd>
+      <dt>Conectado</dt><dd id="r-hora"></dd>
+    </dl>
+    <p class="plazo" id="r-plazo"></p>
+    <ol>
+      <li id="r-asignar"></li>
+      <li><b>Genera el token:</b> business.facebook.com → Configuración del negocio → Usuarios del sistema →
+      <b>agente-cobranza</b> → Generar token → app <b>urbis-cobranza-agente</b> → caducidad <b>Nunca</b> →
+      permisos <b>whatsapp_business_messaging</b> y <b>whatsapp_business_management</b> → Generar → Copiar.
+      <b>No lo pegues en ningún chat.</b></li>
+      <li><b>En PowerShell</b>, este comando (pide el token y lo pegas ahí; no se ve al pegar):
+        <pre id="comando"></pre>
+        <button class="sec" id="copiar">Copiar comando</button>
+      </li>
+      <li>Mándale a Claude la salida completa (no muestra ningún secreto).</li>
+    </ol>
+  </section>
+
+  <details>
+    <summary>Detalle técnico (si algo falla, mándale esto a Claude)</summary>
+    <pre id="registro">—</pre>
+  </details>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id) }
+  var CUENTA_VIEJA = '948393568314140'          // la WABA donde estaba el 986 antes del 26 sep
+  var IDS_VIEJOS = ['1316329454896872', '1270870216103126']
+  var CLAVE = 'conectar-wsp-'
+  var params = new URLSearchParams(location.search)
+  var leer = function (k) { try { return localStorage.getItem(CLAVE + k) || '' } catch (e) { return '' } }
+  var guardar = function (k, v) { try { localStorage.setItem(CLAVE + k, v) } catch (e) {} }
+  var digitos = function (v) { return String(v || '').replace(/\D/g, '') }
+
+  $('app').value = digitos(params.get('app')) || leer('app')
+  $('config').value = digitos(params.get('config')) || leer('config')
+  if (params.get('app')) guardar('app', $('app').value)
+  if (params.get('config')) guardar('config', $('config').value)
+
+  var registro = []
+  function anotar(titulo, dato) {
+    registro.push(new Date().toLocaleTimeString('es-PE') + ' · ' + titulo + (dato ? '\n' + JSON.stringify(dato, null, 2) : ''))
+    $('registro').textContent = registro.join('\n\n')
+  }
+  function estado(t, tipo) { var e = $('estado'); e.textContent = t; e.className = 'estado ' + (tipo || '') }
+
+  var sdkListo = false, appIniciada = ''
+  window.fbAsyncInit = function () { sdkListo = true; anotar('SDK de Facebook cargado'); revisar() }
+  var s = document.createElement('script')
+  s.async = true; s.defer = true; s.crossOrigin = 'anonymous'
+  s.src = 'https://connect.facebook.net/es_LA/sdk.js'
+  s.onerror = function () { estado('No cargó el componente de Facebook. Revisa la conexión o un bloqueador de anuncios y recarga la página.', 'mal') }
+  document.head.appendChild(s)
+
+  function revisar() {
+    var app = digitos($('app').value), config = digitos($('config').value)
+    var completo = app.length >= 10 && config.length >= 10
+    $('conectar').disabled = !(sdkListo && completo)
+    if (!sdkListo) return
+    estado(completo ? 'Todo listo. Con el celular al lado, presiona «Conectar el 986».' : 'Completa los dos identificadores.', completo ? 'ok' : '')
+  }
+  $('app').addEventListener('input', revisar)
+  $('config').addEventListener('input', revisar)
+
+  // Meta avisa por postMessage en qué terminó la ventana (ids de la cuenta y del número)
+  window.addEventListener('message', function (ev) {
+    var host = ''
+    try { host = new URL(ev.origin).hostname } catch (e) { return }
+    if (!/(^|\.)facebook\.com$/.test(host)) return
+    var d
+    try { d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data } catch (e) { return }
+    if (!d || d.type !== 'WA_EMBEDDED_SIGNUP') return
+    anotar('Meta: ' + d.event, d.data)
+    if (/^FINISH/.test(d.event || '')) {
+      var r = { numero: digitos(d.data && d.data.phone_number_id), waba: digitos(d.data && d.data.waba_id), hora: Date.now(), evento: d.event }
+      guardar('resultado', JSON.stringify(r))
+      mostrar(r)
+      if (d.event !== 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING')
+        estado('Meta terminó, pero NO como coexistencia (' + d.event + '). Antes de seguir, mándale el detalle técnico a Claude.', 'aviso')
+      else estado('¡Conectado en coexistencia! Sigue con el paso 4.', 'ok')
+    } else if (d.event === 'CANCEL') {
+      var paso = d.data && (d.data.current_step || d.data.error_message) || 'sin detalle'
+      estado('La ventana se cerró sin terminar (' + paso + '). Puedes volver a intentarlo.', 'aviso')
+    } else if (d.event === 'ERROR') {
+      estado('Meta devolvió un error: ' + ((d.data && d.data.error_message) || 'sin detalle') + '. Mándale el detalle técnico a Claude.', 'mal')
+    }
+  })
+
+  function mostrar(r) {
+    $('resultado').classList.remove('oculto')
+    $('r-numero').textContent = r.numero || '(Meta no lo informó: el script lo busca solo)'
+    $('r-waba').textContent = (r.waba || '?') + (r.waba === CUENTA_VIEJA ? '  (la misma de antes)' : r.waba ? '  (cuenta NUEVA)' : '')
+    var hora = new Date(r.hora), limite = new Date(r.hora + 24 * 3600 * 1000)
+    var fmt = function (f) { return f.toLocaleString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) }
+    $('r-hora').textContent = fmt(hora)
+    $('r-plazo').textContent = 'Meta da 24 horas para sincronizar: el comando de abajo tiene que correr antes del ' + fmt(limite) + ' (si no, hay que desconectar y empezar de nuevo).'
+    $('r-asignar').innerHTML = r.waba === CUENTA_VIEJA
+      ? '<b>Permisos:</b> es la misma cuenta de antes y <b>agente-cobranza</b> ya la tiene en control total. Nada que hacer aquí.'
+      : '<b>Asigna la cuenta nueva:</b> business.facebook.com → Configuración del negocio → Usuarios del sistema → <b>agente-cobranza</b> → Asignar activos → Cuentas de WhatsApp → la cuenta <b>' + (r.waba || 'nueva') + '</b> → <b>Control total</b> → Guardar. Sin esto el token no la ve.'
+    var numero = r.numero || 'buscar'
+    if (IDS_VIEJOS.indexOf(numero) >= 0) numero = 'buscar'
+    $('comando').textContent = 'scp "C:\\Claude\\Projects\\Sistema CRM\\migracion\\11_cobranza_token_meta.sh" root@157.245.8.78:/root/ ; ssh -t root@157.245.8.78 \'bash /root/11_cobranza_token_meta.sh ' + numero + (r.waba ? ' ' + r.waba : '') + '\''
+  }
+
+  $('copiar').addEventListener('click', function () {
+    var t = $('comando').textContent
+    var hecho = function () { $('copiar').textContent = '✓ Copiado'; setTimeout(function () { $('copiar').textContent = 'Copiar comando' }, 2000) }
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(hecho, function () {})
+  })
+
+  // No puede ser async: el SDK de Facebook rechaza callbacks async
+  function alVolver(resp) {
+    anotar('Respuesta del inicio de sesión', { status: resp && resp.status, llego_codigo: !!(resp && resp.authResponse && resp.authResponse.code) })
+    if (!resp || !resp.authResponse) {
+      if (!$('resultado').classList.contains('oculto')) return
+      estado('No se completó el inicio de sesión con Facebook. Puedes volver a intentarlo.', 'aviso')
+    }
+  }
+
+  $('conectar').addEventListener('click', function () {
+    var app = digitos($('app').value), config = digitos($('config').value)
+    guardar('app', app); guardar('config', config)
+    if (appIniciada !== app) { FB.init({ appId: app, autoLogAppEvents: true, xfbml: false, version: 'v23.0' }); appIniciada = app }
+    estado('Ventana de Meta abierta: sigue los pasos ahí…')
+    anotar('Abriendo el registro de Meta', { app: app, config: config, featureType: 'whatsapp_business_app_onboarding' })
+    FB.login(alVolver, {
+      config_id: config,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
+    })
+  })
+
+  // si se recargó la página después de conectar, que no se pierda el resultado
+  try { var previo = JSON.parse(leer('resultado') || 'null'); if (previo && Date.now() - previo.hora < 48 * 3600 * 1000) mostrar(previo) } catch (e) {}
+})()
+</script>
+</body>
+</html>
