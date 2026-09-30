@@ -25,6 +25,8 @@ const TGREG = TG.activo() ? TG.crearRegistro(supabase, (...a) => log(...a)) : nu
 const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
 // lee con IA los comprobantes de pago que sube la socia y los valida (sql/103)
 const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(...a) })
+// lee con IA el DNI que se sube al registrar un cliente y llena sus datos (sql/112)
+const LECTOR_DNI = require('./lector_dni')({ supabase, log: (...a) => log(...a) })
 
 // ===== MODO PRUEBAS (consola / chat virtual) =====
 // Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
@@ -3577,6 +3579,8 @@ async function enviarCodigosFirma() {
 setInterval(() => { enviarCodigosFirma().catch(e => log('enviarCodigosFirma:', String(e.message || e))) }, 5000)
 // comprobantes de pago que el panel pidió leer (la socia espera en pantalla: cada 3 s)
 setInterval(() => { LECTOR.procesar().catch(e => log('lector comprobantes:', String(e.message || e))) }, 3000)
+// DNI que el panel pidió leer (la secretaria espera con el formulario abierto: cada 2 s)
+setInterval(() => { LECTOR_DNI.procesar().catch(e => log('lector dni:', String(e.message || e))) }, 2000)
 
 // El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
 // se marca la respuesta, se avisa al asesor y sube al tablero como urgente.

@@ -171,6 +171,9 @@ hr { border: none; border-top: 1px solid rgba(127,148,118,.2); margin: 1rem 0; }
 /* ---- formularios ---- */
 .form-card { padding: 1.4rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 860px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .9rem; }
+/* en celular el botón "Seleccionar archivo" ensanchaba toda la grilla más allá de la pantalla */
+.form-grid > * { min-width: 0; }
+.form-grid input[type="file"] { max-width: 100%; }
 .span2 { grid-column: span 2; }
 .hint { color: var(--accent-strong); font-size: .9rem; }
 h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
@@ -462,7 +465,7 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 /* ---- contrato: cabecera con logo y presentacion ---- */
 .contract-head { display: flex; align-items: center; justify-content: center; gap: 14px; padding-bottom: 10px; margin-bottom: 16px; border-bottom: 3px double #1c2a18; }
 .contract-head svg { background: #fff; }
-.contract-head .ch-name { font-family: 'Montserrat', 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: .08em; color: #1c2a18; }
+.contract-head .ch-name { font-family: 'Montserrat', 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: .08em; color: #1c2a18; text-align: left; }
 .contract-head .ch-sub { font-size: .68rem; letter-spacing: .3em; color: #555; }
 .print-area.contract p { text-align: justify; line-height: 1.55; }
 .print-area.contract h3 { margin-top: 14px; }

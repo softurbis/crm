@@ -64,6 +64,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const [co, setCo] = useState(null)                 // null = sin co-comprador
   const [buscandoCo, setBuscandoCo] = useState(false)
   const [archCo, setArchCo] = useState(null)
+  const [leyendoDni, setLeyendoDni] = useState({})   // { titular, co }: mientras la IA lee un DNI no se registra
   const [precio, setPrecio] = useState(String(lote.total_price ?? ''))
   const [meses, setMeses] = useState(48)
   const [primeraCuota, setPrimeraCuota] = useState(sumarMeses(hoyPe(), 1))
@@ -299,7 +300,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 </div>
               ) : (
                 <div className="cobro-caja">
-                  <FormPersona persona={titular} setPersona={setTitular} archivo={archTit} setArchivo={setArchTit} titulo="Titular" />
+                  <FormPersona persona={titular} setPersona={setTitular} archivo={archTit} setArchivo={setArchTit} titulo="Titular"
+                    onLeyendo={v => setLeyendoDni(l => ({ ...l, titular: v }))} />
                   {!sep && <button type="button" className="link-btn small" onClick={() => { setTitular(null); setArchTit(null) }}>cambiar de persona</button>}
                 </div>
               )}
@@ -315,8 +317,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                   </p>
                 </>)}
                 {co && (<>
-                  <FormPersona persona={co} setPersona={setCo} archivo={archCo} setArchivo={setArchCo} titulo="Co-comprador" excluirDoc={titular?.doc_number} />
-                  <button type="button" className="link-btn small" onClick={() => { setCo(null); setArchCo(null) }}>quitar co-comprador</button>
+                  <FormPersona persona={co} setPersona={setCo} archivo={archCo} setArchivo={setArchCo} titulo="Co-comprador" excluirDoc={titular?.doc_number}
+                    onLeyendo={v => setLeyendoDni(l => ({ ...l, co: v }))} />
+                  <button type="button" className="link-btn small" onClick={() => { setCo(null); setArchCo(null); setLeyendoDni(l => ({ ...l, co: false })) }}>quitar co-comprador</button>
                 </>)}
               </div>
 
@@ -380,8 +383,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
 
             {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
             <div className="acc-row" style={{ marginTop: 12 }}>
-              <button className="btn-primary" disabled={busy || (modo === 'cuota' && plan?.sobra > 0.01)}>
-                {busy ? 'Registrando…' : modo === 'separacion' ? 'Registrar separación' : esInicial ? 'Registrar venta e inicial' : modo === 'cuadre' ? 'Registrar cuadre' : 'Registrar pago'}
+              <button className="btn-primary" disabled={busy || (esInicial && (leyendoDni.titular || leyendoDni.co)) || (modo === 'cuota' && plan?.sobra > 0.01)}>
+                {busy ? 'Registrando…' : esInicial && (leyendoDni.titular || leyendoDni.co) ? 'Leyendo el DNI…' : modo === 'separacion' ? 'Registrar separación' : esInicial ? 'Registrar venta e inicial' : modo === 'cuadre' ? 'Registrar cuadre' : 'Registrar pago'}
               </button>
               <button type="button" className="btn-ghost" onClick={cerrar} disabled={busy}>Cancelar</button>
             </div>

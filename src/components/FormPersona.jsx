@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { buscarPorDocumento, esPendiente, tieneFotoDni, faltanParaContrato } from '../lib/cobros'
+import { aplicarDni } from '../lib/leerDni'
+import { useLecturaDni, AvisoLecturaDni } from './LecturaDni'
 
 const TIPOS_DOC = ['DNI', 'CE', 'PASAPORTE', 'RUC']
 const ESTADOS_CIVILES = ['SOLTERO(A)', 'CASADO(A)', 'CONVIVIENTE', 'DIVORCIADO(A)', 'VIUDO(A)']
+// lo que se trae de la ficha ya registrada cuando el documento es de otra persona guardada
+const CAMPOS_FICHA = ['full_name', 'phone', 'phone2', 'address', 'district', 'province', 'department', 'civil_status', 'nationality', 'dni_url', 'dni_front_url', 'dni_back_url']
+const lleno = v => v !== null && v !== undefined && String(v).trim() !== ''
 
 // Busca clientes EN EL SERVIDOR por nombre o documento (la lista entera pasa de
 // 1000 filas y el servidor la corta). Al elegir, trae la ficha completa.
@@ -51,8 +56,15 @@ export function BuscarCliente({ onElegir, excluir = [], placeholder = 'Busca por
 
 // Los datos que pide el contrato. La persona puede venir de una separacion
 // (solo nombre y celular), de un cliente ya registrado o ser nueva.
-export default function FormPersona({ persona, setPersona, archivo, setArchivo, titulo, excluirDoc }) {
+export default function FormPersona({ persona, setPersona, archivo, setArchivo, titulo, excluirDoc, onLeyendo }) {
   const [otra, setOtra] = useState(null)   // otra ficha con el mismo documento
+  const dniIA = useLecturaDni()
+  const ultima = useRef(persona)            // la persona al momento de llegar la lectura
+  ultima.current = persona
+  // quien usa el formulario no registra mientras la IA lee (si no, la lectura
+  // llegaría después de guardar); al cerrarse el formulario deja de "leer"
+  useEffect(() => { onLeyendo?.(dniIA.leyendo) }, [dniIA.leyendo])
+  useEffect(() => () => onLeyendo?.(false), [])
   const set = (k, v) => setPersona(p => ({ ...p, [k]: v }))
   const tipoDoc = persona.doc_type && persona.doc_type !== 'PEND' ? persona.doc_type : 'DNI'
   const docVisible = persona.doc_type === 'PEND' ? '' : (persona.doc_number || '')
@@ -69,19 +81,54 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
     const c = await buscarPorDocumento(tipoDoc, docVisible)
     if (!c || c.id === persona.id) return
     setOtra(c)
-    const lleno = v => v !== null && v !== undefined && String(v).trim() !== ''
     setPersona(p => {
       const n = { ...p }
-      for (const k of ['full_name', 'phone', 'phone2', 'address', 'district', 'province', 'department', 'civil_status', 'nationality', 'dni_url', 'dni_front_url', 'dni_back_url'])
-        if (lleno(c[k])) n[k] = c[k]
+      for (const k of CAMPOS_FICHA) if (lleno(c[k])) n[k] = c[k]
       return n
     })
   }
+
+  // Lo que leyó la IA del DNI va al formulario. Si ese documento ya es de otra
+  // ficha, primero se traen sus datos registrados (como revisarDoc) y encima va lo
+  // del DNI, que es el dato legal.
+  async function aplicarLectura(L) {
+    const doc = L.es_documento ? L.numero_documento : null
+    const ficha = doc ? await buscarPorDocumento(L.tipo_documento === 'CE' ? 'CE' : 'DNI', doc) : null
+    const actual = ultima.current
+    let base = actual
+    if (ficha && ficha.id !== actual.id) {
+      base = { ...actual }
+      for (const k of CAMPOS_FICHA) if (lleno(ficha[k])) base[k] = ficha[k]
+      setOtra(ficha)
+    } else if (doc) setOtra(null)
+    const r = aplicarDni(base, L)
+    setPersona(r.nuevo)
+    return r
+  }
+  const elegirDni = f => {
+    setArchivo(f)
+    if (f) dniIA.leer([f], aplicarLectura)
+    else dniIA.limpiar()
+  }
+  const dniSubido = persona.dni_url ? [persona.dni_url] : [persona.dni_front_url, persona.dni_back_url].filter(Boolean)
 
   return (
     <div className="fp">
       {titulo && <p className="fl-lbl" style={{ margin: '0 0 6px' }}>{titulo}</p>}
       <div className="form-grid">
+        {/* el DNI va primero: al elegirlo la IA lo lee y llena los datos de abajo */}
+        <div className="span2">
+          <label style={{ margin: 0 }}>Foto o PDF del DNI <span className="muted small">(un solo archivo con las dos caras, o PDF) · se lee solo y llena los datos</span>
+            <input type="file" accept="image/*,.pdf" onChange={e => elegirDni(e.target.files[0] || null)} />
+          </label>
+          {tieneFotoDni(persona) && !archivo && (
+            <span className="ok small" style={{ display: 'block', margin: '2px 0' }}>
+              ✓ Ya está subida — <a href={persona.dni_url || persona.dni_front_url} target="_blank" rel="noreferrer">ver</a> (sube otra solo si hay que cambiarla)
+              {!dniIA.leyendo && <> · <button type="button" className="link-btn" onClick={() => dniIA.leer(dniSubido, aplicarLectura)}>&#128269; leer sus datos</button></>}
+            </span>
+          )}
+          <AvisoLecturaDni estado={dniIA.estado} />
+        </div>
         <label>Tipo de documento
           <select value={tipoDoc} onChange={e => set('doc_type', e.target.value)}>
             {TIPOS_DOC.map(t => <option key={t}>{t}</option>)}
@@ -111,14 +158,6 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
             <option value="">- elegir -</option>
             {[...new Set([...ESTADOS_CIVILES, ...(persona.civil_status ? [persona.civil_status] : [])])].map(v => <option key={v}>{v}</option>)}
           </select>
-        </label>
-        <label className="span2">Foto del DNI <span className="muted small">(un solo archivo con las dos caras, o PDF)</span>
-          {tieneFotoDni(persona) && !archivo && (
-            <span className="ok small" style={{ display: 'block', margin: '2px 0' }}>
-              ✓ Ya está subida — <a href={persona.dni_url || persona.dni_front_url} target="_blank" rel="noreferrer">ver</a> (sube otra solo si hay que cambiarla)
-            </span>
-          )}
-          <input type="file" accept="image/*,.pdf" onChange={e => setArchivo(e.target.files[0] || null)} />
         </label>
       </div>
       {otra && (
