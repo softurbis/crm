@@ -5,15 +5,18 @@
 // y lo arma como:
 //   · PDF (jsPDF): texto de verdad, no una foto; se puede buscar y copiar
 //   · Word (.docx): editable, en Times New Roman como el papel
-// Las dos librerías se cargan recién al tocar el botón. Toda hoja lleva el pie
-// de Urbis Control, igual que la impresión (piePaginaImpresion).
+// Las dos librerías se precargan al abrir el contrato. Toda hoja lleva arriba el
+// encabezado ("Contrato de Compromiso de Compraventa - H.U.P. <proyecto>") y abajo
+// el pie y el foliado, igual que la impresión (imprimirConPie).
 // ============================================================================
 
-export const PIE = 'Documento generado por Urbis Control · Sistema de gestión de Urbis Group Inmobiliaria'
-const WEB = 'panel.urbisgroupinmobiliaria.com'
+// Pie de cada hoja: en el centro, chico y en cursiva. Sin nombre de empresa: Urbis
+// Group Real Estate todavía no está constituida (pedido del dueño, 30 sep).
+export const PIE = 'Documento Privado Confidencial'
 // Foliado de cada hoja, abajo a la derecha: "1 de 10", "2 de 10"...
 const folio = (n, total) => n + ' de ' + total
-const ahoraPe = () => new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+// Todo el contrato en letra 10 (pedido del 30 sep)
+const TAM = 10
 
 // ---------------------------------------------------------------- leer la pantalla
 const esNegrita = n => n.tagName === 'B' || n.tagName === 'STRONG' || /^(bold|bolder|[6-9]00)$/.test(n.style?.fontWeight || '')
@@ -75,7 +78,7 @@ export function leerContrato(raiz) {
       else if (/^H[3-6]$/.test(n.tagName)) out.push({ tipo: 'h3', runs: limpiar(runsDe(n, true)) })
       else if (n.tagName === 'P') { const runs = limpiar(runsDe(n)); if (runs.length) out.push({ tipo: 'p', runs, centro: n.style.textAlign === 'center' }) }
       else if (n.tagName === 'TABLE') out.push({
-        tipo: 'tabla', firmas: n.classList.contains('firmas'),
+        tipo: 'tabla', firmas: n.classList.contains('firmas'), compacta: n.classList.contains('compacta'),
         filas: [...n.rows].map(tr => ({ enc: tr.parentElement?.tagName === 'THEAD', celdas: [...tr.cells].map(c => limpiar(runsDe(c, c.tagName === 'TH'))) })),
       })
       else recorrer(n)
@@ -116,8 +119,8 @@ const nombreArchivo = s => String(s || 'Contrato').replace(/[\\/:*?"<>|]+/g, ' '
 // una PC lenta son varios segundos), el navegador ya no lo cuenta como clic de la
 // persona y puede bloquear la descarga EN SILENCIO, sobre todo si antes se bajó el
 // PDF. Pasaba "en algunas computadoras" (30 sep). Quien lo usa libera la dirección.
-export async function prepararArchivo(tipo, raiz, titulo) {
-  const blob = tipo === 'pdf' ? await armarPdf(raiz) : await armarWord(raiz, titulo)
+export async function prepararArchivo(tipo, raiz, titulo, encabezado = '') {
+  const blob = tipo === 'pdf' ? await armarPdf(raiz, encabezado) : await armarWord(raiz, titulo, encabezado)
   const nombre = nombreArchivo(titulo) + (tipo === 'pdf' ? '.pdf' : '.docx')
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -142,7 +145,7 @@ const latin = s => String(s || '')
   .replace(/[–—−]/g, '-').replace(/…/g, '...').replace(/•/g, '-')
   .replace(/[   ]/g, ' ').replace(/[^\x00-\xFF]/g, '')
 
-export async function armarPdf(raiz) {
+export async function armarPdf(raiz, encabezado = '') {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
   const bloques = leerContrato(raiz)
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -159,9 +162,9 @@ export async function armarPdf(raiz) {
   const medir = t => doc.getStringUnitWidth(t, { kerning: {} }) * doc.getFontSize() / doc.internal.scaleFactor
   doc.setTextColor(17)
 
-  // párrafo con negritas en medio, justificado palabra por palabra
-  function parrafo(runs, { size = 12, alinear = 'justify', antes = 0, despues = 2.2, negrita = false } = {}) {
-    const lh = size * PT * 1.45
+  // párrafo con negritas en medio, justificado palabra por palabra. maquetar() solo
+  // arma las líneas: sirve también para medir cuánto ocupa antes de escribirlo
+  function maquetar(runs, size, negrita) {
     const tokens = []
     let finEspacio = true
     for (const r of runs) {
@@ -192,6 +195,13 @@ export async function armarPdf(raiz) {
       actual.push(p)
     }
     if (actual.length) cerrar(true)
+    return { lineas, esp }
+  }
+  const altoParrafo = (runs, { size = TAM, antes = 0, despues = 2.2, negrita = false } = {}) =>
+    antes + maquetar(runs, size, negrita).lineas.length * size * PT * 1.45 + despues
+  function parrafo(runs, { size = TAM, alinear = 'justify', antes = 0, despues = 2.2, negrita = false } = {}) {
+    const lh = size * PT * 1.45
+    const { lineas, esp } = maquetar(runs, size, negrita)
     y += antes
     for (const ln of lineas) {
       if (y + lh > limite) nuevaHoja()
@@ -241,7 +251,7 @@ export async function armarPdf(raiz) {
   }
 
   function firmas(b) {
-    const size = 11, lh = size * PT * 1.4
+    const size = TAM, lh = size * PT * 1.4
     for (const f of b.filas) {
       const wCol = ancho / (f.celdas.length || 1)
       const cels = f.celdas.map(runs => { const ls = [[]]; for (const r of runs) r.br ? ls.push([]) : ls[ls.length - 1].push(r); return ls })
@@ -263,9 +273,12 @@ export async function armarPdf(raiz) {
     }
   }
 
+  const texto = runs => runs.map(r => (r.br ? '\n' : latin(r.t))).join('')
+  // el cronograma (tabla "compacta") va fino para que entre en una hoja
+  const relleno = b => (b.compacta ? { top: 0.5, bottom: 0.5, left: 1.5, right: 1.5 } : { top: 1.2, bottom: 1.2, left: 2, right: 2 })
+
   function tabla(b) {
     if (b.firmas) return firmas(b)
-    const texto = runs => runs.map(r => (r.br ? '\n' : latin(r.t))).join('')
     const todaNegrita = runs => { const t = runs.filter(r => !r.br && r.t.trim()); return t.length > 0 && t.every(r => r.b) }
     const fila = f => f.celdas.map(c => ({ content: texto(c), styles: todaNegrita(c) ? { fontStyle: 'bold' } : {} }))
     autoTable(doc, {
@@ -274,8 +287,10 @@ export async function armarPdf(raiz) {
       body: b.filas.filter(f => !f.enc).map(fila),
       theme: 'grid',
       margin: { left: M.izq, right: M.der, top: M.arriba, bottom: M.abajo },
-      styles: { font: 'times', fontSize: 10.5, textColor: 17, lineColor: [68, 68, 68], lineWidth: 0.2, fillColor: [255, 255, 255], cellPadding: { top: 1.2, bottom: 1.2, left: 2, right: 2 }, overflow: 'linebreak', valign: 'middle' },
+      styles: { font: 'times', fontSize: TAM, textColor: 17, lineColor: [68, 68, 68], lineWidth: 0.2, fillColor: [255, 255, 255], cellPadding: relleno(b), overflow: 'linebreak', valign: 'middle', halign: b.compacta ? 'center' : 'left' },
       headStyles: { fillColor: [233, 240, 228], textColor: [28, 42, 24], fontStyle: 'bold' },   // el mismo verde claro de la pantalla
+      // una tabla no se parte entre dos hojas: si no entra en lo que queda, empieza en la siguiente
+      pageBreak: 'avoid',
       rowPageBreak: 'avoid',
       showHead: 'everyPage',
     })
@@ -283,28 +298,60 @@ export async function armarPdf(raiz) {
     enBlanco = false
   }
 
-  for (const b of bloques) {
+  // cuánto ocupará una tabla, para decidir antes si su título va en la hoja siguiente
+  function altoTabla(b) {
+    if (b.firmas) return b.filas.length * (16 + 4 * TAM * PT * 1.4)
+    const cols = Math.max(1, ...b.filas.map(f => f.celdas.length))
+    const util = Math.max(5, ancho / cols - 4)
+    const pad = relleno(b)
+    let alto = 4
+    for (const f of b.filas) {
+      fuente(f.enc, TAM)
+      const lineas = Math.max(1, ...f.celdas.map(c => texto(c).split('\n').reduce((s, t) => s + Math.max(1, Math.ceil(medir(t) / util)), 0)))
+      alto += lineas * TAM * PT * 1.15 + pad.top + pad.bottom
+    }
+    return alto
+  }
+
+  const opciones = b => (b.tipo === 'h2' ? { alinear: 'center', negrita: true, antes: enBlanco ? 0 : 2, despues: 3 }
+    : b.tipo === 'h3' ? { alinear: 'left', negrita: true, antes: enBlanco ? 0 : 2.5, despues: 1.2 }
+    : { alinear: b.centro ? 'center' : 'justify' })
+  const corto = b => b?.tipo === 'p' && maquetar(b.runs, TAM, false).lineas.length <= 4
+  const esTabla = b => b?.tipo === 'tabla' && !b.firmas
+
+  for (let k = 0; k < bloques.length; k++) {
+    const b = bloques[k]
+    // el título de una tabla (y la línea que la presenta) va en la misma hoja que
+    // la tabla: si juntos no entran en lo que queda, pasan a la hoja siguiente
+    if (!enBlanco && (b.tipo === 'h3' || b.tipo === 'p')) {
+      const grupo = [b]
+      if (b.tipo === 'h3' && corto(bloques[k + 1]) && esTabla(bloques[k + 2])) grupo.push(bloques[k + 1])
+      const sigue = bloques[k + grupo.length]
+      if (esTabla(sigue) && (b.tipo === 'h3' || corto(b))) {
+        const alto = grupo.reduce((s, x) => s + altoParrafo(x.runs, opciones(x)), 0) + altoTabla(sigue)
+        if (alto <= limite - M.arriba && y + alto > limite) nuevaHoja()
+      }
+    }
     if (b.tipo === 'cabecera') await cabecera(b)
     else if (b.tipo === 'salto') { if (!enBlanco) nuevaHoja() }
-    else if (b.tipo === 'h2') parrafo(b.runs, { size: 13, alinear: 'center', negrita: true, antes: enBlanco ? 0 : 2, despues: 3 })
+    else if (b.tipo === 'h2') parrafo(b.runs, opciones(b))
     else if (b.tipo === 'h3') {
-      if (y + 3 * 12 * PT * 1.45 > limite) nuevaHoja()                // el título no queda solo al pie
-      parrafo(b.runs, { alinear: 'left', negrita: true, antes: enBlanco ? 0 : 2.5, despues: 1.2 })
+      if (y + 3 * TAM * PT * 1.45 > limite) nuevaHoja()               // el título no queda solo al pie
+      parrafo(b.runs, opciones(b))
     }
-    else if (b.tipo === 'p') parrafo(b.runs, { alinear: b.centro ? 'center' : 'justify' })
+    else if (b.tipo === 'p') parrafo(b.runs, opciones(b))
     else if (b.tipo === 'tabla') tabla(b)
   }
 
-  const cuando = ahoraPe()
+  // arriba el encabezado; abajo, en el centro, el pie; y a la derecha el foliado
   const total = doc.getNumberOfPages()
   for (let i = 1; i <= total; i++) {
     doc.setPage(i)
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(110)
+    if (encabezado) doc.text(latin(encabezado), A4.w / 2, 12, { align: 'center' })
     const yp = A4.h - 15
     doc.setDrawColor(185); doc.setLineWidth(0.2); doc.line(M.izq, yp, A4.w - M.der, yp)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(110)
-    doc.text(latin(PIE), M.izq, yp + 4)
-    doc.text(latin(WEB + ' · generado el ' + cuando), M.izq, yp + 7.5)
-    // foliado: "1 de 10", "2 de 10"...
+    doc.text(latin(PIE), A4.w / 2, yp + 5, { align: 'center' })
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(17)
     doc.text(folio(i, total), A4.w - M.der, yp + 5.5, { align: 'right' })
   }
@@ -312,8 +359,8 @@ export async function armarPdf(raiz) {
 }
 
 // ---------------------------------------------------------------- Word
-export async function armarWord(raiz, titulo) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Footer, PageNumber, Tab, TabStopType, ShadingType } = await import('docx')
+export async function armarWord(raiz, titulo, encabezado = '') {
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Header, Footer, PageNumber, Tab, TabStopType, ShadingType } = await import('docx')
   const bloques = leerContrato(raiz)
   const hijos = []
   let saltoPendiente = false
@@ -330,7 +377,9 @@ export async function armarWord(raiz, titulo) {
   const nada = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
   const todos = x => ({ top: x, bottom: x, left: x, right: x, insideHorizontal: x, insideVertical: x })
 
-  for (const b of bloques) {
+  const esTabla = b => b?.tipo === 'tabla' && !b.firmas
+  for (let k = 0; k < bloques.length; k++) {
+    const b = bloques[k]
     if (b.tipo === 'cabecera') {
       const logo = await logoPng(b)
       if (logo) {
@@ -345,26 +394,31 @@ export async function armarWord(raiz, titulo) {
       if (b.sub) hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 }, border: raya,
         children: [new TextRun({ text: b.sub, font: 'Arial', size: 14, color: '555555', characterSpacing: 40 })] }))
     } else if (b.tipo === 'salto') saltoPendiente = hijos.length > 0
-    else if (b.tipo === 'h2') parrafo(b.runs, { alinear: AlignmentType.CENTER, size: 26, negrita: true, antes: 120, despues: 200 })
+    else if (b.tipo === 'h2') parrafo(b.runs, { alinear: AlignmentType.CENTER, negrita: true, antes: 120, despues: 200 })
     else if (b.tipo === 'h3') parrafo(b.runs, { alinear: AlignmentType.LEFT, negrita: true, antes: 240, despues: 80, keepNext: true })
-    else if (b.tipo === 'p') parrafo(b.runs, { alinear: b.centro ? AlignmentType.CENTER : AlignmentType.JUSTIFIED })
+    // la línea que presenta una tabla se queda con ella en la misma hoja
+    else if (b.tipo === 'p') parrafo(b.runs, { alinear: b.centro ? AlignmentType.CENTER : AlignmentType.JUSTIFIED, keepNext: esTabla(bloques[k + 1]) || undefined })
     else if (b.tipo === 'tabla') {
       if (saltoPendiente) { hijos.push(new Paragraph({ pageBreakBefore: true, spacing: { after: 0 }, children: [] })); saltoPendiente = false }
+      const ultima = b.filas.length - 1
       hijos.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: todos(b.firmas ? nada : borde),
-        rows: b.filas.map(f => new TableRow({
+        rows: b.filas.map((f, r) => new TableRow({
           tableHeader: f.enc || undefined,
           cantSplit: true,
           children: f.celdas.map(c => new TableCell({
             borders: b.firmas ? { top: nada, bottom: nada, left: nada, right: nada } : undefined,
             // encabezado con el mismo verde claro de la pantalla y del PDF
             shading: f.enc ? { fill: 'E9F0E4', type: ShadingType.CLEAR, color: 'auto' } : undefined,
-            margins: { top: 40, bottom: 40, left: 100, right: 100 },
+            margins: b.compacta ? { top: 0, bottom: 0, left: 80, right: 80 } : { top: 40, bottom: 40, left: 100, right: 100 },
             children: [new Paragraph({
-              alignment: b.firmas ? AlignmentType.CENTER : AlignmentType.LEFT,
-              spacing: { before: b.firmas ? 900 : 0, after: 0 },
-              children: c.map(r => corrida(r, { size: 22, negrita: f.enc })),
+              alignment: b.firmas || b.compacta ? AlignmentType.CENTER : AlignmentType.LEFT,
+              spacing: { before: b.firmas ? 900 : 0, after: 0, ...(b.compacta ? { line: 240 } : {}) },
+              // "mantener con el siguiente" en todas las filas menos la última: Word no
+              // parte la tabla entre dos hojas
+              keepNext: r < ultima || undefined,
+              children: c.map(x => corrida(x, { negrita: f.enc })),
             })],
           })),
         })),
@@ -373,27 +427,30 @@ export async function armarWord(raiz, titulo) {
     }
   }
 
-  const cuando = ahoraPe()
-  const gris = { font: 'Arial', size: 15, color: '6E6E6E' }
-  // a la izquierda Urbis Control; a la derecha el foliado "1 de 10" (campos de
+  const gris = { font: 'Arial', size: 15, color: '6E6E6E', italics: true }
+  const anchoTexto = 11906 - 1247 * 2                                // A4 menos los márgenes
+  // arriba de cada hoja: "Contrato de Compromiso de Compraventa - H.U.P. <proyecto>"
+  const cabeza = new Header({ children: [
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 }, children: [new TextRun({ text: encabezado, ...gris })] }),
+  ] })
+  // abajo: el pie en el centro y el foliado "1 de 10" a la derecha (campos de
   // Word: se numeran solos aunque se edite el documento)
   const pie = new Footer({ children: [
     new Paragraph({ spacing: { after: 0 },
-      tabStops: [{ type: TabStopType.RIGHT, position: 11906 - 1247 * 2 }],   // el borde derecho del texto (A4 menos márgenes)
+      tabStops: [{ type: TabStopType.CENTER, position: anchoTexto / 2 }, { type: TabStopType.RIGHT, position: anchoTexto }],
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB', space: 4 } },
       children: [
-        new TextRun({ text: PIE, ...gris }),
+        new TextRun({ ...gris, children: [new Tab(), PIE] }),
         new TextRun({ font: 'Arial', size: 20, bold: true, color: '111111', children: [new Tab(), PageNumber.CURRENT, ' de ', PageNumber.TOTAL_PAGES] }),
       ] }),
-    new Paragraph({ spacing: { after: 0 },
-      children: [new TextRun({ text: WEB + ' · generado el ' + cuando, ...gris })] }),
   ] })
 
   const doc = new Document({
-    creator: 'Urbis Control', title: nombreArchivo(titulo), description: PIE,
-    styles: { default: { document: { run: { font: 'Times New Roman', size: 24 }, paragraph: { spacing: { line: 300 } } } } },
+    title: nombreArchivo(titulo), description: PIE,
+    styles: { default: { document: { run: { font: 'Times New Roman', size: TAM * 2 }, paragraph: { spacing: { line: 276 } } } } },
     sections: [{
-      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1247, left: 1247, right: 1247, footer: 567 } } },
+      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1247, left: 1247, right: 1247, header: 567, footer: 567 } } },
+      headers: { default: cabeza },
       footers: { default: pie },
       children: hijos,
     }],
@@ -404,10 +461,12 @@ export async function armarWord(raiz, titulo) {
 // ---------------------------------------------------------------- impresión
 // El mismo pie en cada hoja impresa. Solo mientras se imprime el contrato: una
 // regla @page fija cambiaría también las otras impresiones del panel.
-export function imprimirConPie() {
+export function imprimirConPie(encabezado = '') {
+  const css = t => String(t).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   const st = document.createElement('style')
   st.textContent = `@media print { @page { margin: 16mm 16mm 18mm;
-    @bottom-left { content: "${PIE} · ${WEB}"; font: 7pt Arial, sans-serif; color: #6e6e6e; }
+    @top-center { content: "${css(encabezado)}"; font: italic 7.5pt Arial, sans-serif; color: #6e6e6e; }
+    @bottom-center { content: "${css(PIE)}"; font: italic 7.5pt Arial, sans-serif; color: #6e6e6e; }
     @bottom-right { content: counter(page) " de " counter(pages); font: bold 10pt Arial, sans-serif; color: #111; } } }`
   document.head.appendChild(st)
   const quitar = () => { st.remove(); window.removeEventListener('afterprint', quitar) }

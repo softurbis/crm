@@ -280,18 +280,25 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .project-picker { max-width: 280px; }
 
 /* ---- contrato (Times New Roman justificado) ---- */
-.contract { font-family: 'Times New Roman', Times, serif; text-align: justify; text-transform: none; font-size: 12pt; line-height: 1.5; }
-.contract h2 { font-size: 13pt; }
-.contract h3 { margin-top: 1em; font-size: 12pt; }
+/* todo el contrato en letra 10 (pedido del 30 sep), igual que el PDF y el Word */
+.contract { font-family: 'Times New Roman', Times, serif; text-align: justify; text-transform: none; font-size: 10pt; line-height: 1.45; }
+.contract h2 { font-size: 10pt; }
+.contract h3 { margin-top: 1em; font-size: 10pt; }
 .contract p { margin: .5em 0; }
 .ctable { width: 100%; border-collapse: collapse; margin: .6em 0; }
-.ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 11pt; white-space: normal; }
+.ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 10pt; white-space: normal; }
+/* una tabla no se parte entre dos hojas, y su título (o la línea que la presenta) va con ella */
+.contract .ctable, .contract .ctable tr { break-inside: avoid; page-break-inside: avoid; }
+.contract h3, .contract p:has(+ .ctable), .contract p:has(+ div > .ctable:first-child) { break-after: avoid; page-break-after: avoid; }
+/* el cronograma: fino, centrado y en dos columnas separadas por una raya más gruesa */
+.contract .ctable.compacta td, .contract .ctable.compacta th { padding: .1em .4em; line-height: 1.25; text-align: center; }
+.contract .ctable.compacta .cr-sep { border-left: 2px solid #1c2a18; }
 .ctable.firmas td { border: none; }
 /* el encabezado de las tablas del contrato: claro y legible. Antes heredaba el
    thead oscuro de las tablas del panel y con letra oscura encima se veía negro. */
 .contract .ctable thead th {
   position: static; background: #e9f0e4; color: #1c2a18; backdrop-filter: none; box-shadow: none;
-  border-radius: 0; font-size: 11pt; font-weight: 700; letter-spacing: 0; text-transform: none;
+  border-radius: 0; font-size: 10pt; font-weight: 700; letter-spacing: 0; text-transform: none;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .muted-print { font-size: 10pt; font-style: italic; color: #555; }
@@ -474,7 +481,7 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 .contract-head svg { background: #fff; }
 .contract-head .ch-name { font-family: 'Montserrat', 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: .08em; color: #1c2a18; text-align: left; }
 .contract-head .ch-sub { font-size: .68rem; letter-spacing: .3em; color: #555; }
-.print-area.contract p { text-align: justify; line-height: 1.55; }
+.print-area.contract p { text-align: justify; line-height: 1.45; }
 .print-area.contract h3 { margin-top: 14px; }
 @page { margin: 18mm 16mm; }
 

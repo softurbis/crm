@@ -151,25 +151,38 @@ export default function ContratoModal({ saleId, onClose }) {
       </td>
     </tr></tbody></table>
   )
+  // El cronograma entra en UNA hoja (pedido del 30 sep): fino y, con más de 20
+  // filas, en dos columnas (1-24 | 25-48). Es una sola <table> para que el PDF y
+  // el Word la lean igual que la pantalla.
+  const fechaCorta = iso => { const [y, m, d] = String(iso || '').split('-'); return d ? `${d}/${m}/${y}` : '-' }
+  const tablaPareada = (key, columnas, filas) => {
+    const doble = filas.length > 20
+    const mitad = doble ? Math.ceil(filas.length / 2) : filas.length
+    const izq = filas.slice(0, mitad), der = filas.slice(mitad)
+    const sep = i => (i === 0 ? 'cr-sep' : undefined)
+    return (
+      <table className="ctable compacta" key={key}>
+        <thead><tr>
+          {columnas.map((c, i) => <th key={i}>{c}</th>)}
+          {doble && columnas.map((c, i) => <th key={'d' + i} className={sep(i)}>{c}</th>)}
+        </tr></thead>
+        <tbody>{izq.map((f, k) => (
+          <tr key={k}>
+            {f.map((v, i) => <td key={i}>{v}</td>)}
+            {doble && (der[k] || columnas.map(() => '')).map((v, i) => <td key={'d' + i} className={sep(i)}>{v}</td>)}
+          </tr>
+        ))}</tbody>
+      </table>
+    )
+  }
   const Anexo1 = (
     <div key="a1">
       <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 1: CRONOGRAMA DE PAGOS</h3>
-      <table className="ctable">
-        <thead><tr><th>N.</th><th>Concepto</th><th>Monto</th><th>Vencimiento</th><th>Estado</th></tr></thead>
-        <tbody>
-          {data.sep && <tr><td>-</td><td>Separacion</td><td>{soles(data.sep.amount)}</td><td>{data.sep.date}</td><td>PAGADA</td></tr>}
-          <tr><td>-</td><td>Inicial</td><td>{soles(gen.initial_amount_paid)}</td><td>{gen.sale_date}</td><td>PAGADA</td></tr>
-          {data.inst.map(i => (
-            <tr key={i.installment_number}>
-              <td>{i.installment_number}</td>
-              <td>Cuota N. {String(i.installment_number).padStart(2, '0')}</td>
-              <td>{soles(i.amount)}</td>
-              <td>{i.due_date}</td>
-              <td>{i.status === 'pagado' ? 'PAGADA' : '[  ]'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {tablaPareada('ta1', ['Concepto', 'Monto', 'Vence', 'Estado'], [
+        ...(data.sep ? [['Separación', soles(data.sep.amount), fechaCorta(data.sep.date), 'PAGADA']] : []),
+        ['Inicial', soles(gen.initial_amount_paid), fechaCorta(gen.sale_date), 'PAGADA'],
+        ...data.inst.map(i => ['Cuota ' + String(i.installment_number).padStart(2, '0'), soles(i.amount), fechaCorta(i.due_date), i.status === 'pagado' ? 'PAGADA' : '[  ]']),
+      ])}
     </div>
   )
   const Anexo2 = (
@@ -189,23 +202,10 @@ export default function ContratoModal({ saleId, onClose }) {
       </table>
     </div>
   )
-  // el cronograma como en los contratos modelo: cuota, numero, monto, dia, mes y año
-  const TablaCronograma = (
-    <table className="ctable" key="tcr">
-      <thead><tr><th>CUOTA</th><th>Nº</th><th>MONTO</th><th>DÍA</th><th>MES</th><th>AÑO</th></tr></thead>
-      <tbody>
-        {data.inst.map(i => {
-          const [y, m, d] = String(i.due_date || '').split('-')
-          return (
-            <tr key={i.installment_number}>
-              <td>Cuota</td><td>{i.installment_number}</td><td>{soles(i.amount)}</td>
-              <td>{Number(d) || '-'}</td><td>{(MESES[Number(m) - 1] || '-').toUpperCase()}</td><td>{y || '-'}</td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
-  )
+  // antes: cuota, número, monto, día, mes y año en 6 columnas (una fila por cuota y
+  // no entraba en una hoja); ahora cuota, monto y fecha de pago, en dos columnas
+  const TablaCronograma = tablaPareada('tcr', ['Cuota', 'Monto', 'Fecha de pago'],
+    data.inst.map(i => [String(i.installment_number), soles(i.amount), fechaCorta(i.due_date)]))
   const SaltoPagina = <div key="sp" style={{ pageBreakBefore: 'always', breakBefore: 'page' }} />
   const BLOQ = { TABLA_LOTE: TablaLote, TABLA_CUENTA: TablaCuenta, TABLA_CRONOGRAMA: TablaCronograma, FIRMAS: Firmas, ANEXO_CRONOGRAMA: Anexo1, ANEXO_FICHA: Anexo2, SALTO_PAGINA: SaltoPagina }
 
@@ -257,12 +257,14 @@ export default function ContratoModal({ saleId, onClose }) {
 
   // PDF y Word salen de la hoja TAL COMO SE VE (con lo corregido a mano)
   const titulo = `Contrato ${p.name || ''} Mz ${l.mz} Lt ${l.lt} - ${c.full_name || ''}`
+  // arriba de cada hoja (pedido del 30 sep); todos los proyectos son habilitación urbana progresiva
+  const encabezado = 'Contrato de Compromiso de Compraventa - H.U.P. ' + (p.name || '').trim()
   async function descargar(tipo) {
     setEditDoc(false)
     setBajando(tipo)
     setListo(null)
     try {
-      setListo({ tipo, ...(await prepararArchivo(tipo, hoja.current, titulo)) })
+      setListo({ tipo, ...(await prepararArchivo(tipo, hoja.current, titulo, encabezado)) })
     } catch (e) {
       const m = String(e?.message || e)
       // pestaña abierta desde antes de publicar una versión nueva: la librería vieja ya no está
@@ -280,7 +282,7 @@ export default function ContratoModal({ saleId, onClose }) {
           <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('pdf')}>{bajando === 'pdf' ? 'Armando PDF…' : '⬇ Descargar PDF'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('word')}>{bajando === 'word' ? 'Armando Word…' : '⬇ Descargar Word'}</button>
-          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(imprimirConPie, 100) }}>🖨 Imprimir</button>
+          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => imprimirConPie(encabezado), 100) }}>🖨 Imprimir</button>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
         {listo && (
