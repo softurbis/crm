@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import { soles } from '../lib/pagos'
 import { MESES, fechaPe, letras, detalleCuotas, fechasDeDeposito, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
-import { imprimirConPie, descargarPdf, descargarWord } from '../lib/contratoArchivos'
+import { imprimirConPie, prepararArchivo, precargar } from '../lib/contratoArchivos'
 
 // **negrita** dentro de una linea de la plantilla
 const conNegritas = t => t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (/^\*\*[^*]+\*\*$/.test(x) ? <b key={i}>{x.slice(2, -2)}</b> : x))
@@ -18,7 +18,11 @@ export default function ContratoModal({ saleId, onClose }) {
   const [editDoc, setEditDoc] = useState(false)
   const [error, setError] = useState(null)
   const [bajando, setBajando] = useState(null)  // 'pdf' | 'word' mientras se arma el archivo
+  const [listo, setListo] = useState(null)      // { tipo, url, nombre }: el enlace "guardar" de respaldo
   const hoja = useRef(null)
+  useEffect(() => { precargar() }, [])
+  // la dirección del archivo anterior se libera al armar otro o al cerrar
+  useEffect(() => () => { if (listo?.url) URL.revokeObjectURL(listo.url) }, [listo])
 
   useEffect(() => {
     let vivo = true
@@ -256,10 +260,15 @@ export default function ContratoModal({ saleId, onClose }) {
   async function descargar(tipo) {
     setEditDoc(false)
     setBajando(tipo)
+    setListo(null)
     try {
-      await (tipo === 'pdf' ? descargarPdf : descargarWord)(hoja.current, titulo)
+      setListo({ tipo, ...(await prepararArchivo(tipo, hoja.current, titulo)) })
     } catch (e) {
-      alert('No se pudo armar el ' + (tipo === 'pdf' ? 'PDF' : 'Word') + ': ' + (e?.message || e))
+      const m = String(e?.message || e)
+      // pestaña abierta desde antes de publicar una versión nueva: la librería vieja ya no está
+      if (/dynamically imported module|Importing a module script|error loading dynamically|MIME type/i.test(m))
+        alert('El panel se actualizó mientras lo tenías abierto: recarga la página (F5) y vuelve a descargar.')
+      else alert('No se pudo armar el ' + (tipo === 'pdf' ? 'PDF' : 'Word') + ': ' + m)
     } finally { setBajando(null) }
   }
 
@@ -274,6 +283,13 @@ export default function ContratoModal({ saleId, onClose }) {
           <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(imprimirConPie, 100) }}>🖨 Imprimir</button>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
+        {listo && (
+          <p className="no-print ok" style={{ padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(120,200,120,.08)', border: '1px solid rgba(120,200,120,.3)', textTransform: 'none' }}>
+            ✓ {listo.tipo === 'pdf' ? 'PDF' : 'Word'} listo. Si no se descargó solo:{' '}
+            <a href={listo.url} download={listo.nombre}><b>⬇ haz clic aquí para guardarlo</b></a>
+            <button className="link-btn" style={{ marginLeft: 10 }} onClick={() => setListo(null)} aria-label="Cerrar aviso">✕</button>
+          </p>
+        )}
         {problemas.length > 0 && (
           <div className="no-print" style={{ padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(224,178,63,.1)', border: '1px solid rgba(224,178,63,.35)' }}>
             <p className="warn" style={{ margin: 0 }}><b>&#9888; Ojo con los documentos del proyecto</b> (el contrato se puede imprimir igual):</p>

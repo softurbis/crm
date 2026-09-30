@@ -111,12 +111,27 @@ async function logoPng(cab) {
 
 const nombreArchivo = s => String(s || 'Contrato').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150)
 
-function bajar(blob, archivo) {
+// Arma el archivo y lo intenta bajar solo. Devuelve su dirección para un enlace
+// "Guardar" de respaldo: si armarlo tarda (el Word carga una librería grande, y en
+// una PC lenta son varios segundos), el navegador ya no lo cuenta como clic de la
+// persona y puede bloquear la descarga EN SILENCIO, sobre todo si antes se bajó el
+// PDF. Pasaba "en algunas computadoras" (30 sep). Quien lo usa libera la dirección.
+export async function prepararArchivo(tipo, raiz, titulo) {
+  const blob = tipo === 'pdf' ? await armarPdf(raiz) : await armarWord(raiz, titulo)
+  const nombre = nombreArchivo(titulo) + (tipo === 'pdf' ? '.pdf' : '.docx')
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = archivo
+  a.href = url; a.download = nombre
   document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
+  return { url, nombre }
+}
+
+// Al abrir el contrato se traen las librerías de PDF y Word por detrás: el clic en
+// "Descargar" ya no espera la descarga de la librería.
+export function precargar() {
+  import('docx').catch(() => {})
+  import('jspdf').catch(() => {})
+  import('jspdf-autotable').catch(() => {})
 }
 
 // ---------------------------------------------------------------- PDF
@@ -126,13 +141,6 @@ const latin = s => String(s || '')
   .replace(/[‘’‚′]/g, "'").replace(/[“”„″]/g, '"')
   .replace(/[–—−]/g, '-').replace(/…/g, '...').replace(/•/g, '-')
   .replace(/[   ]/g, ' ').replace(/[^\x00-\xFF]/g, '')
-
-export async function descargarPdf(raiz, titulo) {
-  bajar(await armarPdf(raiz), nombreArchivo(titulo) + '.pdf')
-}
-export async function descargarWord(raiz, titulo) {
-  bajar(await armarWord(raiz, titulo), nombreArchivo(titulo) + '.docx')
-}
 
 export async function armarPdf(raiz) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
