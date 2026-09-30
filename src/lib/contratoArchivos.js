@@ -275,7 +275,7 @@ export async function armarPdf(raiz) {
       theme: 'grid',
       margin: { left: M.izq, right: M.der, top: M.arriba, bottom: M.abajo },
       styles: { font: 'times', fontSize: 10.5, textColor: 17, lineColor: [68, 68, 68], lineWidth: 0.2, fillColor: [255, 255, 255], cellPadding: { top: 1.2, bottom: 1.2, left: 2, right: 2 }, overflow: 'linebreak', valign: 'middle' },
-      headStyles: { fillColor: [255, 255, 255], textColor: 17, fontStyle: 'bold' },
+      headStyles: { fillColor: [233, 240, 228], textColor: [28, 42, 24], fontStyle: 'bold' },   // el mismo verde claro de la pantalla
       rowPageBreak: 'avoid',
       showHead: 'everyPage',
     })
@@ -313,7 +313,7 @@ export async function armarPdf(raiz) {
 
 // ---------------------------------------------------------------- Word
 export async function armarWord(raiz, titulo) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Footer, PageNumber, Tab, TabStopType } = await import('docx')
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Footer, PageNumber, Tab, TabStopType, ShadingType } = await import('docx')
   const bloques = leerContrato(raiz)
   const hijos = []
   let saltoPendiente = false
@@ -358,6 +358,8 @@ export async function armarWord(raiz, titulo) {
           cantSplit: true,
           children: f.celdas.map(c => new TableCell({
             borders: b.firmas ? { top: nada, bottom: nada, left: nada, right: nada } : undefined,
+            // encabezado con el mismo verde claro de la pantalla y del PDF
+            shading: f.enc ? { fill: 'E9F0E4', type: ShadingType.CLEAR, color: 'auto' } : undefined,
             margins: { top: 40, bottom: 40, left: 100, right: 100 },
             children: [new Paragraph({
               alignment: b.firmas ? AlignmentType.CENTER : AlignmentType.LEFT,

@@ -287,6 +287,13 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .ctable { width: 100%; border-collapse: collapse; margin: .6em 0; }
 .ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 11pt; white-space: normal; }
 .ctable.firmas td { border: none; }
+/* el encabezado de las tablas del contrato: claro y legible. Antes heredaba el
+   thead oscuro de las tablas del panel y con letra oscura encima se veía negro. */
+.contract .ctable thead th {
+  position: static; background: #e9f0e4; color: #1c2a18; backdrop-filter: none; box-shadow: none;
+  border-radius: 0; font-size: 11pt; font-weight: 700; letter-spacing: 0; text-transform: none;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
 .muted-print { font-size: 10pt; font-style: italic; color: #555; }
 
 /* ---- chips legales ---- */
