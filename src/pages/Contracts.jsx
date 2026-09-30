@@ -241,7 +241,9 @@ export default function Contracts() {
                     )}
                   </div>
                 </td>
-                <td><button className="btn-ghost" onClick={() => setGen(v.id)}>Generar contrato</button></td>
+                <td>{v.signed_contract_url
+                  ? <span className="muted small" title="Con el contrato firmado ya subido no se genera otro">firmado ✓</span>
+                  : <button className="btn-ghost" onClick={() => setGen(v.id)}>Generar contrato</button>}</td>
               </tr>
             ))}
           </tbody>

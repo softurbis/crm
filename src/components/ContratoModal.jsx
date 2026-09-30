@@ -54,6 +54,18 @@ export default function ContratoModal({ saleId, onClose }) {
     </div>
   )
 
+  // con el firmado ya subido no se vuelve a generar (lo pidió el dueño el 30 sep):
+  // un contrato nuevo podría salir distinto del que el cliente firmó
+  if (gen.signed_contract_url) return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="glass modal" onClick={e => e.stopPropagation()}>
+        <p><b>Este contrato ya está firmado y subido.</b> Ya no se genera otro: el que vale es el firmado.</p>
+        <p><a href={gen.signed_contract_url} target="_blank" rel="noreferrer">Ver el contrato firmado</a></p>
+        <button className="btn-ghost" onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
+  )
+
   const hoy = new Date()
   const c = gen.client || {}
   const l = gen.lot || {}
@@ -276,10 +288,8 @@ export default function ContratoModal({ saleId, onClose }) {
             {p.logo_url
               ? <img src={p.logo_url} alt="logo" style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
               : <Logo size={64} />}
-            <div>
-              <div className="ch-name">URBIS GROUP REAL ESTATE</div>
-              <div className="ch-sub">{(p.name || 'GESTIÓN INMOBILIARIA').toUpperCase()} — PUCALLPA, UCAYALI</div>
-            </div>
+            {/* solo el nombre del proyecto, en negrita (pedido del dueño, 30 sep) */}
+            <div className="ch-name">{(p.name || 'URBIS GROUP').toUpperCase()}</div>
           </div>
           {cuerpo}
         </div>

@@ -216,9 +216,13 @@ export async function armarPdf(raiz) {
     if (logo) doc.addImage(logo.dataUrl, 'PNG', x, y, wLogo, hLogo)
     const tx = x + wLogo + sep
     doc.setTextColor(28, 42, 24); doc.setFont('helvetica', 'bold'); doc.setFontSize(14)
-    doc.text(nombre, tx, y + 8, { charSpace: cs1 })
-    doc.setTextColor(85); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
-    doc.text(sub, tx, y + 13, { charSpace: cs2 })
+    // sin subtítulo (desde el 30 sep la cabecera es solo el nombre del proyecto) el
+    // nombre va centrado a la altura del logo
+    doc.text(nombre, tx, y + (sub ? 8 : 10.5), { charSpace: cs1 })
+    if (sub) {
+      doc.setTextColor(85); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+      doc.text(sub, tx, y + 13, { charSpace: cs2 })
+    }
     doc.setTextColor(17)
     y += hLogo + 3
     doc.setDrawColor(28, 42, 24)
@@ -326,10 +330,11 @@ export async function armarWord(raiz, titulo) {
         hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 },
           children: [new ImageRun({ type: 'png', data: bytes, transformation: { width: Math.round(64 * logo.w / logo.h), height: 64 } })] }))
       }
-      hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 },
+      // la doble raya va bajo la última línea de la cabecera (sin subtítulo, bajo el nombre)
+      const raya = { bottom: { style: BorderStyle.DOUBLE, size: 6, color: '1C2A18', space: 6 } }
+      hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: b.sub ? 0 : 280 }, ...(b.sub ? {} : { border: raya }),
         children: [new TextRun({ text: b.nombre, bold: true, font: 'Arial', size: 28, color: '1C2A18', characterSpacing: 30 })] }))
-      hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 },
-        border: { bottom: { style: BorderStyle.DOUBLE, size: 6, color: '1C2A18', space: 6 } },
+      if (b.sub) hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 }, border: raya,
         children: [new TextRun({ text: b.sub, font: 'Arial', size: 14, color: '555555', characterSpacing: 40 })] }))
     } else if (b.tipo === 'salto') saltoPendiente = hijos.length > 0
     else if (b.tipo === 'h2') parrafo(b.runs, { alinear: AlignmentType.CENTER, size: 26, negrita: true, antes: 120, despues: 200 })
