@@ -290,9 +290,9 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 /* una tabla no se parte entre dos hojas, y su título (o la línea que la presenta) va con ella */
 .contract .ctable, .contract .ctable tr { break-inside: avoid; page-break-inside: avoid; }
 .contract h3, .contract p:has(+ .ctable), .contract p:has(+ div > .ctable:first-child) { break-after: avoid; page-break-after: avoid; }
-/* el cronograma: fino, centrado y en dos columnas separadas por una raya más gruesa */
-.contract .ctable.compacta td, .contract .ctable.compacta th { padding: .1em .4em; line-height: 1.25; text-align: center; }
-.contract .ctable.compacta .cr-sep { border-left: 2px solid #1c2a18; }
+/* el cronograma: fino, centrado, una sola columna. La letra la pone la tabla (10, o
+   menos si no entra en una hoja: ver letraQueEntra en ContratoModal) */
+.contract .ctable.compacta td, .contract .ctable.compacta th { padding: .3mm 1.5mm; line-height: 1.15; text-align: center; font-size: inherit; }
 .ctable.firmas td { border: none; }
 /* el encabezado de las tablas del contrato: claro y legible. Antes heredaba el
    thead oscuro de las tablas del panel y con letra oscura encima se veía negro. */

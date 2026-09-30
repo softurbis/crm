@@ -151,38 +151,31 @@ export default function ContratoModal({ saleId, onClose }) {
       </td>
     </tr></tbody></table>
   )
-  // El cronograma entra en UNA hoja (pedido del 30 sep): fino y, con más de 20
-  // filas, en dos columnas (1-24 | 25-48). Es una sola <table> para que el PDF y
-  // el Word la lean igual que la pantalla.
+  // El cronograma: UNA sola columna (una cuota por fila, pedido del 30 sep) que entra
+  // en UNA hoja. Va en letra 10; si con 10 no entra, baja a 9, 8, 7 o 6 solo en esta
+  // tabla. La cuenta es la misma del PDF (fila = letra × 1.15 + 0.6 mm de relleno;
+  // 232 mm libres en la hoja después del título y una línea de presentación; 240 si
+  // solo va el título) y el tamaño viaja en data-letra para que el PDF y el Word
+  // usen el mismo.
   const fechaCorta = iso => { const [y, m, d] = String(iso || '').split('-'); return d ? `${d}/${m}/${y}` : '-' }
-  const tablaPareada = (key, columnas, filas) => {
-    const doble = filas.length > 20
-    const mitad = doble ? Math.ceil(filas.length / 2) : filas.length
-    const izq = filas.slice(0, mitad), der = filas.slice(mitad)
-    const sep = i => (i === 0 ? 'cr-sep' : undefined)
+  const letraQueEntra = (filas, libre) => [10, 9, 8, 7].find(t => (filas + 1) * (t * 1.15 * 0.3528 + 0.6) <= libre) || 6
+  const tablaUnaHoja = (key, columnas, filas, libre = 232) => {
+    const letra = letraQueEntra(filas.length, libre)
     return (
-      <table className="ctable compacta" key={key}>
-        <thead><tr>
-          {columnas.map((c, i) => <th key={i}>{c}</th>)}
-          {doble && columnas.map((c, i) => <th key={'d' + i} className={sep(i)}>{c}</th>)}
-        </tr></thead>
-        <tbody>{izq.map((f, k) => (
-          <tr key={k}>
-            {f.map((v, i) => <td key={i}>{v}</td>)}
-            {doble && (der[k] || columnas.map(() => '')).map((v, i) => <td key={'d' + i} className={sep(i)}>{v}</td>)}
-          </tr>
-        ))}</tbody>
+      <table className="ctable compacta" key={key} data-letra={letra} style={{ fontSize: letra + 'pt' }}>
+        <thead><tr>{columnas.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+        <tbody>{filas.map((f, k) => <tr key={k}>{f.map((v, i) => <td key={i}>{v}</td>)}</tr>)}</tbody>
       </table>
     )
   }
   const Anexo1 = (
     <div key="a1">
       <h3 style={{ pageBreakBefore: 'always' }}>ANEXO 1: CRONOGRAMA DE PAGOS</h3>
-      {tablaPareada('ta1', ['Concepto', 'Monto', 'Vence', 'Estado'], [
+      {tablaUnaHoja('ta1', ['Concepto', 'Monto', 'Vence', 'Estado'], [
         ...(data.sep ? [['Separación', soles(data.sep.amount), fechaCorta(data.sep.date), 'PAGADA']] : []),
         ['Inicial', soles(gen.initial_amount_paid), fechaCorta(gen.sale_date), 'PAGADA'],
         ...data.inst.map(i => ['Cuota ' + String(i.installment_number).padStart(2, '0'), soles(i.amount), fechaCorta(i.due_date), i.status === 'pagado' ? 'PAGADA' : '[  ]']),
-      ])}
+      ], 240)}
     </div>
   )
   const Anexo2 = (
@@ -202,9 +195,9 @@ export default function ContratoModal({ saleId, onClose }) {
       </table>
     </div>
   )
-  // antes: cuota, número, monto, día, mes y año en 6 columnas (una fila por cuota y
-  // no entraba en una hoja); ahora cuota, monto y fecha de pago, en dos columnas
-  const TablaCronograma = tablaPareada('tcr', ['Cuota', 'Monto', 'Fecha de pago'],
+  // antes: cuota, número, monto, día, mes y año en 6 columnas y letra 11 (no entraba
+  // en una hoja); ahora cuota, monto y fecha de pago, finito y en una sola columna
+  const TablaCronograma = tablaUnaHoja('tcr', ['Cuota', 'Monto', 'Fecha de pago'],
     data.inst.map(i => [String(i.installment_number), soles(i.amount), fechaCorta(i.due_date)]))
   const SaltoPagina = <div key="sp" style={{ pageBreakBefore: 'always', breakBefore: 'page' }} />
   const BLOQ = { TABLA_LOTE: TablaLote, TABLA_CUENTA: TablaCuenta, TABLA_CRONOGRAMA: TablaCronograma, FIRMAS: Firmas, ANEXO_CRONOGRAMA: Anexo1, ANEXO_FICHA: Anexo2, SALTO_PAGINA: SaltoPagina }

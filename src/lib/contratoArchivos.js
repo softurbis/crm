@@ -79,6 +79,7 @@ export function leerContrato(raiz) {
       else if (n.tagName === 'P') { const runs = limpiar(runsDe(n)); if (runs.length) out.push({ tipo: 'p', runs, centro: n.style.textAlign === 'center' }) }
       else if (n.tagName === 'TABLE') out.push({
         tipo: 'tabla', firmas: n.classList.contains('firmas'), compacta: n.classList.contains('compacta'),
+        letra: Number(n.dataset?.letra) || null,           // el cronograma baja la letra si no entra en una hoja
         filas: [...n.rows].map(tr => ({ enc: tr.parentElement?.tagName === 'THEAD', celdas: [...tr.cells].map(c => limpiar(runsDe(c, c.tagName === 'TH'))) })),
       })
       else recorrer(n)
@@ -274,8 +275,10 @@ export async function armarPdf(raiz, encabezado = '') {
   }
 
   const texto = runs => runs.map(r => (r.br ? '\n' : latin(r.t))).join('')
-  // el cronograma (tabla "compacta") va fino para que entre en una hoja
-  const relleno = b => (b.compacta ? { top: 0.5, bottom: 0.5, left: 1.5, right: 1.5 } : { top: 1.2, bottom: 1.2, left: 2, right: 2 })
+  // el cronograma (tabla "compacta") va fino para que entre en una hoja; su letra
+  // viene de la pantalla (data-letra): 10, o menos si con 10 no entra
+  const relleno = b => (b.compacta ? { top: 0.3, bottom: 0.3, left: 1.5, right: 1.5 } : { top: 1.2, bottom: 1.2, left: 2, right: 2 })
+  const letraDe = b => b.letra || TAM
 
   function tabla(b) {
     if (b.firmas) return firmas(b)
@@ -287,7 +290,7 @@ export async function armarPdf(raiz, encabezado = '') {
       body: b.filas.filter(f => !f.enc).map(fila),
       theme: 'grid',
       margin: { left: M.izq, right: M.der, top: M.arriba, bottom: M.abajo },
-      styles: { font: 'times', fontSize: TAM, textColor: 17, lineColor: [68, 68, 68], lineWidth: 0.2, fillColor: [255, 255, 255], cellPadding: relleno(b), overflow: 'linebreak', valign: 'middle', halign: b.compacta ? 'center' : 'left' },
+      styles: { font: 'times', fontSize: letraDe(b), textColor: 17, lineColor: [68, 68, 68], lineWidth: 0.2, fillColor: [255, 255, 255], cellPadding: relleno(b), overflow: 'linebreak', valign: 'middle', halign: b.compacta ? 'center' : 'left' },
       headStyles: { fillColor: [233, 240, 228], textColor: [28, 42, 24], fontStyle: 'bold' },   // el mismo verde claro de la pantalla
       // una tabla no se parte entre dos hojas: si no entra en lo que queda, empieza en la siguiente
       pageBreak: 'avoid',
@@ -305,10 +308,11 @@ export async function armarPdf(raiz, encabezado = '') {
     const util = Math.max(5, ancho / cols - 4)
     const pad = relleno(b)
     let alto = 4
+    const t = letraDe(b)
     for (const f of b.filas) {
-      fuente(f.enc, TAM)
-      const lineas = Math.max(1, ...f.celdas.map(c => texto(c).split('\n').reduce((s, t) => s + Math.max(1, Math.ceil(medir(t) / util)), 0)))
-      alto += lineas * TAM * PT * 1.15 + pad.top + pad.bottom
+      fuente(f.enc, t)
+      const lineas = Math.max(1, ...f.celdas.map(c => texto(c).split('\n').reduce((s, x) => s + Math.max(1, Math.ceil(medir(x) / util)), 0)))
+      alto += lineas * t * PT * 1.15 + pad.top + pad.bottom
     }
     return alto
   }
@@ -418,7 +422,7 @@ export async function armarWord(raiz, titulo, encabezado = '') {
               // "mantener con el siguiente" en todas las filas menos la última: Word no
               // parte la tabla entre dos hojas
               keepNext: r < ultima || undefined,
-              children: c.map(x => corrida(x, { negrita: f.enc })),
+              children: c.map(x => corrida(x, { negrita: f.enc, size: b.letra ? Math.round(b.letra * 2) : undefined })),
             })],
           })),
         })),
