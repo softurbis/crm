@@ -297,8 +297,13 @@ export default function ContratoModal({ saleId, onClose }) {
           style={editDoc ? { outline: '2px dashed #e0b34c', outlineOffset: 4 } : undefined}>
           <div className="contract-head" contentEditable={false}>
             {p.logo_url
-              // crossOrigin: así la copia que guarda el navegador sirve también para el PDF y el Word
-              ? <img src={p.logo_url} alt="logo" crossOrigin="anonymous" style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
+              // crossOrigin + "?cors=1": con permiso para el PDF y el Word. La dirección distinta
+              // es para que el navegador no reuse la copia que guardó SIN permiso (con esa, la
+              // imagen ni siquiera se veía en pantalla, 30 sep). Si igual falla, se muestra
+              // como antes: en pantalla nunca desaparece.
+              ? <img src={p.logo_url + (p.logo_url.includes('?') ? '&' : '?') + 'cors=1'} alt="logo" crossOrigin="anonymous"
+                  onError={e => { const i = e.currentTarget; if (i.crossOrigin) { i.removeAttribute('crossorigin'); i.src = p.logo_url } }}
+                  style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
               : <Logo size={64} />}
             {/* solo el nombre del proyecto, en negrita (pedido del dueño, 30 sep) */}
             <div className="ch-name">{(p.name || 'URBIS GROUP').toUpperCase()}</div>
