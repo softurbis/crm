@@ -87,6 +87,7 @@ const MENU = [
   { to: '/migracion', label: 'Migración', icon: '📥', corrige: true, color: '#7fb0d8', grupo: 'Configuración' },
 ]
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
+const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
 const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
 const ICONO_GRUPO = { Cobranza: '💰', Ventas: '🏷️', Gastos: '🧾', Comercial: '📢', Reportes: '📈', 'Configuración': '⚙️' }
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
@@ -206,6 +207,16 @@ export default function Layout() {
   // el proyecto sobre el que trabajan las pantallas del menú (nunca "general")
   const iOp = projects.findIndex(p => p.id === pidOp)
   const proyOp = iOp >= 0 ? projects[iOp] : null
+  // "todos los proyectos" (el total del Dashboard y de Clientes): no es un proyecto
+  // más, así que el menú lo muestra aparte y en gris
+  const enTotal = pid === 'general' && projects.length > 1
+  // El total solo existe en Hoy y en el Dashboard. Las pantallas de UN proyecto
+  // (mapa, pagos, ventas, gastos…) trabajan sobre el primero: al entrar a una de
+  // ellas el menú pasa a ese proyecto, para no decir "todos" mientras se ve uno.
+  const pantallaDeProyecto = MENU.some(m => m.proy && (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))
+  useEffect(() => {
+    if (pid === 'general' && pidOp && pantallaDeProyecto) select(pidOp)
+  }, [pid, pidOp, pantallaDeProyecto])   // eslint-disable-line
 
   const Item = m => (
     // "Ventas y contratos" también queda marcado cuando se está en /contratos
@@ -234,17 +245,19 @@ export default function Layout() {
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
                     (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}
                 {proyOp && (
-                  <div className={`proj-grp ${eligiendoProy ? 'open' : ''}`} style={{ '--pc': colorProyecto(proyOp, iOp), marginBottom: 6 }}>
+                  <div className={`proj-grp ${eligiendoProy ? 'open' : ''}`} style={{ '--pc': enTotal ? COLOR_TOTAL : colorProyecto(proyOp, iOp), marginBottom: 6 }}>
                     <p className="menu-section" style={{ marginTop: 0 }}>Proyecto</p>
+                    {/* Dice la verdad de lo que está elegido: si Hoy o el Dashboard están en
+                        "todos los proyectos", aquí también (antes seguía mostrando el primero) */}
                     <button type="button" className="proj-head on" title={projects.length > 1 ? 'Cambiar de proyecto' : proyOp.name}
                       onClick={e => { e.stopPropagation(); if (projects.length > 1) setEligiendoProy(a => !a) }}>
                       <span className="proj-dot" />
-                      <span className="proj-name" title={proyOp.name}>{nombreProy(proyOp.name)}</span>
+                      <span className="proj-name" title={enTotal ? 'Todos los proyectos' : proyOp.name}>{enTotal ? <>Todos los <b>proyectos</b></> : nombreProy(proyOp.name)}</span>
                       {projects.length > 1 && <span className={`proj-caret ${eligiendoProy ? 'open' : ''}`}>&#9656;</span>}
                     </button>
                     {/* la marca del proyecto elegido: cada uno se identifica con su logo
                         (el de quien factura si lo tiene: Praderas de Pucallpa = Century) */}
-                    {logoProyecto(proyOp) && !eligiendoProy && (
+                    {!enTotal && logoProyecto(proyOp) && !eligiendoProy && (
                       <div className="proj-marca" title={proyOp.fact_razon_social || proyOp.name}>
                         <img src={logoProyecto(proyOp)} alt={proyOp.fact_razon_social || proyOp.name} />
                       </div>
@@ -254,7 +267,7 @@ export default function Layout() {
                     {eligiendoProy && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
                         <p className="menu-section" style={{ margin: '0 0 2px' }}>Cambiar a</p>
-                        {projects.filter(p => p.id !== pidOp).map(p => {
+                        {projects.filter(p => enTotal || p.id !== pidOp).map(p => {
                           const i = projects.indexOf(p)
                           return (
                             <button type="button" key={p.id} className="proj-head" style={{ '--pc': colorProyecto(p, i) }}
@@ -264,6 +277,14 @@ export default function Layout() {
                             </button>
                           )
                         })}
+                        {!enTotal && (
+                          <button type="button" className="proj-head" style={{ '--pc': COLOR_TOTAL }}
+                            title="Ver el total de todos los proyectos (Hoy y Dashboard)"
+                            onClick={e => { e.stopPropagation(); select('general'); setEligiendoProy(false) }}>
+                            <span className="proj-dot" />
+                            <span className="proj-name">Todos los <b>proyectos</b></span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
