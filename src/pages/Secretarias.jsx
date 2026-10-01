@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
+import { avisar, confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 
 const DIAS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']]
@@ -15,7 +16,9 @@ const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 export default function Secretarias() {
-  const { role, profile } = useAuth()
+  // esJefe = administrador, superusuario y operador (arman rutinas y marcan por todos).
+  // Registrar, pausar o quitar personas y vincularlas a un usuario sigue siendo del superusuario.
+  const { role, profile, esJefe } = useAuth()
   const [secs, setSecs] = useState([])
   const [rutinas, setRutinas] = useState([])
   const [tareas, setTareas] = useState([])
@@ -33,7 +36,6 @@ export default function Secretarias() {
   const [scope, setScope] = useState(null)      // diálogo: borrar solo este día o toda la rutina
   const [reasig, setReasig] = useState(null)    // reasignar tarea a otra persona
 
-  const esJefe = ['admin', 'superuser'].includes(role)
   // registro propio: la persona del equipo vinculada a este usuario del sistema
   const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
   // visibilidad: superusuario ve todo; si el usuario tiene accesos configurados, solo esos (+ el suyo);
@@ -63,7 +65,7 @@ export default function Secretarias() {
   useEffect(() => { cargar() }, [mes])
   useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 15000); return () => clearInterval(t) }, [mes])
 
-  if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
+  if (!['admin', 'superuser', 'operador', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
 
   const puedeMarcar = t => esJefe || (mia && t.secretary_id === mia.id)
   const filtroSec = t => (secSel === 'todas' ? secsV.some(s => s.id === t.secretary_id) : t.secretary_id === secSel)
@@ -71,9 +73,9 @@ export default function Secretarias() {
 
   const agregarSec = async () => {
     const limpio = nva.phone.replace(/\D/g, '')
-    if (!nva.full_name.trim() || limpio.length < 9) { alert('Nombre y número válido (mín. 9 dígitos)'); return }
+    if (!nva.full_name.trim() || limpio.length < 9) { await avisar('Nombre y número válido (mín. 9 dígitos)', { tono: 'error' }); return }
     const { error } = await supabase.from('secretaries').insert({ full_name: nva.full_name.trim().toUpperCase(), phone: limpio, tipo: nva.tipo })
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo: nva.tipo === 'gerencia' ? 'gerencia' : 'secretaria', note: nva.full_name.trim().toUpperCase() + ' (' + nva.tipo.toUpperCase() + ')' })
     setNva({ full_name: '', phone: '', tipo: 'secretaria' }); savedFx(); cargar()
   }
@@ -81,12 +83,12 @@ export default function Secretarias() {
   const toggleSeguimiento = async s => { await supabase.from('secretaries').update({ seguimiento: s.seguimiento === false }).eq('id', s.id); cargar() }
   const vincularUsuario = async (s, uid) => { await supabase.from('secretaries').update({ user_id: uid || null }).eq('id', s.id); cargar() }
   const quitarSec = async s => {
-    if (!confirm(`¿Quitar a ${s.full_name}? Se borran sus rutinas y su historial.`)) return
+    if (!await confirmar(`¿Quitar a ${s.full_name}? Se borran sus rutinas y su historial.`, { peligro: true, aceptar: 'Sí, quitar' })) return
     await supabase.from('whatsapp_numbers').delete().eq('phone', s.phone)
     await supabase.from('secretaries').delete().eq('id', s.id); cargar()
   }
   const agregarRutina = async sid => {
-    if (!nr.title.trim() || !nr.days.length) { alert('Título y al menos un día'); return }
+    if (!nr.title.trim() || !nr.days.length) { await avisar('Título y al menos un día', { tono: 'error' }); return }
     await supabase.from('secretary_routines').insert({ secretary_id: sid, title: nr.title.trim().toUpperCase(), slot: nr.slot, days: nr.days, category: nr.category })
     setNr({ title: '', slot: 'manana', days: [1, 2, 3, 4, 5, 6], category: 'administrativa' }); savedFx(); cargar()
   }
@@ -95,7 +97,7 @@ export default function Secretarias() {
     if (!extra?.title?.trim() || !extra.sid) return
     const slot = extra.time ? (extra.time < '13:00' ? 'manana' : 'tarde') : extra.slot || 'manana'
     const { error } = await supabase.from('secretary_tasks').insert({ secretary_id: extra.sid, title: extra.title.trim().toUpperCase(), date: diaSel, time: extra.time || null, slot, category: extra.category || 'administrativa' })
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     setExtra(null); savedFx(); cargar()
   }
   const marcar = async (t, status) => {

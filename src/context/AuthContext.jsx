@@ -44,8 +44,25 @@ export function AuthProvider({ children }) {
   const login = (email, password) => supabase.auth.signInWithPassword({ email, password })
   const logout = () => supabase.auth.signOut()
 
+  // BANDERAS DE ROL, calculadas una sola vez para todo el panel (1 oct 2026, rol
+  // OPERADOR). Las pantallas las leen en vez de comparar el texto del rol:
+  //   esSuper       el superusuario. Lo de ADMINISTRACIÓN sigue siendo solo suyo:
+  //                 usuarios, bitácora, números y ajustes del bot, agentes IA.
+  //   esOperador    trabaja como el superusuario (corrige, migra, edita) pero no
+  //                 ve esas pantallas de administración.
+  //   puedeCorregir lo que antes era "solo el superusuario corrige, borra o migra".
+  //   esJefe        administrador, superusuario u operador: ve todos los proyectos
+  //                 y edita todo lo del trabajo diario.
+  // En la base el operador vale como 'admin' (get_user_role); lo que distingue
+  // al operador del superusuario se decide aquí, en el panel.
+  const role = profile?.role
+  const esSuper = role === 'superuser'
+  const esOperador = role === 'operador'
+  const puedeCorregir = esSuper || esOperador
+  const esJefe = role === 'admin' || puedeCorregir
+
   return (
-    <AuthContext.Provider value={{ session, profile, role: profile?.role, loading, login, logout }}>
+    <AuthContext.Provider value={{ session, profile, role, esSuper, esOperador, puedeCorregir, esJefe, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

@@ -23,6 +23,16 @@ export const hoyPeru = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString(
 // "2026-09-24" -> "24/09/2026"
 export const fechaPe = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : '—'
 
+// CUOTA VENCIDA: una sola definición para todo el panel (ficha, mapa, Hoy, Clientes,
+// Dashboard). Ya pasó su fecha, no está pagada y le falta más de S/ 2 (lo de menos
+// son redondeos de una cascada). Se calcula EN VIVO con la fecha: el estado
+// 'vencido' guardado en la cuota solo se actualiza cuando alguien la toca, y por
+// eso cada pantalla contaba distinto.
+export const TOLERANCIA_CUOTA = 2
+export const saldoCuota = q => Math.round((Number(q.amount || 0) - Number(q.amount_paid || 0)) * 100) / 100
+export const cuotaVencida = (q, hoy = hoyPeru()) =>
+  q.status !== 'pagado' && !!q.due_date && q.due_date < hoy && saldoCuota(q) > TOLERANCIA_CUOTA
+
 // LO COBRADO DE UNA VENTA, con una sola fórmula para todas las listas: cuotas
 // pagadas + inicial + separación (la separación sale del precio: precio − inicial −
 // financiado). Es la misma cuenta de la ficha del lote. Antes la lista de Ventas no

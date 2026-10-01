@@ -3,8 +3,10 @@ import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
-import { PALETA_PROYECTOS } from '../context/ProjectContext'
+import { PALETA_PROYECTOS, useProject } from '../context/ProjectContext'
+import FacturadorProyecto from '../components/FacturadorProyecto'
 
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
@@ -25,8 +27,14 @@ function LegalChip({ label, expiry, docUrl }) {
 }
 
 export default function Projects() {
-  const { role } = useAuth()
-  const canEdit = ['admin', 'superuser'].includes(role)
+  const { role, puedeCorregir, esJefe } = useAuth()
+  const canEdit = esJefe   // administrador, superusuario y operador: editan el proyecto y sus cuentas
+  // quién factura y con qué RUC es configuración: no la toca el operador
+  const configuraFact = ['admin', 'superuser'].includes(role)
+  const { recargarProyectos } = useProject()
+  // el número de WhatsApp del proyecto (QR, vincular, quitar) y el interruptor del
+  // bot son configuración de WhatsApp: el operador no los ve
+  const configuraWsp = ['admin', 'superuser'].includes(role)
   const [migra, setMigra] = useState(false)
   const [projects, setProjects] = useState([])
   const [stats, setStats] = useState({})
@@ -101,11 +109,12 @@ export default function Projects() {
     setQrs(imgs)
   }
   useEffect(() => {
+    if (!configuraWsp) return   // a quien no configura WhatsApp ni se le bajan los números ni sus QR
     cargarSesiones()
     const esperando = sesiones.some(s => s.estado === 'esperando_qr')
     const t = setInterval(() => { if (!document.hidden) cargarSesiones() }, esperando ? 5000 : 30000)
     return () => clearInterval(t)
-  }, [sesiones.some(s => s.estado === 'esperando_qr')])
+  }, [sesiones.some(s => s.estado === 'esperando_qr'), configuraWsp])
 
   const sesionDe = pid => sesiones.find(s => s.project_id === pid) || null
   const sesionViva = s => s && s.latido && (Date.now() - new Date(s.latido).getTime()) < 120000
@@ -114,7 +123,7 @@ export default function Projects() {
   async function vincularNumero(p) {
     const ya = sesionDe(p.id)
     if (ya) {
-      if (!confirm(`¿Vincular otro celular al número de ${p.name}?\n\nSe cierra el WhatsApp actual y en ~30 segundos aparece el QR aquí mismo.`)) return
+      if (!await confirmar(`¿Vincular otro celular al número de ${p.name}?\n\nSe cierra el WhatsApp actual y en ~30 segundos aparece el QR aquí mismo.`)) return
       const { error } = await supabase.from('wa_sessions').update({ relink: true }).eq('id', ya.id)
       setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'QR SOLICITADO — aparece aquí en ~30 segundos' })
       cargarSesiones(); return
@@ -132,7 +141,7 @@ export default function Projects() {
   }
   async function quitarNumero(s, p) {
     if (s.is_corporate) { setMsg({ ok: false, t: 'Es el número corporativo (seguimiento/avisos): márcalo desde WhatsApp antes de quitarlo.' }); return }
-    if (!confirm(`¿Quitar el número de ${p.name}?\n\nSus chats quedan en el historial, pero ese WhatsApp deja de atenderse.`)) return
+    if (!await confirmar(`¿Quitar el número de ${p.name}?\n\nSus chats quedan en el historial, pero ese WhatsApp deja de atenderse.`, { peligro: true, aceptar: 'Sí, quitar' })) return
     await supabase.from('wa_sessions').delete().eq('id', s.id)
     setMsg({ ok: true, t: 'NÚMERO QUITADO DE ' + p.name })
     cargarSesiones()
@@ -317,12 +326,12 @@ export default function Projects() {
     <>
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Proyectos</h1>
-        {role === 'superuser' && <button className="btn-ghost" onClick={() => setMigra(!migra)}>&#128229; Migración masiva</button>}
+        {puedeCorregir && <button className="btn-ghost" onClick={() => setMigra(!migra)}>&#128229; Migración masiva</button>}
         {canEdit && <button className="btn-primary" onClick={() => abrirForm(null)}>+ Nuevo proyecto</button>}
       </div>
       {msg && !edit && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
-      {migra && role === 'superuser' && (
+      {migra && puedeCorregir && (
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
           <p><b>&#128229; MIGRACION MASIVA DE UN PROYECTO</b> <span className="muted small">(cargar un proyecto que ya venia operando: lotes, clientes, ventas, cuotas y pagos historicos)</span></p>
           <p style={{ margin: '8px 0' }}>
@@ -344,7 +353,7 @@ export default function Projects() {
           <div className="glass form-card" key={p.id}>
             <div className="modal-head">
               <h2>{p.name}</h2>
-              {canEdit && <button className={`chip ${p.bot_enabled === false ? '' : 'on'}`} style={{ fontSize: 12 }}
+              {configuraWsp && <button className={`chip ${p.bot_enabled === false ? '' : 'on'}`} style={{ fontSize: 12 }}
                 title={p.bot_enabled === false ? 'El bot NO atiende este proyecto: no lo detecta ni lo ofrece a los leads. Clic para activarlo.' : 'El bot atiende este proyecto. Clic para desactivarlo.'}
                 onClick={() => toggleBot(p)}>{p.bot_enabled === false ? '🤖 Bot: NO' : '🤖 Bot: SÍ'}</button>}
               {canEdit && <button className="btn-ghost" onClick={() => edit === p.id ? setEdit(null) : abrirForm(p)}>{edit === p.id ? 'Cerrar' : 'Editar'}</button>}
@@ -358,7 +367,7 @@ export default function Projects() {
             </p>
 
             {/* WhatsApp del proyecto: se vincula aquí mismo, sin pasar por otra pantalla */}
-            {canEdit && (() => {
+            {configuraWsp && (() => {
               const ses = sesionDe(p.id)
               const viva = sesionViva(ses)
               const esperandoQR = ses && ses.estado === 'esperando_qr'
@@ -397,6 +406,10 @@ export default function Projects() {
                 </div>
               )
             })()}
+
+            {/* quién factura los cobros de este proyecto, con su marca (sql/113) */}
+            <FacturadorProyecto proyecto={p} puedeEditar={configuraFact} setMsg={setMsg}
+              onGuardado={() => { load(); recargarProyectos() }} />
 
             <div className="cards">
               <div className="card glass"><p className="muted">Recaudado</p><p className="kpi">{soles(s.ingresos)}</p></div>

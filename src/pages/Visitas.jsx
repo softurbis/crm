@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg, savedFx } from '../lib/saveFx'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
@@ -25,7 +26,7 @@ const addDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d
 const lunesDe = iso => { const d = new Date(iso + 'T12:00:00'); const off = (d.getDay() + 6) % 7; return addDias(iso, -off) }
 
 export default function Visitas() {
-  const { role, profile } = useAuth()
+  const { role, profile, esJefe } = useAuth()   // esJefe = administrador, superusuario y operador
   const [visitas, setVisitas] = useState([])
   const [proys, setProys] = useState([])
   const [equipo, setEquipo] = useState([])
@@ -40,7 +41,8 @@ export default function Visitas() {
   const [verCfg, setVerCfg] = useState(false)
   const [cfgMsg, setCfgMsg] = useMsg('')
   const hoy = hoyISO()
-  const esJefe = ['admin', 'superuser'].includes(role)
+  // los recordatorios son ajustes del BOT (qué manda y cuándo): eso no es del operador
+  const configuraBot = ['admin', 'superuser'].includes(role)
 
   const cargarCfg = async () => {
     const { data } = await supabase.from('bot_settings').select('key, value').like('key', 'vis_%')
@@ -88,14 +90,14 @@ export default function Visitas() {
   useEffect(() => { cargarCfg() }, [])
   useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 20000); return () => clearInterval(t) }, [semana, mes])
 
-  if (!['admin', 'superuser', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
+  if (!['admin', 'superuser', 'operador', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
   const puedeCrear = role !== 'manager'
 
   const guardar = async () => {
     const cp = String(form.client_phone || '').replace(/\D/g, '')
     const ep = String(form.encargado_phone || '').replace(/\D/g, '')
     if (!form.client_name?.trim() || cp.length < 9 || !form.date || !form.time || !form.meeting_point?.trim() || ep.length < 9) {
-      alert('Completa: cliente, celular (9+ dígitos), encargado y su celular, fecha, hora y punto de encuentro.'); return
+      await avisar('Completa: cliente, celular (9+ dígitos), encargado y su celular, fecha, hora y punto de encuentro.'); return
     }
     const payload = {
       project_id: form.project_id || null,
@@ -107,11 +109,11 @@ export default function Visitas() {
     const { error } = form.id
       ? await supabase.from('visits').update({ ...payload, reminded_at: null }).eq('id', form.id)
       : await supabase.from('visits').insert({ ...payload, created_by: profile?.id })
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     setForm(null); savedFx(); cargar()
   }
   const setEstado = async (v, status) => { await supabase.from('visits').update({ status }).eq('id', v.id); cargar() }
-  const borrar = async v => { if (confirm('¿Eliminar la visita de ' + v.client_name + '?')) { await supabase.from('visits').delete().eq('id', v.id); cargar() } }
+  const borrar = async v => { if (await confirmar('¿Eliminar la visita de ' + v.client_name + '?', { peligro: true, aceptar: 'Sí, eliminar' })) { await supabase.from('visits').delete().eq('id', v.id); cargar() } }
 
   // CERRAR una visita con su resultado (el bot avisa al admin). recontacto = agenda otra entrada.
   const cerrarVisita = async (v, res) => {
@@ -120,9 +122,9 @@ export default function Visitas() {
     let recontactoDate = null
     if (meta.pideFecha) {
       const def = addDias(hoy, 3)
-      const f = prompt('📅 ¿Para qué fecha recontactar al cliente? (AAAA-MM-DD)\n\nEse día el bot le recuerda al asesor que debe llamar.', def)
+      const f = await pedir('📅 ¿Para qué fecha recontactar al cliente?\n\nEse día el bot le recuerda al asesor que debe llamar.', { tipo: 'fecha', valor: def, obligatorio: true })
       if (f === null) return
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) { alert('Fecha inválida. Usa el formato AAAA-MM-DD (ej. ' + def + ').'); return }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) { await avisar('Fecha inválida.'); return }
       recontactoDate = f.trim()
       // agendar el recontacto en el calendario (tipo 'recontacto')
       const { error: eR } = await supabase.from('visits').insert({
@@ -131,38 +133,38 @@ export default function Visitas() {
         date: recontactoDate, time: '10:00', meeting_point: 'RECONTACTO (LLAMADA)',
         tipo: 'recontacto', notes: (nota.trim() || 'Recontactar al cliente'), status: 'programada', created_by: profile?.id,
       })
-      if (eR) { alert('No se pudo agendar el recontacto: ' + eR.message); return }
+      if (eR) { await avisar('No se pudo agendar el recontacto: ' + eR.message); return }
     }
     const { error } = await supabase.from('visits').update({
       status: res === 'no_vino' ? 'no_asistio' : 'realizada',
       resultado: res, resultado_note: nota.trim() || null,
       recontacto_date: recontactoDate, closed_at: new Date().toISOString(), admin_avisado_at: null,
     }).eq('id', v.id)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     setCerrar(null); savedFx(); cargar()
   }
 
   // guardar SOLO el feedback (sin cambiar el resultado ni el estado)
   const guardarFeedback = async (v, feedback) => {
     const { error } = await supabase.from('visits').update({ resultado_note: (feedback || '').trim() || null }).eq('id', v.id)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     setCerrar(null); savedFx(); cargar()
   }
 
   // reabrir una visita cerrada: vuelve a PROGRAMADA y borra su resultado
   const reabrirVisita = async v => {
-    if (!confirm('¿Reabrir la visita de ' + v.client_name + '?\n\nVuelve a PROGRAMADA y se borra su resultado (cerrada por error / para volver a manejarla).')) return
+    if (!await confirmar('¿Reabrir la visita de ' + v.client_name + '?\n\nVuelve a PROGRAMADA y se borra su resultado (cerrada por error / para volver a manejarla).')) return
     const { error } = await supabase.from('visits').update({
       status: 'programada', resultado: null, resultado_note: null,
       recontacto_date: null, closed_at: null, admin_avisado_at: null,
     }).eq('id', v.id)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     cargar()
   }
 
   // reenviar el recordatorio (resetea las marcas para que el bot lo vuelva a mandar)
   const reenviarRecordatorio = async v => {
-    if (!confirm('¿Reenviar el recordatorio de esta visita?\n\nEl bot lo volverá a mandar al cliente y al asesor en el próximo ciclo (máx. 1 min).')) return
+    if (!await confirmar('¿Reenviar el recordatorio de esta visita?\n\nEl bot lo volverá a mandar al cliente y al asesor en el próximo ciclo (máx. 1 min).')) return
     await supabase.from('visits').update({ reminded_at: null, reminded_dia_at: null, reminded_hora_at: null }).eq('id', v.id)
     cargar()
   }
@@ -248,7 +250,7 @@ export default function Visitas() {
             <button className="btn-ghost" onClick={() => setSemana(addDias(semana, 7))}>SEM ›</button>
           </>)}
           <button className="btn-ghost" onClick={irHoy}>HOY</button>
-          {esJefe && <button className="btn-ghost" onClick={() => setVerCfg(!verCfg)} title="Configurar recordatorios de visita">🔔 RECORDATORIOS</button>}
+          {configuraBot && <button className="btn-ghost" onClick={() => setVerCfg(!verCfg)} title="Configurar recordatorios de visita">🔔 RECORDATORIOS</button>}
           {puedeCrear && <button className="btn" onClick={() => setForm({ date: hoy, time: '10:00' })}>+ PROGRAMAR VISITA</button>}
         </div>
       </div>
@@ -257,7 +259,7 @@ export default function Visitas() {
         {cfg.activo ? <> (hoy: {cfg.diasAntes > 0 ? cfg.diasAntes + ' día(s) antes' : '—'}{cfg.horasAntes > 0 ? ' + ' + cfg.horasAntes + ' h antes' : ''}).</> : <> — <b className="bad">recordatorios APAGADOS</b>.</>}
       </p>
 
-      {verCfg && esJefe && (
+      {verCfg && configuraBot && (
         <div className="glass" style={{ padding: 14, marginBottom: 12, border: '1px solid rgba(126,167,247,.4)' }}>
           <b style={{ color: '#7ba7f7' }}>🔔 RECORDATORIOS DE VISITA</b>
           <p className="muted" style={{ fontSize: 11, margin: '4px 0 10px' }}>El bot recuerda cada visita al cliente y/o al asesor. Configura cuánto antes. (Los recontactos se avisan al asesor el día que toca.)</p>

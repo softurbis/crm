@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
+import { confirmar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import DatosPago from './DatosPago'
 import FormPersona, { BuscarCliente } from './FormPersona'
@@ -23,7 +24,7 @@ const TITULO = { separacion: 'Separar', inicial: 'Cobrar inicial', directa: 'Ven
 // (con o sin separacion previa), cuota y cuadre del superusuario. Todo en una
 // ventana, con los pasos a la vista. La escritura vive en lib/cobros.js.
 export default function CobroModal({ tipo, lote, detail, onClose, onListo, onContrato }) {
-  const { profile, role } = useAuth()
+  const { profile, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const pidOp = lote.project_id
   const sep = detail.sep
   const sale = detail.sale
@@ -87,9 +88,18 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       .then(({ data }) => setAsesores(data || []))
   }
   async function nuevoAsesor() {
-    const code = (prompt('CODIGO corto del vendedor (ej. JUAN):') || '').trim().toUpperCase()
+    // codigo y nombre en un solo dialogo (antes eran dos ventanas seguidas)
+    const datos = await pedirDatos({
+      titulo: 'Vendedor nuevo',
+      campos: [
+        { clave: 'code', etiqueta: 'CODIGO corto del vendedor (ej. JUAN)', obligatorio: true },
+        { clave: 'nom', etiqueta: 'Nombre completo (opcional)' },
+      ],
+    })
+    if (datos === null) return
+    const code = (datos.code || '').trim().toUpperCase()
     if (!code) return
-    const nom = (prompt('Nombre completo (opcional, Enter para saltar):') || '').trim().toUpperCase()
+    const nom = (datos.nom || '').trim().toUpperCase()
     const { data, error } = await supabase.from('advisors').insert({ code, full_name: nom || code, active: true }).select().single()
     if (error) { setErr('No se pudo crear el vendedor: ' + error.message); return }
     await cargarAsesores()
@@ -119,9 +129,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const plan = useMemo(() => (modo === 'cuota' ? planCascada(pendientes, pago.monto) : null), [modo, pendientes, pago.monto])
 
   const tocado = !!(pago.file || cel || nombre || archTit || co)
-  const cerrar = () => {
+  const cerrar = async () => {
     if (hecho) { onListo(); return }
-    if (tocado && !confirm('¿Cerrar sin registrar? Se pierde lo que llenaste.')) return
+    if (tocado && !await confirmar('¿Cerrar sin registrar? Se pierde lo que llenaste.', { aceptar: 'Sí, cerrar', cancelar: 'Seguir llenando' })) return
     onClose()
   }
 
@@ -364,7 +374,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
             </>)}
 
             {/* ======================= CUADRE (superusuario) ======================= */}
-            {modo === 'cuadre' && role === 'superuser' && (<>
+            {modo === 'cuadre' && puedeCorregir && (<>
               <div className="cobro-caja" style={{ borderLeft: '3px solid #e0b34c' }}>
                 <p className="small" style={{ margin: 0 }}>Registra una <b>inicial</b> o <b>separación</b> que no se cargó en la migración, sobre esta venta. Entra a caja ligada a la venta y suma en lo pagado. <b>No crea venta ni toca el cronograma.</b></p>
                 <div className="acc-row" style={{ marginTop: 6 }}>

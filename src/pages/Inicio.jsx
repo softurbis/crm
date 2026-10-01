@@ -6,7 +6,7 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import BuscarLote from '../components/BuscarLote'
 import { useEsCelular } from '../lib/useEsCelular'
 import { soles } from '../lib/pagos'
-import { hoyPeru, fechaPe } from '../lib/lotes'
+import { hoyPeru, fechaPe, TOLERANCIA_CUOTA } from '../lib/lotes'
 
 const r2 = n => Math.round(Number(n) * 100) / 100
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -97,7 +97,7 @@ export default function Inicio() {
       const porVenta = new Map()
       for (const q of venc) {
         const debe = r2(Number(q.amount) - Number(q.amount_paid))
-        if (debe <= 2) continue
+        if (debe <= TOLERANCIA_CUOTA) continue   // misma regla que la ficha y el mapa (lib/lotes)
         const v = porVenta.get(q.sale_id) || { sale_id: q.sale_id, lot_id: q.sales.lot_id, lot: q.sales.lot, client: q.sales.client, n: 0, deuda: 0, desde: q.due_date }
         v.n++; v.deuda = r2(v.deuda + debe); if (q.due_date < v.desde) v.desde = q.due_date
         porVenta.set(q.sale_id, v)

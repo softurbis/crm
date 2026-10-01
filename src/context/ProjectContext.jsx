@@ -12,17 +12,35 @@ export const PALETA_PROYECTOS = [
 ]
 export const colorProyecto = (p, i = 0) => p?.color || PALETA_PROYECTOS[i % PALETA_PROYECTOS.length]
 
+// La MARCA de cada proyecto: su logo y, si usa el facturador, quién factura (logo,
+// color, RUC). Va en una consulta aparte y tolerante: si la base todavía no tiene
+// las columnas del facturador (sql/113 sin correr) se queda solo con el logo, y si
+// ni eso, el panel sigue igual que antes. Nunca deja al menú sin proyectos.
+const COLS_FACT = 'id, logo_url, fact_activo, fact_ruc, fact_razon_social, fact_direccion, fact_serie_boleta, fact_serie_factura, fact_logo_url, fact_color'
+async function marcaDe(ids) {
+  if (!ids.length) return {}
+  let { data, error } = await supabase.from('projects').select(COLS_FACT).in('id', ids)
+  if (error) ({ data } = await supabase.from('projects').select('id, logo_url').in('id', ids))
+  return Object.fromEntries((data || []).map(x => [x.id, x]))
+}
+// el logo que identifica al proyecto en el panel: el de quien factura si lo tiene
+// (Las Praderas de Pucallpa = Century), si no el del proyecto
+export const logoProyecto = p => p?.fact_logo_url || p?.logo_url || null
+
 export function ProjectProvider({ children }) {
-  const { profile, role } = useAuth()
+  const { profile, role, esJefe } = useAuth()
   const [projects, setProjects] = useState([])
+  const [vuelta, setVuelta] = useState(0)   // se sube para volver a leer los proyectos
   const [pid, setPid] = useState(localStorage.getItem('urbis.pid') || 'general')
 
   useEffect(() => {
     if (!profile) return
     async function load() {
-      if (role === 'admin' || role === 'superuser') {
+      let lista = []
+      // administrador, superusuario y operador ven todos los proyectos
+      if (esJefe) {
         const { data } = await supabase.from('projects').select('id, name, color').order('created_at')
-        setProjects(data || [])
+        lista = data || []
       } else {
         const { data } = await supabase.from('project_assignments')
           .select('project:projects(id, name, color)').eq('user_id', profile.id)
@@ -34,11 +52,14 @@ export function ProjectProvider({ children }) {
           const { data: all } = await supabase.from('projects').select('id, name, color').order('created_at')
           list = all || []
         }
-        setProjects(list)
+        lista = list
       }
+      setProjects(lista)
+      const marca = await marcaDe(lista.map(p => p.id))
+      setProjects(lista.map(p => ({ ...p, ...marca[p.id] })))
     }
     load()
-  }, [profile, role])
+  }, [profile, role, vuelta])
 
   useEffect(() => {
     if (pid !== 'general' && projects.length && !projects.some(p => p.id === pid)) {
@@ -56,7 +77,9 @@ export function ProjectProvider({ children }) {
     return i < 0 ? null : colorProyecto(projects[i], i)
   }
 
-  return <Ctx.Provider value={{ projects, pid, pidOp, select, current, colorDe }}>{children}</Ctx.Provider>
+  const recargarProyectos = () => setVuelta(v => v + 1)
+
+  return <Ctx.Provider value={{ projects, pid, pidOp, select, current, colorDe, recargarProyectos }}>{children}</Ctx.Provider>
 }
 
 export const useProject = () => useContext(Ctx)

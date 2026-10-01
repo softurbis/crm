@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import LandingEditor, { linkLanding, linkVistaPrevia } from '../components/LandingEditor'
 import { linkPublico } from '../lib/sitios'
@@ -46,8 +47,8 @@ export default function Corretaje() {
   // link de la página pública (fuera del login) para compartir
   const LINK_PUBLICO = linkPublico('propiedades')
   const copiarLinkPublico = async () => {
-    try { await navigator.clipboard.writeText(LINK_PUBLICO); alert('✅ Link público copiado:\n\n' + LINK_PUBLICO + '\n\nPégalo en WhatsApp, redes o donde quieras.') }
-    catch { window.prompt('Copia este link público:', LINK_PUBLICO) }
+    try { await navigator.clipboard.writeText(LINK_PUBLICO); await avisar('✅ Link público copiado:\n\n' + LINK_PUBLICO + '\n\nPégalo en WhatsApp, redes o donde quieras.') }
+    catch { await pedir('Copia este link público:', { valor: LINK_PUBLICO, aceptar: 'Listo' }) }
   }
 
   const cargarLista = async () => {
@@ -111,7 +112,7 @@ export default function Corretaje() {
   }
 
   const borrar = async prop => {
-    if (!window.confirm('¿Eliminar esta propiedad y sus fotos/gastos/documentos?')) return
+    if (!await confirmar('¿Eliminar esta propiedad y sus fotos/gastos/documentos?', { peligro: true, aceptar: 'Sí, eliminar' })) return
     await supabase.from('corr_propiedades').delete().eq('id', prop.id)
     if (sel?.id === prop.id) setSel(null)
     cargarLista()
@@ -124,7 +125,7 @@ export default function Corretaje() {
 
   // fotos
   const subirFotos = async e => {
-    if (!sel?.id) { alert('Guarda primero la propiedad para subir fotos.'); return }
+    if (!sel?.id) { await avisar('Guarda primero la propiedad para subir fotos.'); return }
     setSubiendo(true)
     try {
       for (const file of Array.from(e.target.files || [])) {
@@ -133,14 +134,14 @@ export default function Corretaje() {
       }
       const { data } = await supabase.from('corr_fotos').select('*').eq('propiedad_id', sel.id).order('orden')
       setFotos(data || [])
-    } catch (err) { alert('No se pudo subir: ' + err.message) }
+    } catch (err) { await avisar('No se pudo subir: ' + err.message) }
     setSubiendo(false)
   }
   const borrarFoto = async id => { await supabase.from('corr_fotos').delete().eq('id', id); setFotos(f => f.filter(x => x.id !== id)) }
 
   // gastos
   const addGasto = async () => {
-    if (!sel?.id) { alert('Guarda primero la propiedad.'); return }
+    if (!sel?.id) { await avisar('Guarda primero la propiedad.'); return }
     await supabase.from('corr_gastos').insert({ propiedad_id: sel.id, categoria: '', monto: 0, moneda: 'PEN' })
     const { data } = await supabase.from('corr_gastos').select('*').eq('propiedad_id', sel.id).order('fecha', { ascending: false }); setGastos(data || [])
   }
@@ -150,14 +151,14 @@ export default function Corretaje() {
 
   // documentos
   const subirDoc = async e => {
-    if (!sel?.id) { alert('Guarda primero la propiedad.'); return }
+    if (!sel?.id) { await avisar('Guarda primero la propiedad.'); return }
     setSubiendo(true)
     try {
       const file = e.target.files?.[0]; if (!file) return
       const url = await subir(file, sel.id + '/docs')
       await supabase.from('corr_documentos').insert({ propiedad_id: sel.id, nombre: file.name, url, tipo: 'documento' })
       const { data } = await supabase.from('corr_documentos').select('*').eq('propiedad_id', sel.id).order('created_at'); setDocs(data || [])
-    } catch (err) { alert('No se pudo subir: ' + err.message) }
+    } catch (err) { await avisar('No se pudo subir: ' + err.message) }
     setSubiendo(false)
   }
   const borrarDoc = async id => { await supabase.from('corr_documentos').delete().eq('id', id); setDocs(d => d.filter(x => x.id !== id)) }
@@ -182,7 +183,7 @@ export default function Corretaje() {
     const file = e.target.files?.[0]; if (!file) return
     setSubiendo(true)
     try { const url = await subir(file, 'proyectos/' + id); setProjPub(id, { [campo]: url }); await supabase.from('corr_proyectos_pub').upsert({ project_id: id, [campo]: url }) }
-    catch (err) { alert('No se pudo subir: ' + err.message) }
+    catch (err) { await avisar('No se pudo subir: ' + err.message) }
     setSubiendo(false)
   }
   const guardarContrato = async () => {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
+import { avisar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import ContratoModal from '../components/ContratoModal'
 import ContratoDeVenta from '../components/ContratoDeVenta'
@@ -26,7 +27,7 @@ const VIVA = ['en_proceso', 'pagado']     // las que llevan contrato
 // (cobrar, cuotas, documentos) sigue en la ficha del lote, a un clic del lote.
 // Las rutas /ventas y /contratos abren esta misma pantalla.
 export default function Contracts() {
-  const { role, profile } = useAuth()
+  const { role, profile, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const { pidOp } = useProject()
   const [proyecto, setProyecto] = useState(null)
   const [ventas, setVentas] = useState([])
@@ -84,13 +85,21 @@ export default function Contracts() {
   // corregir la fecha de venta (superusuario): aquí, donde se revisan los contratos,
   // es donde se descubre que la fecha no coincide con el papel firmado.
   async function editarFechaVenta(v) {
-    const nueva = prompt('NUEVA FECHA DE VENTA de ' + (v.client?.full_name || 'esta venta') + ' (AAAA-MM-DD).\n\nOJO: no mueve las cuotas del cronograma; solo corrige la fecha del contrato.', v.sale_date || '')
-    if (nueva === null) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato invalido. Ej: 2026-05-12'); return }
+    // fecha y motivo en un solo dialogo (antes eran dos ventanas seguidas)
+    const datos = await pedirDatos({
+      titulo: 'Corregir la fecha de venta',
+      mensaje: 'NUEVA FECHA DE VENTA de ' + (v.client?.full_name || 'esta venta') + '.\n\nOJO: no mueve las cuotas del cronograma; solo corrige la fecha del contrato.',
+      campos: [
+        { clave: 'nueva', etiqueta: 'Nueva fecha de venta', tipo: 'fecha', valor: v.sale_date || '', obligatorio: true },
+        { clave: 'motivo', etiqueta: 'Motivo de la correccion (queda en bitacora)', tipo: 'largo', obligatorio: true },
+      ],
+    })
+    if (datos === null) return
+    const nueva = datos.nueva
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { await avisar('Fecha invalida.'); return }
     if (nueva === v.sale_date) return
-    const motivo = prompt('Motivo de la correccion (obligatorio, queda en bitacora):')
-    if (motivo === null) return
-    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const motivo = datos.motivo
+    if (motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const { error } = await supabase.from('sales').update({ sale_date: nueva }).eq('id', v.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
     await supabase.from('activity_log').insert({
@@ -117,14 +126,14 @@ export default function Contracts() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Ventas y contratos</h1>
         <ProjectPicker />
-        {role === 'superuser' && (
+        {puedeCorregir &&(
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
             {tplOpen ? 'Cerrar plantilla' : '⚙ Plantilla del contrato'}
           </button>
         )}
       </div>
 
-      {tplOpen && role === 'superuser' && (
+      {tplOpen && puedeCorregir &&(
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
           <p><b>PLANTILLA DEL CONTRATO — {proyecto?.name}</b></p>
           <p className="muted small">
@@ -190,7 +199,7 @@ export default function Contracts() {
                   <td><LoteLink lot={v.lot}>{conjunta ? v.lot.associated_to.split(' (')[0].replace('VENTA CONJUNTA ', '') : null}</LoteLink></td>
                   <td>{v.client?.full_name || '-'}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
                   <td>{fechaPe(v.sale_date)}
-                    {role === 'superuser' && <button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
+                    {puedeCorregir &&<button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
                   </td>
                   <td>{soles(v.total_sale_price)}</td>
                   <td style={{ color: '#4bb96a' }}>{soles(c.cobrado)}</td>

@@ -27,6 +27,11 @@ const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
 const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(...a) })
 // lee con IA el DNI que se sube al registrar un cliente y llena sus datos (sql/112)
 const LECTOR_DNI = require('./lector_dni')({ supabase, log: (...a) => log(...a) })
+// emite las boletas y facturas que pide el panel, con el RUC de cada proyecto (sql/113)
+const FACT = require('./facturador')({
+  supabase, log: (...a) => log(...a),
+  avisar: async texto => { if (ADMIN) await enviar(ADMIN, texto, { tipo: 'aviso_admin' }) },
+})
 
 // ===== MODO PRUEBAS (consola / chat virtual) =====
 // Mientras una prueba se procesa, TEST_ACTIVE = teléfono de la sesión y
@@ -3581,6 +3586,10 @@ setInterval(() => { enviarCodigosFirma().catch(e => log('enviarCodigosFirma:', S
 setInterval(() => { LECTOR.procesar().catch(e => log('lector comprobantes:', String(e.message || e))) }, 3000)
 // DNI que el panel pidió leer (la secretaria espera con el formulario abierto: cada 2 s)
 setInterval(() => { LECTOR_DNI.procesar().catch(e => log('lector dni:', String(e.message || e))) }, 2000)
+// comprobantes que el panel pidió emitir (la secretaria espera con la ficha abierta: cada 4 s)
+setInterval(() => { FACT.procesar().catch(e => log('facturador:', String(e.message || e))) }, 4000)
+// lo que SUNAT contesta en diferido: resumen diario de boletas, bajas y sus tickets
+setInterval(() => { FACT.diferidos().catch(e => log('facturador (diferidos):', String(e.message || e))) }, 10 * 60000)
 
 // El lead contesto DESPUES de un seguimiento automatico: se corta la secuencia,
 // se marca la respuesta, se avisa al asesor y sube al tablero como urgente.

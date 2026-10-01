@@ -1,7 +1,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useProject, colorProyecto } from '../context/ProjectContext'
+import { useProject, colorProyecto, logoProyecto } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import Avatar from './Avatar'
@@ -48,6 +48,9 @@ const haceCuanto = desde => {
 // marcadas con `proy` trabajan sobre el proyecto elegido.
 //   siempre  = no depende de los paneles del usuario
 //   staff    = admin y superusuario · admin = SOLO superusuario
+//   corrige  = superusuario y OPERADOR. El operador ve el menú del superusuario
+//              menos lo marcado `admin` o `staff` (usuarios, bitácora, corretaje,
+//              campañas, agentes IA, probar bot)
 //   cobranza = la abre el permiso especial de cobranza (sql/76), no un rol
 const MENU = [
   // el buscador y lo urgente del día
@@ -55,6 +58,8 @@ const MENU = [
   { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️', color: '#8fd16f', proy: true },
 
   { to: '/pagos', label: 'Pagos', icon: '💵', color: '#4fc3a1', proy: true, grupo: 'Cobranza' },
+  // boletas y facturas electrónicas (sql/113): aparece cuando algún proyecto tiene el facturador prendido
+  { to: '/comprobantes', label: 'Comprobantes', icon: '📑', color: '#e58a7b', proy: true, grupo: 'Cobranza', fact: true },
   { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Cobranza' },
 
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
@@ -79,17 +84,17 @@ const MENU = [
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Configuración' },
   { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Configuración' },
   // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
-  { to: '/migracion', label: 'Migración', icon: '📥', admin: true, color: '#7fb0d8', grupo: 'Configuración' },
+  { to: '/migracion', label: 'Migración', icon: '📥', corrige: true, color: '#7fb0d8', grupo: 'Configuración' },
 ]
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
 const ICONO_GRUPO = { Cobranza: '💰', Ventas: '🏷️', Gastos: '🧾', Comercial: '📢', Reportes: '📈', 'Configuración': '⚙️' }
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
 // Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
-export const PANELS = MENU.filter(m => !m.admin && !m.cobranza && !m.siempre && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
+export const PANELS = MENU.filter(m => !m.admin && !m.corrige && !m.cobranza && !m.siempre && !m.fact && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
-  const { profile, role, logout } = useAuth()
+  const { profile, role, esSuper, puedeCorregir, esJefe, logout } = useAuth()
   const { projects, pid, pidOp, select } = useProject()
   const [open, setOpen] = useState(false)
   const [eligiendoProy, setEligiendoProy] = useState(false)   // la lista de proyectos, desplegada
@@ -147,16 +152,21 @@ export default function Layout() {
     document.addEventListener('visibilitychange', alVolver)
     return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', alVolver) }
   }, [role, profile?.id])
-  const esAdmin = ['admin', 'superuser'].includes(role)
-  // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
+  const esAdmin = esJefe   // administrador, superusuario y operador: ven quién está conectado
+  // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario
+  // y el operador ven todo lo de su rol: a ellos los paneles por usuario no les recortan nada.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
   // `tambien`: quien tenía habilitado el panel viejo de Contratos ve "Ventas y contratos"
-  const enPanel = m => role === 'superuser' || m.to === '/' || m.siempre || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to) || (m.tambien || []).some(t => panelsUser.includes(t))
+  // Comprobantes va con Pagos: quien cobra es quien emite la boleta
+  const enPanel = m => puedeCorregir || m.to === '/' || m.siempre || m.admin || m.corrige || m.cobranza || !panelsUser || panelsUser.includes(m.fact ? '/pagos' : m.to) || (m.tambien || []).some(t => panelsUser.includes(t))
   // Cobranza IA la abre el permiso especial (sql/76), no el rol ni los paneles.
   // El administrador la ve para consultar; la pantalla le quita los botones.
+  // El OPERADOR no entra en esta lista: solo la ve si se le dio el permiso especial.
   const tieneCobranza = ['admin', 'superuser'].includes(role) || (profile?.permisos || []).includes('cobranza')
   // ¿este ítem es visible para el usuario? (mismo criterio que tenía el menú plano)
-  const verItem = m => !!m && (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && enPanel(m)
+  // `staff` NO incluye al operador a propósito: campañas, corretaje y probar bot no son suyos.
+  const hayFacturador = projects.some(p => p.fact_activo)
+  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
   const grupoAbierto = g => !gruposCerrados[g]
   const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
 
@@ -232,8 +242,18 @@ export default function Layout() {
                       <span className="proj-name" title={proyOp.name}>{nombreProy(proyOp.name)}</span>
                       {projects.length > 1 && <span className={`proj-caret ${eligiendoProy ? 'open' : ''}`}>&#9656;</span>}
                     </button>
+                    {/* la marca del proyecto elegido: cada uno se identifica con su logo
+                        (el de quien factura si lo tiene: Praderas de Pucallpa = Century) */}
+                    {logoProyecto(proyOp) && !eligiendoProy && (
+                      <div className="proj-marca" title={proyOp.fact_razon_social || proyOp.name}>
+                        <img src={logoProyecto(proyOp)} alt={proyOp.fact_razon_social || proyOp.name} />
+                      </div>
+                    )}
+                    {/* Los demás proyectos van AL MISMO NIVEL, sin sangría: cada proyecto es
+                        independiente, ninguno cuelga de otro (pedido del dueño, 1 oct). */}
                     {eligiendoProy && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, margin: '4px 0 2px 10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+                        <p className="menu-section" style={{ margin: '0 0 2px' }}>Cambiar a</p>
                         {projects.filter(p => p.id !== pidOp).map(p => {
                           const i = projects.indexOf(p)
                           return (
@@ -294,7 +314,7 @@ export default function Layout() {
             <div style={{ minWidth: 0, flex: 1 }}>
               <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={profile?.full_name}>{profile?.full_name}</p>
-              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'operador' ? 'OPERADOR' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>

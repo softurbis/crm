@@ -32,6 +32,7 @@ const Visitas = lazy(() => import('./pages/Visitas'))
 const Commissions = lazy(() => import('./pages/Commissions'))
 const Corretaje = lazy(() => import('./pages/Corretaje'))
 const Migracion = lazy(() => import('./pages/Migracion'))
+const Comprobantes = lazy(() => import('./pages/Comprobantes'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 
@@ -53,6 +54,24 @@ function Home() {
   if (role === 'secretary') return <Navigate to="/hoy" replace />
   return <Dashboard />
 }
+
+// PANTALLAS VEDADAS A UN ROL: no se abren ni escribiendo la dirección a mano (el
+// menú ya no las muestra). A quien no le toca se le devuelve al inicio, igual
+// que al asesor que pide el Dashboard. `para` recibe lo que da useAuth() y dice
+// quién NO pasa, así sirve para otro rol el día que haga falta.
+// El perfil llega un instante después que la sesión: hasta saber el rol no se
+// dibuja la pantalla (ni se baja su código).
+function Vedada({ para, children }) {
+  const auth = useAuth()
+  if (!auth.role) return <p className="muted" style={{ padding: '1rem 0' }}>Cargando…</p>
+  return para(auth) ? <Navigate to="/" replace /> : children
+}
+// El OPERADOR trabaja como el superusuario, pero la administración no es suya:
+// usuarios, bitácora, corretaje, campañas, agentes IA y la consola del bot.
+const operador = a => a.esOperador
+// Cobranza IA la abre un permiso por persona (sql/76), no el rol: el operador
+// solo entra si el superusuario lo marcó como responsable de cobranza.
+const operadorSinCobranza = a => a.esOperador && !(a.profile?.permisos || []).includes('cobranza')
 
 // Con dominio propio la web pública se publica aparte (lib/sitios.js): el panel
 // no la dibuja y manda al visitante allá. Solo se queda la vista previa de una
@@ -84,24 +103,25 @@ export default function App() {
           <Route path="hoy" element={<Inicio />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="whatsapp" element={<Whatsapp />} />
-          <Route path="probar-bot" element={<TestBot />} />
-          <Route path="cobranza-ia" element={<CobranzaIA />} />
-          <Route path="ventas-ia" element={<VentasIA />} />
-          <Route path="corretaje" element={<Corretaje />} />
-          <Route path="campanas" element={<Campanas />} />
+          <Route path="probar-bot" element={<Vedada para={operador}><TestBot /></Vedada>} />
+          <Route path="cobranza-ia" element={<Vedada para={operadorSinCobranza}><CobranzaIA /></Vedada>} />
+          <Route path="ventas-ia" element={<Vedada para={operador}><VentasIA /></Vedada>} />
+          <Route path="corretaje" element={<Vedada para={operador}><Corretaje /></Vedada>} />
+          <Route path="campanas" element={<Vedada para={operador}><Campanas /></Vedada>} />
           <Route path="secretarias" element={<Secretarias />} />
           <Route path="visitas" element={<Visitas />} />
           <Route path="lotes" element={<Lots />} />
           <Route path="lotes/:id" element={<FichaLote />} />
           <Route path="ventas" element={<Contracts />} />
           <Route path="pagos" element={<Payments />} />
+          <Route path="comprobantes" element={<Comprobantes />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="comisiones" element={<Commissions />} />
           <Route path="proyectos" element={<Projects />} />
-          <Route path="usuarios" element={<Users />} />
-          <Route path="bitacora" element={<Bitacora />} />
+          <Route path="usuarios" element={<Vedada para={operador}><Users /></Vedada>} />
+          <Route path="bitacora" element={<Vedada para={operador}><Bitacora /></Vedada>} />
           <Route path="migracion" element={<Migracion />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

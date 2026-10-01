@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import VisorDoc from '../components/VisorDoc'
 
@@ -194,7 +195,7 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
     if (!f.sale) { alTerminar({ ok: false, t: 'ELIGE EL LOTE AL QUE CORRESPONDE EL PAGO.' }); return }
     if (!(Number(f.monto) > 0) || !f.fecha) { alTerminar({ ok: false, t: 'FALTA EL MONTO O LA FECHA DEL PAGO.' }); return }
     if (reparto.sobra > 0.01) { alTerminar({ ok: false, t: 'EL MONTO SUPERA LA DEUDA DEL LOTE EN ' + soles(reparto.sobra) + '.' }); return }
-    if (!confirm(`¿Registrar ${soles(f.monto)} en ${loteDe(venta)}?\n\nSe aplica a: ${reparto.partes.map(p => 'cuota ' + p.n).join(', ')}.`)) return
+    if (!await confirmar(`¿Registrar ${soles(f.monto)} en ${loteDe(venta)}?\n\nSe aplica a: ${reparto.partes.map(p => 'cuota ' + p.n).join(', ')}.`)) return
     setBusy(true)
     const { data, error } = await supabase.rpc('validar_pago_reportado', {
       rid: r.id, p_sale: f.sale, p_monto: Number(f.monto), p_fecha: f.fecha, p_operacion: f.op,
@@ -205,10 +206,14 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
   }
 
   async function rechazar() {
-    const motivo = prompt('¿Por qué se rechaza este voucher? (queda en bitácora)')
+    // dos diálogos y no uno: el mensaje al cliente se arma con el motivo, y cancelar
+    // el segundo NO cancela el rechazo (solo deja de avisarle al cliente)
+    const motivo = await pedir('¿Por qué se rechaza este voucher? (queda en bitácora)', { tipo: 'largo', obligatorio: true })
     if (!motivo || motivo.trim().length < 4) return
-    const aviso = prompt('Mensaje para el cliente (Cancelar = no enviar nada):',
-      `Hola ${nombre || ''}, no pudimos validar su voucher: ${motivo.trim()}. ¿Nos envía una foto más clara o el comprobante correcto? Gracias.`)
+    const aviso = await pedir('Mensaje para el cliente (Cancelar = no enviar nada):', {
+      tipo: 'largo', aceptar: 'Enviar al cliente',
+      valor: `Hola ${nombre || ''}, no pudimos validar su voucher: ${motivo.trim()}. ¿Nos envía una foto más clara o el comprobante correcto? Gracias.`,
+    })
     const { error } = await supabase.rpc('rechazar_pago_reportado', { rid: r.id, p_motivo: motivo, p_mensaje: aviso ? aviso.trim() : null })
     alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'VOUCHER RECHAZADO' + (aviso ? '. SE LE AVISA AL CLIENTE.' : '.') })
   }
@@ -333,7 +338,7 @@ function Promesas({ puede, setMsg }) {
                   <td>
                     {puede && <>
                       <button className="link-btn" onClick={() => cambiar(p, { estado: 'cumplida', cerrado_at: new Date().toISOString() }, 'PROMESA MARCADA COMO CUMPLIDA')}>cumplida</button>{' · '}
-                      <button className="link-btn bad" onClick={() => confirm('¿Cancelar esta promesa? El lote vuelve a recibir los avisos normales.') && cambiar(p, { estado: 'cancelada', cerrado_at: new Date().toISOString() }, 'PROMESA CANCELADA')}>cancelar</button>
+                      <button className="link-btn bad" onClick={async () => { if (await confirmar('¿Cancelar esta promesa? El lote vuelve a recibir los avisos normales.', { aceptar: 'Sí, cancelar la promesa', cancelar: 'No' })) cambiar(p, { estado: 'cancelada', cerrado_at: new Date().toISOString() }, 'PROMESA CANCELADA') }}>cancelar</button>
                     </>}
                   </td>
                 </tr>
@@ -593,7 +598,7 @@ function Probar({ puede, vivo, setMsg }) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <b style={{ flex: 1 }}>{cli.full_name} <span className="muted small">+{tel} · PRUEBA</span></b>
             <button className="btn-ghost" onClick={() => mandar({ texto: '/aviso' })}>📨 ¿Qué aviso le toca hoy?</button>
-            <button className="btn-ghost" onClick={() => confirm('¿Borrar esta conversación de prueba y empezar de cero?') && mandar({ texto: '/reiniciar' })}>♻️ Reiniciar</button>
+            <button className="btn-ghost" onClick={async () => { if (await confirmar('¿Borrar esta conversación de prueba y empezar de cero?')) mandar({ texto: '/reiniciar' }) }}>♻️ Reiniciar</button>
           </div>
           <Burbujas msgs={msgs} />
           <form onSubmit={enviarTxt} style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
@@ -649,10 +654,10 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
   }
   async function interruptor(k, on) {
     if (on && k === 'avisos_activos' && !(cfg.plantilla_recordatorio || cfg.plantilla_vence_hoy || cfg.plantilla_vencida)) {
-      alert('Primero escribe (y guarda) los nombres de las plantillas aprobadas por Meta.')
+      await avisar('Primero escribe (y guarda) los nombres de las plantillas aprobadas por Meta.')
       return
     }
-    if (on && !confirm(k === 'agente_activo'
+    if (on && !await confirmar(k === 'agente_activo'
       ? '¿Prender el agente?\n\nDesde ahora contesta a TODOS los clientes que escriban al número de cobranza.'
       : '¿Prender los avisos?\n\nDesde la hora configurada saldrán plantillas a los clientes con cuotas por vencer o vencidas.')) return
     if (await guardar({ [k]: on }, on ? (k === 'agente_activo' ? 'AGENTE PRENDIDO' : 'AVISOS PRENDIDOS') : (k === 'agente_activo' ? 'AGENTE APAGADO' : 'AVISOS APAGADOS')))

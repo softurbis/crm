@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
+import { avisar, confirmar, pedir, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
@@ -13,9 +14,11 @@ import CobroModal from '../components/CobroModal'
 import ContratoModal from '../components/ContratoModal'
 import ContratoDeVenta from '../components/ContratoDeVenta'
 import EditarPersonaModal from '../components/EditarPersonaModal'
-import { COLORS, LBL, hoyPeru, fechaPe } from '../lib/lotes'
+import { COLORS, LBL, hoyPeru, fechaPe, cuotaVencida } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import { soles, agruparPagos, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
+import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
+import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 
 // cierre economico de una expropiacion (sql/50)
 const COLS_CIERRE = 'expr_fecha_cierre, expr_monto_recuperado, expr_monto_devuelto, expr_saldo, expr_acuerdo_url, expr_notas, expr_cierre_at'
@@ -84,11 +87,12 @@ export default function FichaLote() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'resumen'   // en la URL: al volver de Cuotas se cae en la misma pestaña
-  const { role, profile } = useAuth()
+  // puedeCorregir = superusuario u operador (las correcciones); esJefe suma al administrador
+  const { role, profile, puedeCorregir, esJefe } = useAuth()
   const { projects, pid, select } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
-  const puedeEditar = ['admin', 'secretary', 'superuser'].includes(role)
-  const esAdmin = ['admin', 'superuser'].includes(role)
+  const puedeEditar = ['admin', 'secretary', 'superuser', 'operador'].includes(role)
+  const esAdmin = esJefe   // administrador, superusuario y operador
   const puedeCierre = esAdmin
 
   const [sel, setSel] = useState(null)            // el lote
@@ -104,6 +108,8 @@ export default function FichaLote() {
   const [emsg, setEmsg] = useState(null)
   const [msg, setMsg] = useMsg(null)
   const [verPago, setVerPago] = useState(null)
+  const [emitirDe, setEmitirDe] = useState(null)   // el depósito al que se le emite boleta o factura
+  const [verComp, setVerComp] = useState(null)     // el comprobante electrónico abierto
   const [cobro, setCobro] = useState(null)   // separacion | inicial | cuota | cuadre (fase 2: se cobra aqui mismo)
   const [contrato, setContrato] = useState(null)   // id de la venta cuyo contrato se genera aqui mismo (fase 3)
   const [persona, setPersona] = useState(null)     // { c, titulo }: la persona cuyos datos se editan aquí mismo
@@ -372,8 +378,8 @@ export default function FichaLote() {
           motivo: consReason.trim().toUpperCase(), project_id: pidOp,
         },
       })
-      alert('CONSOLIDADO: S/ ' + total.toFixed(2) + ' movido a MZ ' + dest.lot.mz + ' LT ' + dest.lot.lt +
-        (rest > 0.01 ? '\n\nOJO: SOBRAN S/ ' + rest.toFixed(2) + ' (el lote destino ya quedo totalmente cubierto). Ese saldo queda a favor del cliente en la venta destino.' : ''))
+      await avisar('CONSOLIDADO: S/ ' + total.toFixed(2) + ' movido a MZ ' + dest.lot.mz + ' LT ' + dest.lot.lt +
+        (rest > 0.01 ? '\n\nOJO: SOBRAN S/ ' + rest.toFixed(2) + ' (el lote destino ya quedo totalmente cubierto). Ese saldo queda a favor del cliente en la venta destino.' : ''), { tono: 'ok' })
       setCons(false); setConsDest(''); setConsReason('')
       reload()
     } catch (e) { setUMsg({ ok: false, t: 'ERROR: ' + e.message }) }
@@ -395,11 +401,11 @@ export default function FichaLote() {
       rest = r2(rest - take)
       if (take !== r2(Number(q.amount_paid))) cambios.push({ q, nuevo: take })
     }
-    if (!cambios.length) { alert('LAS CUOTAS YA ESTAN BIEN DISTRIBUIDAS. No hay nada que recuadrar.'); return }
+    if (!cambios.length) { await avisar('LAS CUOTAS YA ESTAN BIEN DISTRIBUIDAS. No hay nada que recuadrar.'); return }
     const lineas = cambios.map(c => 'Cuota ' + c.q.installment_number + ': S/ ' + Number(c.q.amount_paid).toFixed(2) + ' → S/ ' + c.nuevo.toFixed(2)).join('\n')
-    const motivo = prompt('RECUADRAR CUOTAS — se redistribuye lo ya pagado (S/ ' + total.toFixed(2) + ') en orden.\nLos pagos de caja NO se tocan.\n\nCambios:\n' + lineas + (rest > 0.01 ? '\n\nOJO: sobran S/ ' + rest.toFixed(2) + ' por encima del cronograma (queda a favor del cliente).' : '') + '\n\nMotivo del recuadre (obligatorio):')
+    const motivo = await pedir('RECUADRAR CUOTAS — se redistribuye lo ya pagado (S/ ' + total.toFixed(2) + ') en orden.\nLos pagos de caja NO se tocan.\n\nCambios:\n' + lineas + (rest > 0.01 ? '\n\nOJO: sobran S/ ' + rest.toFixed(2) + ' por encima del cronograma (queda a favor del cliente).' : '') + '\n\nMotivo del recuadre (obligatorio):', { tipo: 'largo', obligatorio: true })
     if (motivo === null) return
-    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    if (motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const hoyStr = new Date().toISOString().slice(0, 10)
     for (const { q, nuevo } of cambios) {
       const full = nuevo >= Number(q.amount) - 0.05
@@ -407,7 +413,7 @@ export default function FichaLote() {
         amount_paid: nuevo,
         status: full ? 'pagado' : (q.due_date < hoyStr ? 'vencido' : 'pendiente'),
       }).eq('id', q.id)
-      if (error) { alert('ERROR: ' + error.message); return }
+      if (error) { await avisar('ERROR: ' + error.message); return }
     }
     await supabase.from('activity_log').insert({
       user_id: profile?.id, user_email: profile?.email,
@@ -418,7 +424,7 @@ export default function FichaLote() {
         motivo: motivo.trim().toUpperCase(), project_id: pidOp,
       },
     })
-    alert('CUOTAS RECUADRADAS (' + cambios.length + ' corregidas). MOTIVO EN BITACORA.')
+    await avisar('CUOTAS RECUADRADAS (' + cambios.length + ' corregidas). MOTIVO EN BITACORA.', { tono: 'ok' })
     reload()
   }
 
@@ -502,9 +508,9 @@ export default function FichaLote() {
   // por si hay que reponerlo; el archivo en R2 no se toca.
   async function borrarCierre() {
     const { exp } = cierre
-    if (!confirm('BORRAR EL CIERRE ECONOMICO de ' + (exp.client?.full_name || 'este cliente') + '?\n\n'
+    if (!await confirmar('BORRAR EL CIERRE ECONOMICO de ' + (exp.client?.full_name || 'este cliente') + '?\n\n'
       + 'Se borran fecha, montos, saldo, notas y el enlace al acuerdo firmado.\n'
-      + 'Los PAGOS del cliente NO se tocan.\n\nTodo queda en bitacora.')) return
+      + 'Los PAGOS del cliente NO se tocan.\n\nTodo queda en bitacora.', { peligro: true, aceptar: 'Sí, borrar el cierre' })) return
     setCierreBusy(true); setCierreMsg(null)
     try {
       const { error } = await supabase.from('sales').update({
@@ -602,33 +608,38 @@ export default function FichaLote() {
   // la pantalla de Cuotas al registrar una venta nueva.
   async function generarCronograma() {
     const sale = detail.sale
-    if (detail.inst.length) { alert('Esta venta YA tiene cronograma. Para corregirlo usa las columnas de cada cuota.'); return }
+    if (detail.inst.length) { await avisar('Esta venta YA tiene cronograma. Para corregirlo usa las columnas de cada cuota.'); return }
     const precio = Number(sale.total_sale_price || 0)
     // si el campo contractual vino en 0 de la migracion, vale lo realmente pagado
     // en caja (cuadres incluidos)
     const inicial = Number(sale.initial_amount_paid || 0) || Number(detail.iniPagado || 0)
     const sepAmt = Number(detail.sep?.amount || 0) || Number(detail.sepPagado || 0)
     const financiado = r2(precio - inicial - sepAmt)
-    if (!(financiado > 0)) { alert('No hay saldo por financiar: precio S/ ' + precio + ' menos inicial S/ ' + inicial + (sepAmt ? ' y separacion S/ ' + sepAmt : '') + '.\n\nSi el lote se pago al contado, esta venta no lleva cronograma.'); return }
-    const mesesStr = prompt('GENERAR EL CRONOGRAMA DE ESTA VENTA\n\n'
-      + 'Precio:      S/ ' + precio.toLocaleString('es-PE') + '\n'
-      + 'Inicial:     S/ ' + inicial.toLocaleString('es-PE') + (sepAmt ? '\nSeparacion:  S/ ' + sepAmt.toLocaleString('es-PE') : '') + '\n'
-      + 'A financiar: S/ ' + financiado.toLocaleString('es-PE') + '\n\n'
-      + '¿En cuantas cuotas? (mira el contrato):', String(sale.installments_count || 48))
-    if (mesesStr === null) return
-    const meses = parseInt(mesesStr)
-    if (!meses || meses < 1 || meses > 120) { alert('Numero de cuotas invalido (1 a 120).'); return }
+    if (!(financiado > 0)) { await avisar('No hay saldo por financiar: precio S/ ' + precio + ' menos inicial S/ ' + inicial + (sepAmt ? ' y separacion S/ ' + sepAmt : '') + '.\n\nSi el lote se pago al contado, esta venta no lleva cronograma.'); return }
+    // un solo dialogo con los tres datos (antes eran tres ventanas seguidas). El
+    // detalle de como salen las cuotas se ve en la confirmacion de mas abajo.
+    const datos = await pedirDatos({
+      titulo: 'Generar el cronograma de esta venta',
+      mensaje: 'Precio:      S/ ' + precio.toLocaleString('es-PE') + '\n'
+        + 'Inicial:     S/ ' + inicial.toLocaleString('es-PE') + (sepAmt ? '\nSeparacion:  S/ ' + sepAmt.toLocaleString('es-PE') : '') + '\n'
+        + 'A financiar: S/ ' + financiado.toLocaleString('es-PE'),
+      campos: [
+        { clave: 'meses', etiqueta: '¿En cuantas cuotas? (mira el contrato)', tipo: 'numero', valor: String(sale.installments_count || 48), obligatorio: true },
+        { clave: 'fecha1', etiqueta: 'Fecha de vencimiento de la CUOTA 1', tipo: 'fecha', obligatorio: true, ayuda: 'Las demas se generan mes a mes desde esa fecha.' },
+        { clave: 'motivo', etiqueta: '¿De donde salen estos datos? (queda en bitacora)', tipo: 'largo', obligatorio: true, placeholder: 'Ej: contrato fisico MZ A LT 19 firmado el 12/05/2026' },
+      ],
+    })
+    if (datos === null) return
+    const meses = parseInt(datos.meses)
+    if (!meses || meses < 1 || meses > 120) { await avisar('Numero de cuotas invalido (1 a 120).'); return }
     // cuotas redondeadas a 10 centimos y la ultima menor (lib/cronograma)
     const montos = repartirCuotas(financiado, meses)
     const cuotaAprox = montos[0]
-    const fecha1 = prompt('Fecha de vencimiento de la CUOTA 1 (AAAA-MM-DD).\n\n'
-      + 'Las demas se generan mes a mes desde esa fecha.\n'
-      + 'Saldrian ' + textoCuotas(montos) + ':', '')
-    if (fecha1 === null) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha1)) { alert('Fecha invalida. Escribela asi: 2026-09-30'); return }
-    const motivo = prompt('¿De donde salen estos datos? (obligatorio, queda en bitacora)\nEj: contrato fisico MZ A LT 19 firmado el 12/05/2026')
-    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
-    if (!confirm('Se crearan ' + textoCuotas(montos)
+    const fecha1 = datos.fecha1
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha1)) { await avisar('Fecha invalida. Elige la fecha de vencimiento de la cuota 1.'); return }
+    const motivo = datos.motivo
+    if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
+    if (!await confirmar('Se crearan ' + textoCuotas(montos)
       + '\nDesde el ' + fecha1 + ' hasta el ' + sumarMeses(fecha1, meses - 1)
       + '\n\nLos pagos ya registrados NO se tocan.\n\n¿Confirmar?')) return
 
@@ -638,14 +649,14 @@ export default function FichaLote() {
       return { sale_id: sale.id, installment_number: i + 1, amount: monto, amount_paid: 0, due_date: vence, status: vence < hoyStr ? 'vencido' : 'pendiente' }
     })
     const { error } = await supabase.from('installments').insert(filas)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await supabase.from('sales').update({ installments_count: meses, monthly_amount: cuotaAprox, financed_amount: financiado }).eq('id', sale.id).then(() => {}, () => {})
     await logCambio('installments', sale.id, {
       cambio: 'generar_cronograma', lote: sel.mz + '-' + sel.lt,
       cuotas: meses, financiado, cuota: cuotaAprox, desde: fecha1, hasta: sumarMeses(fecha1, meses - 1),
       motivo: motivo.trim().toUpperCase(),
     })
-    alert('✅ CRONOGRAMA CREADO: ' + meses + ' cuotas por S/ ' + financiado.toLocaleString('es-PE')
+    await avisar('✅ CRONOGRAMA CREADO: ' + meses + ' cuotas por S/ ' + financiado.toLocaleString('es-PE')
       + '.\n\nRevisa que la cuota 1 y la ultima coincidan con el contrato.')
     reload()
   }
@@ -659,29 +670,35 @@ export default function FichaLote() {
     const faltan = []
     for (let i = 1; i <= max; i++) if (!nums.includes(i)) faltan.push(i)
     const sug = faltan[0] || (max + 1)
-    const nStr = prompt('N° de la cuota a CREAR' + (faltan.length ? '  (faltan: ' + faltan.join(', ') + ')' : '  (no hay huecos; se agregaría al final)') + ':', String(sug))
-    if (nStr === null) return
-    const n = parseInt(nStr)
-    if (!n || n < 1 || n > 120) { alert('N° inválido (1-120).'); return }
-    if (nums.includes(n)) { alert('La cuota ' + n + ' ya existe. Para corregirla usa las columnas del cronograma.'); return }
     const refMonto = detail.inst.find(i => i.installment_number > 1)?.amount || detail.inst[0]?.amount || sale.monthly_amount || ''
-    const montoStr = prompt('Monto de la cuota ' + n + ' (S/):', String(refMonto))
-    if (montoStr === null) return
-    const monto = Number(montoStr)
-    if (!(monto > 0)) { alert('Monto inválido.'); return }
-    const fecha = prompt('Fecha de vencimiento de la cuota ' + n + ' (AAAA-MM-DD):', '')
-    if (fecha === null) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Ej: 2025-11-30'); return }
-    const motivo = prompt('Motivo (obligatorio):')
-    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    // los cuatro datos en un solo dialogo (antes eran cuatro ventanas seguidas)
+    const datos = await pedirDatos({
+      titulo: 'Crear una cuota que falta',
+      campos: [
+        { clave: 'n', etiqueta: 'N° de la cuota a CREAR' + (faltan.length ? '  (faltan: ' + faltan.join(', ') + ')' : '  (no hay huecos; se agregaría al final)'), tipo: 'numero', valor: String(sug), obligatorio: true },
+        { clave: 'monto', etiqueta: 'Monto de la cuota (S/)', tipo: 'monto', valor: String(refMonto), obligatorio: true },
+        { clave: 'fecha', etiqueta: 'Fecha de vencimiento de la cuota', tipo: 'fecha', obligatorio: true },
+        { clave: 'motivo', etiqueta: 'Motivo', tipo: 'largo', obligatorio: true },
+      ],
+    })
+    if (datos === null) return
+    const n = parseInt(datos.n)
+    if (!n || n < 1 || n > 120) { await avisar('N° inválido (1-120).'); return }
+    if (nums.includes(n)) { await avisar('La cuota ' + n + ' ya existe. Para corregirla usa las columnas del cronograma.', { tono: 'error' }); return }
+    const monto = Number(datos.monto)
+    if (!(monto > 0)) { await avisar('Monto inválido.'); return }
+    const fecha = datos.fecha
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { await avisar('Fecha inválida. Elige la fecha de vencimiento de la cuota.'); return }
+    const motivo = datos.motivo
+    if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const hoyStr = new Date().toISOString().slice(0, 10)
     const { error } = await supabase.from('installments').insert({
       sale_id: sale.id, installment_number: n, amount: monto, amount_paid: 0,
       due_date: fecha, status: fecha < hoyStr ? 'vencido' : 'pendiente',
     })
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await logCambio('installments', sale.id, { cambio: 'insertar_cuota', lote: sel.mz + '-' + sel.lt, cuota: n, monto, vence: fecha, motivo: motivo.trim().toUpperCase() })
-    alert('CUOTA ' + n + ' CREADA (S/ ' + monto.toFixed(2) + ', vence ' + fecha + '). MOTIVO EN BITÁCORA.')
+    await avisar('CUOTA ' + n + ' CREADA (S/ ' + monto.toFixed(2) + ', vence ' + fecha + '). MOTIVO EN BITÁCORA.', { tono: 'ok' })
     reload()
   }
 
@@ -693,28 +710,34 @@ export default function FichaLote() {
     const inst = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
     const inicio = inst.findIndex(i => i.id === q.id)
     const ultima = inst.length - 1
-    if (inicio < 0 || ultima < 1) { alert('SE NECESITAN AL MENOS DOS CUOTAS PARA HACER ESTE AJUSTE.'); return }
-    if (inicio === ultima) { alert('LA ULTIMA CUOTA SE CALCULA SOLA PARA CUADRAR EL SALDO. Elige una cuota anterior.'); return }
+    if (inicio < 0 || ultima < 1) { await avisar('SE NECESITAN AL MENOS DOS CUOTAS PARA HACER ESTE AJUSTE.', { tono: 'error' }); return }
+    if (inicio === ultima) { await avisar('LA ULTIMA CUOTA SE CALCULA SOLA PARA CUADRAR EL SALDO. Elige una cuota anterior.', { tono: 'error' }); return }
 
     const afectadas = inst.slice(inicio)
     if (afectadas.some(i => i.status === 'pagado')) {
-      alert('NO SE PUEDE CAMBIAR ESTE TRAMO PORQUE INCLUYE CUOTAS YA PAGADAS. Elige una cuota posterior a la ultima pagada.')
+      await avisar('NO SE PUEDE CAMBIAR ESTE TRAMO PORQUE INCLUYE CUOTAS YA PAGADAS. Elige una cuota posterior a la ultima pagada.')
       return
     }
 
-    const montoStr = prompt(
-      'Nuevo monto fijo desde la cuota ' + q.installment_number + ' hasta la ' + inst[ultima - 1].installment_number + ' (S/).\n\n' +
-      'La cuota ' + inst[ultima].installment_number + ' se calculara automaticamente para cuadrar el saldo:',
-      Number(q.amount).toFixed(2),
-    )
-    if (montoStr === null) return
-    const monto = r2(Number(String(montoStr).replace(',', '.')))
-    if (!(monto > 0)) { alert('MONTO INVALIDO.'); return }
+    // monto y motivo en un solo dialogo (antes eran dos ventanas); las mismas
+    // validaciones corren despues, en el mismo orden
+    const datos = await pedirDatos({
+      titulo: 'Cambiar el monto de las cuotas',
+      mensaje: 'Nuevo monto fijo desde la cuota ' + q.installment_number + ' hasta la ' + inst[ultima - 1].installment_number + ' (S/).\n\n' +
+        'La cuota ' + inst[ultima].installment_number + ' se calculara automaticamente para cuadrar el saldo.',
+      campos: [
+        { clave: 'monto', etiqueta: 'Nuevo monto fijo (S/)', tipo: 'monto', valor: Number(q.amount).toFixed(2), obligatorio: true },
+        { clave: 'motivo', etiqueta: 'Motivo del cambio de cuotas', tipo: 'largo', obligatorio: true },
+      ],
+    })
+    if (datos === null) return
+    const monto = r2(Number(String(datos.monto).replace(',', '.')))
+    if (!(monto > 0)) { await avisar('MONTO INVALIDO.'); return }
 
     const fijos = inst.slice(inicio, ultima)
     const minimoFijo = Math.max(...fijos.map(i => Number(i.amount_paid || 0)))
     if (monto < minimoFijo - 0.004) {
-      alert('EL MONTO NO PUEDE SER MENOR A LO YA PAGADO EN UNA CUOTA DEL TRAMO (S/ ' + minimoFijo.toFixed(2) + ').')
+      await avisar('EL MONTO NO PUEDE SER MENOR A LO YA PAGADO EN UNA CUOTA DEL TRAMO (S/ ' + minimoFijo.toFixed(2) + ').')
       return
     }
 
@@ -732,17 +755,16 @@ export default function FichaLote() {
     const montoFinal = r2(objetivo - antes - monto * fijos.length)
     const cuotaFinal = inst[ultima]
     if (montoFinal <= 0) {
-      alert('ESE MONTO DEJA LA ULTIMA CUOTA EN S/ ' + montoFinal.toFixed(2) + '. Usa un monto menor para que el cronograma cuadre.')
+      await avisar('ESE MONTO DEJA LA ULTIMA CUOTA EN S/ ' + montoFinal.toFixed(2) + '. Usa un monto menor para que el cronograma cuadre.', { tono: 'error' })
       return
     }
     if (montoFinal < Number(cuotaFinal.amount_paid || 0) - 0.004) {
-      alert('ESE MONTO DEJA LA ULTIMA CUOTA (S/ ' + montoFinal.toFixed(2) + ') POR DEBAJO DE LO QUE YA SE PAGO (S/ ' + Number(cuotaFinal.amount_paid).toFixed(2) + ').')
+      await avisar('ESE MONTO DEJA LA ULTIMA CUOTA (S/ ' + montoFinal.toFixed(2) + ') POR DEBAJO DE LO QUE YA SE PAGO (S/ ' + Number(cuotaFinal.amount_paid).toFixed(2) + ').', { tono: 'error' })
       return
     }
 
-    const motivo = prompt('Motivo del cambio de cuotas (obligatorio):')
-    if (motivo === null) return
-    if (motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const motivo = datos.motivo
+    if (motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const resumen = 'Cuotas ' + q.installment_number + ' a ' + fijos[fijos.length - 1].installment_number + ': S/ ' + monto.toFixed(2) +
       ' cada una. Cuota ' + cuotaFinal.installment_number + ': S/ ' + montoFinal.toFixed(2) + '.'
     const cuadre = 'EL CUADRE COMPLETO:\n'
@@ -751,17 +773,17 @@ export default function FichaLote() {
       + (separacion ? '  − Separacion:         S/ ' + separacion.toFixed(2) + '\n' : '')
       + '  = Va en cuotas:       S/ ' + objetivo.toFixed(2)
       + (Math.abs(objetivo - finViejo) > 0.01 ? '\n  ⚠ El campo "financiado" decia S/ ' + finViejo.toFixed(2) + ' (venia mal de la migracion): se corrige tambien.' : '')
-    if (!confirm('CAMBIAR CRONOGRAMA\n\n' + resumen + '\n\n' + cuadre + '\n\nNo se modifican pagos registrados.\nMotivo: ' + motivo.trim().toUpperCase() + '\n\nConfirmar?')) return
+    if (!await confirmar('CAMBIAR CRONOGRAMA\n\n' + resumen + '\n\n' + cuadre + '\n\nNo se modifican pagos registrados.\nMotivo: ' + motivo.trim().toUpperCase() + '\n\nConfirmar?')) return
 
     const idsFijos = fijos.map(i => i.id)
     const { error: e1 } = await supabase.from('installments').update({ amount: monto }).in('id', idsFijos)
-    if (e1) { alert('ERROR: ' + e1.message); return }
+    if (e1) { await avisar('ERROR: ' + e1.message); return }
     const { error: e2 } = await supabase.from('installments').update({ amount: montoFinal }).eq('id', cuotaFinal.id)
-    if (e2) { alert('ERROR: ' + e2.message); return }
+    if (e2) { await avisar('ERROR: ' + e2.message); return }
     // financed_amount se alinea con el contrato (precio − inicial − separacion):
     // el resto del panel suma contra ese campo y debe contar la misma historia.
     const { error: e3 } = await supabase.from('sales').update({ monthly_amount: monto, financed_amount: objetivo }).eq('id', detail.sale.id)
-    if (e3) { alert('ERROR: ' + e3.message); return }
+    if (e3) { await avisar('ERROR: ' + e3.message); return }
     await logCambio('installments', detail.sale.id, {
       cambio: 'monto_cuotas_desde', lote: sel.mz + '-' + sel.lt,
       desde_cuota: q.installment_number, hasta_cuota: fijos[fijos.length - 1].installment_number,
@@ -770,21 +792,21 @@ export default function FichaLote() {
       financiado_antes: finViejo !== objetivo ? finViejo : undefined,
       motivo: motivo.trim().toUpperCase(),
     })
-    alert('CRONOGRAMA ACTUALIZADO. ' + resumen + ' MOTIVO REGISTRADO EN BITACORA.')
+    await avisar('CRONOGRAMA ACTUALIZADO. ' + resumen + ' MOTIVO REGISTRADO EN BITACORA.', { tono: 'ok' })
     reload()
   }
 
   // ---- EDITAR FECHA DE VENCIMIENTO de una cuota (superusuario) ----
   async function editarVence(q) {
-    const nueva = prompt('Nueva fecha de VENCIMIENTO de la cuota ' + q.installment_number + ' (AAAA-MM-DD):', q.due_date || '')
+    const nueva = await pedir('Nueva fecha de VENCIMIENTO de la cuota ' + q.installment_number + ':', { tipo: 'fecha', valor: q.due_date || '', obligatorio: true })
     if (nueva === null) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato inválido. Ej: 2025-11-30'); return }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { await avisar('Fecha inválida.'); return }
     if (nueva === q.due_date) return
     const hoyStr = new Date().toISOString().slice(0, 10)
     // no se re-vence una cuota ya pagada; si no, se recalcula por la fecha nueva
     const status = q.status === 'pagado' ? 'pagado' : (nueva < hoyStr ? 'vencido' : 'pendiente')
     const { error } = await supabase.from('installments').update({ due_date: nueva, status }).eq('id', q.id)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await logCambio('installments', detail.sale.id, { cambio: 'vence_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: q.due_date, despues: nueva })
     reload()
   }
@@ -792,26 +814,27 @@ export default function FichaLote() {
   // ---- EDITAR "PAGADA EL": la fecha del pago que cubrió la cuota (superusuario) ----
   async function editarPagadaEl(q) {
     const { data: pays } = await supabase.from('daily_income').select('id, date').eq('installment_id', q.id).order('date')
-    if (!pays?.length) { alert('Esta cuota no tiene un pago registrado con fecha para editar.'); return }
+    if (!pays?.length) { await avisar('Esta cuota no tiene un pago registrado con fecha para editar.'); return }
     const ultimo = pays[pays.length - 1]
-    const nueva = prompt('Fecha en que se PAGÓ la cuota ' + q.installment_number + ' (AAAA-MM-DD):', ultimo.date || '')
+    const nueva = await pedir('Fecha en que se PAGÓ la cuota ' + q.installment_number + ':', { tipo: 'fecha', valor: ultimo.date || '', obligatorio: true })
     if (nueva === null) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { alert('Formato inválido. Ej: 2025-11-30'); return }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { await avisar('Fecha inválida.'); return }
     const { error } = await supabase.from('daily_income').update({ date: nueva }).eq('id', ultimo.id)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await logCambio('daily_income', ultimo.id, { cambio: 'fecha_pago_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: ultimo.date, despues: nueva })
     reload()
   }
 
   // ---- EDITAR fecha de ENTREGA / de VENTA del lote (superusuario) ----
   async function editarFechaLote(campo, label, actual, tabla, eid) {
-    const nueva = prompt('Nueva ' + label + ' (AAAA-MM-DD)' + (campo === 'delivered_at' ? ', vacío para quitarla' : '') + ':', actual || '')
+    const nueva = await pedir('Nueva ' + label + (campo === 'delivered_at' ? ' (déjala vacía para quitarla)' : '') + ':',
+      { tipo: 'fecha', valor: actual || '', obligatorio: campo !== 'delivered_at' })
     if (nueva === null) return
     const val = nueva.trim()
-    if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) { alert('Formato inválido. Ej: 2025-11-30'); return }
-    if (!val && campo !== 'delivered_at') { alert('Esta fecha no puede quedar vacía.'); return }
+    if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) { await avisar('Fecha inválida.'); return }
+    if (!val && campo !== 'delivered_at') { await avisar('Esta fecha no puede quedar vacía.'); return }
     const { error } = await supabase.from(tabla).update({ [campo]: val || null }).eq('id', eid)
-    if (error) { alert('ERROR: ' + error.message); return }
+    if (error) { await avisar('ERROR: ' + error.message); return }
     await logCambio(tabla, eid, { cambio: campo, lote: sel.mz + '-' + sel.lt, antes: actual || null, despues: val || null })
     reload()
   }
@@ -839,7 +862,7 @@ export default function FichaLote() {
       setEmsg('ERROR: ESTE LOTE TIENE UNA SEPARACION ' + (vencG ? 'VENCIDA' : 'VIGENTE') + '. RESUELVELA EN EL RESUMEN CON "EXTENDER PLAZO" O "MARCAR PERDIDA", NO CON CAMBIO DE ESTADO.')
       return
     }
-    if (chgTo === 'expropiado' && role !== 'superuser') { setEmsg('ERROR: SOLO EL SUPERUSUARIO PUEDE EXPROPIAR (es un tramite formal).'); return }
+    if (chgTo === 'expropiado' && !puedeCorregir) { setEmsg('ERROR: SOLO EL SUPERUSUARIO PUEDE EXPROPIAR (es un tramite formal).'); return }
     if (chgReason.trim().length < 10) { setEmsg('ERROR: EXPLICA EL MOTIVO (minimo 10 caracteres).'); return }
     if (docObligatorio && !chgFile) { setEmsg('ERROR: PARA ' + chgTo.toUpperCase() + ' EL DOCUMENTO DE RESPALDO FIRMADO ES OBLIGATORIO.'); return }
     setChgBusy(true); setEmsg(null)
@@ -867,7 +890,7 @@ export default function FichaLote() {
 
   async function borrarLote() {
     if (sel.status !== 'disponible') return
-    if (!confirm('Eliminar el lote Mz ' + sel.mz + ' Lt ' + sel.lt + '? Solo se permite si esta DISPONIBLE.')) return
+    if (!await confirmar('Eliminar el lote Mz ' + sel.mz + ' Lt ' + sel.lt + '? Solo se permite si esta DISPONIBLE.', { peligro: true, aceptar: 'Sí, eliminar' })) return
     const { error } = await supabase.from('lots').delete().eq('id', sel.id).eq('status', 'disponible')
     if (error) { setEmsg('NO SE PUDO ELIMINAR: TIENE SEPARACIONES, VENTAS O PAGOS HISTORICOS ASOCIADOS.'); return }
     irA('/lotes', { replace: true })
@@ -876,10 +899,19 @@ export default function FichaLote() {
   async function extenderSep() {
     const sep = detail.sep
     const sug = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
-    const nueva = prompt('NUEVA FECHA LIMITE de la separacion (AAAA-MM-DD):', sug)
-    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) alert('Formato invalido. Ej: ' + sug); return }
-    const motivo = prompt('Motivo de la extension (obligatorio):')
-    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
+    // fecha y motivo en un solo dialogo (antes eran dos ventanas seguidas)
+    const datos = await pedirDatos({
+      titulo: 'Extender el plazo de la separacion',
+      campos: [
+        { clave: 'nueva', etiqueta: 'NUEVA FECHA LIMITE de la separacion', tipo: 'fecha', valor: sug, obligatorio: true },
+        { clave: 'motivo', etiqueta: 'Motivo de la extension', tipo: 'largo', obligatorio: true },
+      ],
+    })
+    if (datos === null) return
+    const nueva = datos.nueva
+    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { await avisar('Fecha invalida.'); return }
+    const motivo = datos.motivo
+    if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
     const { error } = await supabase.from('separations').update({ extended_until: nueva, aviso_previo_at: null, aviso_vencida_at: null }).eq('id', sep.id)
     if (error) { setEmsg('ERROR: ' + error.message); return }
     await supabase.from('secretary_tasks').update({ date: nueva }).eq('separation_id', sep.id).eq('status', 'pendiente')
@@ -893,9 +925,9 @@ export default function FichaLote() {
 
   async function perdidaSep() {
     const sep = detail.sep
-    if (!confirm('MARCAR PERDIDA la separacion de ' + (sep.client?.full_name || 'este cliente') + ' (S/ ' + Number(sep.amount).toFixed(2) + ')?\n\nEl monto pagado queda como PERDIDA (no se devuelve) y el lote vuelve a DISPONIBLE.')) return
-    const motivo = prompt('Motivo (obligatorio):', 'SEPARACION VENCIDA SIN PAGO DE INICIAL')
-    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
+    if (!await confirmar('MARCAR PERDIDA la separacion de ' + (sep.client?.full_name || 'este cliente') + ' (S/ ' + Number(sep.amount).toFixed(2) + ')?\n\nEl monto pagado queda como PERDIDA (no se devuelve) y el lote vuelve a DISPONIBLE.', { peligro: true, aceptar: 'Sí, marcar perdida' })) return
+    const motivo = await pedir('Motivo (obligatorio):', { tipo: 'largo', valor: 'SEPARACION VENCIDA SIN PAGO DE INICIAL', obligatorio: true })
+    if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
     const { error } = await supabase.from('separations').update({ status: 'perdida' }).eq('id', sep.id)
     if (error) { setEmsg('ERROR: ' + error.message); return }
     const { data: pgs } = await supabase.from('daily_income').select('id, observation').eq('separation_id', sep.id)
@@ -919,7 +951,7 @@ export default function FichaLote() {
 
   async function toggleCobranza() {
     const nuevoVal = detail.sale.auto_cobranza === false
-    if (!confirm(nuevoVal
+    if (!await confirmar(nuevoVal
       ? 'Reactivar los avisos automaticos de cobranza para esta venta?'
       : 'Pausar los avisos automaticos de cobranza para esta venta (por ejemplo, mientras dure un acuerdo de pago)?\n\nNo le llega ningun recordatorio ni aviso de pago vencido hasta que se reactive. Si el cliente escribe al numero de cobranzas, el agente igual le responde.')) return
     const { error } = await supabase.from('sales').update({ auto_cobranza: nuevoVal }).eq('id', detail.sale.id)
@@ -938,17 +970,27 @@ export default function FichaLote() {
 
   async function ajustarPrecio() {
     const sale = detail.sale
-    const nuevo = Number(prompt('AJUSTE DE PRECIO DE ESTA VENTA (solo admin).\n\nPrecio actual: S/ ' + sale.total_sale_price + '\nNuevo precio total:'))
+    // precio y motivo en un solo dialogo (antes eran dos ventanas seguidas)
+    const datos = await pedirDatos({
+      titulo: 'Ajuste de precio de esta venta (solo admin)',
+      mensaje: 'Precio actual: S/ ' + sale.total_sale_price,
+      campos: [
+        { clave: 'precio', etiqueta: 'Nuevo precio total', tipo: 'monto', obligatorio: true },
+        { clave: 'motivo', etiqueta: 'Motivo del ajuste', tipo: 'largo', obligatorio: true },
+      ],
+    })
+    if (datos === null) return
+    const nuevo = Number(datos.precio)
     if (!nuevo || isNaN(nuevo) || nuevo <= 0) return
-    const motivo = prompt('Motivo del ajuste (obligatorio):')
-    if (!motivo || motivo.trim().length < 5) { alert('MOTIVO OBLIGATORIO'); return }
+    const motivo = datos.motivo
+    if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const sepAmt = r2(Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount))
     const pagadoCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
     const pendientes = detail.inst.filter(i => i.status !== 'pagado')
     const restante = r2(nuevo - Number(sale.initial_amount_paid) - sepAmt - pagadoCuotas)
-    if (restante < 0) { alert('EL NUEVO PRECIO ES MENOR A LO YA PAGADO. NO PROCEDE.'); return }
-    if (!pendientes.length) { alert('NO HAY CUOTAS PENDIENTES PARA REDISTRIBUIR.'); return }
-    if (!confirm(`Nuevo precio: S/ ${nuevo}\nYa pagado: S/ ${(Number(sale.initial_amount_paid) + sepAmt + pagadoCuotas).toFixed(2)}\nSaldo a repartir en ${pendientes.length} cuotas: S/ ${restante.toFixed(2)} (aprox S/ ${(restante / pendientes.length).toFixed(2)} c/u)\n\nMOTIVO: ${motivo}\n\nConfirmar?`)) return
+    if (restante < 0) { await avisar('EL NUEVO PRECIO ES MENOR A LO YA PAGADO. NO PROCEDE.', { tono: 'error' }); return }
+    if (!pendientes.length) { await avisar('NO HAY CUOTAS PENDIENTES PARA REDISTRIBUIR.', { tono: 'error' }); return }
+    if (!await confirmar(`Nuevo precio: S/ ${nuevo}\nYa pagado: S/ ${(Number(sale.initial_amount_paid) + sepAmt + pagadoCuotas).toFixed(2)}\nSaldo a repartir en ${pendientes.length} cuotas: S/ ${restante.toFixed(2)} (aprox S/ ${(restante / pendientes.length).toFixed(2)} c/u)\n\nMOTIVO: ${motivo}\n\nConfirmar?`)) return
     const share = Math.floor(restante / pendientes.length * 100) / 100
     let acum = 0
     for (let i = 0; i < pendientes.length; i++) {
@@ -962,7 +1004,7 @@ export default function FichaLote() {
       financed_amount: r2(nuevo - Number(sale.initial_amount_paid) - sepAmt),
       monthly_amount: share,
     }).eq('id', sale.id)
-    alert('PRECIO AJUSTADO. MOTIVO REGISTRADO EN BITACORA: ' + motivo.toUpperCase())
+    await avisar('PRECIO AJUSTADO. MOTIVO REGISTRADO EN BITACORA: ' + motivo.toUpperCase(), { tono: 'ok' })
     reload()
   }
 
@@ -999,7 +1041,7 @@ export default function FichaLote() {
     const pct = Number(s.total_sale_price) > 0 ? (pagado / Number(s.total_sale_price) * 100) : 0
     const debe = q => r2(Number(q.amount) - Number(q.amount_paid))
     // "vencida" EN VIVO (como el mapa): fecha pasada + no pagada + con saldo
-    const vencida = q => q.status !== 'pagado' && q.due_date < hoy && debe(q) > 2
+    const vencida = q => cuotaVencida(q, hoy)
     const vencidas = inst.filter(vencida)
     const deudaVencida = r2(vencidas.reduce((x, q) => x + debe(q), 0))
     const pagadas = inst.filter(q => q.status === 'pagado').length
@@ -1039,6 +1081,9 @@ export default function FichaLote() {
   }, [grupos, pagoQ, pagoFiltro])
 
   const proyecto = projects.find(p => p.id === sel?.project_id)
+  // boletas y facturas electrónicas del lote (sql/113). Solo se consulta si la base
+  // ya tiene el facturador; se emite solo si ESTE proyecto lo tiene prendido.
+  const comps = useComprobantes({ lotId: sel?.id }, !!proyecto && 'fact_activo' in proyecto)
 
   function waMessage() {
     const { sale } = detail
@@ -1066,6 +1111,10 @@ export default function FichaLote() {
     const na = esVoucher ? g.voucherNA : g.comprobanteNA
     const motivo = esVoucher ? g.voucherNAMotivo : g.comprobanteNAMotivo
     const falta = esVoucher ? g.voucherFaltante : g.comprobanteFaltante
+    // el comprobante electrónico manda: si el depósito ya tiene boleta o factura
+    // (o está saliendo), se muestra esa y no se ofrece subir otra a mano
+    const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
+    if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
     if (url) return <><a href={url} target="_blank" rel="noreferrer">VER</a>{falta && <span className="warn small"> + falta</span>}</>
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
@@ -1077,7 +1126,14 @@ export default function FichaLote() {
     if (readOnly) return <span className="bad small">falta</span>
     return (
       <>
-        <label className={'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>{esVoucher ? '⬆ subir' : '⚠ subir'}
+        {!esVoucher && proyecto?.fact_activo && (
+          <button type="button" className="cp-emitir" title="Emitir la boleta o factura electrónica de este pago"
+            onClick={() => setEmitirDe(g)}>🧾 Emitir</button>
+        )}
+        {/* la anterior fue rechazada o anulada: se ve por qué antes de emitir otra */}
+        {comp && <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />}
+        <label className={!esVoucher && proyecto?.fact_activo ? 'upload-btn cp-mano' : 'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>
+          {esVoucher ? '⬆ subir' : proyecto?.fact_activo ? 'subir a mano' : '⚠ subir'}
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g.referencia, e.target.files[0], campo)} />
         </label>
@@ -1240,7 +1296,7 @@ export default function FichaLote() {
               <h3>&#127991; Venta</h3>
               <dl className="fl-dl">
                 <dt>Fecha de venta</dt><dd>{fechaPe(sale.sale_date)}
-                  {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('sale_date', 'fecha de venta', sale.sale_date, 'sales', sale.id)} title="Corregir fecha de venta">&#9998;</button>}</dd>
+                  {puedeCorregir && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('sale_date', 'fecha de venta', sale.sale_date, 'sales', sale.id)} title="Corregir fecha de venta">&#9998;</button>}</dd>
                 <dt>Precio</dt><dd><b>{soles(sale.total_sale_price)}</b></dd>
                 <dt>Separación</dt><dd>{soles(resumen.sepReal)}</dd>
                 <dt>Inicial</dt><dd>{soles(resumen.iniReal)}</dd>
@@ -1261,16 +1317,16 @@ export default function FichaLote() {
                 </dd>
               </dl>
               {detail.grupo && <p className="hint small">&#128279; VENTA CONJUNTA de {detail.grupo.join(' + ')}. La venta y las cuotas se registran en el lote principal <b>{detail.grupo[0]}</b> y valen para todo el grupo.</p>}
-              {(esAdmin && sale.status === 'en_proceso') || role === 'superuser' ? (
+              {(esAdmin && sale.status === 'en_proceso') || puedeCorregir ? (
                 <div className="fl-admin">
                   <p className="fl-lbl">Administración</p>
                   <p className="acc-row">
                     {esAdmin && sale.status === 'en_proceso' && <button className="btn-ghost" onClick={ajustarPrecio}>Ajustar precio de la venta</button>}
                     {/* corregir/transferir el titular vale tambien en ventas PAGADAS (un nombre mal
                         escrito se corrige igual) y en ventas conjuntas (aplica a todo el grupo). */}
-                    {role === 'superuser' && <button className="btn-ghost" onClick={() => { setUMsg(null); setTitNew(''); setTitReason(''); setTitModo('correccion'); setTit(true); cargarClientes() }}>&#128100; Cambiar titular</button>}
+                    {puedeCorregir && <button className="btn-ghost" onClick={() => { setUMsg(null); setTitNew(''); setTitReason(''); setTitModo('correccion'); setTit(true); cargarClientes() }}>&#128100; Cambiar titular</button>}
                     {/* consolidar solo tiene sentido con una venta activa: mueve plata a cuotas pendientes */}
-                    {role === 'superuser' && sale.status === 'en_proceso' &&
+                    {puedeCorregir && sale.status === 'en_proceso' &&
                       <button className="btn-ghost" onClick={() => { setUMsg(null); setConsDest(''); setConsReason(''); setConsFate('disponible'); setCons(true) }}>&#128260; Consolidar en otro lote</button>}
                   </p>
                 </div>
@@ -1300,14 +1356,14 @@ export default function FichaLote() {
             ? <p className="ok" style={{ fontSize: 12, margin: '2px 0 0' }}>✓ EL CRONOGRAMA CUADRA: inicial {soles(resumen.iniReal)}{resumen.sepReal > 0 ? ' + separación ' + soles(resumen.sepReal) : ''} + {detail.inst.length} cuotas {soles(resumen.sumaCuotas)} = {soles(resumen.totalPlan)}, igual al precio.</p>
             : <p className="warn" style={{ fontSize: 12, margin: '2px 0 0' }}>
                 ⚠ <b>EL CRONOGRAMA NO CUADRA:</b> inicial {soles(resumen.iniReal)}{resumen.sepReal > 0 ? ' + separación ' + soles(resumen.sepReal) : ''} + {detail.inst.length} cuotas {soles(resumen.sumaCuotas)} = <b>{soles(resumen.totalPlan)}</b>, y el precio es {soles(sale.total_sale_price)} → <b>{soles(Math.abs(resumen.dif))} {resumen.dif > 0 ? 'DE MÁS (el cliente pagaría encima del precio)' : 'DE MENOS (faltaría cobrar)'}</b>.
-                {role === 'superuser' ? ' Revisa el contrato y corrige con MONTO en la primera cuota impaga: la última se recalcula sola.' : ' Avisa al superusuario.'}
+                {puedeCorregir ? ' Revisa el contrato y corrige con MONTO en la primera cuota impaga: la última se recalcula sola.' : ' Avisa al superusuario.'}
               </p>)}
           <div className="acc-row" style={{ margin: '10px 0 6px' }}>
             {detail.inst.length === 0 && sale.status === 'en_proceso' && puedeEditar && (
               <button className="btn-act" onClick={generarCronograma}
                 title="Esta venta no tiene cuotas. Crea el cronograma completo desde el contrato.">&#128197; Generar cronograma</button>
             )}
-            {role === 'superuser' && (<>
+            {puedeCorregir && (<>
               <button className="btn-ghost" style={{ fontSize: 12 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
                 onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
               <button className="btn-ghost" style={{ fontSize: 12 }} title="Registrar una inicial o separación que no se cargó en la migración, sobre esta venta. No crea venta ni toca el cronograma."
@@ -1316,7 +1372,7 @@ export default function FichaLote() {
                 onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
             </>)}
           </div>
-          {role === 'superuser' && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
+          {puedeCorregir && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
           <div className="table-wrap fl-tabla">
             <table>
               <thead><tr><th>N°</th><th>Vence</th><th>Monto</th><th>Pagado</th><th>Debe</th><th>Estado</th><th>Pagada el</th></tr></thead>
@@ -1343,7 +1399,7 @@ export default function FichaLote() {
                 })()}
                 {detail.inst.map(q => {
                   const pagadaEl = (() => { const ps = pagos.filter(p => p.installment_id === q.id).map(p => p.date).filter(Boolean).sort(); return ps.length ? ps[ps.length - 1] : null })()
-                  const sup = role === 'superuser'
+                  const sup = puedeCorregir
                   const venc = resumen.vencida(q)
                   const esProx = resumen.proxima?.id === q.id
                   const est = q.status === 'pagado' ? 'pagado' : venc ? 'vencido' : 'pendiente'
@@ -1446,7 +1502,7 @@ export default function FichaLote() {
               {sel.associated_to && <><dt>Asociado a</dt><dd>{sel.associated_to}</dd></>}
               {sel.boundaries?.medidas && <><dt>Medidas</dt><dd>{Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</dd></>}
               {sel.status === 'entregado' && <><dt>Entregado el</dt><dd><b>{sel.delivered_at ? fechaPe(sel.delivered_at) : '- (sin fecha)'}</b>
-                {role === 'superuser' && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">&#9998;</button>}</dd></>}
+                {puedeCorregir && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">&#9998;</button>}</dd></>}
             </dl>
             {sel.status === 'eliminado' && <p className="hint" style={{ color: '#c9cbd0', margin: '4px 0' }}>
               &#9888; Este lote está marcado como <b>ELIMINADO</b>: no existe en el terreno y no cuenta en el
@@ -1455,7 +1511,7 @@ export default function FichaLote() {
               <p className="acc-row">
                 <button className="btn-ghost" onClick={() => { setEdit(true); setChg(false); setEf({ area_m2: sel.area_m2, price_per_m2: sel.price_per_m2, associated_to: sel.associated_to || '', initial_payment_default: sel.initial_payment_default }) }}>Editar datos</button>
                 {esAdmin && <button className="btn-ghost" onClick={() => { setChg(!chg); setEdit(false) }}>Cambiar estado (admin)</button>}
-                {role === 'superuser' && sel.status === 'disponible' && (
+                {puedeCorregir && sel.status === 'disponible' && (
                   <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarLote}>🗑 Eliminar lote</button>
                 )}
               </p>
@@ -1479,7 +1535,7 @@ export default function FichaLote() {
                     <option value="disponible">DISPONIBLE (liberar)</option>
                     <option value="separado">SEPARADO ADMINISTRATIVO (asunto interno)</option>
                     <option value="invadido">INVADIDO</option>
-                    {role === 'superuser' && <option value="expropiado">EXPROPIADO (tramite formal, con documento)</option>}
+                    {puedeCorregir && <option value="expropiado">EXPROPIADO (tramite formal, con documento)</option>}
                   </select>
                 </label>
                 <label>Motivo (obligatorio)
@@ -1586,6 +1642,17 @@ export default function FichaLote() {
       {verPago && (
         <DetallePago key={verPago.id} pago={verPago} pagos={pagos} naOk={naOk}
           onClose={() => setVerPago(null)} onCambio={reload} />
+      )}
+
+      {emitirDe && (
+        <EmitirComprobante grupo={emitirDe} proyecto={proyecto} lote={sel}
+          cliente={detail.sale?.client || detail.sep?.client || null}
+          totalCuotas={detail.inst?.length ? Math.max(...detail.inst.map(i => i.installment_number)) : null}
+          onCerrar={() => { setEmitirDe(null); comps.recargar(); reload() }} onListo={() => comps.recargar()} />
+      )}
+      {verComp && (
+        <ComprobanteDetalle comprobante={verComp} proyecto={proyecto}
+          onCerrar={() => { setVerComp(null); comps.recargar(); reload() }} onCambio={() => comps.recargar()} />
       )}
 
       {/* ---- CIERRE ECONOMICO DE UNA EXPROPIACION (admin/superusuario) ---- */}

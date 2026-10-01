@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { subirFotoWeb, subirLogoWeb } from '../lib/imagenesWeb'
 import { subirRuta } from '../lib/archivos'
 import { linkPublico, linkPanel } from '../lib/sitios'
+// OJO: aquí `avisar` es la prop (el mensaje de la pantalla Corretaje), no el diálogo
+import { confirmar, pedir } from '../lib/dialogos'
 
 // Editor de la LANDING pública de un proyecto (Corretaje → Proyectos → Landing).
 // Guarda en corr_proyectos_pub (sql/78); la página vive en /p/<slug> y la
@@ -129,13 +131,13 @@ export default function LandingEditor({ pr, setPub, avisar }) {
     setSubiendo('')
   }
   const mover = (i, d) => { const g = [...galeria]; [g[i], g[i + d]] = [g[i + d], g[i]]; guardarGaleria(g) }
-  const quitar = i => { if (confirm('¿Quitar esta foto de la landing?')) guardarGaleria(galeria.filter((_, j) => j !== i)) }
+  const quitar = async i => { if (await confirmar('¿Quitar esta foto de la landing?', { peligro: true, aceptar: 'Sí, quitar' })) guardarGaleria(galeria.filter((_, j) => j !== i)) }
   const setBen = (i, k, v) => set('beneficios', beneficios.map((b, j) => (j === i ? { ...b, [k]: v } : b)))
   const setFaq = (i, k, v) => set('faq', faq.map((q, j) => (j === i ? { ...q, [k]: v } : q)))
 
   const copiar = async () => {
     try { await navigator.clipboard.writeText(link); avisar('✅ Link copiado') }
-    catch { window.prompt('Copia el link:', link) }
+    catch { await pedir('Copia el link:', { valor: link, aceptar: 'Listo' }) }
   }
 
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }

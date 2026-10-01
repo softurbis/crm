@@ -5,13 +5,13 @@ import { savedFx } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import BuscarLote from '../components/BuscarLote'
-import { COLORS, LBL, esLote, EN_CARTERA } from '../lib/lotes'
+import { COLORS, LBL, esLote, EN_CARTERA, saldoCuota, TOLERANCIA_CUOTA } from '../lib/lotes'
 import { useEsCelular } from '../lib/useEsCelular'
 
 // El mapa del proyecto. Cada lote abre su ficha a pantalla completa
 // (pages/FichaLote.jsx), donde esta todo lo del dia a dia.
 export default function Lots() {
-  const { role } = useAuth()
+  const { esJefe } = useAuth()   // administrador, superusuario y operador
   const { pidOp } = useProject()
   const irA = useNavigate()
   const esCelular = useEsCelular()   // en el celular no se abre el teclado solo
@@ -63,7 +63,7 @@ export default function Lots() {
       .neq('status', 'pagado').lt('due_date', hoyVenc)
       .eq('sales.status', 'en_proceso').eq('sales.lot.project_id', pidOp)
       .then(({ data }) => setVencidos(new Set((data || [])
-        .filter(r => (Number(r.amount) - Number(r.amount_paid)) > 2)
+        .filter(r => saldoCuota(r) > TOLERANCIA_CUOTA)   // misma regla que la ficha (lib/lotes)
         .map(r => r.sales.lot_id))))
     // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
@@ -175,7 +175,7 @@ export default function Lots() {
         {/* la puerta de entrada del dia a dia: se escribe y se cae en la ficha del lote */}
         <div className="mapa-buscar"><BuscarLote autoFocus={!esCelular} /></div>
         <ProjectPicker />
-        {['admin', 'superuser'].includes(role) && (
+        {esJefe && (
           <button className="btn-ghost" onClick={() => { setCrear(true); setCMsg(null) }}>➕ Crear lotes</button>
         )}
       </div>

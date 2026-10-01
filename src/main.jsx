@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import { ProjectProvider } from './context/ProjectContext'
+import Dialogos from './components/Dialogos'
 import './styles/global.css'
 
 // ---- APP INSTALABLE EN EL CELULAR ----
@@ -40,6 +41,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <App />
         </ProjectProvider>
       </AuthProvider>
+      {/* avisos, confirmaciones y pedidos de datos de TODO el panel (lib/dialogos.js):
+          va aquí, por fuera de las rutas, para cubrir también el login y las públicas */}
+      <Dialogos />
     </BrowserRouter>
   </React.StrictMode>
 )

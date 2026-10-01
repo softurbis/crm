@@ -15,6 +15,10 @@ Group=facturador
 WorkingDirectory=/opt/facturador
 Environment=PYTHONUNBUFFERED=1
 Environment=FACTURADOR_CARPETA=/etc/facturador
+# La fecha de un comprobante es la de Perú. El servidor está en hora universal:
+# sin esto, de 7 de la noche a medianoche "hoy" ya sería mañana y SUNAT rechaza
+# un resumen fechado en el futuro.
+Environment=TZ=America/Lima
 ExecStart=/opt/facturador/venv/bin/python -m facturador.servicio
 Restart=always
 RestartSec=5

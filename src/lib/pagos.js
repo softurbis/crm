@@ -4,6 +4,7 @@
 // copias terminan contando historias distintas.
 import { supabase } from './supabase'
 import { upload } from './archivos'
+import { confirmar, pedir } from './dialogos'
 
 export const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
@@ -91,7 +92,7 @@ export function filasDelPago(r, pagos) {
 // Sube el voucher o el comprobante de un pago, con su nota. Devuelve el texto
 // del aviso, o null si se cancelo la nota (no se sube nada).
 export async function subirDocPago(row, file, campo, naOk = true) {
-  const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
+  const nota = await pedir('Comentario / nota de este documento (opcional, Enter para saltar):')
   if (nota === null) return null
   const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
   const patch = { [campo]: url, [campoNota(campo)]: nota.trim() || null }
@@ -123,9 +124,9 @@ const registrarNoAplica = (filas, campo, motivo, marcado, email, pidOp) => supab
 // Devuelve { ok, t, ids, motivo } o null si se cancelo.
 export async function marcarNoAplica(filas, campo, { email, pidOp }) {
   const doc = nombreDoc(campo)
-  const motivo = prompt('¿Por qué este pago NO va a tener ' + doc + '?\n\n' +
+  const motivo = await pedir('¿Por qué este pago NO va a tener ' + doc + '?\n\n' +
     'Ej: es parte de una cascada y el voucher está en el primer pago / cuadre de migración sin documento.\n' +
-    'El motivo queda en la bitácora (obligatorio, mínimo 5 caracteres):')
+    'El motivo queda en la bitácora (obligatorio, mínimo 5 caracteres):', { tipo: 'largo', obligatorio: true })
   if (motivo === null) return null
   if (motivo.trim().length < 5) return { ok: false, t: 'MOTIVO OBLIGATORIO (mínimo 5 caracteres).' }
   const texto = motivo.trim().toUpperCase().slice(0, 300)
@@ -139,7 +140,7 @@ export async function marcarNoAplica(filas, campo, { email, pidOp }) {
 
 export async function quitarNoAplica(filas, campo, { email, pidOp }) {
   const doc = nombreDoc(campo)
-  if (!confirm('¿Volver a pedir el ' + doc + ' de este pago?\n\nDejará de estar marcado como "no aplica" y volverá a la lista de faltantes.')) return null
+  if (!await confirmar('¿Volver a pedir el ' + doc + ' de este pago?\n\nDejará de estar marcado como "no aplica" y volverá a la lista de faltantes.')) return null
   const ids = filas.map(p => p.id)
   const { error } = await supabase.from('daily_income')
     .update({ [campoNA(campo)]: false, [campoNAMotivo(campo)]: null }).in('id', ids)

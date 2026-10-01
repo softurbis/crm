@@ -4,6 +4,7 @@ import Logo from './Logo'
 import { soles } from '../lib/pagos'
 import { MESES, fechaPe, letras, detalleCuotas, fechasDeDeposito, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
 import { imprimirConPie, prepararArchivo, precargar } from '../lib/contratoArchivos'
+import { avisar } from '../lib/dialogos'
 
 // **negrita** dentro de una linea de la plantilla
 const conNegritas = t => t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (/^\*\*[^*]+\*\*$/.test(x) ? <b key={i}>{x.slice(2, -2)}</b> : x))
@@ -263,8 +264,8 @@ export default function ContratoModal({ saleId, onClose }) {
       const m = String(e?.message || e)
       // pestaña abierta desde antes de publicar una versión nueva: la librería vieja ya no está
       if (/dynamically imported module|Importing a module script|error loading dynamically|MIME type/i.test(m))
-        alert('El panel se actualizó mientras lo tenías abierto: recarga la página (F5) y vuelve a descargar.')
-      else alert('No se pudo armar el ' + (tipo === 'pdf' ? 'PDF' : 'Word') + ': ' + m)
+        await avisar('El panel se actualizó mientras lo tenías abierto: recarga la página (F5) y vuelve a descargar.', { tono: 'error' })
+      else await avisar('No se pudo armar el ' + (tipo === 'pdf' ? 'PDF' : 'Word') + ': ' + m)
     } finally { setBajando(null) }
   }
 

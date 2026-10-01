@@ -4,6 +4,7 @@
 import { supabase } from './supabase'
 import { subirRuta } from './archivos'
 import { soles } from './pagos'
+import { pedir } from './dialogos'
 
 // "setiembre": asi se escribe en Peru y asi viene en los contratos modelo
 export const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre']
@@ -73,10 +74,10 @@ export const COLS_VENTA_CONTRATO = 'id, total_sale_price, initial_amount_paid, f
 // reemplaza. Devuelve el aviso, o null si se cancelo la nota (no se sube nada).
 export async function subirContratoFirmado(venta, file) {
   const reemplaza = !!venta.signed_contract_url
-  const nota = prompt(
+  const nota = await pedir(
     (reemplaza ? '⚠ REEMPLAZANDO el contrato firmado actual por este archivo nuevo.\n\n' : '') +
     'Comentario / nota de este contrato (opcional, Enter para saltar):\n\nEj: firmado con poder · falta legalizar · copia escaneada que mando el cliente',
-    venta.contract_note || '')
+    { valor: venta.contract_note || '' })
   if (nota === null) return null
   const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
   const url = await subirRuta(`contratos/${venta.lot?.mz}-${venta.lot?.lt}-${Date.now()}.${ext}`, file)

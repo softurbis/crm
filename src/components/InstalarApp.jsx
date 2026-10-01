@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar } from '../lib/dialogos'
 
 // Botón "📲 Instalar app": deja el panel en la pantalla del celular, con su ícono, y
 // se abre sin la barra del navegador.
@@ -26,12 +27,12 @@ export default function InstalarApp({ style }) {
   if (instalada || (!aviso && !esIPhone())) return null
 
   async function instalar() {
-    if (!aviso) { alert(AYUDA_IPHONE); return }
+    if (!aviso) { await avisar(AYUDA_IPHONE, { titulo: 'Instalar la app' }); return }
     try {
       aviso.prompt()
       const r = await aviso.userChoice
       if (r?.outcome === 'accepted') setInstalada(true)
-    } catch { alert(AYUDA_ANDROID) }
+    } catch { await avisar(AYUDA_ANDROID, { titulo: 'Instalar la app' }) }
     window.__pedirInstalar = null        // el aviso de Chrome sirve una sola vez
     setAviso(null)
   }

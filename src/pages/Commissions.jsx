@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import LoteLink from '../components/LoteLink'
@@ -18,10 +19,10 @@ async function subirRH(id, file) {
 }
 
 export default function Commissions() {
-  const { role } = useAuth()
+  const { role, puedeCorregir, esJefe } = useAuth()   // puedeCorregir = superusuario u operador
   const { pidOp } = useProject()
-  const canEdit = ['superuser', 'admin'].includes(role)
-  const canPay = ['superuser', 'admin', 'secretary'].includes(role)
+  const canEdit = esJefe   // administrador, superusuario y operador
+  const canPay = esJefe || role === 'secretary'
   const [rows, setRows] = useState([])
   const [ventasSin, setVentasSin] = useState([])
   const [advisors, setAdvisors] = useState([])
@@ -123,7 +124,7 @@ export default function Commissions() {
   }
 
   async function borrarAsesor(a) {
-    if (!confirm(`Eliminar al asesor ${a.code}? Solo se puede si no tiene ventas ni leads asociados.`)) return
+    if (!await confirmar(`Eliminar al asesor ${a.code}? Solo se puede si no tiene ventas ni leads asociados.`, { peligro: true, aceptar: 'Sí, eliminar' })) return
     const { error } = await supabase.from('advisors').delete().eq('id', a.id)
     setMsg(error
       ? { ok: false, t: 'NO SE PUDO ELIMINAR (tiene registros asociados). Puedes DESACTIVARLO.' }
@@ -150,7 +151,7 @@ export default function Commissions() {
   }
 
   async function volverPendiente(r) {
-    if (!confirm('Volver esta comision a PENDIENTE? Se conserva el RH registrado.')) return
+    if (!await confirmar('Volver esta comision a PENDIENTE? Se conserva el RH registrado.')) return
     await supabase.from('commissions').update({ status: 'pendiente', paid_date: null }).eq('id', r.id)
     load()
   }
@@ -301,7 +302,7 @@ export default function Commissions() {
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {canPay && r.status !== 'pagada' &&
                     <button className="btn-ghost" onClick={() => { setPay(r); setPayExtra([]); setRhNum(r.rh_number || ''); setPayDate(hoy()) }}>Marcar pagada</button>}
-                  {role === 'superuser' && r.status === 'pagada' &&
+                  {puedeCorregir && r.status === 'pagada' &&
                     <button className="link-btn muted" onClick={() => volverPendiente(r)}>volver a pendiente</button>}
                 </td>
               </tr>

@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
@@ -101,7 +102,7 @@ function leerNombre(nombre) {
 }
 
 export default function Migracion() {
-  const { role, profile } = useAuth()
+  const { profile, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const { pidOp, projects } = useProject()
   const [datos, setDatos] = useState(null)
   const [archivos, setArchivos] = useState([])
@@ -335,7 +336,7 @@ export default function Migracion() {
 
   async function subirTodo() {
     if (!aSubir.length) return
-    if (!confirm(`Se van a subir ${aSubir.length} archivos y engancharlos a ${nombreProyecto}.\n\n` +
+    if (!await confirmar(`Se van a subir ${aSubir.length} archivos y engancharlos a ${nombreProyecto}.\n\n` +
       `${cuenta.revisar ? '⚠ ' + cuenta.revisar + ' están marcados "revisar" (había más de un archivo para el mismo tipo de pago).\n\n' : ''}` +
       'Los archivos originales del Drive no se tocan. ¿Continuar?')) return
     setSubiendo(true); setErrores([]); setProgreso({ hechos: 0, total: aSubir.length, actual: '' })
@@ -380,7 +381,7 @@ export default function Migracion() {
     setSubiendo(false)
   }
 
-  if (role !== 'superuser') return <p className="error">Solo el SUPERUSUARIO puede cargar archivos de migración.</p>
+  if (!puedeCorregir) return <p className="error">Solo el SUPERUSUARIO o un OPERADOR pueden cargar archivos de migración.</p>
 
   const CHIP = [
     ['listos', 'Listos para subir', cuenta.listos + cuenta.revisar],

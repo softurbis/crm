@@ -257,6 +257,9 @@ def emitir(config, certificado, peticion, solo_firmar=False):
         "inafectas": str(totales.inafectas),
         "igv": str(totales.igv),
         "total": str(totales.total),
+        # el "SON: ..." de la hoja impresa: se calcula una vez, acá, con el
+        # mismo total que quedó firmado
+        "letras": doc["monto_en_letras"],
         "xml": ruta_xml,
         "ambiente": config.ambiente,
     }

@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import BrainMap from '../components/BrainMap'
 
@@ -58,8 +59,8 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
   const [editQ, setEditQ] = useState(false)     // modo borrar respuestas rápidas
   // {nombre} y {proyecto} se reemplazan con los datos del chat
   const aplicarVars = q => String(q).split('{nombre}').join(vars.nombre || '').split('{proyecto}').join(vars.proyecto || '').replace(/ {2,}/g, ' ').trim()
-  const agregarQuick = () => {
-    const q = prompt('Texto de la respuesta rápida (puedes usar {nombre} y {proyecto}):')
+  const agregarQuick = async () => {
+    const q = await pedir('Texto de la respuesta rápida (puedes usar {nombre} y {proyecto}):')
     if (q && q.trim() && onQuicks) onQuicks([...quicks, q.trim()])
   }
   const elegirArchivo = e => {
@@ -68,7 +69,7 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
     const tipo = tipoDeArchivo(f)
     const lim = (tipo === 'video' || tipo === 'document') ? 95 : 30    // el tope real lo pone Supabase Storage
     if (f.size > lim * 1024 * 1024) {
-      alert('Máximo ' + lim + ' MB para este tipo de archivo.\n\nTip: comprime el video (WhatsApp igual lo comprime) o compártelo como link de Drive/YouTube en el mensaje.')
+      avisar('Máximo ' + lim + ' MB para este tipo de archivo.\n\nTip: comprime el video (WhatsApp igual lo comprime) o compártelo como link de Drive/YouTube en el mensaje.', { tono: 'error' })
       return
     }
     setAdj({ file: f, tipo })
@@ -84,7 +85,7 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
       let urlAdj
       try { urlAdj = await subirRuta(ruta, adj.file) }
       catch (err) {
-        alert('No se pudo subir el archivo: ' + err.message)
+        await avisar('No se pudo subir el archivo: ' + err.message)
         setMandando(false); return
       }
       media = { media_url: urlAdj, media_type: adj.tipo, media_name: adj.file.name }
@@ -94,7 +95,7 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
       scheduled_for: new Date().toISOString(), conversation_id: conv.id,
       session_id: conv.session_id || null, sender_id: userId || null, ...media,
     })
-    if (error) { alert('No se pudo enviar: ' + error.message); setMandando(false); return }
+    if (error) { await avisar('No se pudo enviar: ' + error.message); setMandando(false); return }
     const enviado = { body: body || null, media_type: media.media_type || null, media_url: media.media_url || null, media_name: media.media_name || null }
     setTxt(''); setAdj(null); setMandando(false); onSent && onSent(enviado)
   }
@@ -133,9 +134,13 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
 }
 
 export default function Whatsapp() {
-  const { role, profile } = useAuth()
+  const { role, profile, esOperador } = useAuth()
   const esAdminW = ['admin', 'superuser'].includes(role)      // gestiona bot, números y cerebros
-  const puedeEscribir = ['admin', 'superuser', 'secretary', 'asesor'].includes(role)
+  // El OPERADOR trabaja la BANDEJA como jefe (cambia el proyecto del chat, lo asigna,
+  // arma etiquetas y respuestas rápidas) pero NO configura: interruptores del bot,
+  // números, directorio y cerebros siguen colgando de esAdminW, que no lo incluye.
+  const jefeBandeja = esAdminW || esOperador
+  const puedeEscribir = ['admin', 'superuser', 'operador', 'secretary', 'asesor'].includes(role)
   const [convs, setConvs] = useState([])
   const [sel, setSel] = useState(null)
   // chat del agente de ventas: ¿es del experimento (nadie escribe) o de un proyecto sin
@@ -215,7 +220,7 @@ export default function Whatsapp() {
   const guardarTags = async next => { setTags(next); await supabase.from('bot_brains').upsert({ key: 'chat_tags', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
   const guardarQuicks = async next => { setQuicks(next); await supabase.from('bot_brains').upsert({ key: 'quick_replies', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
   const crearTag = async () => {
-    const n = prompt('Nombre de la etiqueta nueva (ej. SEPARÓ, NO CONTESTA, VISITÓ):')
+    const n = await pedir('Nombre de la etiqueta nueva (ej. SEPARÓ, NO CONTESTA, VISITÓ):')
     if (!n || !n.trim()) return null
     const nombre = n.trim().toUpperCase()
     if (!tags.some(t => t.n === nombre)) await guardarTags([...tags, { n: nombre, c: TAG_PALETA[tags.length % TAG_PALETA.length] }])
@@ -305,24 +310,24 @@ export default function Whatsapp() {
     }
   }
   const pedirRelink = async () => {
-    if (!confirm('¿VINCULAR OTRO NÚMERO?\n\nEsto desconecta el WhatsApp actual del bot y en ~30 segundos aparecerá aquí un código QR para escanear con el celular nuevo.\n\nEl bot dejará de responder hasta que escanees el QR.')) return
+    if (!await confirmar('¿VINCULAR OTRO NÚMERO?\n\nEsto desconecta el WhatsApp actual del bot y en ~30 segundos aparecerá aquí un código QR para escanear con el celular nuevo.\n\nEl bot dejará de responder hasta que escanees el QR.')) return
     await supabase.from('bot_settings').upsert({ key: 'wa_relink', value: '1', updated_at: new Date().toISOString() })
     setWaEstado('esperando_qr')
-    alert('Pedido enviado. El QR aparecerá aquí en ~30 segundos (la sección se refresca sola).')
+    await avisar('Pedido enviado. El QR aparecerá aquí en ~30 segundos (la sección se refresca sola).')
   }
   const reiniciarBot = async () => {
-    if (!confirm('¿REINICIAR EL BOT?\n\nUsalo si dejo de responder. Tarda ~30-60 segundos en volver a EN LINEA y la sesion de WhatsApp NO se pierde (no hay que escanear QR).')) return
+    if (!await confirmar('¿REINICIAR EL BOT?\n\nUsalo si dejo de responder. Tarda ~30-60 segundos en volver a EN LINEA y la sesion de WhatsApp NO se pierde (no hay que escanear QR).')) return
     await supabase.from('bot_settings').upsert({ key: 'wa_restart', value: '1', updated_at: new Date().toISOString() })
-    alert('Reinicio solicitado. El bot lo detecta en maximo 15 segundos. Observa el chip de estado: pasara a SIN RESPONDER un momento y luego a EN LINEA.')
+    await avisar('Reinicio solicitado. El bot lo detecta en maximo 15 segundos. Observa el chip de estado: pasara a SIN RESPONDER un momento y luego a EN LINEA.')
   }
   const cambiarAdmin = async () => {
-    const v = prompt('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', adminPhone || '51')
+    const v = await pedir('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', { tipo: 'numero', valor: adminPhone || '51' })
     if (v === null) return
     const d = String(v).replace(/\D/g, '')
-    if (d.length < 11) { alert('Número inválido: debe incluir el 51 (ej. 51924947651)'); return }
+    if (d.length < 11) { await avisar('Número inválido: debe incluir el 51 (ej. 51924947651)'); return }
     await supabase.from('bot_settings').upsert({ key: 'admin_phone', value: d, updated_at: new Date().toISOString() })
     setAdminPhone(d)
-    alert('✅ ADMIN cambiado a +' + d + '. El bot lo aplica en máx. 1 minuto.')
+    await avisar('✅ ADMIN cambiado a +' + d + '. El bot lo aplica en máx. 1 minuto.')
   }
   // se guardan tal cual las escribió el operador; el bot las normaliza al comparar
   // (tildes y mayúsculas dan igual) y las SUMA a las que ya trae de fábrica
@@ -364,7 +369,7 @@ export default function Whatsapp() {
   }
   const guardarNum = async (phone, tipo, note) => {
     const limpio = String(phone).replace(/\D/g, '')
-    if (limpio.length < 9) { alert('NUMERO INVALIDO (minimo 9 digitos)'); return }
+    if (limpio.length < 9) { await avisar('NUMERO INVALIDO (minimo 9 digitos)'); return }
     await supabase.from('whatsapp_numbers').upsert({ phone: limpio, tipo, note: (note || '').toUpperCase() })
     setNvo({ phone: '', tipo: 'desactivado', note: '' })
     cargarNums()
@@ -472,7 +477,7 @@ export default function Whatsapp() {
       const path = 'bot-flow/' + brainSel.slice(2) + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '.' + ext
       let url
       try { url = await subirRuta(path, file) }
-      catch (err) { alert('No se pudo subir ' + file.name + ': ' + err.message); continue }
+      catch (err) { await avisar('No se pudo subir ' + file.name + ': ' + err.message); continue }
       libAdd({ id: nuevoPasoId(), tipo, url, desc: '' })
     }
     setSubiendo(false)
@@ -621,31 +626,31 @@ export default function Whatsapp() {
   }
   const setSesCampo = async (id, campos) => {
     const { error } = await supabase.from('wa_sessions').update(campos).eq('id', id)
-    if (error) alert('ERROR: ' + error.message)
+    if (error) await avisar('ERROR: ' + error.message)
     cargarSesiones()
   }
   const marcarCorporativa = async id => {
-    if (!confirm('¿Hacer de este número el CORPORATIVO?\n\nPor el corporativo salen: seguimiento de secretarias, comandos de gerencia y avisos internos.')) return
+    if (!await confirmar('¿Hacer de este número el CORPORATIVO?\n\nPor el corporativo salen: seguimiento de secretarias, comandos de gerencia y avisos internos.')) return
     await supabase.from('wa_sessions').update({ is_corporate: false }).neq('id', id)
     await setSesCampo(id, { is_corporate: true })
   }
   const relinkSesion = async s => {
-    if (!confirm(`¿VINCULAR OTRO CELULAR al número "${s.label}"?\n\nSe cierra su WhatsApp actual y en ~30 segundos aparece un QR nuevo para escanear.`)) return
+    if (!await confirmar(`¿VINCULAR OTRO CELULAR al número "${s.label}"?\n\nSe cierra su WhatsApp actual y en ~30 segundos aparece un QR nuevo para escanear.`)) return
     await setSesCampo(s.id, { relink: true })
   }
-  const restartSesion = async s => { await setSesCampo(s.id, { restart: true }); alert('Reinicio de "' + s.label + '" solicitado (tarda ~30-60 seg; no pide QR).') }
+  const restartSesion = async s => { await setSesCampo(s.id, { restart: true }); await avisar('Reinicio de "' + s.label + '" solicitado (tarda ~30-60 seg; no pide QR).') }
   const borrarSesion = async s => {
     // El corporativo ya no lleva el seguimiento (eso vive en Telegram), así que
     // también se puede eliminar; solo se avisa por si aún se usa como respaldo.
     const aviso = s.is_corporate
       ? `¿ELIMINAR el número CORPORATIVO "${s.label}"?\n\nEra el respaldo para avisos internos que no tuvieran número propio (el seguimiento ya sale por Telegram).\n\nSus chats quedan en el historial.`
       : `¿ELIMINAR el número "${s.label}"?\n\nSus chats quedan en el historial pero ese WhatsApp deja de atenderse desde el panel.`
-    if (!confirm(aviso)) return
+    if (!await confirmar(aviso, { peligro: true, aceptar: 'Sí, eliminar' })) return
     await supabase.from('wa_sessions').delete().eq('id', s.id)
     cargarSesiones()
   }
   const cargarUsuarios = async () => {
-    if (!esAdminW) return
+    if (!jefeBandeja) return
     const { data } = await supabase.from('profiles').select('id, full_name, role, active').order('full_name')
     setUsuarios((data || []).filter(u => u.active !== false))
   }
@@ -682,7 +687,8 @@ export default function Whatsapp() {
 
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
-  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) { cargarFlags(); cargarNums(); cargarUsuarios() } }, [role])
+  // (el operador carga el directorio y los usuarios para LEER la bandeja completa; los ajustes del bot no)
+  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) cargarFlags(); if (jefeBandeja) { cargarNums(); cargarUsuarios() } }, [role])
   useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); cargarContacto(sel); marcarLeido(sel) }, [sel])
   useEffect(() => {
     setIaExperimento(true)
@@ -739,7 +745,7 @@ export default function Whatsapp() {
   }, [msgs])
   const agregarOptimista = env => setOptimistas(o => [...o, { ...env, at: new Date().toISOString(), key: 'op' + Math.random(), dir: 'out', tipo: 'manual_panel', pend: true, sender_id: profile?.id, optim: true }])
 
-  if (!['admin', 'superuser', 'secretary', 'manager', 'asesor'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso al chat de WhatsApp.</div>
+  if (!['admin', 'superuser', 'operador', 'secretary', 'manager', 'asesor'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso al chat de WhatsApp.</div>
 
   const lista = convs.filter(c => {
     if (filtroProy && c.project_id !== filtroProy) return false
@@ -1351,7 +1357,7 @@ export default function Whatsapp() {
                 ))}
               </div>
               <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>📁 POR PROYECTO</p>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: esAdminW ? 8 : 0 }}>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: jefeBandeja ? 8 : 0 }}>
                 {agrupar(conteoRaw, 'project_id').map(([k, n]) => {
                   const p = proysAll.find(x => x.id === k)
                   return (
@@ -1361,7 +1367,7 @@ export default function Whatsapp() {
                   )
                 })}
               </div>
-              {esAdminW && (<>
+              {jefeBandeja && (<>
                 <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>⭐ POR ASESOR ASIGNADO</p>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {agrupar(conteoRaw, 'assigned_to').map(([k, n]) => (
@@ -1405,8 +1411,8 @@ export default function Whatsapp() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
-                          {!esAdminW && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
-                          {esAdminW && (
+                          {!jefeBandeja && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
+                          {jefeBandeja && (
                             <select className="wa-sel" value={sel.project_id || ''} title="Proyecto del chat: etiqueta, color y por qué número sale la atención"
                               style={{ fontSize: 11, color: sel.projects?.color || undefined }}
                               onChange={async e => {
@@ -1424,18 +1430,18 @@ export default function Whatsapp() {
                             onChange={async e => {
                               let v = e.target.value
                               if (v === '__nueva') { v = await crearTag(); if (!v) return }
-                              if (v === '__quitar') { const n = prompt('Nombre EXACTO de la etiqueta a eliminar de la lista:'); if (n && n.trim()) await guardarTags(tags.filter(t => t.n !== n.trim().toUpperCase())); return }
+                              if (v === '__quitar') { const n = await pedir('Nombre EXACTO de la etiqueta a eliminar de la lista:', { peligro: true, aceptar: 'Eliminar' }); if (n && n.trim()) await guardarTags(tags.filter(t => t.n !== n.trim().toUpperCase())); return }
                               await setTagChat(sel, v)
                             }}>
                             <option value="">🏷️ SIN ETIQUETA</option>
                             {tags.map(t => <option key={t.n} value={t.n}>🏷️ {t.n}</option>)}
                             {sel.tag && !tags.some(t => t.n === sel.tag) && <option value={sel.tag}>🏷️ {sel.tag}</option>}
-                            {esAdminW && <option value="__nueva">➕ CREAR ETIQUETA…</option>}
-                            {esAdminW && tags.length > 0 && <option value="__quitar">🗑 ELIMINAR DE LA LISTA…</option>}
+                            {jefeBandeja && <option value="__nueva">➕ CREAR ETIQUETA…</option>}
+                            {jefeBandeja && tags.length > 0 && <option value="__quitar">🗑 ELIMINAR DE LA LISTA…</option>}
                           </select>
-                          {sel.lead_id && ['admin', 'superuser', 'secretary'].includes(role) && (
+                          {sel.lead_id && ['admin', 'superuser', 'operador', 'secretary'].includes(role) && (
                             <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.4 }} onClick={async () => {
-                              const nuevo = prompt('Nombre del lead:', nombreDe(sel))
+                              const nuevo = await pedir('Nombre del lead:', { valor: nombreDe(sel) })
                               if (!nuevo || !nuevo.trim()) return
                               await supabase.from('leads').update({ full_name: nuevo.trim().toUpperCase() }).eq('id', sel.lead_id)
                               cargarConvs(); setSel(x => ({ ...x, leads: { ...(x.leads || {}), full_name: nuevo.trim().toUpperCase() } }))
@@ -1453,15 +1459,15 @@ export default function Whatsapp() {
                                 title="Manda la tarjeta al chat «Tú» del celular del chip; ahí la abres y tocas AGREGAR. Al guardarse, el nombre aparece aquí solo."
                                 onClick={async () => {
                                   const def = nombreDe(sel) === 'SIN NOMBRE' ? (contacto?.push_name || '') : nombreDe(sel)
-                                  const n = prompt('¿Con qué nombre guardar este número en el celular del chip?', def)
+                                  const n = await pedir('¿Con qué nombre guardar este número en el celular del chip?', { valor: def })
                                   if (!n || !n.trim()) return
                                   const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim().toUpperCase(), tipo: 'vcard_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null })
-                                  if (error) alert('No se pudo: ' + error.message)
-                                  else { alert('📇 Tarjeta enviada al celular del chip.\n\nEn ESE celular: WhatsApp → chat «Tú» (mensaje a ti mismo) → tocar la tarjeta → AGREGAR.\n\nCuando la guarden, el nombre aparecerá aquí automáticamente.'); cargarMsgs(selRef.current) }
+                                  if (error) await avisar('No se pudo: ' + error.message)
+                                  else { await avisar('📇 Tarjeta enviada al celular del chip.\n\nEn ESE celular: WhatsApp → chat «Tú» (mensaje a ti mismo) → tocar la tarjeta → AGREGAR.\n\nCuando la guarden, el nombre aparecerá aquí automáticamente.'); cargarMsgs(selRef.current) }
                                 }}>📇 GUARDAR EN EL CELULAR</button>
                             )}
                           {!contacto?.nombre && contacto?.push_name && <span className="muted" style={{ fontSize: 10, textTransform: 'none' }} title="Nombre que la persona usa en su WhatsApp">se pone: «{contacto.push_name}»</span>}
-                          {mostrarLead && ['admin', 'superuser', 'secretary'].includes(role) && (
+                          {mostrarLead && ['admin', 'superuser', 'operador', 'secretary'].includes(role) && (
                             <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
                               <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
                                 const st = e.target.value
@@ -1480,7 +1486,7 @@ export default function Whatsapp() {
                         <button className="wa-btn" style={{ borderColor: '#e8975a', color: '#e8975a' }}
                           title={'Lo atiende una persona' + (sel.humano_desde ? ' desde ' + fh(sel.humano_desde) : '') + '. Clic para que el bot retome este chat.'}
                           onClick={async () => {
-                            if (!confirm('¿DEVOLVER ESTE CHAT AL BOT?\n\nEl bot volverá a responder automáticamente aquí.')) return
+                            if (!await confirmar('¿DEVOLVER ESTE CHAT AL BOT?\n\nEl bot volverá a responder automáticamente aquí.')) return
                             await supabase.from('whatsapp_conversations').update({ modo: 'bot', humano_por: null, humano_desde: null }).eq('id', sel.id)
                             cargarConvs(); setSel(x => ({ ...x, modo: 'bot' }))
                           }}>👤 EN HUMANO · 🤖 devolver al bot</button>
@@ -1491,7 +1497,7 @@ export default function Whatsapp() {
                       ) : (
                         <span className="wa-badge" title="El bot atiende este chat. Se calla solo cuando alguien responde desde el panel." style={{ color: '#9ccb86', borderColor: '#9ccb86' }}>🤖 BOT ATIENDE</span>
                       )}
-                      {esAdminW && (
+                      {jefeBandeja && (
                         <select className="wa-sel" value={sel.assigned_to || ''} title="Asignar este chat a un usuario (le aparece en su bandeja)"
                           onChange={async e => {
                             const v = e.target.value || null
@@ -1502,6 +1508,8 @@ export default function Whatsapp() {
                           {usuarios.map(u => <option key={u.id} value={u.id}>⭐ {u.full_name}{u.role === 'asesor' ? ' (ASESOR)' : ''}</option>)}
                         </select>
                       )}
+                      {/* clasificar el número escribe en el DIRECTORIO (y decide a quién le contesta
+                          el bot, o quién le da órdenes como gerencia): es configuración, no del operador */}
                       {esAdminW && (
                         <select className="wa-sel" value={tnSel?.tipo || 'bot'}
                           onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
@@ -1539,10 +1547,10 @@ export default function Whatsapp() {
                       {puedeEscribir && m.dir === 'out' && m.tipo === 'manual_panel' && m.wa_msg_id && !m.media_url && !m.fallo && !m.pend && (Date.now() - new Date(m.at).getTime()) < 15 * 60000 && (
                         <button className="btn-ghost" title="Editar este mensaje (WhatsApp lo permite hasta 15 min después de enviado)" style={{ fontSize: 10, padding: '0 5px' }}
                           onClick={async () => {
-                            const n = prompt('Nuevo texto del mensaje:', m.body || '')
+                            const n = await pedir('Nuevo texto del mensaje:', { tipo: 'largo', valor: m.body || '' })
                             if (n === null || !n.trim() || n.trim() === m.body) return
                             const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim(), tipo: 'edit_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null, wa_msg_id: m.wa_msg_id })
-                            if (error) alert('No se pudo editar: ' + error.message)
+                            if (error) await avisar('No se pudo editar: ' + error.message)
                             else setTimeout(() => cargarMsgs(selRef.current), 7000)
                           }}>✎</button>
                       )}
@@ -1578,8 +1586,8 @@ export default function Whatsapp() {
                       scheduled_for: new Date().toISOString(), conversation_id: dest.id, session_id: dest.session_id || null,
                       sender_id: profile?.id || null, media_url: reenvio.media_url, media_type: reenvio.media_type, media_name: reenvio.media_name,
                     })
-                    if (error) alert('No se pudo reenviar: ' + error.message)
-                    else alert('✅ Reenviado a ' + nombreDe(dest) + ' (sale en segundos).')
+                    if (error) await avisar('No se pudo reenviar: ' + error.message)
+                    else await avisar('✅ Reenviado a ' + nombreDe(dest) + ' (sale en segundos).')
                     setReenvio(null)
                   }}>ENVIAR</button>
                   <button className="btn-ghost" onClick={() => setReenvio(null)}>✕</button>
@@ -1595,7 +1603,7 @@ export default function Whatsapp() {
               )}
               {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
-                    quicks={quicks} esAdmin={esAdminW} onQuicks={guardarQuicks}
+                    quicks={quicks} esAdmin={jefeBandeja} onQuicks={guardarQuicks}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
                 : !puedeEscribir && <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
             </>

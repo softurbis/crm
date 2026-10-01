@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
+import { confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 
@@ -128,7 +129,7 @@ export default function Campanas() {
       pausada: '¿Pausar "' + c.name + '"?\n\nSe detiene el seguimiento automático. Los leads ya etiquetados no se pierden.',
       cerrada: '¿CERRAR "' + c.name + '"?\n\nSe detiene el seguimiento y queda como histórico con sus resultados. No se puede volver a activar.',
     }
-    if (!confirm(avisos[status] || '¿Cambiar estado?')) return
+    if (!await confirmar(avisos[status] || '¿Cambiar estado?')) return
     const cambios = { status, ...(status === 'cerrada' ? { closed_at: new Date().toISOString() } : {}) }
     const { error } = await supabase.from('campaigns').update(cambios).eq('id', c.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -145,7 +146,7 @@ export default function Campanas() {
     : ''
   async function copiar(txt, que) {
     try { await navigator.clipboard.writeText(txt); setMsg({ ok: true, t: que + ' COPIADO' }) }
-    catch { prompt('Copia esto:', txt) }
+    catch { await pedir('Copia esto:', { tipo: 'largo', valor: txt, aceptar: 'Listo' }) }
   }
 
   if (!pidOp) return <div className="toolbar"><h1>Campañas</h1><ProjectPicker /></div>

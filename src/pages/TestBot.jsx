@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { avisar, confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 
 // Perfiles que se pueden simular. El agente fuerza la clasificación del número.
@@ -90,20 +91,20 @@ export default function TestBot() {
 
   const encolar = async (extra, echo) => {
     const ph = phoneRef.current
-    if (!ph || ph.length < 9) { alert('Elige primero un ' + (perfil === 'cliente' ? 'cliente' : 'secretaria') + ' para emular.'); return }
+    if (!ph || ph.length < 9) { await avisar('Elige primero un ' + (perfil === 'cliente' ? 'cliente' : 'secretaria') + ' para emular.'); return }
     if (echo) setEchoes(e => [...e, { body: echo, at: new Date().toISOString() }])
     setPensando(true); setPendDesde(Date.now())
     const { error } = await supabase.from('bot_test_messages').insert({ session_phone: ph, profile: perfil, project_id: perfil === 'lead' ? (projectId || null) : null, emulate_id: emulateId || null, text: '', ...extra })
-    if (error) { setPensando(false); setEchoes(e => e.filter(x => x.body !== echo)); alert('No se pudo enviar el mensaje de prueba:\n\n' + error.message + '\n\nProbablemente falta correr la migración SQL (columna emulate_id).') }
+    if (error) { setPensando(false); setEchoes(e => e.filter(x => x.body !== echo)); await avisar('No se pudo enviar el mensaje de prueba:\n\n' + error.message + '\n\nProbablemente falta correr la migración SQL (columna emulate_id).') }
   }
   const enviar = async () => { const text = input.trim(); if (!text) return; setInput(''); await encolar({ profile: perfil, text }, text) }
   const pasarLista = () => encolar({ profile: 'pasar_lista_now', emulate_id: secId }, null)
 
   const purgar = async () => {
-    if (!confirm('¿Borrar TODOS los datos de prueba (leads/conversaciones marcados como PRUEBA)?\n\nNo toca clientes ni secretarias reales. El agente lo ejecuta en ~3 s.')) return
+    if (!await confirmar('¿Borrar TODOS los datos de prueba (leads/conversaciones marcados como PRUEBA)?\n\nNo toca clientes ni secretarias reales. El agente lo ejecuta en ~3 s.', { peligro: true, aceptar: 'Sí, borrar' })) return
     await supabase.from('bot_test_messages').insert({ session_phone: '0', profile: 'purge', text: '' })
     nuevaConversacion()
-    alert('🧹 Purga solicitada.')
+    await avisar('🧹 Purga solicitada.')
   }
 
   if (!['admin', 'superuser'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Solo administración puede usar la consola de pruebas.</div>

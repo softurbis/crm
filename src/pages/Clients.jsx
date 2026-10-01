@@ -5,9 +5,11 @@ import { subirRuta } from '../lib/archivos'
 import { aplicarDni } from '../lib/leerDni'
 import { useLecturaDni, AvisoLecturaDni } from '../components/LecturaDni'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
+import { cuotaVencida } from '../lib/lotes'
 
 // 'phone' se maneja aparte (abajo): son 2 celulares, cada uno con nota y check de bot.
 const CAMPOS = [
@@ -23,7 +25,7 @@ const CELULARES = [
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
 export default function Clients() {
-  const { role } = useAuth()
+  const { role, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const { projects } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
   const allowed = useMemo(() => new Set(projects.map(p => p.id)), [projects])
@@ -92,12 +94,12 @@ export default function Clients() {
   }
 
   async function borrarCliente(c) {
-    if (role !== 'superuser') return
+    if (!puedeCorregir) return
     if (!puedeEliminarCliente(c)) {
       setMsg({ ok: false, t: 'NO SE PUEDE ELIMINAR: el cliente tiene ventas, separaciones o historial asociado.' })
       return
     }
-    if (!confirm(`¿Eliminar definitivamente a ${c.full_name}? Esta acción no se puede deshacer.`)) return
+    if (!await confirmar(`¿Eliminar definitivamente a ${c.full_name}? Esta acción no se puede deshacer.`, { peligro: true, aceptar: 'Sí, eliminar' })) return
     setDeletingId(c.id)
     setMsg(null)
     try {
@@ -330,7 +332,7 @@ export default function Clients() {
                     <button className="btn-act" onClick={() => abrir(c)}>{readOnly ? '👁️ Ver' : '✏️ Editar'}</button>
                     {(c.sales?.length || 0) > 0 &&
                       <button className="btn-act alt" onClick={() => setCta(c)}>📄 Estado de cuenta</button>}
-                    {role === 'superuser' && (
+                    {puedeCorregir && (
                       <button className="btn-act alt" onClick={() => borrarCliente(c)}
                         disabled={!puedeEliminarCliente(c) || deletingId === c.id}
                         title={puedeEliminarCliente(c)
@@ -479,7 +481,8 @@ export default function Clients() {
                 const iniReal = iniPagos.length ? iniPagos.reduce((s, p) => s + Number(p.amount), 0) : Number(v.initial_amount_paid)
                 const totalPagado = Math.round((pagadoCuotas + iniReal + sepReal) * 100) / 100
                 const saldo = Math.round((Number(v.total_sale_price) - totalPagado) * 100) / 100
-                const vencidas = v.installments.filter(i => i.status === 'vencido')
+                // en vivo, con la fecha: el estado guardado se queda atrás si nadie toca la cuota
+                const vencidas = v.installments.filter(i => cuotaVencida(i))
                 const fFecha = f => f ? f.split('-').reverse().join('/') : '-'
                 return (
                   <div key={v.id}>

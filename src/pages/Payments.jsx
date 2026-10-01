@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
@@ -8,6 +9,8 @@ import DetallePago, { EstadoChip } from '../components/DetallePago'
 import BuscarLote from '../components/BuscarLote'
 import LoteLink from '../components/LoteLink'
 import { fechaPe } from '../lib/lotes'
+import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
+import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 import {
   soles, estadoDe, conceptoPago, agruparPagos, COLS_PAGO as COLS, COLS_PAGO_NA as COLS_NA,
   subirDocPago, marcarNoAplica as marcarNA, quitarNoAplica as quitarNA,
@@ -15,8 +18,13 @@ import {
 
 
 export default function Payments() {
-  const { profile, role } = useAuth()
-  const { pidOp } = useProject()
+  const { profile, role, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
+  const { pidOp, projects } = useProject()
+  // boletas y facturas electrónicas del proyecto (sql/113)
+  const proyFact = projects.find(p => p.id === pidOp)
+  const comps = useComprobantes({ projectId: pidOp }, !!proyFact && 'fact_activo' in proyFact)
+  const [emitirDe, setEmitirDe] = useState(null)
+  const [verComp, setVerComp] = useState(null)
   // Desde la fase 2 (24 sep 2026) se cobra en la ficha del lote (CobroModal):
   // esta pantalla queda como historial y reporte de todos los pagos del
   // proyecto, con sus documentos y las correcciones.
@@ -119,7 +127,7 @@ export default function Payments() {
   }
 
   async function guardarReparto(g) {
-    if (role !== 'superuser' || repartoEdit?.key !== g.key) return
+    if (!puedeCorregir || repartoEdit?.key !== g.key) return
     const cambios = g.items.map(p => ({ ...p, nuevo: Math.round(Number(repartoEdit.valores[p.id]) * 100) / 100 }))
     if (cambios.some(p => !Number.isFinite(p.nuevo) || p.nuevo < 0)) {
       setMsg({ ok: false, t: 'CADA APLICACIÓN DEBE TENER UN MONTO VÁLIDO MAYOR O IGUAL A CERO.' }); return
@@ -172,8 +180,8 @@ export default function Payments() {
   // a repartirlo de la cuota más antigua pendiente hacia adelante. Sirve cuando
   // se corrigió un reparto antiguo y los pagos posteriores quedaron desfasados.
   async function recalcularCascadaDesde(g) {
-    if (role !== 'superuser' || !g.referencia.sale_id) return
-    if (!confirm(`¿Recalcular la cascada desde la operación ${g.referencia.operation_number}?\n\nSe conservarán los vouchers y sus montos; se corregirá únicamente a qué cuotas se aplican este pago y los posteriores.`)) return
+    if (!puedeCorregir || !g.referencia.sale_id) return
+    if (!await confirmar(`¿Recalcular la cascada desde la operación ${g.referencia.operation_number}?\n\nSe conservarán los vouchers y sus montos; se corregirá únicamente a qué cuotas se aplican este pago y los posteriores.`)) return
     setRepartoBusy(true); setMsg(null)
     try {
       const [cuotasR, pagosR] = await Promise.all([
@@ -285,6 +293,9 @@ export default function Payments() {
     const na = esVoucher ? g.voucherNA : g.comprobanteNA
     const motivo = esVoucher ? g.voucherNAMotivo : g.comprobanteNAMotivo
     const falta = esVoucher ? g.voucherFaltante : g.comprobanteFaltante
+    // el comprobante electrónico (sql/113) manda sobre el que se sube a mano
+    const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
+    if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
     if (url) return <><a href={url} target="_blank" rel="noreferrer">VER</a>{falta && <span className="warn small"> + falta</span>}</>
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
@@ -296,7 +307,12 @@ export default function Payments() {
     if (readOnly) return <span className="muted">-</span>
     return (
       <>
-        <label className={'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>{esVoucher ? 'subir' : '⚠ falta'}
+        {!esVoucher && proyFact?.fact_activo && (
+          <button type="button" className="cp-emitir" title="Emitir la boleta o factura electrónica de este pago"
+            onClick={() => setEmitirDe(g)}>🧾 Emitir</button>
+        )}
+        {comp && <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />}
+        <label className={!esVoucher && proyFact?.fact_activo ? 'upload-btn cp-mano' : 'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>{esVoucher ? 'subir' : proyFact?.fact_activo ? 'subir a mano' : '⚠ falta'}
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g.referencia, e.target.files[0], campo)} />
         </label>
@@ -366,7 +382,7 @@ export default function Payments() {
               const expandible = g.items.length > 1
               const abierto = gruposAbiertos.has(g.key)
               const editando = repartoEdit?.key === g.key
-              const puedeEditarReparto = role === 'superuser' && g.items.every(p => p.installment_id)
+              const puedeEditarReparto = puedeCorregir && g.items.every(p => p.installment_id)
               const totalEditado = editando
                 ? Math.round(g.items.reduce((s, p) => s + Number(repartoEdit.valores[p.id] || 0), 0) * 100) / 100
                 : g.total
@@ -422,6 +438,15 @@ export default function Payments() {
       {view && (
         <DetallePago key={view.id} pago={view} pagos={pagos} accounts={accounts} naOk={naOk}
           onClose={() => setView(null)} onCambio={loadBase} />
+      )}
+      {emitirDe && (
+        <EmitirComprobante grupo={emitirDe} proyecto={proyFact} lote={emitirDe.referencia.lot}
+          ventaId={emitirDe.referencia.sale_id}
+          onCerrar={() => { setEmitirDe(null); comps.recargar(); loadBase() }} onListo={() => comps.recargar()} />
+      )}
+      {verComp && (
+        <ComprobanteDetalle comprobante={verComp} proyecto={proyFact}
+          onCerrar={() => { setVerComp(null); comps.recargar(); loadBase() }} onCambio={() => comps.recargar()} />
       )}
     </>
   )

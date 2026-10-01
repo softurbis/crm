@@ -1290,3 +1290,96 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
   .hoy-grid { grid-template-columns: 1fr; }
   .hoy-fila, .hoy-fila-main { grid-template-columns: 1fr; gap: .1rem; }
 }
+
+/* ===== Diálogos del panel (lib/dialogos.js + components/Dialogos.jsx) =====
+   Reemplazan alert / confirm / prompt del navegador. Van por encima de cualquier
+   otro modal (que están entre 50 y 100) y en escritura normal: aquí se LEE un
+   mensaje y se escribe un dato tal cual, sin las MAYÚSCULAS del resto del panel. */
+.dlg-bg { z-index: 1000; text-transform: none; }
+.dlg { max-width: 460px; }
+.dlg .modal-head { margin-bottom: .6rem; }
+.dlg-titulo { flex: 1; font-size: 1rem; text-transform: uppercase; letter-spacing: .03em; }
+.dlg-error .dlg-titulo { color: var(--error); }
+.dlg-ok .dlg-titulo { color: var(--ok); }
+.dlg-msg { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: .95rem; margin-bottom: .8rem; }
+.dlg-campo { margin-bottom: .7rem; }
+.dlg-campo > span { font-size: .8rem; font-weight: 600; }
+.dlg-campo input, .dlg-campo select, .dlg-campo textarea { width: 100%; text-transform: none; font-family: inherit; }
+.dlg-campo input[type="date"] { color-scheme: dark; }
+.dlg-campo textarea { resize: vertical; min-height: 4.5rem; }
+.dlg .error { margin-bottom: .6rem; }
+.dlg-botones { margin-top: .9rem; justify-content: flex-end; }
+.dlg-botones button { padding: .6rem 1.1rem; font-size: .85rem; font-weight: 700; text-transform: uppercase; }
+.dlg-peligro, .dlg-peligro:hover { background: var(--error); color: #1a0d0a; }
+/* celular: arriba (el teclado tapa la mitad de abajo) y con botones anchos para el dedo */
+@media (max-width: 520px) {
+  .dlg-bg { align-items: flex-start; padding-top: 10vh; }
+  .dlg { max-height: 80vh; }
+  .dlg-botones button { flex: 1 1 auto; }
+}
+
+/* ============================================================================
+   COMPROBANTES ELECTRÓNICOS (sql/113): boletas y facturas de los cobros
+   --cp = color de la marca de quien factura (cada proyecto con el suyo)
+   ============================================================================ */
+.cp-chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .55rem; border-radius: 12px; border: 0;
+  font-size: .75rem; font-weight: 600; text-transform: none; cursor: pointer; white-space: nowrap; font-family: inherit; }
+span.cp-chip { cursor: default; }
+.cp-chip b { font-weight: 800; letter-spacing: .02em; }
+.cp-ok { background: rgba(134,181,126,.16); color: var(--ok); }
+.cp-espera { background: rgba(123,182,224,.16); color: #8fc3ea; }
+.cp-aviso { background: rgba(224,178,63,.16); color: #e0b23f; }
+.cp-mal { background: rgba(224,82,82,.18); color: var(--error); }
+.cp-gris { background: rgba(255,255,255,.07); color: #b9bcc2; }
+.cp-gira { width: .7rem; height: .7rem; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent;
+  display: inline-block; animation: cp-gira .8s linear infinite; }
+@keyframes cp-gira { to { transform: rotate(360deg); } }
+.cp-emitir { display: inline-flex; align-items: center; gap: .3rem; padding: .28rem .6rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); font-size: .75rem; font-weight: 700; white-space: nowrap; font-family: inherit; }
+.cp-emitir:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.upload-btn.cp-mano { display: block; margin-top: 3px; font-size: .68rem; color: var(--muted); text-transform: none; }
+
+.cp-modal { max-width: 620px; width: 96%; text-transform: none; }
+.cp-modal input, .cp-modal select { text-transform: none; }
+.cp-marca { display: flex; align-items: center; gap: .8rem; padding: .55rem .7rem; margin: .2rem 0 .8rem; border-radius: 10px;
+  border-left: 4px solid var(--cp, var(--accent)); background: color-mix(in srgb, var(--cp, var(--accent)) 9%, transparent); text-transform: none; }
+.cp-marca img, .cp-proyecto-logo { height: 46px; max-width: 120px; object-fit: contain; background: #fff; border-radius: 7px; padding: 4px 6px; }
+.cp-marca div { display: flex; flex-direction: column; min-width: 0; }
+.cp-marca span { font-size: .78rem; color: var(--muted); }
+.cp-tipo { display: flex; gap: .5rem; margin-bottom: .8rem; }
+.cp-tipo button { flex: 1; padding: .55rem .6rem; border-radius: 10px; border: 1px solid var(--line); background: transparent;
+  color: var(--text); font-weight: 700; cursor: pointer; text-transform: none; font-family: inherit; }
+.cp-tipo button small { display: block; font-weight: 400; color: var(--muted); font-size: .72rem; }
+.cp-tipo button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.cp-sub { margin: .9rem 0 .35rem; font-weight: 700; }
+.cp-linea { display: flex; align-items: center; gap: .6rem; padding: .25rem 0; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.cp-linea input, .cp-linea span { flex: 1; min-width: 0; font-size: .82rem; }
+.cp-linea b { white-space: nowrap; }
+.cp-linea.cp-total { border-bottom: 0; font-size: .95rem; padding-top: .5rem; }
+.cp-nota { padding: .5rem .7rem; border-radius: 8px; background: rgba(224,178,63,.12); color: #e6c36a; font-size: .82rem; margin: 0 0 .7rem; }
+.cp-grande { display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem; border-radius: 10px; font-size: 1rem; font-weight: 700; margin: .2rem 0 .5rem; }
+.cp-datos { display: grid; grid-template-columns: auto 1fr; gap: .2rem .9rem; margin: .7rem 0; font-size: .85rem; }
+.cp-datos span { color: var(--muted); }
+.cp-anular { margin-left: auto; color: var(--error); border-color: rgba(224,82,82,.45); }
+
+.cp-cabecera { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding: .8rem 1rem; margin-bottom: 1rem; }
+.cp-cabecera .cp-marca { margin: 0; flex: 1 1 280px; }
+.cp-estado-emisor { display: flex; flex-direction: column; gap: .25rem; align-items: flex-start; flex: 1 1 220px; text-transform: none; }
+.cp-kpi { display: flex; flex-direction: column; align-items: flex-end; text-transform: none; }
+.cp-kpi span, .cp-kpi small { color: var(--muted); font-size: .75rem; }
+.cp-kpi b { font-size: 1.25rem; }
+.cp-envios { margin-top: 1rem; padding: .7rem 1rem; }
+.cp-envios summary { cursor: pointer; font-weight: 600; text-transform: none; }
+
+.cp-proyecto { padding: .6rem .8rem; margin: .6rem 0; border-radius: 10px; border-left: 4px solid var(--cp, var(--accent));
+  background: color-mix(in srgb, var(--cp, var(--accent)) 7%, transparent); }
+.cp-proyecto-fila { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.cp-proyecto input:not([type="checkbox"]):not([type="file"]):not([type="color"]) { text-transform: uppercase; }
+.cp-interruptor { display: flex; gap: .6rem; align-items: flex-start; margin: .2rem 0 .8rem; text-transform: none; cursor: pointer; }
+.cp-interruptor input { width: 1.1rem; height: 1.1rem; margin-top: .15rem; flex: none; }
+
+/* la marca del proyecto elegido, en el menú */
+.proj-marca { margin: .35rem .2rem .1rem .9rem; padding: .35rem .5rem; border-radius: 9px; background: #fff; display: flex; justify-content: center; }
+.proj-marca img { max-height: 46px; max-width: 100%; object-fit: contain; display: block; }
+

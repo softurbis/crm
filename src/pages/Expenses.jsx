@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload, subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+// "preguntar" = confirmar de lib/dialogos: aquí ya hay una función confirmar(g) (el dinero se entregó)
+import { avisar, confirmar as preguntar, pedir } from '../lib/dialogos'
 import { letras, fechaLetras } from '../lib/letras'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -57,10 +59,14 @@ const estadoGasto = g => g.status === 'confirmado' ? 'confirmado'
 const fechaHora = s => new Date(s).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function Expenses() {
-  const { profile, role } = useAuth()
+  // puedeCorregir = superusuario u operador (corregir, reemplazar, plantilla);
+  // esJefe suma al administrador; esSuper queda para lo que es solo del dueño
+  const { profile, role, esSuper, puedeCorregir, esJefe } = useAuth()
   const { pidOp } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
   const esSocio = role === 'socio'
+  // la APROBACIÓN FIRMADA es del socio (y del superusuario): el operador no aprueba,
+  // o la segunda firma de la constancia la pondría la misma oficina que pide el gasto
   const puedeAprobar = ['socio', 'superuser'].includes(role)
   const [aprobar, setAprobar] = useState(null)          // { g, modo } solicitud abierta para firmar
   const [pagar, setPagar] = useState(null)              // solicitud aprobada a la que la socia le sube el comprobante
@@ -227,7 +233,7 @@ export default function Expenses() {
           antes?.requester_signed_at && 'la FIRMA de ' + (antes.requester_name || 'quien la pidió'),
           antes?.approved_at && 'la APROBACIÓN de ' + (antes.approved_name || 'el socio'),
         ].filter(Boolean)
-        if (firmadas.length && !confirm('Esta solicitud ya tiene ' + firmadas.join(' y ') + '.\n\nSi la corriges se ANULA' + (firmadas.length > 1 ? 'n' : '') + ' y hay que volver a firmarla desde el principio.\n\n¿Corregir igual?')) { setBusy(false); return }
+        if (firmadas.length && !await preguntar('Esta solicitud ya tiene ' + firmadas.join(' y ') + '.\n\nSi la corriges se ANULA' + (firmadas.length > 1 ? 'n' : '') + ' y hay que volver a firmarla desde el principio.\n\n¿Corregir igual?')) { setBusy(false); return }
         const reinicio = antes && 'approved_at' in antes ? {
           approved_by: null, approved_at: null, approved_name: null, approval_signature_url: null, approval_hash: null, approval_code: null,
           rejected_by: null, rejected_at: null, rejected_reason: null, approval_notified_at: null, decision_notified_at: null,
@@ -281,16 +287,16 @@ export default function Expenses() {
   }
 
   async function confirmar(g) {
-    if (g.rejected_at) { alert('Esta solicitud fue RECHAZADA por ' + (g.rejected_reason ? 'este motivo:\n\n' + g.rejected_reason : 'el socio') + '\n\nCorrígela con "editar" para reenviarla.'); return }
+    if (g.rejected_at) { await avisar('Esta solicitud fue RECHAZADA por ' + (g.rejected_reason ? 'este motivo:\n\n' + g.rejected_reason : 'el socio') + '\n\nCorrígela con "editar" para reenviarla.', { tono: 'error' }); return }
     // si se eligio un solicitante, se espera su firma — exija o no el proyecto la
     // del socio. Elegirlo ES pedirle la firma; si no, el selector se deja vacio.
     if (g.requester_id && !g.requester_signed_at) {
-      alert('Falta la firma de ' + (g.sender || 'quien pidió el gasto') + '.'
+      await avisar('Falta la firma de ' + (g.sender || 'quien pidió el gasto') + '.'
         + (proyecto?.expense_approval ? '\n\nEste proyecto exige las DOS firmas: primero la de quien pide el gasto, después la del socio.' : '\n\nEsta solicitud espera su firma en el panel.'))
       return
     }
-    if (proyecto?.expense_approval && !g.approved_at) { alert('Falta la aprobación del socio.\n\nEste proyecto exige que un socio revise y firme la solicitud antes de entregar el dinero.'); return }
-    if (!confirm(`Confirmar que el dinero de "${g.description || g.type}" (${soles(g.amount)}) ya se entrego?`)) return
+    if (proyecto?.expense_approval && !g.approved_at) { await avisar('Falta la aprobación del socio.\n\nEste proyecto exige que un socio revise y firme la solicitud antes de entregar el dinero.'); return }
+    if (!await preguntar(`Confirmar que el dinero de "${g.description || g.type}" (${soles(g.amount)}) ya se entrego?`)) return
     await supabase.from('expenses').update({
       status: 'confirmado', reception_date: hoy(),
       confirmed_at: new Date().toISOString(), confirmed_by: profile?.id,
@@ -301,7 +307,7 @@ export default function Expenses() {
   async function subirDoc(g, file, campo, carpeta) {
     try {
       // todo documento se sube con su nota/comentario
-      const nota = prompt('Comentario / nota de este documento (opcional, Enter para saltar):')
+      const nota = await pedir('Comentario / nota de este documento (opcional, Enter para saltar):')
       if (nota === null) return   // cancelo: no se sube nada
       const url = await upload(`gastos/${carpeta}/${g.id}`, file)
       // si el documento aparecio, la marca de "no aplica" sobra: se limpia sola
@@ -320,7 +326,7 @@ export default function Expenses() {
   // editar/agregar la nota de un documento de gasto ya subido
   async function notaDoc(g, campo) {
     const kn = campo.replace('_url', '_note')
-    const nota = prompt('Comentario / nota de este documento:', g[kn] || '')
+    const nota = await pedir('Comentario / nota de este documento:', { tipo: 'largo', valor: g[kn] || '' })
     if (nota === null) return
     const { error } = await supabase.from('expenses').update({ [kn]: nota.trim() || null }).eq('id', g.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -333,7 +339,7 @@ export default function Expenses() {
   // otra gestion que jamas se van a completar, y entonces tampoco se ve el gasto de
   // esta semana al que si le falta el documento. Por eso el motivo es obligatorio y
   // queda en bitacora con quien lo marco.
-  const puedeNA = ['admin', 'superuser'].includes(role)
+  const puedeNA = esJefe   // administrador, superusuario y operador
 
   const anotarNA = (g, campo, motivo, marcado) => supabase.from('activity_log').insert({
     action: 'UPDATE', entity_type: 'expenses', entity_id: g.id, user_email: profile?.email || null,
@@ -348,7 +354,7 @@ export default function Expenses() {
   async function marcarNoAplica(g, campo) {
     const doc = LBL_DOC[campo]
     const lista = MOTIVOS_NA.map((m, i) => `${i + 1}. ${m}`).join('\n')
-    const r = prompt(`¿Por que este gasto no va a tener ${doc}?\n\n${lista}\n\nEscribe el NUMERO del motivo, o el motivo con tus palabras:`)
+    const r = await pedir(`¿Por que este gasto no va a tener ${doc}?\n\n${lista}\n\nEscribe el NUMERO del motivo, o el motivo con tus palabras:`)
     if (r === null) return
     const t = (r || '').trim()
     if (!t) { setMsg({ ok: false, t: 'HACE FALTA EL MOTIVO: sin el, dentro de un año nadie va a saber por que falta.' }); return }
@@ -363,7 +369,7 @@ export default function Expenses() {
   }
 
   async function quitarNoAplica(g, campo) {
-    if (!confirm(`¿Volver a pedir ${LBL_DOC[campo]} para este gasto?\n\nVuelve a aparecer en la lista de faltantes.`)) return
+    if (!await preguntar(`¿Volver a pedir ${LBL_DOC[campo]} para este gasto?\n\nVuelve a aparecer en la lista de faltantes.`)) return
     const { error } = await supabase.from('expenses')
       .update({ [naDe(campo)]: false, [naMotivo(campo)]: null }).eq('id', g.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -386,7 +392,7 @@ export default function Expenses() {
 
   async function agregarRhExtra(g, file) {
     try {
-      const nota = prompt('Nota de este RH adicional (de quién es, opcional):')
+      const nota = await pedir('Nota de este RH adicional (de quién es, opcional):')
       if (nota === null) return
       const url = await upload(`gastos/rh/${g.id}`, file)
       const { error } = await supabase.from('expenses')
@@ -399,7 +405,7 @@ export default function Expenses() {
 
   async function quitarRhExtra(g, i) {
     const d = rhExtras(g)[i]
-    if (!d || !confirm('¿Quitar este RH adicional' + (d.note ? ' (' + d.note + ')' : '') + '?\n\nEl archivo queda en el almacenamiento; solo se desliga del gasto.')) return
+    if (!d || !await preguntar('¿Quitar este RH adicional' + (d.note ? ' (' + d.note + ')' : '') + '?\n\nEl archivo queda en el almacenamiento; solo se desliga del gasto.', { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.from('expenses')
       .update({ receipt_docs: rhExtras(g).filter((_, j) => j !== i) }).eq('id', g.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -415,7 +421,7 @@ export default function Expenses() {
   // El archivo en si no se borra del almacenamiento — solo se desliga del gasto —
   // asi que un error aqui no destruye evidencia.
   async function quitarDocGasto(g, campo) {
-    if (!confirm('¿Quitar ' + LBL_DOC[campo] + ' de este gasto?\n\nLa casilla volvera a pedir el documento y podras subir otro. El archivo anterior queda en el almacenamiento.')) return
+    if (!await preguntar('¿Quitar ' + LBL_DOC[campo] + ' de este gasto?\n\nLa casilla volvera a pedir el documento y podras subir otro. El archivo anterior queda en el almacenamiento.', { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.from('expenses')
       .update({ [campo]: null, [campo.replace('_url', '_note')]: null }).eq('id', g.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -440,7 +446,7 @@ export default function Expenses() {
         <button className="link-btn" onClick={() => setVerDoc({ url: g[campo], titulo: label })}>VER</button>
         {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
         {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
-        {role === 'superuser' && <>
+        {puedeCorregir && <>
           {' '}<label className="link-btn" title="Reemplazar el documento por otro archivo" style={{ cursor: 'pointer' }}>&#128260;
             <input type="file" accept="image/*,.pdf,.docx" hidden
               onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
@@ -454,7 +460,7 @@ export default function Expenses() {
               <button className="link-btn" onClick={() => setVerDoc({ url: d.url, titulo: 'RH ' + (i + 2) + ' de este gasto' })}>VER RH {i + 2}</button>
               {' '}<a href={d.url} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
               {d.note && <span className="muted"> · {d.note}</span>}
-              {role === 'superuser' && <> <button className="link-btn" title="Quitar este RH adicional" onClick={() => quitarRhExtra(g, i)}>&#128465;</button></>}
+              {puedeCorregir && <> <button className="link-btn" title="Quitar este RH adicional" onClick={() => quitarRhExtra(g, i)}>&#128465;</button></>}
             </div>
           ))}
           {!readOnly && rhExtras(g).length < 7 && (
@@ -666,7 +672,7 @@ export default function Expenses() {
     : <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
 
   async function eliminarGasto(g) {
-    if (!confirm(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`)) return
+    if (!await preguntar(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`, { peligro: true, aceptar: 'Sí, eliminar' })) return
     const { error } = await supabase.from('expenses').delete().eq('id', g.id)
     setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'SOLICITUD ELIMINADA' })
     load()
@@ -675,7 +681,7 @@ export default function Expenses() {
   const accionesOficina = g => <>
     {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
       onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
-    {g.status === 'solicitado' && ['admin', 'secretary', 'superuser'].includes(role) && (<>
+    {g.status === 'solicitado' && ['admin', 'secretary', 'superuser', 'operador'].includes(role) && (<>
       <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
       {/* confirmar = el dinero ya se entregó. No se habilita hasta que esté la firma
           de quien lo pidió (la base también lo impide, sql/89). En los proyectos con
@@ -691,9 +697,9 @@ export default function Expenses() {
           </button>
         )
       })()}{' '}
-      {['admin', 'superuser'].includes(role) && <button className="link-btn bad" onClick={() => eliminarGasto(g)}>eliminar</button>}
+      {esJefe && <button className="link-btn bad" onClick={() => eliminarGasto(g)}>eliminar</button>}
     </>)}
-    {g.status === 'confirmado' && role === 'superuser' &&
+    {g.status === 'confirmado' && puedeCorregir &&
       <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar (superuser)</button>}
   </>
 
@@ -722,14 +728,14 @@ export default function Expenses() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Gastos</h1>
         <ProjectPicker />
-        {role === 'superuser' && (
+        {puedeCorregir && (
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
             {tplOpen ? 'Cerrar plantilla' : 'Plantilla de constancia (superusuario)'}
           </button>
         )}
       </div>
 
-      {tplOpen && role === 'superuser' && (
+      {tplOpen && puedeCorregir && (
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
           <p><b>PLANTILLA DE CONSTANCIA DE RECEPCION — {proyecto?.name}</b></p>
           <p className="small warn" style={{ textTransform: 'none' }}>
@@ -785,7 +791,8 @@ export default function Expenses() {
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
-      {role === 'superuser' && proyecto && 'expense_approval' in proyecto && (
+      {/* exigir o no la firma del socio es una regla del proyecto: la decide solo el superusuario */}
+      {esSuper && proyecto && 'expense_approval' in proyecto && (
         <label className="inline-check" style={{ display: 'block', margin: '0 0 10px' }}>
           <input type="checkbox" checked={!!proyecto.expense_approval} onChange={e => toggleAprobacion(e.target.checked)} />
           {' '}Este proyecto exige la <b>aprobación firmada de un socio</b> antes de confirmar el pago
@@ -808,7 +815,7 @@ export default function Expenses() {
           {' '}Tu firma registrada · <button className="link-btn" onClick={() => setCambiarFirma(true)}>cambiarla</button>
         </p>
       )}
-      {role === 'superuser' && proyecto?.expense_approval && !tengoFirma && !cambiarFirma && (
+      {esSuper && proyecto?.expense_approval && !tengoFirma && !cambiarFirma && (
         <p className="hint muted">Tú también puedes aprobar los gastos que no pediste: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
       )}
 
@@ -940,7 +947,7 @@ export default function Expenses() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <b style={{ fontSize: 13 }}>👁️ VISTA PREVIA DE LA CONSTANCIA</b>
               <span className="muted small" style={{ textTransform: 'none' }}>se actualiza mientras escribes</span>
-              {role === 'superuser' && (
+              {puedeCorregir && (
                 <button type="button" className="link-btn" onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
                   ✏️ cambiar el texto de la plantilla
                 </button>

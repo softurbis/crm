@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
+import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { textoDeWord } from '../lib/manualWord'
 
@@ -131,7 +132,7 @@ function Pases({ puede, profile, setMsg }) {
   useEffect(() => { cargar(); const t = setInterval(() => { if (!document.hidden) cargar() }, 20000); return () => clearInterval(t) }, [verPruebas])
 
   async function resolver(p, estado) {
-    if (estado === 'cancelado' && !confirm('¿Cancelar este pase?\n\nAl cliente no se le avisa nada: si ya quedaron en algo, escríbele tú.')) return
+    if (estado === 'cancelado' && !await confirmar('¿Cancelar este pase?\n\nAl cliente no se le avisa nada: si ya quedaron en algo, escríbele tú.')) return
     setOcupado(true)
     const ahora = new Date().toISOString()
     const { error } = await supabase.from('ventas_ia_pases').update({ estado, resuelto_at: ahora, resuelto_por: profile?.id || null, updated_at: ahora }).eq('id', p.id)
@@ -269,9 +270,9 @@ function Proyectos({ puede, profile, setMsg }) {
     setLotes(out)
   }
 
-  function elegir(p) {
+  async function elegir(p) {
     if (p.id === sel) return
-    if (cambiado && !confirm('Tienes cambios sin guardar en ' + proySel.name + '.\n\n¿Salir sin guardar?')) return
+    if (cambiado && !await confirmar('Tienes cambios sin guardar en ' + proySel.name + '.\n\n¿Salir sin guardar?')) return
     setSel(p.id)
     setF(formDe(p, cfgs[p.id]))
     cargarLotes(p.id)
@@ -281,8 +282,8 @@ function Proyectos({ puede, profile, setMsg }) {
     const antes = cfgs[sel]?.modo || 'bot'
     const tel = telDe(f.asesor_phone).replace(/^(9\d{8})$/, '51$1')
     if (f.modo !== 'bot' && tel.length < 11) { setMsg({ ok: false, t: 'FALTA EL CELULAR DEL ASESOR: ahí le llegan los pases del agente' }); return }
-    if (f.modo === 'agente' && antes !== 'agente' && !confirm('¿Prender el agente en ' + proySel.name + '?\n\nDesde ahora el agente contesta a TODOS los que escriban por este proyecto, desde el primer mensaje, y el bot deja de responder.\n\nAntes pruébalo en modo "solo en Probar Bot".')) return
-    if (f.modo !== 'agente' && antes === 'agente' && !confirm('¿Apagar el agente en ' + proySel.name + '?\n\nLos leads nuevos vuelven al bot. Los que ya atiende el agente siguen con él.')) return
+    if (f.modo === 'agente' && antes !== 'agente' && !await confirmar('¿Prender el agente en ' + proySel.name + '?\n\nDesde ahora el agente contesta a TODOS los que escriban por este proyecto, desde el primer mensaje, y el bot deja de responder.\n\nAntes pruébalo en modo "solo en Probar Bot".')) return
+    if (f.modo !== 'agente' && antes === 'agente' && !await confirmar('¿Apagar el agente en ' + proySel.name + '?\n\nLos leads nuevos vuelven al bot. Los que ya atiende el agente siguen con él.')) return
     const num = (v, min, max) => Math.min(max, Math.max(min, Number(v) || 0))
     setOcupado(true)
     const { error } = await supabase.from('ventas_ia_proyectos').upsert({
@@ -474,9 +475,9 @@ function Manual({ cfg, puede, profile, setMsg }) {
     return () => window.removeEventListener('beforeunload', avisar)
   }, [cambiado])
 
-  function elegir(id) {
+  async function elegir(id) {
     if (id === sel) return
-    if (cambiado && !confirm('Tienes cambios sin guardar en este manual.\n\n¿Salir sin guardar?')) return
+    if (cambiado && !await confirmar('Tienes cambios sin guardar en este manual.\n\n¿Salir sin guardar?')) return
     const m = id === 'nuevo' ? MANUAL_NUEVO : lista.find(x => x.id === id)
     setSel(id)
     setF({ titulo: m.titulo, proyectos: [...(m.proyectos || [])], texto: m.texto })
@@ -486,7 +487,7 @@ function Manual({ cfg, puede, profile, setMsg }) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    if (f.texto.trim() && !confirm('¿Reemplazar el texto de este manual por el del Word?')) return
+    if (f.texto.trim() && !await confirmar('¿Reemplazar el texto de este manual por el del Word?')) return
     setLeyendo(true)
     try {
       const texto = await textoDeWord(await file.arrayBuffer())
@@ -522,7 +523,7 @@ function Manual({ cfg, puede, profile, setMsg }) {
   }
 
   async function borrar() {
-    if (!confirm('¿Borrar el manual «' + original.titulo + '»?\n\nEl agente deja de usarlo en un minuto. No se puede deshacer.')) return
+    if (!await confirmar('¿Borrar el manual «' + original.titulo + '»?\n\nEl agente deja de usarlo en un minuto. No se puede deshacer.', { peligro: true, aceptar: 'Sí, borrar' })) return
     setOcupado(true)
     const { error } = await supabase.from('ventas_ia_manuales').delete().eq('id', sel)
     setOcupado(false)
@@ -760,7 +761,7 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
     return !error
   }
   async function interruptor(on) {
-    if (on && !confirm('¿Prender el experimento?\n\nEn los proyectos que siguen con bot, de cada 10 leads que pidan asesor, ' + f.ia_por_cada_10 + ' los atiende el agente en vez del supervisor.')) return
+    if (on && !await confirmar('¿Prender el experimento?\n\nEn los proyectos que siguen con bot, de cada 10 leads que pidan asesor, ' + f.ia_por_cada_10 + ' los atiende el agente en vez del supervisor.')) return
     if (await guardar({ activo: on }, on ? 'EXPERIMENTO PRENDIDO' : 'EXPERIMENTO APAGADO: los leads que piden asesor van todos al supervisor')) setF(x => ({ ...x, activo: on }))
   }
   function guardarForm(e) {

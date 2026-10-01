@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useAuth } from '../context/AuthContext'
 import { subirContratoFirmado } from '../lib/contrato'
+import { confirmar, pedir } from '../lib/dialogos'
 
 // El contrato firmado de UNA venta y sus documentos de respaldo: ver, subir,
 // reemplazar, nota y quitar. Antes vivía completo solo en la pantalla Contratos; la
@@ -13,7 +14,7 @@ import { subirContratoFirmado } from '../lib/contrato'
 //   alFallar    se llama con el error
 //   puedeEditar false = solo mirar (gerencia, socio)
 export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEditar = true }) {
-  const { role } = useAuth()
+  const { puedeCorregir } = useAuth()   // superusuario u operador: reemplazar y quitar
   const docs = Array.isArray(v.extra_docs) ? v.extra_docs : []
   const hecho = t => alCambiar?.(t)
   const fallo = e => alFallar?.('ERROR: ' + (e?.message || e))
@@ -29,12 +30,12 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
     } catch (e) { fallo(e) }
   }
   // quitar el contrato firmado (superusuario): la venta vuelve a figurar SIN CONTRATO
-  function quitar() {
-    if (!confirm('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volverá a figurar como SIN CONTRATO FIRMADO y podrás subir otro o generar uno nuevo. El archivo anterior queda en el almacenamiento.')) return
+  async function quitar() {
+    if (!await confirmar('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volverá a figurar como SIN CONTRATO FIRMADO y podrás subir otro o generar uno nuevo. El archivo anterior queda en el almacenamiento.', { peligro: true, aceptar: 'Sí, quitar' })) return
     guardar({ signed_contract_url: null, contract_note: null }, 'CONTRATO QUITADO — YA PUEDES SUBIR OTRO')
   }
-  function nota() {
-    const t = prompt('Comentario / nota de este contrato:', v.contract_note || '')
+  async function nota() {
+    const t = await pedir('Comentario / nota de este contrato:', { tipo: 'largo', valor: v.contract_note || '' })
     if (t === null) return
     guardar({ contract_note: t.trim() || null }, 'NOTA DEL CONTRATO GUARDADA')
   }
@@ -42,7 +43,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
   // ---- documentos de respaldo (máx. 2 por contrato): traspaso, iniciales, adenda… ----
   async function subirRespaldo(file) {
     if (docs.length >= 2) { fallo('MÁXIMO 2 documentos de respaldo por contrato.'); return }
-    const etiqueta = prompt('¿Qué documento es? (etiqueta corta)\n\nEj: TRASPASO · DOCUMENTO DE INICIALES · ADENDA · CARTA DE COMPROMISO', '')
+    const etiqueta = await pedir('¿Qué documento es? (etiqueta corta)\n\nEj: TRASPASO · DOCUMENTO DE INICIALES · ADENDA · CARTA DE COMPROMISO')
     if (etiqueta === null) return
     const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
     let url
@@ -50,12 +51,12 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
     catch (e) { fallo(e); return }
     guardar({ extra_docs: [...docs, { url, note: etiqueta.trim() || 'Documento de respaldo' }] }, 'DOCUMENTO DE RESPALDO SUBIDO')
   }
-  function quitarRespaldo(i) {
-    if (!confirm('¿Quitar "' + (docs[i]?.note || 'este documento') + '"?\n\n(El archivo queda en el almacenamiento.)')) return
+  async function quitarRespaldo(i) {
+    if (!await confirmar('¿Quitar "' + (docs[i]?.note || 'este documento') + '"?\n\n(El archivo queda en el almacenamiento.)', { peligro: true, aceptar: 'Sí, quitar' })) return
     guardar({ extra_docs: docs.filter((_, k) => k !== i) }, 'DOCUMENTO QUITADO')
   }
-  function etiquetarRespaldo(i) {
-    const etiqueta = prompt('¿Qué documento es? (etiqueta corta)', docs[i]?.note || '')
+  async function etiquetarRespaldo(i) {
+    const etiqueta = await pedir('¿Qué documento es? (etiqueta corta)', { valor: docs[i]?.note || '' })
     if (etiqueta === null) return
     guardar({ extra_docs: docs.map((d, k) => (k === i ? { ...d, note: etiqueta.trim() || 'Documento de respaldo' } : d)) }, 'ETIQUETA GUARDADA')
   }
@@ -69,7 +70,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
             <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>
             {puedeEditar && <>{' '}<button type="button" className="link-btn" onClick={nota}>&#128221; nota</button></>}
             {/* reemplazar o quitar uno ya subido queda para el superusuario */}
-            {puedeEditar && role === 'superuser' && (<>
+            {puedeEditar && puedeCorregir && (<>
               {' '}
               <label className="link-btn" style={{ cursor: 'pointer' }}>&#128260; reemplazar
                 <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
@@ -91,7 +92,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
               <span>📎</span>
               <a href={d.url} target="_blank" rel="noreferrer" className="ok">{d.note || 'Respaldo'}</a>
               {puedeEditar && <button type="button" className="link-btn" title="Editar etiqueta" onClick={() => etiquetarRespaldo(i)}>&#9998;</button>}
-              {puedeEditar && role === 'superuser' && <button type="button" className="link-btn" title="Quitar" onClick={() => quitarRespaldo(i)}>&#128465;</button>}
+              {puedeEditar && puedeCorregir && <button type="button" className="link-btn" title="Quitar" onClick={() => quitarRespaldo(i)}>&#128465;</button>}
             </div>
           ))}
           {puedeEditar && docs.length < 2 && (

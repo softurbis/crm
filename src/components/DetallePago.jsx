@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import VisorDoc from './VisorDoc'
@@ -22,7 +23,7 @@ export const EstadoChip = ({ r }) => {
 //   accounts  = cuentas del proyecto; si no llegan y hace falta, se consultan
 //   onCambio  = el padre recarga su lista despues de cada cambio
 export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, naOk = true, onClose, onCambio }) {
-  const { profile, role } = useAuth()
+  const { profile, role, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const { pidOp } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
   const [view, setView] = useState(pago)
@@ -35,10 +36,10 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
 
   useEffect(() => {
     if (cuentasPadre) { setCuentas(cuentasPadre); return }
-    if (role !== 'superuser' || !pidOp) return
+    if (!puedeCorregir || !pidOp) return
     supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp)
       .then(({ data }) => setCuentas(data || []))
-  }, [cuentasPadre, role, pidOp])
+  }, [cuentasPadre, puedeCorregir, pidOp])
 
   const cambio = patch => { setView(v => ({ ...v, ...patch })); onCambio?.() }
   const lote = view.lot ? view.lot.mz + '-' + view.lot.lt : null
@@ -56,7 +57,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
 
   async function subirAnexo(file) {
     try {
-      const nota = prompt('Comentario / nota de este anexo (opcional, Enter para saltar):')
+      const nota = await pedir('Comentario / nota de este anexo (opcional, Enter para saltar):')
       if (nota === null) return
       const url = await upload(`anexos/${view.id}`, file)
       await supabase.from('daily_income').update({ extra_url: url, extra_note: nota.trim() || null }).eq('id', view.id)
@@ -68,7 +69,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
   // editar/agregar la nota de un documento ya subido
   async function notaDoc(campo) {
     const kn = campoNota(campo)
-    const nota = prompt('Comentario / nota de este documento:', view[kn] || '')
+    const nota = await pedir('Comentario / nota de este documento:', { tipo: 'largo', valor: view[kn] || '' })
     if (nota === null) return
     const { error } = await supabase.from('daily_income').update({ [kn]: nota.trim() || null }).eq('id', view.id)
     if (error) { setMsg({ ok: false, t: error.message }); return }
@@ -88,22 +89,22 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
 
   // ---- correcciones del SUPERUSUARIO ----
   async function quitarDoc(campo) {
-    if (!confirm('¿Quitar este documento del pago? (podrás subir otro)')) return
+    if (!await confirmar('¿Quitar este documento del pago? (podrás subir otro)', { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.from('daily_income').update({ [campo]: null, [campoNota(campo)]: null }).eq('id', view.id)
     if (error) { setMsg({ ok: false, t: error.message }); return }
     setMsg({ ok: true, t: 'DOCUMENTO QUITADO' })
     cambio({ [campo]: null, [campoNota(campo)]: null })
   }
   async function editarFecha() {
-    const nueva = prompt('NUEVA FECHA del pago (AAAA-MM-DD):', view.date)
-    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) alert('Formato inválido. Ej: 2026-06-15'); return }
+    const nueva = await pedir('NUEVA FECHA del pago:', { tipo: 'fecha', valor: view.date, obligatorio: true })
+    if (!nueva || !/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { if (nueva !== null) await avisar('Fecha inválida.'); return }
     const observation = ((view.observation || '') + ' | FECHA CORREGIDA POR SUPERUSUARIO (antes ' + view.date + ')').slice(0, 400)
     const { error } = await supabase.from('daily_income').update({ date: nueva, observation }).eq('id', view.id)
     if (error) { setMsg({ ok: false, t: error.message }); return }
     setMsg({ ok: true, t: 'FECHA CORREGIDA' }); cambio({ date: nueva, observation })
   }
   async function borrarPago() {
-    if (!confirm('¿ELIMINAR ESTE PAGO de ' + soles(view.amount) + '?\n\nSi está aplicado a una cuota, la cuota se revierte (vuelve a deber ese monto). Esta acción no se puede deshacer.')) return
+    if (!await confirmar('¿ELIMINAR ESTE PAGO de ' + soles(view.amount) + '?\n\nSi está aplicado a una cuota, la cuota se revierte (vuelve a deber ese monto). Esta acción no se puede deshacer.', { peligro: true, aceptar: 'Sí, eliminar el pago' })) return
     if (view.installment_id) {
       const { data: q } = await supabase.from('installments').select('id, amount, amount_paid').eq('id', view.installment_id).maybeSingle()
       if (q) {
@@ -146,7 +147,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
     const anterior = Number(view.amount)
     if (!nuevo || nuevo <= 0) { setMsg({ ok: false, t: 'MONTO INVALIDO' }); return }
     if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL MONTO' }); return }
-    if (!confirm('¿Corregir el monto de ' + soles(anterior) + ' a ' + soles(nuevo) + '?\nSi el pago está aplicado a una cuota, su saldo se recalcula automáticamente.')) return
+    if (!await confirmar('¿Corregir el monto de ' + soles(anterior) + ' a ' + soles(nuevo) + '?\nSi el pago está aplicado a una cuota, su saldo se recalcula automáticamente.')) return
     const obs = ((view.observation || '') + ' | MONTO CORREGIDO POR SUPERUSUARIO (antes ' + soles(anterior) + ')').slice(0, 400)
     const { error } = await supabase.from('daily_income').update({ amount: nuevo, observation: obs }).eq('id', view.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -180,7 +181,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
             <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
           </label>}
           {readOnly && view.observation && <p className="muted span2" style={{ margin: 0 }}>OBS: {view.observation}</p>}
-          {role === 'superuser' && (<>
+          {puedeCorregir && (<>
             <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
               <span style={{ display: 'flex', gap: '.4rem' }}>
                 <input value={opEdit} onChange={e => setOpEdit(e.target.value)} style={{ flex: 1 }} />
@@ -218,7 +219,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
           </div>
         </div>
         <div className="docs-grid">
-          {role === 'superuser' && (
+          {puedeCorregir && (
             <div className="chg-box" style={{ marginBottom: 10 }}>
               <p style={{ fontSize: 12, fontWeight: 700 }}>🛠 CORRECCIONES (SUPERUSUARIO)</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

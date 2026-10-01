@@ -3,6 +3,13 @@
 > Escrito el **1 oct 2026**. Decisión del dueño: **directo a SUNAT** (emisor propio,
 > sin proveedor), "como en El Cholao". Cada proyecto factura con el RUC de SU dueño.
 
+> **Estado al 1 oct 2026 (noche):** fases 1, 2 y 3 **construidas y probadas** contra el
+> ambiente de pruebas de SUNAT (boleta y factura aceptadas, resumen diario, bajas,
+> PDF con la marca de quien factura). Falta la fase 4: instalar en el servidor y
+> cargar el RUC de Century. Los pasos están en `GUIA-FACTURADOR-PUESTA-EN-MARCHA.md`.
+> Lo decidido por el dueño: **exonerado** (Amazonía), series nuevas B001/F001,
+> interruptor por proyecto y la marca de cada dueño en su comprobante.
+
 ## 1. De dónde partimos
 
 - **El facturador ya existe.** Se construyó en septiembre para el POS de El Cholao

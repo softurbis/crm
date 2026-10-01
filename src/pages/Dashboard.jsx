@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, Lineas, corto } from '../components/Graficos'
+import { hoyPeru, saldoCuota, TOLERANCIA_CUOTA } from '../lib/lotes'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
@@ -90,7 +91,7 @@ export default function Dashboard() {
         todas(() => supabase.from('lots').select('id, project_id, status, total_price').in('project_id', ids).neq('status', 'eliminado').order('id')),
         todas(() => supabase.from('sales').select('id, sale_date, total_sale_price, status, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         // con cliente, lote y fecha: sirve para el top de deudores y la antigüedad
-        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').eq('status', 'vencido').eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
+        todas(() => supabase.from('installments').select('id, amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name), lot:lots!inner(project_id, mz, lt))').neq('status', 'pagado').lt('due_date', hoyPeru()).eq('sales.status', 'en_proceso').in('sales.lot.project_id', ids).order('id')),
         todas(() => supabase.from('separations').select('id, amount, date, lot:lots!inner(project_id)').in('lot.project_id', ids).order('id')),
         todas(() => supabase.from('leads').select('id, status, project_id').in('project_id', ids).order('id')),
       ])
@@ -304,8 +305,8 @@ export default function Dashboard() {
       { label: 'Más de 90 días', valor: 0, color: '#d9534f', n: 0, items: [] },
     ]
     for (const v of raw.venc) {
-      const saldo = Number(v.amount) - Number(v.amount_paid)
-      if (saldo <= 0.05) continue
+      const saldo = saldoCuota(v)
+      if (saldo <= TOLERANCIA_CUOTA) continue   // misma regla que la ficha, el mapa y Hoy (lib/lotes)
       const dias = Math.floor((hoyD - new Date(v.due_date + 'T00:00:00')) / 86400000)
       const i = dias <= 30 ? 0 : dias <= 60 ? 1 : dias <= 90 ? 2 : 3
       tramos[i].valor += saldo; tramos[i].n++

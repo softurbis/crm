@@ -4,6 +4,7 @@ import { subirRuta } from '../lib/archivos'
 import { useMsg, faceOn, faceImg, setFaceOn, setFaceImg, savedFx } from '../lib/saveFx'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '../context/AuthContext'
+import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { PANELS } from '../components/Layout'
 import Avatar from '../components/Avatar'
 import FirmaPad from '../components/FirmaPad'
@@ -37,12 +38,16 @@ function comprimirImagen(file, max = 256) {
 
 const ROLES = [
   ['superuser', 'SUPERUSUARIO (control total)'],
+  ['operador', 'OPERADOR (trabaja como el superusuario, sin administración)'],   // el valor 'operador' tiene que existir en el enum de la base
   ['admin', 'ADMINISTRADOR (edita todo, sin usuarios)'],
   ['secretary', 'SECRETARIA (opera)'],
   ['manager', 'GERENCIA (solo ver)'],
   ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
   ['socio', 'SOCIO (ve SOLO sus proyectos · aprueba gastos con firma)'],   // sql/73: sin proyectos asignados NO ve nada
 ]
+
+// la línea que explica al OPERADOR debajo del selector de rol (al crear y en su fila)
+const AYUDA_OPERADOR = 'Trabaja como el superusuario —corrige, migra, edita— pero no ve Usuarios, Bitácora, Corretaje, Campañas ni la configuración de WhatsApp.'
 
 // menu con el que nace un socio: ver, no operar. El superusuario lo ajusta en
 // "Paneles visibles". WhatsApp y Seguimiento quedan fuera: son del equipo.
@@ -124,20 +129,20 @@ export default function Users() {
   async function vincularSeguimiento(u, val) {
     if (!val) return
     if (val === 'nuevo') {
-      const tel = prompt('NÚMERO DE WHATSAPP de ' + (u.full_name || u.email) + ' para su seguimiento de actividades.\n\nFormato: 51 + número (ej. 51961234567):', '51')
+      const tel = await pedir('NÚMERO DE WHATSAPP de ' + (u.full_name || u.email) + ' para su seguimiento de actividades.\n\nFormato: 51 + número (ej. 51961234567):', { valor: '51', tipo: 'numero' })
       if (!tel) return
       const dig = String(tel).replace(/\D/g, '')
-      if (dig.length < 11) { alert('Número inválido: debe incluir el 51 adelante.'); return }
+      if (dig.length < 11) { avisar('Número inválido: debe incluir el 51 adelante.'); return }
       const tipo = u.role === 'manager' ? 'gerencia' : 'secretaria'
       // si el numero ya existe en seguimiento, vincular ese registro en vez de crear otro
       const { data: ya } = await supabase.from('secretaries').select('id, user_id, full_name').eq('phone', dig).maybeSingle()
       if (ya) {
-        if (ya.user_id && ya.user_id !== u.id) { alert('Ese número ya está vinculado a otro usuario (' + ya.full_name + '). Desvincúlalo primero.'); return }
+        if (ya.user_id && ya.user_id !== u.id) { avisar('Ese número ya está vinculado a otro usuario (' + ya.full_name + '). Desvincúlalo primero.'); return }
         await supabase.from('secretaries').update({ user_id: u.id, tipo }).eq('id', ya.id)
         setMsg({ ok: true, t: 'NÚMERO EXISTENTE VINCULADO: +' + dig }); load(); return
       }
       const { error } = await supabase.from('secretaries').insert({ full_name: (u.full_name || u.email).toUpperCase(), phone: dig, tipo, user_id: u.id })
-      if (error) { alert('ERROR: ' + error.message); return }
+      if (error) { avisar('ERROR: ' + error.message); return }
       await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: tipo === 'gerencia' ? 'gerencia' : 'secretaria', note: (u.full_name || '').toUpperCase() + ' (' + tipo.toUpperCase() + ')' })
       setMsg({ ok: true, t: 'SEGUIMIENTO CREADO Y VINCULADO: +' + dig })
     } else {
@@ -180,6 +185,7 @@ export default function Users() {
         if (e2) {
           throw new Error('LA CUENTA SE CREÓ, PERO NO SE LE PUDO PONER EL ROL ' + String(nu.role).toUpperCase() + ': ' + e2.message
             + (nu.role === 'socio' ? ' — si dice que el valor no existe, falta correr sql/73 en la base.' : '')
+            + (nu.role === 'operador' ? ' — si dice que el valor no existe, falta correr en la base el sql que crea el rol OPERADOR.' : '')
             + ' Corrígelo desde su fila en la lista de abajo.')
         }
       }
@@ -239,7 +245,7 @@ export default function Users() {
     // panel pero todavia no en la base
     const falta = error && /invalid input value for enum/i.test(error.message)
     setMsg(error
-      ? { ok: false, t: falta ? `EL ROL ${String(r).toUpperCase()} TODAVÍA NO EXISTE EN LA BASE: falta correr sql/73.` : error.message }
+      ? { ok: false, t: falta ? `EL ROL ${String(r).toUpperCase()} TODAVÍA NO EXISTE EN LA BASE: falta correr ${r === 'operador' ? 'el sql que crea el rol OPERADOR' : 'sql/73'}.` : error.message }
       : { ok: true, t: `ROL DE ${u.email} ACTUALIZADO` + (r === 'socio' ? '. AHORA márcale sus PROYECTOS (sin proyectos no ve nada) y su WhatsApp.' : '') })
     load()
   }
@@ -268,7 +274,7 @@ export default function Users() {
     setBusy(false)
   }
   async function quitarFoto(u) {
-    if (!confirm('¿Quitar la foto de ' + (u.full_name || u.email) + '? Volveran a verse sus iniciales.')) return
+    if (!await confirmar('¿Quitar la foto de ' + (u.full_name || u.email) + '? Volveran a verse sus iniciales.', { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', u.id)
     setMsg(error ? { ok: false, t: error.message } : { ok: true, t: 'FOTO QUITADA' })
     load()
@@ -279,10 +285,10 @@ export default function Users() {
   // cierra las sesiones de esa persona y lo deja en la bitácora.
   async function cambiarPass(u) {
     const sugerida = 'Urbis' + Math.floor(1000 + Math.random() * 9000)
-    const nueva = prompt(
+    const nueva = await pedir(
       'Contraseña nueva para ' + (u.full_name || u.email) + '\n\n' +
       'Mínimo 8 caracteres. Dictásela y que la cambie cuando quiera.\n' +
-      'Se le cerrará la sesión en todos sus dispositivos.', sugerida)
+      'Se le cerrará la sesión en todos sus dispositivos.', { valor: sugerida, titulo: 'Cambiar contraseña' })
     if (nueva === null) return
     setBusy(true); setMsg(null)
     const { error } = await supabase.rpc('cambiar_password', { uid: u.id, nueva })
@@ -314,7 +320,7 @@ export default function Users() {
   }
 
   async function quitarFirma(u) {
-    if (!confirm('¿Quitar la firma de ' + (u.full_name || u.email) + '?\n\nNo podrá firmar solicitudes hasta que vuelva a registrarla.')) return
+    if (!await confirmar('¿Quitar la firma de ' + (u.full_name || u.email) + '?\n\nNo podrá firmar solicitudes hasta que vuelva a registrarla.', { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.rpc('guardar_firma_de', { uid: u.id, url: null })
     setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'FIRMA QUITADA A ' + (u.full_name || u.email) })
     setFirmaDe(null); load()
@@ -323,7 +329,7 @@ export default function Users() {
   async function toggleActivo(u) {
     if (u.id === profile?.id) return
     const accion = u.active === false ? 'REACTIVAR' : 'DESACTIVAR'
-    if (!confirm(`${accion} a ${u.email}?\n\n${accion === 'DESACTIVAR' ? 'Perdera el acceso al sistema de inmediato.' : 'Recuperara el acceso.'}`)) return
+    if (!await confirmar(`${accion} a ${u.email}?\n\n${accion === 'DESACTIVAR' ? 'Perdera el acceso al sistema de inmediato.' : 'Recuperara el acceso.'}`)) return
     const { error } = await supabase.from('profiles').update({ active: u.active === false }).eq('id', u.id)
     setMsg(error ? { ok: false, t: error.message } : { ok: true, t: `${u.email} ${accion === 'DESACTIVAR' ? 'DESACTIVADO' : 'REACTIVADO'}` })
     load()
@@ -399,6 +405,7 @@ export default function Users() {
             <select value={nu.role} onChange={e => setNu(x => ({ ...x, role: e.target.value }))}>
               {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
+            {nu.role === 'operador' && <span className="muted small" style={{ textTransform: 'none' }}>{AYUDA_OPERADOR}</span>}
           </label>
         </div>
         <button className="btn-primary" disabled={busy}>{busy ? 'Creando...' : 'Crear usuario'}</button>
@@ -440,6 +447,7 @@ export default function Users() {
                     onChange={e => cambiarRol(u, e.target.value)}>
                     {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
+                  {u.role === 'operador' && <p className="muted" style={{ fontSize: 10, margin: '3px 0 0', maxWidth: 260, textTransform: 'none' }}>{AYUDA_OPERADOR}</p>}
                   {/* DOS celulares distintos a propósito:
                       · avisos (solo el socio): el que ya conoce el equipo, por ahí
                         le avisa el bot que hay una solicitud esperando su firma
@@ -542,6 +550,8 @@ export default function Users() {
                 <td>
                   {u.role === 'superuser'
                     ? <span className="muted" style={{ fontSize: 11 }}>Todos</span>
+                    // el operador ve el menú del superusuario menos la administración: no se recorta por paneles
+                    : u.role === 'operador' ? <span className="muted" style={{ fontSize: 11 }}>Todos, menos administración</span>
                     : PANELS.map(p => {
                       const on = Array.isArray(u.panels) ? u.panels.includes(p.to) : true
                       return (
@@ -551,7 +561,7 @@ export default function Users() {
                         </label>
                       )
                     })}
-                  {u.role !== 'superuser' && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
+                  {u.role !== 'superuser' && u.role !== 'operador' && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
                   {u.role !== 'superuser' && u.role !== 'socio' && (
                     <label className="inline-check" style={{ fontSize: 11, marginTop: 8, display: 'flex' }}
                       title="Valida los vouchers que lee el agente de cobranza, maneja el agente y ve sus conversaciones (sql/76)">
