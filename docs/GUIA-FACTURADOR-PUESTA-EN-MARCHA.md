@@ -58,7 +58,8 @@ Primero el certificado al servidor (el archivo `.pfx` / `.p12` que bajaste de SU
 scp "RUTA\DEL\CERTIFICADO.pfx" root@157.245.8.78:/root/certificado-century.pfx
 ```
 
-Después el asistente. Pide RUC, razón social, **exonerado**, el usuario secundario
+Después el asistente. Pide el RUC (**20608484273**), la razón social, **exonerado**
+(confirmado por el dueño el 1 oct: igual que El Cholao), el usuario secundario
 (el que creaste con el perfil de facturación), su clave y la contraseña del
 certificado. **Lo que escribas no se ve en pantalla y no pasa por el chat.**
 
@@ -71,7 +72,7 @@ Recuerda: la clave SOL del usuario secundario, **máximo 12 caracteres**.
 ### 5. En el panel: decir quién factura
 
 Proyectos → Las Praderas de Pucallpa → **Boletas y facturas electrónicas → Configurar**:
-RUC, razón social, domicilio fiscal, series **B001 / F001**, subir el **logo de Century**,
+RUC **20608484273**, razón social, domicilio fiscal, series **B001 / F001**, subir el **logo de Century**,
 elegir el **color rojo** y marcar **Usar el facturador en este proyecto**.
 
 A los 2 minutos la misma ficha dice **"En pruebas"**: el servidor ya tiene ese RUC.
@@ -88,10 +89,10 @@ del pago.
 scp "C:\Claude\Projects\Sistema CRM\sql\116_borrar_comprobantes_de_prueba.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/116_borrar_comprobantes_de_prueba.sql'
 ```
 
-### 8. Pasar a real (cuando el contador confirme "exonerado")
+### 8. Pasar a real
 
 ```bash
-ssh -t root@157.245.8.78 'bash /opt/facturador/pasar-a-produccion.sh 20610336224'
+ssh -t root@157.245.8.78 'bash /opt/facturador/pasar-a-produccion.sh 20608484273'
 ```
 
 Desde ahí la numeración empieza en **B001-1 / F001-1** y todo tiene valor.
