@@ -17,15 +17,45 @@ const COLORES = ['#D71920', '#1F6FB2', '#2E8B57', '#E08A1E', '#7A4FB5', '#3A3A3A
 
 // El logo del comprobante se guarda en PNG sobre fondo blanco y de tamaño moderado:
 // es lo que el servidor sabe pegar en el PDF (no abre WebP) y lo que entra liviano.
-async function aPng(file, maxLado = 900) {
+// Además se le RECORTA el margen blanco: los logos suelen venir en un cuadrado con
+// mucho aire alrededor (el de Century ocupaba la mitad de su imagen) y así salían
+// diminutos en la boleta y en el menú.
+export async function aPng(file, maxLado = 900) {
   const bmp = await createImageBitmap(file)
-  const k = Math.min(1, maxLado / Math.max(bmp.width, bmp.height))
+  const k0 = Math.min(1, 1600 / Math.max(bmp.width, bmp.height))
+  const base = document.createElement('canvas')
+  base.width = Math.round(bmp.width * k0); base.height = Math.round(bmp.height * k0)
+  const c0 = base.getContext('2d', { willReadFrequently: true })
+  c0.fillStyle = '#fff'; c0.fillRect(0, 0, base.width, base.height)
+  c0.drawImage(bmp, 0, 0, base.width, base.height)
+  bmp.close?.()
+
+  // la caja de lo que NO es blanco (con un poco de tolerancia para el JPG)
+  let x0 = base.width, y0 = base.height, x1 = -1, y1 = -1
+  try {
+    const px = c0.getImageData(0, 0, base.width, base.height).data
+    for (let y = 0; y < base.height; y++) {
+      for (let x = 0; x < base.width; x++) {
+        const i = (y * base.width + x) * 4
+        if (px[i] < 238 || px[i + 1] < 238 || px[i + 2] < 238) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x
+          if (y < y0) y0 = y; if (y > y1) y1 = y
+        }
+      }
+    }
+  } catch { x1 = -1 }
+  if (x1 < 0) { x0 = 0; y0 = 0; x1 = base.width - 1; y1 = base.height - 1 }   // imagen toda blanca o ilegible: tal cual
+  const aire = Math.round(Math.max(x1 - x0, y1 - y0) * 0.03)
+  x0 = Math.max(0, x0 - aire); y0 = Math.max(0, y0 - aire)
+  x1 = Math.min(base.width - 1, x1 + aire); y1 = Math.min(base.height - 1, y1 + aire)
+  const w = x1 - x0 + 1, h = y1 - y0 + 1
+
+  const k = Math.min(1, maxLado / Math.max(w, h))
   const lienzo = document.createElement('canvas')
-  lienzo.width = Math.round(bmp.width * k); lienzo.height = Math.round(bmp.height * k)
+  lienzo.width = Math.round(w * k); lienzo.height = Math.round(h * k)
   const ctx = lienzo.getContext('2d')
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lienzo.width, lienzo.height)
-  ctx.drawImage(bmp, 0, 0, lienzo.width, lienzo.height)
-  bmp.close?.()
+  ctx.drawImage(base, x0, y0, w, h, 0, 0, lienzo.width, lienzo.height)
   const blob = await new Promise(r => lienzo.toBlob(r, 'image/png'))
   if (!blob) throw new Error('No se pudo leer la imagen del logo.')
   return new File([blob], 'logo.png', { type: 'image/png' })
