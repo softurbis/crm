@@ -281,10 +281,13 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 
 /* ---- contrato (Times New Roman justificado) ---- */
 /* todo el contrato en letra 10 (pedido del 30 sep), igual que el PDF y el Word */
-.contract { font-family: 'Times New Roman', Times, serif; text-align: justify; text-transform: none; font-size: 10pt; line-height: 1.45; }
-.contract h2 { font-size: 10pt; }
-.contract h3 { margin-top: 1em; font-size: 10pt; }
-.contract p { margin: .5em 0; }
+/* espaciado mínimo (30 sep): interlineado 1.25 y poco aire entre párrafos, como el PDF */
+.contract { font-family: 'Times New Roman', Times, serif; text-align: justify; text-transform: none; font-size: 10pt; line-height: 1.25; }
+.contract h2 { font-size: 10pt; margin: .4em 0 .6em; }
+.contract h3 { margin: .8em 0 .2em; font-size: 10pt; }
+.contract p { margin: .3em 0; }
+/* las firmas se llevan la última cláusula: nunca quedan solas en una hoja */
+.contract p:has(+ div > .ctable.firmas) { break-after: avoid; page-break-after: avoid; }
 .ctable { width: 100%; border-collapse: collapse; margin: .6em 0; }
 .ctable td, .ctable th { border: 1px solid #444; padding: .3em .5em; font-size: 10pt; white-space: normal; }
 /* una tabla no se parte entre dos hojas, y su título (o la línea que la presenta) va con ella */
@@ -481,8 +484,8 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 .contract-head svg { background: #fff; }
 .contract-head .ch-name { font-family: 'Montserrat', 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: .08em; color: #1c2a18; text-align: left; }
 .contract-head .ch-sub { font-size: .68rem; letter-spacing: .3em; color: #555; }
-.print-area.contract p { text-align: justify; line-height: 1.45; }
-.print-area.contract h3 { margin-top: 14px; }
+.print-area.contract p { text-align: justify; line-height: 1.25; }
+.print-area.contract h3 { margin-top: .8em; }
 @page { margin: 18mm 16mm; }
 
 /* ===== WhatsApp del bot — vista de chat ===== */

@@ -17,6 +17,9 @@ export const PIE = 'Documento Privado Confidencial'
 const folio = (n, total) => n + ' de ' + total
 // Todo el contrato en letra 10 (pedido del 30 sep)
 const TAM = 10
+// Espaciado mínimo (pedido del 30 sep): interlineado 1.25 y poco aire entre párrafos,
+// para que las firmas entren en la hoja de la última cláusula
+const INTER = 1.25
 
 // ---------------------------------------------------------------- leer la pantalla
 const esNegrita = n => n.tagName === 'B' || n.tagName === 'STRONG' || /^(bold|bolder|[6-9]00)$/.test(n.style?.fontWeight || '')
@@ -91,11 +94,16 @@ export function leerContrato(raiz) {
 }
 
 // El logo como PNG (el del proyecto o el de Urbis). Si no se puede leer, sin logo.
+// TRAMPA (30 sep, "el logo no sale ni en el Word ni en el PDF"): la pantalla carga el
+// logo de R2 como imagen común y el navegador guarda ESA copia, que no trae el permiso
+// CORS (R2 solo lo manda si la petición dice de qué página viene). Al pedirlo de nuevo
+// para el PDF salía esa copia y se descartaba en silencio. Por eso se pide sin usar la
+// copia guardada (cache: 'no-store') y la pantalla lo carga con crossOrigin.
 async function logoPng(cab) {
   let src = null
   try {
     if (cab.img?.src) {
-      const r = await fetch(cab.img.src, { mode: 'cors' })
+      const r = await fetch(cab.img.src, { mode: 'cors', cache: 'no-store' })
       if (!r.ok) throw new Error('logo ' + r.status)
       src = URL.createObjectURL(await r.blob())
     } else if (cab.svg) {
@@ -198,10 +206,10 @@ export async function armarPdf(raiz, encabezado = '') {
     if (actual.length) cerrar(true)
     return { lineas, esp }
   }
-  const altoParrafo = (runs, { size = TAM, antes = 0, despues = 2.2, negrita = false } = {}) =>
-    antes + maquetar(runs, size, negrita).lineas.length * size * PT * 1.45 + despues
-  function parrafo(runs, { size = TAM, alinear = 'justify', antes = 0, despues = 2.2, negrita = false } = {}) {
-    const lh = size * PT * 1.45
+  const altoParrafo = (runs, { size = TAM, antes = 0, despues = 1.4, negrita = false } = {}) =>
+    antes + maquetar(runs, size, negrita).lineas.length * size * PT * INTER + despues
+  function parrafo(runs, { size = TAM, alinear = 'justify', antes = 0, despues = 1.4, negrita = false } = {}) {
+    const lh = size * PT * INTER
     const { lineas, esp } = maquetar(runs, size, negrita)
     y += antes
     for (const ln of lineas) {
@@ -251,15 +259,19 @@ export async function armarPdf(raiz, encabezado = '') {
     enBlanco = false
   }
 
+  // las firmas: 13 mm para firmar sobre la raya y después nombre y documento
+  const FIRMAR = 13
+  const lineasFirma = f => f.celdas.map(runs => { const ls = [[]]; for (const r of runs) r.br ? ls.push([]) : ls[ls.length - 1].push(r); return ls })
+  const altoFirmas = b => b.filas.reduce((s, f) => s + FIRMAR + Math.max(1, ...lineasFirma(f).map(c => c.length)) * TAM * PT * 1.3 + 2, 0)
   function firmas(b) {
-    const size = TAM, lh = size * PT * 1.4
+    const size = TAM, lh = size * PT * 1.3
     for (const f of b.filas) {
       const wCol = ancho / (f.celdas.length || 1)
-      const cels = f.celdas.map(runs => { const ls = [[]]; for (const r of runs) r.br ? ls.push([]) : ls[ls.length - 1].push(r); return ls })
-      const alto = 14 + Math.max(1, ...cels.map(c => c.length)) * lh
+      const cels = lineasFirma(f)
+      const alto = FIRMAR + Math.max(1, ...cels.map(c => c.length)) * lh
       if (y + alto > limite) nuevaHoja()
       cels.forEach((ls, i) => {
-        let yy = y + 14
+        let yy = y + FIRMAR
         const cx = M.izq + wCol * i + wCol / 2
         for (const ln of ls) {
           let w = 0
@@ -303,7 +315,7 @@ export async function armarPdf(raiz, encabezado = '') {
 
   // cuánto ocupará una tabla, para decidir antes si su título va en la hoja siguiente
   function altoTabla(b) {
-    if (b.firmas) return b.filas.length * (16 + 4 * TAM * PT * 1.4)
+    if (b.firmas) return altoFirmas(b)
     const cols = Math.max(1, ...b.filas.map(f => f.celdas.length))
     const util = Math.max(5, ancho / cols - 4)
     const pad = relleno(b)
@@ -317,16 +329,18 @@ export async function armarPdf(raiz, encabezado = '') {
     return alto
   }
 
-  const opciones = b => (b.tipo === 'h2' ? { alinear: 'center', negrita: true, antes: enBlanco ? 0 : 2, despues: 3 }
-    : b.tipo === 'h3' ? { alinear: 'left', negrita: true, antes: enBlanco ? 0 : 2.5, despues: 1.2 }
+  const opciones = b => (b.tipo === 'h2' ? { alinear: 'center', negrita: true, antes: enBlanco ? 0 : 1.5, despues: 2 }
+    : b.tipo === 'h3' ? { alinear: 'left', negrita: true, antes: enBlanco ? 0 : 2, despues: 0.8 }
     : { alinear: b.centro ? 'center' : 'justify' })
   const corto = b => b?.tipo === 'p' && maquetar(b.runs, TAM, false).lineas.length <= 4
-  const esTabla = b => b?.tipo === 'tabla' && !b.firmas
+  // también las firmas: nunca quedan solas en una hoja, se llevan la última cláusula
+  const esTabla = b => b?.tipo === 'tabla'
 
   for (let k = 0; k < bloques.length; k++) {
     const b = bloques[k]
     // el título de una tabla (y la línea que la presenta) va en la misma hoja que
-    // la tabla: si juntos no entran en lo que queda, pasan a la hoja siguiente
+    // la tabla; igual la última cláusula con las firmas: si juntos no entran en lo
+    // que queda, pasan a la hoja siguiente
     if (!enBlanco && (b.tipo === 'h3' || b.tipo === 'p')) {
       const grupo = [b]
       if (b.tipo === 'h3' && corto(bloques[k + 1]) && esTabla(bloques[k + 2])) grupo.push(bloques[k + 1])
@@ -340,7 +354,7 @@ export async function armarPdf(raiz, encabezado = '') {
     else if (b.tipo === 'salto') { if (!enBlanco) nuevaHoja() }
     else if (b.tipo === 'h2') parrafo(b.runs, opciones(b))
     else if (b.tipo === 'h3') {
-      if (y + 3 * TAM * PT * 1.45 > limite) nuevaHoja()               // el título no queda solo al pie
+      if (y + 3 * TAM * PT * INTER > limite) nuevaHoja()              // el título no queda solo al pie
       parrafo(b.runs, opciones(b))
     }
     else if (b.tipo === 'p') parrafo(b.runs, opciones(b))
@@ -364,24 +378,29 @@ export async function armarPdf(raiz, encabezado = '') {
 
 // ---------------------------------------------------------------- Word
 export async function armarWord(raiz, titulo, encabezado = '') {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Header, Footer, PageNumber, Tab, TabStopType, ShadingType } = await import('docx')
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ImageRun, Header, Footer, PageNumber, Tab, TabStopType, ShadingType, LineRuleType } = await import('docx')
   const bloques = leerContrato(raiz)
   const hijos = []
   let saltoPendiente = false
   const corrida = (r, { size, negrita } = {}) => (r.br ? new TextRun({ break: 1 }) : new TextRun({ text: r.t, bold: negrita || r.b || undefined, size }))
-  const parrafo = (runs, { alinear = AlignmentType.JUSTIFIED, size, negrita, antes = 0, despues = 120, keepNext } = {}) => {
+  let trasTabla = false                       // el párrafo que sigue a una tabla se separa un poco
+  const parrafo = (runs, { alinear = AlignmentType.JUSTIFIED, size, negrita, antes = 0, despues = 70, keepNext } = {}) => {
     hijos.push(new Paragraph({
       alignment: alinear, keepNext, pageBreakBefore: saltoPendiente || undefined,
-      spacing: { before: antes, after: despues },
+      spacing: { before: antes + (trasTabla && !saltoPendiente ? 100 : 0), after: despues },
       children: runs.map(r => corrida(r, { size, negrita })),
     }))
     saltoPendiente = false
+    trasTabla = false
   }
+  // 1 punto de alto: no alcanza a empujar nada a otra hoja
+  const diminuto = () => new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT }, children: [new TextRun({ text: '', size: 2 })] })
   const borde = { style: BorderStyle.SINGLE, size: 4, color: '444444' }
   const nada = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
   const todos = x => ({ top: x, bottom: x, left: x, right: x, insideHorizontal: x, insideVertical: x })
 
-  const esTabla = b => b?.tipo === 'tabla' && !b.firmas
+  // también las firmas: la línea de antes se queda con ellas (nunca solas en una hoja)
+  const esTabla = b => b?.tipo === 'tabla'
   for (let k = 0; k < bloques.length; k++) {
     const b = bloques[k]
     if (b.tipo === 'cabecera') {
@@ -398,8 +417,8 @@ export async function armarWord(raiz, titulo, encabezado = '') {
       if (b.sub) hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 }, border: raya,
         children: [new TextRun({ text: b.sub, font: 'Arial', size: 14, color: '555555', characterSpacing: 40 })] }))
     } else if (b.tipo === 'salto') saltoPendiente = hijos.length > 0
-    else if (b.tipo === 'h2') parrafo(b.runs, { alinear: AlignmentType.CENTER, negrita: true, antes: 120, despues: 200 })
-    else if (b.tipo === 'h3') parrafo(b.runs, { alinear: AlignmentType.LEFT, negrita: true, antes: 240, despues: 80, keepNext: true })
+    else if (b.tipo === 'h2') parrafo(b.runs, { alinear: AlignmentType.CENTER, negrita: true, antes: 80, despues: 140 })
+    else if (b.tipo === 'h3') parrafo(b.runs, { alinear: AlignmentType.LEFT, negrita: true, antes: 160, despues: 40, keepNext: true })
     // la línea que presenta una tabla se queda con ella en la misma hoja
     else if (b.tipo === 'p') parrafo(b.runs, { alinear: b.centro ? AlignmentType.CENTER : AlignmentType.JUSTIFIED, keepNext: esTabla(bloques[k + 1]) || undefined })
     else if (b.tipo === 'tabla') {
@@ -418,7 +437,7 @@ export async function armarWord(raiz, titulo, encabezado = '') {
             margins: b.compacta ? { top: 0, bottom: 0, left: 80, right: 80 } : { top: 40, bottom: 40, left: 100, right: 100 },
             children: [new Paragraph({
               alignment: b.firmas || b.compacta ? AlignmentType.CENTER : AlignmentType.LEFT,
-              spacing: { before: b.firmas ? 900 : 0, after: 0, ...(b.compacta ? { line: 240 } : {}) },
+              spacing: { before: b.firmas ? 740 : 0, after: 0, ...(b.compacta ? { line: 240 } : {}) },   // firmas: ~13 mm para firmar
               // "mantener con el siguiente" en todas las filas menos la última: Word no
               // parte la tabla entre dos hojas
               keepNext: r < ultima || undefined,
@@ -427,7 +446,13 @@ export async function armarWord(raiz, titulo, encabezado = '') {
           })),
         })),
       }))
-      hijos.push(new Paragraph({ spacing: { after: 60 }, children: [] }))
+      // Word pide un párrafo entre dos tablas seguidas y al final del documento: ahí va
+      // uno diminuto. En los demás casos NO se pone: ese párrafo vacío, si la tabla
+      // terminaba justo al pie, pasaba solo a la hoja siguiente y con el salto de página
+      // dejaba una HOJA EN BLANCO (30 sep). El aire lo pone el párrafo que sigue.
+      const sig = bloques[k + 1]
+      if (!sig || sig.tipo === 'tabla') hijos.push(diminuto())
+      else trasTabla = true
     }
   }
 
@@ -451,7 +476,8 @@ export async function armarWord(raiz, titulo, encabezado = '') {
 
   const doc = new Document({
     title: nombreArchivo(titulo), description: PIE,
-    styles: { default: { document: { run: { font: 'Times New Roman', size: TAM * 2 }, paragraph: { spacing: { line: 276 } } } } },
+    // interlineado sencillo: el espaciado mínimo que pidió el dueño
+    styles: { default: { document: { run: { font: 'Times New Roman', size: TAM * 2 }, paragraph: { spacing: { line: 240 } } } } },
     sections: [{
       properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1247, left: 1247, right: 1247, header: 567, footer: 567 } } },
       headers: { default: cabeza },

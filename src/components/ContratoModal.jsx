@@ -297,7 +297,8 @@ export default function ContratoModal({ saleId, onClose }) {
           style={editDoc ? { outline: '2px dashed #e0b34c', outlineOffset: 4 } : undefined}>
           <div className="contract-head" contentEditable={false}>
             {p.logo_url
-              ? <img src={p.logo_url} alt="logo" style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
+              // crossOrigin: así la copia que guarda el navegador sirve también para el PDF y el Word
+              ? <img src={p.logo_url} alt="logo" crossOrigin="anonymous" style={{ height: 64, width: 'auto', maxWidth: 180, objectFit: 'contain' }} />
               : <Logo size={64} />}
             {/* solo el nombre del proyecto, en negrita (pedido del dueño, 30 sep) */}
             <div className="ch-name">{(p.name || 'URBIS GROUP').toUpperCase()}</div>
