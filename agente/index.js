@@ -27,6 +27,8 @@ const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
 const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(...a) })
 // lee con IA el DNI que se sube al registrar un cliente y llena sus datos (sql/112)
 const LECTOR_DNI = require('./lector_dni')({ supabase, log: (...a) => log(...a) })
+// trae el nombre de un DNI o la razón social de un RUC al emitir un comprobante (sql/119)
+const CONSULTA_DOC = require('./consulta_doc')({ supabase, log: (...a) => log(...a) })
 // emite las boletas y facturas que pide el panel, con el RUC de cada proyecto (sql/113)
 const FACT = require('./facturador')({
   supabase, log: (...a) => log(...a),
@@ -3586,6 +3588,8 @@ setInterval(() => { enviarCodigosFirma().catch(e => log('enviarCodigosFirma:', S
 setInterval(() => { LECTOR.procesar().catch(e => log('lector comprobantes:', String(e.message || e))) }, 3000)
 // DNI que el panel pidió leer (la secretaria espera con el formulario abierto: cada 2 s)
 setInterval(() => { LECTOR_DNI.procesar().catch(e => log('lector dni:', String(e.message || e))) }, 2000)
+// DNI / RUC que el panel pidió consultar (la secretaria espera con el formulario abierto: cada 1,5 s)
+setInterval(() => { CONSULTA_DOC.procesar().catch(e => log('consulta doc:', String(e.message || e))) }, 1500)
 // comprobantes que el panel pidió emitir (la secretaria espera con la ficha abierta: cada 4 s)
 setInterval(() => { FACT.procesar().catch(e => log('facturador:', String(e.message || e))) }, 4000)
 // lo que SUNAT contesta en diferido: resumen diario de boletas, bajas y sus tickets

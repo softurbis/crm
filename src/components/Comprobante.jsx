@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
 import { pedir, avisar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { logoProyecto } from '../context/ProjectContext'
+import { consultarDoc, rucConProblema } from '../lib/consultaDoc'
 import {
   ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
   pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
@@ -57,6 +58,13 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [pedido, setPedido] = useState(null)     // el comprobante, una vez pedido
+  // el nombre que se trae solo al escribir el DNI (b) o el RUC (f)
+  const [busca, setBusca] = useState({ b: null, f: null })
+  const turnos = useRef({ b: 0, f: 0 })
+  // ¿el nombre lo escribió la persona a mano? Si no (vino de la ficha o de una
+  // consulta), al cambiar el documento se borra: que nunca quede el DNI de uno con
+  // el nombre de otro.
+  const aMano = useRef({ b: false, f: false })
   const total = grupo.items.reduce((s, p) => s + Number(p.amount || 0), 0)
   const items = useMemo(() => [...grupo.items].sort((x, y) => (x.installment?.installment_number || 0) - (y.installment?.installment_number || 0)), [grupo])
 
@@ -83,6 +91,41 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
     })
     return () => { vivo = false }
   }, [ventaId])   // eslint-disable-line
+
+  // Se escribe el DNI o el RUC y el nombre (o la razón social y el domicilio
+  // fiscal) se llena solo. Si no se puede, queda para escribirlo a mano.
+  async function traerNombre(cual, doc) {
+    const turno = ++turnos.current[cual]
+    const poner = cual === 'b' ? setB : setF
+    setBusca(x => ({ ...x, [cual]: { estado: 'buscando' } }))
+    const r = await consultarDoc(doc, { vivo: () => turnos.current[cual] === turno })
+    if (turnos.current[cual] !== turno) return   // ya se escribió otro número
+    if (r.ok) {
+      // solo si el número sigue siendo el que se consultó
+      poner(x => x.numero === doc ? { ...x, nombre: r.nombre, direccion: r.direccion || '' } : x)
+      aMano.current[cual] = false
+      setBusca(x => ({ ...x, [cual]: { estado: 'ok', fuente: r.fuente, situacion: r.situacion } }))
+    } else setBusca(x => ({ ...x, [cual]: r.mensaje ? { estado: 'no', mensaje: r.mensaje } : null }))
+  }
+  function cambiarDni(valor) {
+    const v = b.tipo_doc === '1' ? valor.replace(/\D/g, '').slice(0, 8) : valor
+    setB(x => ({ ...x, numero: v, ...(v !== x.numero && !aMano.current.b ? { nombre: '', direccion: '' } : {}) }))
+    turnos.current.b++
+    if (b.tipo_doc === '1' && v.length === 8 && v !== b.numero) traerNombre('b', v)
+    else setBusca(x => ({ ...x, b: null }))
+  }
+  function cambiarRuc(valor) {
+    const v = valor.replace(/\D/g, '').slice(0, 11)
+    setF(x => ({ ...x, numero: v, ...(v !== x.numero && !aMano.current.f ? { nombre: '', direccion: '' } : {}) }))
+    turnos.current.f++
+    if (rucValido(v) && v !== f.numero) traerNombre('f', v)
+    else setBusca(x => ({ ...x, f: v.length === 11 && !rucValido(v) ? { estado: 'no', mensaje: 'Ese RUC no es válido: revisa los dígitos.' } : null }))
+  }
+  const buscando = busca.b?.estado === 'buscando' || busca.f?.estado === 'buscando'
+  const notaBusqueda = q => !q ? null
+    : q.estado === 'buscando' ? <span className="cp-busca"><span className="cp-gira" /> Buscando el nombre…</span>
+    : q.estado === 'ok' ? <span className="cp-busca ok">✓ {q.fuente === 'cliente' ? 'Ya es cliente: datos de su ficha' : 'Datos de ' + q.fuente}</span>
+    : <span className="cp-busca no">{q.mensaje}</span>
 
   // ya pedido: se mira hasta que salga (el servidor lo toma en segundos)
   useEffect(() => {
@@ -170,10 +213,11 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
                 </label>
                 <label>Número
                   <input value={b.tipo_doc === '0' ? '' : b.numero} disabled={b.tipo_doc === '0'} inputMode={b.tipo_doc === '1' ? 'numeric' : 'text'}
-                    onChange={e => setB(x => ({ ...x, numero: e.target.value }))} />
+                    onChange={e => cambiarDni(e.target.value)} />
+                  {notaBusqueda(busca.b)}
                 </label>
                 <label className="span2">A nombre de
-                  <input value={b.nombre} onChange={e => setB(x => ({ ...x, nombre: e.target.value }))} />
+                  <input value={b.nombre} onChange={e => { aMano.current.b = true; setB(x => ({ ...x, nombre: e.target.value })) }} />
                 </label>
                 <label className="span2">Dirección <span className="muted small">(opcional)</span>
                   <input value={b.direccion} onChange={e => setB(x => ({ ...x, direccion: e.target.value }))} />
@@ -183,14 +227,18 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
               <div className="form-grid">
                 <label>RUC del cliente
                   <input value={f.numero} inputMode="numeric" maxLength={11} placeholder="11 dígitos"
-                    onChange={e => setF(x => ({ ...x, numero: e.target.value.replace(/\D/g, '') }))} />
+                    onChange={e => cambiarRuc(e.target.value)} />
+                  {notaBusqueda(busca.f)}
                 </label>
                 <label>Razón social
-                  <input value={f.nombre} onChange={e => setF(x => ({ ...x, nombre: e.target.value }))} />
+                  <input value={f.nombre} onChange={e => { aMano.current.f = true; setF(x => ({ ...x, nombre: e.target.value })) }} />
                 </label>
                 <label className="span2">Domicilio fiscal <span className="muted small">(opcional)</span>
                   <input value={f.direccion} onChange={e => setF(x => ({ ...x, direccion: e.target.value }))} />
                 </label>
+                {busca.f?.estado === 'ok' && rucConProblema(busca.f.situacion) && (
+                  <p className="cp-nota span2" style={{ margin: 0 }}>SUNAT tiene a este RUC como <b>{busca.f.situacion}</b>: una factura a su nombre puede salir rechazada.</p>
+                )}
               </div>
             )}
 
@@ -205,8 +253,8 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
 
             {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
             <div className="acc-row" style={{ marginTop: 12 }}>
-              <button className="btn-primary" onClick={emitir} disabled={busy}>
-                {busy ? 'Pidiendo…' : 'Emitir ' + tipo + ' por ' + soles(total)}
+              <button className="btn-primary" onClick={emitir} disabled={busy || buscando}>
+                {busy ? 'Pidiendo…' : buscando ? 'Buscando el nombre…' : 'Emitir ' + tipo + ' por ' + soles(total)}
               </button>
               <button type="button" className="btn-ghost" onClick={onCerrar} disabled={busy}>Cancelar</button>
             </div>
