@@ -42,48 +42,58 @@ const haceCuanto = desde => {
   return h + 'h ' + (m % 60) + 'm'
 }
 
-const GLOBAL = [
-  // "Hoy": el buscador y lo urgente del dia; siempre visible (no depende de los paneles del usuario)
-  { to: '/hoy', label: 'Hoy', icon: '🏠', siempre: true, color: '#9ccb86' },
-  { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6' },
-  { to: '/whatsapp', label: 'WhatsApp', icon: '🤖', color: '#58c482', grupo: 'Comunicación' },   // bandeja para todo el equipo (RLS filtra los chats)
-  { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Comunicación' },
-  // la ve quien tenga el permiso especial de cobranza (sql/76), no un rol
-  { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Comunicación' },
-  { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
-  // el experimento del agente de ventas IA contra el supervisor (sql/91)
-  { to: '/ventas-ia', label: 'Agente de ventas', icon: '🤖', admin: true, color: '#8ab4f8', grupo: 'Comercial' },
-  { to: '/corretaje', label: 'Corretaje', icon: '🏠', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
-  { to: '/secretarias', label: 'Seguimiento', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
+// EL MENÚ, ORDENADO POR LO QUE SE HACE (1 oct 2026, pedido del dueño: "más fácil de
+// manejar"). Antes eran 15 ítems generales más 6 repetidos debajo de CADA proyecto.
+// Ahora hay un solo selector de proyecto arriba y una sola lista: las pantallas
+// marcadas con `proy` trabajan sobre el proyecto elegido.
+//   siempre  = no depende de los paneles del usuario
+//   staff    = admin y superusuario · admin = SOLO superusuario
+//   cobranza = la abre el permiso especial de cobranza (sql/76), no un rol
+const MENU = [
+  // el buscador y lo urgente del día
+  { to: '/hoy', label: 'Hoy', icon: '☀️', siempre: true, color: '#9ccb86' },
+  { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️', color: '#8fd16f', proy: true },
+
+  { to: '/pagos', label: 'Pagos', icon: '💵', color: '#4fc3a1', proy: true, grupo: 'Cobranza' },
+  { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Cobranza' },
+
+  // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
+  { to: '/ventas', label: 'Ventas y contratos', icon: '📄', color: '#7bb6e0', proy: true, grupo: 'Ventas', tambien: ['/contratos'] },
+  { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8', grupo: 'Ventas' },
+  { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
+
+  { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos' },
+
+  { to: '/whatsapp', label: 'WhatsApp', icon: '💬', color: '#58c482', grupo: 'Comercial' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
-  { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8', grupo: 'Comercial' },
-  { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Administración' },
-  { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Administración' },
-  { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Administración' },
+  { to: '/secretarias', label: 'Tareas del equipo', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
+  { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
+  { to: '/corretaje', label: 'Corretaje', icon: '🏘️', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
+
+  { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6', grupo: 'Reportes' },
+
+  { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Configuración' },
+  // el experimento del agente de ventas IA contra el supervisor (sql/91)
+  { to: '/ventas-ia', label: 'Agente de ventas', icon: '🤖', admin: true, color: '#8ab4f8', grupo: 'Configuración' },
+  { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Configuración' },
+  { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Configuración' },
+  { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Configuración' },
   // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
-  { to: '/migracion', label: 'Migración', icon: '📥', admin: true, color: '#7fb0d8', grupo: 'Administración' },
+  { to: '/migracion', label: 'Migración', icon: '📥', admin: true, color: '#7fb0d8', grupo: 'Configuración' },
 ]
-// Mega-grupos del menú General (orden + ícono). Cada uno se abre/cierra.
-const ORDEN_GRUPOS = ['Comunicación', 'Comercial', 'Administración']
-const ICONO_GRUPO = { 'Comunicación': '💬', 'Comercial': '🏷️', 'Administración': '🛠️' }
-const PROYECTO = [
-  { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️', color: '#8fd16f' },
-  { to: '/ventas', label: 'Ventas', icon: '🏷️', color: '#7bb6e0' },
-  { to: '/pagos', label: 'Cuotas', icon: '💵', color: '#4fc3a1' },
-  { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c' },
-  { to: '/contratos', label: 'Contratos', icon: '📄', color: '#c9a97f' },
-  { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f' },
-]
+// Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
+const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
+const ICONO_GRUPO = { Cobranza: '💰', Ventas: '🏷️', Gastos: '🧾', Comercial: '📢', Reportes: '📈', 'Configuración': '⚙️' }
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
 // Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
-export const PANELS = [...GLOBAL, ...PROYECTO].filter(m => !m.admin && !m.cobranza && !m.siempre && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
+export const PANELS = MENU.filter(m => !m.admin && !m.cobranza && !m.siempre && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
   const { profile, role, logout } = useAuth()
-  const { projects, pid, select } = useProject()
+  const { projects, pid, pidOp, select } = useProject()
   const [open, setOpen] = useState(false)
-  const [expandido, setExpandido] = useState(null)   // proyecto con su menu desplegado
-  const [gruposCerrados, setGruposCerrados] = useState({})   // mega-grupos plegados (por defecto todos abiertos)
+  const [eligiendoProy, setEligiendoProy] = useState(false)   // la lista de proyectos, desplegada
+  const [gruposCerrados, setGruposCerrados] = useState({})   // grupos plegados (por defecto todos abiertos)
   const [conectados, setConectados] = useState([])
   // Solicitudes de gasto que esperan MI firma, por proyecto. Se ve en cualquier
   // pantalla: el objetivo es que nadie tenga que acordarse de revisar.
@@ -140,7 +150,8 @@ export default function Layout() {
   const esAdmin = ['admin', 'superuser'].includes(role)
   // Paneles habilitados por usuario (null = según su rol, sin restricción extra). El superusuario ve todo.
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
-  const enPanel = m => role === 'superuser' || m.to === '/' || m.siempre || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to)
+  // `tambien`: quien tenía habilitado el panel viejo de Contratos ve "Ventas y contratos"
+  const enPanel = m => role === 'superuser' || m.to === '/' || m.siempre || m.admin || m.cobranza || !panelsUser || panelsUser.includes(m.to) || (m.tambien || []).some(t => panelsUser.includes(t))
   // Cobranza IA la abre el permiso especial (sql/76), no el rol ni los paneles.
   // El administrador la ve para consultar; la pantalla le quita los botones.
   const tieneCobranza = ['admin', 'superuser'].includes(role) || (profile?.permisos || []).includes('cobranza')
@@ -148,9 +159,6 @@ export default function Layout() {
   const verItem = m => !!m && (!m.admin || role === 'superuser') && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && enPanel(m)
   const grupoAbierto = g => !gruposCerrados[g]
   const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
-
-  // el proyecto seleccionado arranca desplegado (asi entras y ya ves sus modulos)
-  useEffect(() => { if (pid && pid !== 'general') setExpandido(x => x ?? pid) }, [pid])
 
   // latido de presencia del usuario actual (cada 45s)
   useEffect(() => {
@@ -178,20 +186,27 @@ export default function Layout() {
 
   const _loc = useLocation()
   const pathname = _loc.pathname
-  const accentMod = [...GLOBAL, ...PROYECTO].find(m => m.to === '/' ? pathname === '/' : pathname.startsWith(m.to))?.color
+  const accentMod = MENU.find(m => m.to === '/' ? pathname === '/' : (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))?.color
 
   // Color del proyecto activo: se inyecta como --accent en el contenido, asi los
   // botones, chips y el paginador se tiñen con el color de ESE proyecto. El menu
   // izquierdo no se toca (cada modulo conserva su propio color).
   const iProy = projects.findIndex(p => p.id === pid)
   const colorActivo = iProy >= 0 ? colorProyecto(projects[iProy], iProy) : null
+  // el proyecto sobre el que trabajan las pantallas del menú (nunca "general")
+  const iOp = projects.findIndex(p => p.id === pidOp)
+  const proyOp = iOp >= 0 ? projects[iOp] : null
 
   const Item = m => (
+    // "Ventas y contratos" también queda marcado cuando se está en /contratos
     <NavLink key={m.to} to={m.to} end={m.end} style={{ '--mi': m.color }}
-      className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+      className={({ isActive }) => (isActive || (m.tambien || []).some(t => pathname.startsWith(t))) ? 'nav-item active' : 'nav-item'}>
       <span>{m.icon}</span> {m.label}
     </NavLink>
   )
+  // la secretaria entra a Hoy (App.jsx): su Dashboard vive en /dashboard
+  const delRol = m => (m.to === '/' && role === 'secretary' ? { ...m, to: '/dashboard', end: false } : m)
+  const visibles = MENU.filter(verItem).map(delRol)
 
   return (
     <div className="shell">
@@ -202,20 +217,46 @@ export default function Layout() {
           <span><b>URBIS GROUP</b><br /><small>REAL ESTATE</small></span>
         </div>
         <nav onClick={() => setOpen(false)}>
-          <p className="menu-section">General</p>
           {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
           {role === 'asesor'
-            ? GLOBAL.filter(m => m.to === '/whatsapp').map(Item)
+            ? MENU.filter(m => m.to === '/whatsapp').map(Item)
             : (<>
-                {/* Hoy y Dashboard sueltos arriba. La secretaria entra a Hoy (App.jsx):
-                    su Dashboard vive en /dashboard */}
-                {GLOBAL.filter(m => m.to === '/hoy' && verItem(m)).map(Item)}
-                {GLOBAL.filter(m => m.to === '/' && verItem(m)).map(m => Item(role === 'secretary' ? { ...m, to: '/dashboard', end: false } : m))}
+                {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
+                    (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}
+                {proyOp && (
+                  <div className={`proj-grp ${eligiendoProy ? 'open' : ''}`} style={{ '--pc': colorProyecto(proyOp, iOp), marginBottom: 6 }}>
+                    <p className="menu-section" style={{ marginTop: 0 }}>Proyecto</p>
+                    <button type="button" className="proj-head on" title={projects.length > 1 ? 'Cambiar de proyecto' : proyOp.name}
+                      onClick={e => { e.stopPropagation(); if (projects.length > 1) setEligiendoProy(a => !a) }}>
+                      <span className="proj-dot" />
+                      <span className="proj-name" title={proyOp.name}>{nombreProy(proyOp.name)}</span>
+                      {projects.length > 1 && <span className={`proj-caret ${eligiendoProy ? 'open' : ''}`}>&#9656;</span>}
+                    </button>
+                    {eligiendoProy && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, margin: '4px 0 2px 10px' }}>
+                        {projects.filter(p => p.id !== pidOp).map(p => {
+                          const i = projects.indexOf(p)
+                          return (
+                            <button type="button" key={p.id} className="proj-head" style={{ '--pc': colorProyecto(p, i) }}
+                              title={p.name} onClick={e => { e.stopPropagation(); select(p.id); setEligiendoProy(false) }}>
+                              <span className="proj-dot" />
+                              <span className="proj-name">{nombreProy(p.name)}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                {/* Mega-grupos: Comunicación, Comercial, Administración */}
+                {/* sueltos arriba: Hoy y el mapa de lotes */}
+                {visibles.filter(m => !m.grupo).map(Item)}
+
                 {ORDEN_GRUPOS.map(g => {
-                  const hijos = GLOBAL.filter(m => m.grupo === g && verItem(m))
+                  const hijos = visibles.filter(m => m.grupo === g)
                   if (!hijos.length) return null
+                  // un grupo con una sola pantalla (Gastos, Reportes) va como ítem suelto
+                  if (hijos.length === 1) return Item(hijos[0])
                   return (
                     <div key={g} className={`proj-grp ${grupoAbierto(g) ? 'open' : ''}`} style={{ '--pc': '#8a93a0' }}>
                       <button type="button" className="proj-head" onClick={e => { e.stopPropagation(); toggleGrupo(g) }}>
@@ -229,35 +270,6 @@ export default function Layout() {
                 })}
               </>)
           }
-          {/* Cada proyecto asignado, con su color y su propio desplegable de modulos.
-              Al abrir uno se selecciona ese proyecto, asi los modulos operan sobre el. */}
-          {role !== 'asesor' && <p className="menu-section">Proyectos{projects.length > 1 && <span className="muted"> ({projects.length})</span>}</p>}
-          {role !== 'asesor' && projects.map((p, i) => {
-            const pc = colorProyecto(p, i)
-            const abierto = expandido === p.id
-            const activo = pid === p.id
-            return (
-              <div key={p.id} className={`proj-grp ${abierto ? 'open' : ''}`} style={{ '--pc': pc }}>
-                <button type="button" className={`proj-head ${activo ? 'on' : ''}`}
-                  onClick={e => { e.stopPropagation(); select(p.id); setExpandido(abierto ? null : p.id) }}>
-                  <span className="proj-dot" />
-                  <span className="proj-name" title={p.name}>{nombreProy(p.name)}</span>
-                  <span className={`proj-caret ${abierto ? 'open' : ''}`}>&#9656;</span>
-                </button>
-                {abierto && (
-                  <div className="proj-items">
-                    {PROYECTO.filter(m => (!m.roles || m.roles.includes(role)) && enPanel(m)).map(m => (
-                      <NavLink key={m.to} to={m.to} style={{ '--mi': m.color }}
-                        onClick={() => select(p.id)}
-                        className={({ isActive }) => (isActive && activo) ? 'nav-item active' : 'nav-item'}>
-                        <span>{m.icon}</span> {m.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
         </nav>
         {esAdmin && conectados.length > 0 && (
           // lista con scroll propio: aunque haya muchos conectados, nunca empuja el pie fuera de vista

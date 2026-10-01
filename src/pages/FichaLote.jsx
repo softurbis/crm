@@ -11,7 +11,8 @@ import Buscador from '../components/Buscador'
 import DetallePago from '../components/DetallePago'
 import CobroModal from '../components/CobroModal'
 import ContratoModal from '../components/ContratoModal'
-import { subirContratoFirmado } from '../lib/contrato'
+import ContratoDeVenta from '../components/ContratoDeVenta'
+import EditarPersonaModal from '../components/EditarPersonaModal'
 import { COLORS, LBL, hoyPeru, fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import { soles, agruparPagos, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
@@ -47,7 +48,7 @@ function faltaParaContrato(c) {
   return f
 }
 
-function Persona({ c, titulo, editable, children }) {
+function Persona({ c, titulo, editable, alEditar, children }) {
   if (!c) return null
   const falta = faltaParaContrato(c)
   const dni = dniDe(c)
@@ -64,7 +65,8 @@ function Persona({ c, titulo, editable, children }) {
       {c.civil_status && <p className="muted small">Estado civil: {c.civil_status}</p>}
       <p className="small fl-links">
         {dni ? <a href={dni} target="_blank" rel="noreferrer">ver DNI</a> : <span className="bad">sin foto del DNI</span>}
-        {editable && <Link to={`/clientes?cliente=${c.id}`}>&#9998; editar datos</Link>}
+        {/* se edita aquí mismo, sin salir de la ficha (antes mandaba a la pantalla Clientes) */}
+        {editable && <button type="button" className="link-btn" style={{ textTransform: 'none' }} onClick={() => alEditar?.(c, titulo)}>&#9998; editar datos</button>}
       </p>
       {falta.length > 0 && <p className="fl-falta">&#9888; Falta para el contrato: {falta.join(', ')}</p>}
       {children}
@@ -104,6 +106,8 @@ export default function FichaLote() {
   const [verPago, setVerPago] = useState(null)
   const [cobro, setCobro] = useState(null)   // separacion | inicial | cuota | cuadre (fase 2: se cobra aqui mismo)
   const [contrato, setContrato] = useState(null)   // id de la venta cuyo contrato se genera aqui mismo (fase 3)
+  const [persona, setPersona] = useState(null)     // { c, titulo }: la persona cuyos datos se editan aquí mismo
+  const editarPersona = (c, titulo) => setPersona({ c, titulo })
   const [pagoQ, setPagoQ] = useState('')
   const [pagoFiltro, setPagoFiltro] = useState('todos')   // todos | sin_voucher | sin_comprobante
 
@@ -962,15 +966,6 @@ export default function FichaLote() {
     reload()
   }
 
-  // ---- el contrato firmado, desde la tarjeta de la venta ----
-  async function subirFirmado(file) {
-    try {
-      const t = await subirContratoFirmado({ ...detail.sale, lot: sel }, file)
-      if (!t) return
-      setMsg({ ok: true, t }); savedFx(); reload()
-    } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
-  }
-
   // ---- documentos de un pago desde la pestaña de pagos ----
   async function subirDoc(row, file, campo) {
     try {
@@ -1145,7 +1140,7 @@ export default function FichaLote() {
         {sale && (sale.client?.phone_valid
           ? <a className="btn-act" href={waMessage()} target="_blank" rel="noreferrer">&#128172; WhatsApp de cobro</a>
           : <span className="fl-aviso warn">Celular no válido: corrígelo en los datos del cliente</span>)}
-        {sale && <EstadoCuentaDownload key={sale.id} cliente={sale.client || {}} saleId={sale.id} />}
+        {sale && <EstadoCuentaDownload key={sale.id} cliente={sale.client || {}} saleId={sale.id} secundario />}
         {/* con el firmado ya subido no se genera otro: el que vale es el firmado */}
         {sale && !sale.signed_contract_url && <button className="btn-act alt" onClick={() => setContrato(sale.id)}>&#128196; Generar contrato</button>}
       </div>
@@ -1195,9 +1190,9 @@ export default function FichaLote() {
           {sale && (
             <div className="glass fl-card">
               <h3>&#128100; Cliente</h3>
-              <Persona c={sale.client} titulo="Titular" editable={puedeEditar} />
+              <Persona c={sale.client} titulo="Titular" editable={puedeEditar} alEditar={editarPersona} />
               {sale.co_client
-                ? <Persona c={sale.co_client} titulo="Co-comprador" editable={puedeEditar} />
+                ? <Persona c={sale.co_client} titulo="Co-comprador" editable={puedeEditar} alEditar={editarPersona} />
                 : <p className="muted small">Sin co-comprador.</p>}
               {puedeEditar && (coEdit ? (
                 <div className="fl-co">
@@ -1220,7 +1215,7 @@ export default function FichaLote() {
           {sepInfo && (
             <div className="glass fl-card">
               <h3>&#128278; Separación vigente</h3>
-              <Persona c={sepInfo.sep.client} titulo="Separó" editable={puedeEditar} />
+              <Persona c={sepInfo.sep.client} titulo="Separó" editable={puedeEditar} alEditar={editarPersona} />
               <dl className="fl-dl">
                 <dt>Monto</dt><dd>{soles(sepInfo.sep.amount)}</dd>
                 <dt>Fecha</dt><dd>{fechaPe(sepInfo.sep.date)}</dd>
@@ -1252,16 +1247,11 @@ export default function FichaLote() {
                 <dt>Financiado</dt><dd>{soles(sale.financed_amount)} en {sale.installments_count} cuotas{sale.monthly_amount ? ' de ~' + soles(sale.monthly_amount) : ''}</dd>
                 <dt>Asesor</dt><dd>{sale.advisor?.code || '—'}</dd>
                 <dt>Contrato</dt><dd>
-                  {sale.signed_contract_url
-                    ? <a href={sale.signed_contract_url} target="_blank" rel="noreferrer">ver contrato firmado</a>
-                    : <span className="warn">sin contrato firmado</span>}
-                  {/* el firmado se sube aqui mismo; reemplazar uno ya subido queda para el superusuario */}
-                  {puedeEditar && (!sale.signed_contract_url || role === 'superuser') && (
-                    <label className="upload-btn" style={{ marginLeft: 8 }}>{sale.signed_contract_url ? 'reemplazar' : '⬆ subir firmado'}
-                      <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(e.target.files[0])} />
-                    </label>
-                  )}
-                  {sale.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{sale.contract_note}</div>}
+                  {/* ver, subir, nota, documentos de respaldo y quitar: la misma pieza de la lista
+                      "Ventas y contratos", así nada del contrato obliga a salir de la ficha */}
+                  <ContratoDeVenta venta={{ ...sale, lot: sel }} puedeEditar={puedeEditar}
+                    alCambiar={t => { setMsg({ ok: true, t }); savedFx(); reload() }}
+                    alFallar={t => setMsg({ ok: false, t })} />
                 </dd>
                 <dt>Cobranza automática</dt><dd>
                   {sale.auto_cobranza !== false
@@ -1585,6 +1575,12 @@ export default function FichaLote() {
       {/* ---- el contrato de la venta, generado aqui mismo ---- */}
       {contrato && (
         <ContratoModal saleId={contrato} onClose={() => setContrato(null)} />
+      )}
+
+      {persona && (
+        <EditarPersonaModal persona={persona.c} titulo={'Datos de ' + String(persona.titulo || 'la persona').toLowerCase()}
+          onCerrar={() => setPersona(null)}
+          onGuardado={() => { setPersona(null); setMsg({ ok: true, t: 'DATOS GUARDADOS' }); savedFx(); reload() }} />
       )}
 
       {verPago && (

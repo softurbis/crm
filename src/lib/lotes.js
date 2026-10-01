@@ -22,3 +22,19 @@ export const hoyPeru = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString(
 
 // "2026-09-24" -> "24/09/2026"
 export const fechaPe = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : '—'
+
+// LO COBRADO DE UNA VENTA, con una sola fórmula para todas las listas: cuotas
+// pagadas + inicial + separación (la separación sale del precio: precio − inicial −
+// financiado). Es la misma cuenta de la ficha del lote. Antes la lista de Ventas no
+// sumaba la separación y mostraba otro "cobrado" y otro "saldo" que la ficha.
+export function cobradoDeVenta(v, cuotas = v.installments || []) {
+  const r2 = n => Math.round(Number(n || 0) * 100) / 100
+  const pagCuotas = cuotas.reduce((s, i) => s + Number(i.amount_paid || 0), 0)
+  const separacion = Math.max(0, r2(Number(v.total_sale_price) - Number(v.initial_amount_paid) - Number(v.financed_amount)))
+  const cobrado = r2(pagCuotas + Number(v.initial_amount_paid || 0) + separacion)
+  return {
+    cobrado,
+    saldo: r2(Number(v.total_sale_price) - cobrado),
+    cuotasPagadas: cuotas.filter(i => i.status === 'pagado').length,
+  }
+}

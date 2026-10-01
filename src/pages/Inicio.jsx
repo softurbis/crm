@@ -204,7 +204,7 @@ export default function Inicio() {
           <div className="glass fl-card">
             <h3>&#128206; Pagos sin documentos <span className="hoy-n">{d.docs.length}</span></h3>
             <p className="muted small" style={{ margin: '0 0 6px' }}>
-              De las últimas 6 semanas. En total faltan {d.nSinComp ?? '?'} comprobantes y {d.nSinVou ?? '?'} vouchers (<Link to="/pagos">ver en Cuotas</Link>).
+              De las últimas 6 semanas. En total faltan {d.nSinComp ?? '?'} comprobantes y {d.nSinVou ?? '?'} vouchers (<Link to="/pagos">ver en Pagos</Link>).
             </p>
             {!d.docs.length && <p className="ok small">Todos los pagos recientes tienen sus documentos.</p>}
             {(ver.docs ? d.docs : d.docs.slice(0, LIM)).map(p => (

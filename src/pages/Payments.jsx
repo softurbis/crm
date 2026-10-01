@@ -316,7 +316,7 @@ export default function Payments() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Cuotas mensuales</h1>
+        <h1 style={{ margin: 0, flex: 1 }}>Pagos</h1>
         <ProjectPicker />
       </div>
 

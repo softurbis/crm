@@ -3,7 +3,9 @@ import { supabase } from '../lib/supabase'
 import { useProject } from '../context/ProjectContext'
 
 // Se consulta de nuevo al descargar: no se exporta una ficha desactualizada.
-export default function EstadoCuentaDownload({ cliente, saleId }) {
+// `secundario`: en la ficha del lote el botón principal es Cobrar; este va al lado,
+// sin competir con él.
+export default function EstadoCuentaDownload({ cliente, saleId, secundario = false }) {
   const { projects } = useProject()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -42,7 +44,9 @@ export default function EstadoCuentaDownload({ cliente, saleId }) {
     finally { setBusy(false) }
   }
   return <span className="no-print">
-    <button className="btn-primary" disabled={busy} onClick={descargar}>{busy ? 'Generando PDF…' : 'Descargar estado de cuenta PDF'}</button>
+    <button className={secundario ? 'btn-act alt' : 'btn-primary'} disabled={busy} onClick={descargar}>
+      {busy ? 'Generando PDF…' : secundario ? '📄 Estado de cuenta PDF' : 'Descargar estado de cuenta PDF'}
+    </button>
     {error && <span role="alert" style={{ display: 'block', color: '#cf5454', fontSize: 13 }}>{error}</span>}
   </span>
 }

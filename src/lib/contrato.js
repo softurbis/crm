@@ -67,7 +67,7 @@ export function detalleCuotas(inst) {
 }
 
 // lo que hace falta de una venta para armar su contrato
-export const COLS_VENTA_CONTRATO = 'id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id)'
+export const COLS_VENTA_CONTRATO = 'id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id, associated_to)'
 
 // Sube el contrato FIRMADO de una venta, con su nota. Si ya habia uno, lo
 // reemplaza. Devuelve el aviso, o null si se cancelo la nota (no se sube nada).

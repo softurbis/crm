@@ -14,13 +14,13 @@ import { SITIO_PUBLICO } from './lib/sitios'
 const Inicio = lazy(() => import('./pages/Inicio'))
 const Lots = lazy(() => import('./pages/Lots'))
 const FichaLote = lazy(() => import('./pages/FichaLote'))
-const Sales = lazy(() => import('./pages/Sales'))
 const Payments = lazy(() => import('./pages/Payments'))
 const Clients = lazy(() => import('./pages/Clients'))
 const Expenses = lazy(() => import('./pages/Expenses'))
 const Bitacora = lazy(() => import('./pages/Bitacora'))
 const Users = lazy(() => import('./pages/Users'))
 const Projects = lazy(() => import('./pages/Projects'))
+// ventas y contratos: una sola pantalla para las rutas /ventas y /contratos (1 oct 2026)
 const Contracts = lazy(() => import('./pages/Contracts'))
 const Campanas = lazy(() => import('./pages/Campanas'))
 const Whatsapp = lazy(() => import('./pages/Whatsapp'))
@@ -93,7 +93,7 @@ export default function App() {
           <Route path="visitas" element={<Visitas />} />
           <Route path="lotes" element={<Lots />} />
           <Route path="lotes/:id" element={<FichaLote />} />
-          <Route path="ventas" element={<Sales />} />
+          <Route path="ventas" element={<Contracts />} />
           <Route path="pagos" element={<Payments />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />

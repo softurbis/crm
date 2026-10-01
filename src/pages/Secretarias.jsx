@@ -172,7 +172,7 @@ export default function Secretarias() {
   return (
     <div>
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1>Control de actividades</h1>
+        <h1>Tareas del equipo</h1>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button className="btn-ghost" onClick={() => cambiarMes(-1)}>‹</button>
           <b style={{ minWidth: 150, textAlign: 'center' }}>{MESES[mnum - 1]} {anio}</b>

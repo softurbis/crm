@@ -1,34 +1,50 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import ContratoModal from '../components/ContratoModal'
-import { VARIABLES, BLOQUES, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO, subirContratoFirmado } from '../lib/contrato'
-import { useProject, ProjectPicker } from '../context/ProjectContext'
+import ContratoDeVenta from '../components/ContratoDeVenta'
 import LoteLink from '../components/LoteLink'
-import { fechaPe } from '../lib/lotes'
+import Paginador, { usePaginacion } from '../components/Paginador'
+import { VARIABLES, BLOQUES, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
+import { fechaPe, cobradoDeVenta } from '../lib/lotes'
+import { useProject, ProjectPicker } from '../context/ProjectContext'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+const EST = {
+  en_proceso: { lbl: 'EN PROCESO', color: '#7ba7f7' },
+  pagado: { lbl: 'PAGADO 100%', color: '#4bb96a' },
+  expropiado: { lbl: 'EXPROPIADO', color: '#b58ad9' },
+  anulado: { lbl: 'ANULADO', color: '#c94f4f' },
+}
+const VIVA = ['en_proceso', 'pagado']     // las que llevan contrato
 
+// VENTAS Y CONTRATOS, EN UNA SOLA LISTA (1 oct 2026). Antes eran dos pantallas con
+// casi la misma tabla: "Ventas" (solo mirar: precio, cobrado, saldo) y "Contratos"
+// (la misma lista con el contrato firmado). Aquí está todo; el día a día de una venta
+// (cobrar, cuotas, documentos) sigue en la ficha del lote, a un clic del lote.
+// Las rutas /ventas y /contratos abren esta misma pantalla.
 export default function Contracts() {
   const { role, profile } = useAuth()
   const { pidOp } = useProject()
   const [proyecto, setProyecto] = useState(null)
   const [ventas, setVentas] = useState([])
   const [q, setQ] = useState('')
+  const [est, setEst] = useState('todos')
+  const [soloSinFirmar, setSoloSinFirmar] = useState(false)
   const [gen, setGen] = useState(null)   // id de la venta cuyo contrato se esta generando
   const [msg, setMsg] = useMsg(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplText, setTplText] = useState('')
+  const soloMira = ['manager', 'socio'].includes(role)
 
   async function load() {
     if (!pidOp) return
     const [v, p] = await Promise.all([
       supabase.from('sales')
-        .select(COLS_VENTA_CONTRATO)
-        .eq('lot.project_id', pidOp).in('status', ['en_proceso', 'pagado'])
+        .select(COLS_VENTA_CONTRATO + ', installments(amount, amount_paid, status)')
+        .eq('lot.project_id', pidOp)
         .order('sale_date', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
     ])
@@ -37,31 +53,36 @@ export default function Contracts() {
   }
   useEffect(() => { load() }, [pidOp])
 
-  // ?venta=<id>: se llega desde la ficha del lote y se muestra solo esa venta
+  // ?venta=<id>: se llega desde la ficha del lote y se muestra solo esa venta.
+  // ?estado=<estado>: se llega desde el Dashboard.
   const [searchParams, setSearchParams] = useSearchParams()
   const soloVenta = searchParams.get('venta')
   const ventaFicha = soloVenta ? ventas.find(v => v.id === soloVenta) : null
+  useEffect(() => { const e = searchParams.get('estado'); if (e) setEst(e) }, [searchParams])
 
   const filtradas = useMemo(() => {
     if (soloVenta) return ventas.filter(v => v.id === soloVenta)
     const t = q.trim().toLowerCase()
-    if (!t) return ventas
-    return ventas.filter(v =>
-      (v.client?.full_name || '').toLowerCase().includes(t) ||
-      `${v.lot?.mz}-${v.lot?.lt}`.toLowerCase().includes(t))
-  }, [ventas, q, soloVenta])
+    return ventas.filter(v => {
+      if (est !== 'todos' && v.status !== est) return false
+      if (soloSinFirmar && (v.signed_contract_url || !VIVA.includes(v.status))) return false
+      if (!t) return true
+      return (v.client?.full_name || '').toLowerCase().includes(t) ||
+        (v.co_client?.full_name || '').toLowerCase().includes(t) ||
+        (v.client?.doc_number || '').toLowerCase().includes(t) ||
+        `${v.lot?.mz}-${v.lot?.lt}`.toLowerCase().includes(t)
+    })
+  }, [ventas, q, est, soloSinFirmar, soloVenta])
+  const pag = usePaginacion(filtradas, 50)
 
-  async function subirFirmado(v, file) {
-    try {
-      const t = await subirContratoFirmado(v, file)   // lib/contrato: pide la nota y reemplaza si ya habia
-      if (!t) return
-      setMsg({ ok: true, t }); load()
-    } catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }) }
-  }
+  const tot = filtradas.reduce((s, v) => {
+    const c = cobradoDeVenta(v)
+    return { precio: s.precio + Number(v.total_sale_price), cobrado: s.cobrado + c.cobrado, saldo: s.saldo + c.saldo }
+  }, { precio: 0, cobrado: 0, saldo: 0 })
+  const sinFirmar = ventas.filter(v => VIVA.includes(v.status) && !v.signed_contract_url).length
 
-  // corregir la fecha de venta (superusuario): la misma correccion que ya existe
-  // en la ficha del lote, pero aqui — donde se revisan los contratos — que es
-  // donde de verdad se descubre que la fecha no coincide con el papel firmado.
+  // corregir la fecha de venta (superusuario): aquí, donde se revisan los contratos,
+  // es donde se descubre que la fecha no coincide con el papel firmado.
   async function editarFechaVenta(v) {
     const nueva = prompt('NUEVA FECHA DE VENTA de ' + (v.client?.full_name || 'esta venta') + ' (AAAA-MM-DD).\n\nOJO: no mueve las cuotas del cronograma; solo corrige la fecha del contrato.', v.sale_date || '')
     if (nueva === null) return
@@ -85,75 +106,20 @@ export default function Contracts() {
     load()
   }
 
-  // quitar el contrato firmado (superusuario): la venta vuelve a figurar SIN CONTRATO
-  async function quitarContrato(v) {
-    if (!confirm('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volvera a figurar como SIN CONTRATO FIRMADO y podras subir otro. El archivo anterior queda en el almacenamiento.')) return
-    const { error } = await supabase.from('sales').update({ signed_contract_url: null, contract_note: null }).eq('id', v.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    setMsg({ ok: true, t: 'CONTRATO QUITADO — YA PUEDES SUBIR OTRO' }); load()
-  }
-
-  // editar/agregar la nota de un contrato ya subido
-  async function notaContrato(v) {
-    const nota = prompt('Comentario / nota de este contrato:', v.contract_note || '')
-    if (nota === null) return
-    const { error } = await supabase.from('sales').update({ contract_note: nota.trim() || null }).eq('id', v.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    setMsg({ ok: true, t: 'NOTA DEL CONTRATO GUARDADA' }); load()
-  }
-
-  // ---- documentos de respaldo (máx 2 por contrato): traspaso, iniciales, adenda… ----
-  const docsDe = v => Array.isArray(v.extra_docs) ? v.extra_docs : []
-  async function subirDocExtra(v, file) {
-    const docs = docsDe(v)
-    if (docs.length >= 2) { setMsg({ ok: false, t: 'MÁXIMO 2 documentos de respaldo por contrato.' }); return }
-    const nota = prompt('¿Qué documento es? (etiqueta corta)\n\nEj: TRASPASO · DOCUMENTO DE INICIALES · ADENDA · CARTA DE COMPROMISO', '')
-    if (nota === null) return
-    const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
-    const path = `contratos/respaldo/${v.lot.mz}-${v.lot.lt}-${Date.now()}.${ext}`
-    let url
-    try { url = await subirRuta(path, file) }
-    catch (e) { setMsg({ ok: false, t: 'ERROR: ' + e.message }); return }
-    const next = [...docs, { url, note: (nota.trim() || 'Documento de respaldo') }]
-    const { error: e2 } = await supabase.from('sales').update({ extra_docs: next }).eq('id', v.id)
-    if (e2) { setMsg({ ok: false, t: 'ERROR: ' + e2.message }); return }
-    setMsg({ ok: true, t: 'DOCUMENTO DE RESPALDO SUBIDO' }); load()
-  }
-  async function quitarDocExtra(v, idx) {
-    const docs = docsDe(v)
-    if (!confirm('¿Quitar "' + (docs[idx]?.note || 'este documento') + '"?\n\n(El archivo queda en el almacenamiento.)')) return
-    const next = docs.filter((_, i) => i !== idx)
-    const { error } = await supabase.from('sales').update({ extra_docs: next }).eq('id', v.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    setMsg({ ok: true, t: 'DOCUMENTO QUITADO' }); load()
-  }
-  async function notaDocExtra(v, idx) {
-    const docs = [...docsDe(v)]
-    if (!docs[idx]) return
-    const nota = prompt('¿Qué documento es? (etiqueta corta)', docs[idx].note || '')
-    if (nota === null) return
-    docs[idx] = { ...docs[idx], note: (nota.trim() || 'Documento de respaldo') }
-    const { error } = await supabase.from('sales').update({ extra_docs: docs }).eq('id', v.id)
-    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    setMsg({ ok: true, t: 'ETIQUETA GUARDADA' }); load()
-  }
-
   async function guardarPlantilla() {
     const { error } = await supabase.from('projects').update({ contract_template: tplText }).eq('id', pidOp)
     setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'PLANTILLA GUARDADA PARA ESTE PROYECTO' })
     load()
   }
 
-  const sinFirmar = ventas.filter(v => !v.signed_contract_url).length
-
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Contratos</h1>
+        <h1 style={{ margin: 0, flex: 1 }}>Ventas y contratos</h1>
         <ProjectPicker />
         {role === 'superuser' && (
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
-            {tplOpen ? 'Cerrar plantilla' : 'Plantilla del contrato (superusuario)'}
+            {tplOpen ? 'Cerrar plantilla' : '⚙ Plantilla del contrato'}
           </button>
         )}
       </div>
@@ -185,74 +151,74 @@ export default function Contracts() {
       {soloVenta ? (
         <div className="toolbar">
           {ventaFicha?.lot?.id && <Link className="btn-ghost" to={`/lotes/${ventaFicha.lot.id}`}>&#8592; Volver a la ficha del lote</Link>}
-          <span className="hint">Mostrando solo el contrato de MZ {ventaFicha?.lot?.mz || '?'} LT {ventaFicha?.lot?.lt || '?'}.</span>
-          <button className="link-btn" onClick={() => setSearchParams({}, { replace: true })}>ver todos los contratos</button>
+          <span className="hint">Mostrando solo la venta de MZ {ventaFicha?.lot?.mz || '?'} LT {ventaFicha?.lot?.lt || '?'}.</span>
+          <button className="link-btn" onClick={() => setSearchParams({}, { replace: true })}>ver todas las ventas</button>
         </div>
       ) : (
         <div className="toolbar">
-          <input className="search" placeholder="Buscar por cliente o lote..." value={q} onChange={e => setQ(e.target.value)} />
+          <input className="search" placeholder="Buscar por cliente, DNI o lote..." value={q} onChange={e => setQ(e.target.value)} />
+          <select value={est} onChange={e => setEst(e.target.value)}>
+            <option value="todos">TODOS LOS ESTADOS</option>
+            <option value="en_proceso">EN PROCESO</option>
+            <option value="pagado">PAGADOS (100%)</option>
+            <option value="expropiado">EXPROPIADOS</option>
+            <option value="anulado">ANULADOS</option>
+          </select>
+          <button type="button" className={`chip ${soloSinFirmar ? 'on' : ''}`} onClick={() => setSoloSinFirmar(x => !x)}
+            title="Ventas vigentes que todavía no tienen el contrato firmado subido">
+            &#9888; Sin contrato firmado{sinFirmar ? ` (${sinFirmar})` : ''}
+          </button>
         </div>
       )}
-      {sinFirmar > 0 && <p className="hint"><span className="bad">&#9888; {sinFirmar} venta(s) sin contrato firmado subido.</span></p>}
+
+      <p className="hint">
+        {filtradas.length} ventas | PRECIO: <b>{soles(tot.precio)}</b> | COBRADO: <b style={{ color: '#4bb96a' }}>{soles(tot.cobrado)}</b> | SALDO: <b>{soles(tot.saldo)}</b>
+      </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Lote</th><th>Cliente</th><th>Precio</th><th>Fecha venta</th><th>Contrato firmado</th><th></th></tr></thead>
+          <thead><tr><th>Lote</th><th>Cliente</th><th>Fecha</th><th>Precio</th><th>Cobrado</th><th>Saldo</th><th>Cuotas</th><th>Estado</th><th>Contrato</th></tr></thead>
           <tbody>
-            {filtradas.map(v => (
-              <tr key={v.id}>
-                <td><LoteLink lot={v.lot} /></td>
-                <td>{v.client?.full_name}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
-                <td>{soles(v.total_sale_price)}</td>
-                <td>{fechaPe(v.sale_date)}
-                  {role === 'superuser' && <button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
-                </td>
-                <td>
-                  {v.signed_contract_url
-                    ? <>
-                        <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>{' '}
-                        <button className="link-btn" onClick={() => notaContrato(v)}>&#128221; nota</button>
-                        {role === 'superuser' && (<>
-                          {' '}
-                          <label className="link-btn" style={{ cursor: 'pointer' }}>&#128260; reemplazar
-                            <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(v, e.target.files[0])} />
-                          </label>{' '}
-                          <button className="link-btn" onClick={() => quitarContrato(v)}>&#128465; quitar</button>
-                        </>)}
-                        {v.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{v.contract_note}</div>}
-                      </>
-                    : <label className="upload-btn bad">&#9888; subir firmado
-                        <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirFirmado(v, e.target.files[0])} />
-                      </label>}
-                  {/* documentos de respaldo del contrato (traspaso, iniciales, adenda…): máx 2 */}
-                  <div style={{ marginTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 5 }}>
-                    {docsDe(v).map((d, i) => (
-                      <div key={i} className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', textTransform: 'none', marginBottom: 2 }}>
-                        <span>📎</span>
-                        <a href={d.url} target="_blank" rel="noreferrer" className="ok">{d.note || 'Respaldo'}</a>
-                        <button className="link-btn" title="Editar etiqueta" onClick={() => notaDocExtra(v, i)}>&#9998;</button>
-                        {role === 'superuser' && <button className="link-btn" title="Quitar" onClick={() => quitarDocExtra(v, i)}>&#128465;</button>}
-                      </div>
-                    ))}
-                    {docsDe(v).length < 2 && (
-                      <label className="link-btn" style={{ cursor: 'pointer' }} title="Traspaso, documento de iniciales, adenda, etc.">
-                        &#10133; documento de respaldo
-                        <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subirDocExtra(v, e.target.files[0])} />
-                      </label>
-                    )}
-                  </div>
-                </td>
-                <td>{v.signed_contract_url
-                  ? <span className="muted small" title="Con el contrato firmado ya subido no se genera otro">firmado ✓</span>
-                  : <button className="btn-ghost" onClick={() => setGen(v.id)}>Generar contrato</button>}</td>
-              </tr>
-            ))}
+            {pag.pagina.map(v => {
+              const c = cobradoDeVenta(v)
+              const e = EST[v.status] || { lbl: (v.status || '').toUpperCase(), color: '#9daab6' }
+              const conjunta = (v.lot?.associated_to || '').startsWith('VENTA CONJUNTA')
+              return (
+                <tr key={v.id} style={v.status === 'pagado' ? { background: 'rgba(75,185,106,.08)' } : undefined}>
+                  {/* el lote lleva a su ficha: ahí se cobra y se ven las cuotas y los pagos */}
+                  <td><LoteLink lot={v.lot}>{conjunta ? v.lot.associated_to.split(' (')[0].replace('VENTA CONJUNTA ', '') : null}</LoteLink></td>
+                  <td>{v.client?.full_name || '-'}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
+                  <td>{fechaPe(v.sale_date)}
+                    {role === 'superuser' && <button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
+                  </td>
+                  <td>{soles(v.total_sale_price)}</td>
+                  <td style={{ color: '#4bb96a' }}>{soles(c.cobrado)}</td>
+                  <td>{soles(c.saldo)}</td>
+                  <td>{c.cuotasPagadas} / {v.installments_count}</td>
+                  <td><span style={{ color: e.color, fontWeight: 700 }}>{e.lbl}</span></td>
+                  <td style={{ whiteSpace: 'normal', minWidth: 190 }}>
+                    {VIVA.includes(v.status)
+                      ? <>
+                          <ContratoDeVenta venta={v} puedeEditar={!soloMira}
+                            alCambiar={t => { setMsg({ ok: true, t }); load() }}
+                            alFallar={t => setMsg({ ok: false, t })} />
+                          {/* con el firmado ya subido no se genera otro: el que vale es el firmado */}
+                          {!v.signed_contract_url && <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => setGen(v.id)}>&#128196; Generar contrato</button>}
+                        </>
+                      : v.signed_contract_url
+                        ? <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="muted">ver firmado</a>
+                        : <span className="muted">—</span>}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
+        <Paginador {...pag} />
       </div>
 
-      {gen && <ContratoModal saleId={gen} onClose={() => setGen(null)} />}
+      {gen && <ContratoModal saleId={gen} onClose={() => { setGen(null); load() }} />}
     </>
   )
 }
