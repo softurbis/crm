@@ -64,8 +64,20 @@ echo ""
 echo "--- La Clave SOL ---"
 echo "  El usuario SECUNDARIO de facturación electrónica, SIN el RUC adelante."
 echo "  (Si en SUNAT figura como ${RUC}MIUSUARIO, acá va solo MIUSUARIO.)"
-preguntar USUARIO_SOL "Usuario SOL" "$(leer "$ARCHIVO" usuario_sol)"
+# Si lo guardado es el propio RUC (pasó el 1 oct: se escribió el RUC en vez del
+# usuario), no se ofrece como valor por defecto.
+USUARIO_ANTES="$(leer "$ARCHIVO" usuario_sol)"
+[ "$USUARIO_ANTES" = "$RUC" ] && USUARIO_ANTES=""
+preguntar USUARIO_SOL "Usuario SOL" "$USUARIO_ANTES"
+USUARIO_SOL="$(printf '%s' "$USUARIO_SOL" | tr -d '[:space:]')"
+# RUC + usuario pegados: se le quita el RUC, que el facturador lo antepone solo
+case "$USUARIO_SOL" in "$RUC"?*) USUARIO_SOL="${USUARIO_SOL#"$RUC"}"; echo "  (le quité el RUC de adelante: queda $USUARIO_SOL)";; esac
 [ -n "$USUARIO_SOL" ] || { echo "  Falta el usuario SOL. No se guardó nada." >&2; exit 1; }
+if [ "$USUARIO_SOL" = "$RUC" ]; then
+  echo "  Ahí no va el RUC: va el NOMBRE del usuario secundario que creaste en SUNAT" >&2
+  echo "  (Empresas > Administración de usuarios). No se guardó nada." >&2
+  exit 1
+fi
 TIENE="no"; [ -n "$(leer "$ARCHIVO" clave_sol)" ] && TIENE="si"
 preguntar_secreto CLAVE_SOL "Clave SOL (no se ve al escribir)" "$TIENE"
 if [ -n "$CLAVE_SOL" ]; then

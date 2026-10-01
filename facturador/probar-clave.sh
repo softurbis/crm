@@ -4,9 +4,10 @@
 #     bash /opt/facturador/probar-clave.sh EL_RUC
 #
 # Le pide a SUNAT (servicio de consulta de CDR, en producción) un dato con las
-# credenciales de ese emisor. No emite ni cambia nada. Si SUNAT contesta
-# 0102/0104 la clave está mal; 0110 es que el usuario secundario no tiene el
-# perfil de facturación; cualquier otra respuesta significa que entraron. Existe
+# credenciales de ese emisor. No emite ni cambia nada. Los códigos 0100 a 0111 de
+# SUNAT son de la puerta de entrada (usuario que no existe, clave mala, usuario
+# sin perfil): con cualquiera de esos NO entraron. Otra respuesta —por ejemplo
+# "el comprobante no existe"— significa que sí. Existe
 # porque la clave se escribe a ciegas y un dedo de más solo se descubre cuando
 # SUNAT rechaza una factura de verdad.
 set -euo pipefail
@@ -32,11 +33,28 @@ try:
 except Exception:
     pass
 print("  Usuario:", d["ruc"] + d["usuario_sol"])
-if "0110" in cod:
+import re
+n = (re.search(r"(\d{4})\s*$", cod) or [None, ""])[1]
+if d["usuario_sol"] == d["ruc"]:
+    print("  EN EL USUARIO SE GUARDÓ EL RUC. Ahí va el nombre del usuario secundario de SUNAT.")
+    raise SystemExit(1)
+if n in ("0110", "0111"):
     print("  EL USUARIO NO TIENE EL PERFIL DE FACTURACIÓN ->", cod, msg)
     print("  En SUNAT: al usuario secundario hay que asignarle 'SEE - Del Contribuyente y Envío de Documentos'.")
     raise SystemExit(1)
-if any(k in cod for k in ("0102", "0104")):
+if n == "0103":
+    print("  ESE USUARIO NO EXISTE EN SUNAT ->", cod, msg)
+    print("  Va solo el nombre del usuario secundario (sin el RUC), tal como lo creaste en SUNAT.")
+    raise SystemExit(1)
+if n in ("0102", "0104"):
     print("  CLAVE INCORRECTA ->", cod, msg); raise SystemExit(1)
+if n in ("0105", "0106"):
+    print("  EL USUARIO NO ESTÁ ACTIVO O NO ES VÁLIDO ->", cod, msg); raise SystemExit(1)
+# 0100-0111 es la puerta de entrada de SUNAT: nada de ese rango es "entraron"
+if n.isdigit() and 100 <= int(n) <= 111:
+    print("  SUNAT NO DEJÓ ENTRAR ->", cod, msg); raise SystemExit(1)
+if not cod and r.status_code >= 500:
+    print("  SUNAT no está contestando (", r.status_code, "). Prueba de nuevo en unos minutos.")
+    raise SystemExit(2)
 print("  CREDENCIALES OK (SUNAT contestó:", cod, msg[:60] + ")")
 PY
