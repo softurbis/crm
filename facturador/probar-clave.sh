@@ -88,5 +88,13 @@ if n2.isdigit() and 100 <= int(n2) <= 111:
 if not cod2 and r2.status_code >= 500:
     print("  El servicio de envío de SUNAT no está contestando (", r2.status_code, "): no se pudo comprobar el perfil de envío.")
     raise SystemExit(2)
+if not cod2:
+    # 1 oct 2026: aquí SUNAT contestó algo que no era ni un código ni un mensaje, y el
+    # guion dijo "puede enviar" cuando la factura real seguía con 0111. Sin código
+    # reconocible NO se afirma nada: la prueba verdadera es el comprobante en la cola.
+    print("  NO SE PUDO COMPROBAR EL PERFIL DE ENVÍO: SUNAT contestó algo que no se entiende (HTTP %s)." % r2.status_code)
+    print("  Lo que contestó:", re.sub(r"\s+", " ", r2.text or "")[:300] or "(vacío)")
+    print("  La prueba que vale es el comprobante en la cola: si sigue con 0111, el perfil todavía no está activo en SUNAT.")
+    raise SystemExit(2)
 print("  PUEDE ENVIAR COMPROBANTES (SUNAT contestó:", cod2, msg2[:60] + ")")
 PY
