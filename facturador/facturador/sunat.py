@@ -190,7 +190,7 @@ def enviar_resumen(config, xml_firmado, identificador, timeout=60):
     nombre = "%s-%s" % (config.ruc, identificador)
     sobre = SOBRE_RESUMEN.format(
         usuario=_xml(config.usuario_sunat),
-        clave=_xml(config.clave_sol),
+        clave=_xml(config.clave_sunat),
         archivo=nombre,
         contenido=base64.b64encode(zipear(xml_firmado, nombre)).decode("ascii"),
     )
@@ -232,7 +232,7 @@ def consultar_ticket(config, ticket, timeout=45):
       · 99  procesado CON ERRORES (también viene el CDR, con el motivo)
     """
     sobre = SOBRE_ESTADO.format(
-        usuario=_xml(config.usuario_sunat), clave=_xml(config.clave_sol), ticket=ticket
+        usuario=_xml(config.usuario_sunat), clave=_xml(config.clave_sunat), ticket=ticket
     )
     r, error = _postear(config, sobre, timeout)
     if error:
@@ -280,7 +280,7 @@ def enviar(config, xml_firmado, tipo_codigo, serie, numero, timeout=45):
     nombre = nombre_archivo(config.ruc, tipo_codigo, serie, numero)
     sobre = SOBRE.format(
         usuario=_xml(config.usuario_sunat),
-        clave=_xml(config.clave_sol),
+        clave=_xml(config.clave_sunat),
         archivo=nombre,
         contenido=base64.b64encode(zipear(xml_firmado, nombre)).decode("ascii"),
     )

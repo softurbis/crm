@@ -130,10 +130,24 @@ class Config:
     def endpoint_facturas(self):
         return AMBIENTES[self.ambiente]["facturas"]
 
+    # EN PRUEBAS SE ENTRA CON LAS CREDENCIALES DE PRUEBA DE SUNAT, NO CON LAS REALES.
+    #
+    # El ambiente beta de SUNAT tiene su propia puerta: cualquier RUC entra con el
+    # usuario MODDATOS y la clave "moddatos". El usuario secundario de verdad
+    # existe solo en producción, así que mandarlo a beta es jugarse la prueba a
+    # cómo conteste ese día — y, de paso, pasear la clave real por un servidor de
+    # pruebas. Las credenciales reales se usan recién al pasar a producción (y
+    # se prueban antes, sin emitir nada, con probar-clave.sh).
     @property
     def usuario_sunat(self):
         """Como lo pide SUNAT: el RUC y el usuario SOL pegados."""
+        if not self.es_produccion:
+            return self.ruc + "MODDATOS"
         return self.ruc + self.usuario_sol
+
+    @property
+    def clave_sunat(self):
+        return self.clave_sol if self.es_produccion else "moddatos"
 
     @property
     def es_produccion(self):
