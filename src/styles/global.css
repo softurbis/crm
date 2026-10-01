@@ -295,7 +295,7 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .contract h3, .contract p:has(+ .ctable), .contract p:has(+ div > .ctable:first-child) { break-after: avoid; page-break-after: avoid; }
 /* el cronograma: fino, centrado, una sola columna. La letra la pone la tabla (10, o
    menos si no entra en una hoja: ver letraQueEntra en ContratoModal) */
-.contract .ctable.compacta td, .contract .ctable.compacta th { padding: .3mm 1.5mm; line-height: 1.15; text-align: center; font-size: inherit; }
+.contract .ctable.compacta td, .contract .ctable.compacta th { padding: .2mm 1.5mm; line-height: 1.15; text-align: center; font-size: inherit; }
 .ctable.firmas td { border: none; }
 /* el encabezado de las tablas del contrato: claro y legible. Antes heredaba el
    thead oscuro de las tablas del panel y con letra oscura encima se veía negro. */

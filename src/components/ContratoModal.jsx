@@ -152,13 +152,14 @@ export default function ContratoModal({ saleId, onClose }) {
     </tr></tbody></table>
   )
   // El cronograma: UNA sola columna (una cuota por fila, pedido del 30 sep) que entra
-  // en UNA hoja. Va en letra 10; si con 10 no entra, baja a 9, 8, 7 o 6 solo en esta
-  // tabla. La cuenta es la misma del PDF (fila = letra × 1.15 + 0.6 mm de relleno;
-  // 232 mm libres en la hoja después del título y una línea de presentación; 240 si
-  // solo va el título) y el tamaño viaja en data-letra para que el PDF y el Word
-  // usen el mismo.
+  // en UNA hoja. Letra 9, más fina que el resto (pedido del dueño: con 10 la impresión
+  // del navegador quedaba apenas más alta que la hoja, la tabla saltaba de hoja y
+  // dejaba una hoja en blanco y la cuota 48 sola); si con 9 no entra, baja a 8, 7 o 6.
+  // Cuenta: fila = letra × 1.15 + 0.9 mm (relleno y raya, vale para la impresión y el
+  // PDF); 232 mm libres después del título y una línea de presentación, 240 si solo
+  // va el título. El tamaño viaja en data-letra para que el PDF y el Word usen el mismo.
   const fechaCorta = iso => { const [y, m, d] = String(iso || '').split('-'); return d ? `${d}/${m}/${y}` : '-' }
-  const letraQueEntra = (filas, libre) => [10, 9, 8, 7].find(t => (filas + 1) * (t * 1.15 * 0.3528 + 0.6) <= libre) || 6
+  const letraQueEntra = (filas, libre) => [9, 8, 7].find(t => (filas + 1) * (t * 1.15 * 0.3528 + 0.9) <= libre) || 6
   const tablaUnaHoja = (key, columnas, filas, libre = 232) => {
     const letra = letraQueEntra(filas.length, libre)
     return (
