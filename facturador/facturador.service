@@ -1,0 +1,39 @@
+# El facturador — servicio de systemd.
+#
+# Se instala con `instalar.sh`. Corre como su propio usuario y escucha solo en
+# localhost: este proceso tiene los certificados digitales en memoria, así que
+# todo lo que se le pueda quitar de encima, se le quita.
+[Unit]
+Description=Facturador electronico (SUNAT) - Urbis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=facturador
+Group=facturador
+WorkingDirectory=/opt/facturador
+Environment=PYTHONUNBUFFERED=1
+Environment=FACTURADOR_CARPETA=/etc/facturador
+ExecStart=/opt/facturador/venv/bin/python -m facturador.servicio
+Restart=always
+RestartSec=5
+
+# El servicio no tiene por qué poder tocar nada más que su archivo de
+# comprobantes. Si algún día lo comprometen, que llegue hasta acá.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/facturador
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=facturador
+
+[Install]
+WantedBy=multi-user.target

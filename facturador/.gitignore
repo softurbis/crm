@@ -1,0 +1,11 @@
+# Nunca al repositorio:
+__pycache__/
+*.pyc
+venv/
+# la configuración real lleva la clave SOL y la del certificado
+servicio.json
+emisores/
+# el certificado, en cualquiera de sus formas
+*.pfx
+*.p12
+*.key.pem

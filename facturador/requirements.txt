@@ -1,0 +1,14 @@
+# El facturador. Cuatro dependencias y ninguna de adorno:
+#
+#   lxml          leer y escribir XML, y canonicalizarlo (que es lo que se firma)
+#   cryptography  abrir el certificado .pfx y hacer la firma RSA
+#   signxml       armar el XML-DSig como lo pide SUNAT
+#   requests      el POST del sobre SOAP
+#
+# El servidor HTTP es de la biblioteca estándar a propósito: son ~100
+# comprobantes por día desde un solo cliente en la misma máquina, y un
+# framework acá solo agregaría una dependencia más que mantener.
+lxml>=5.0
+cryptography>=42.0
+signxml>=4.0
+requests>=2.31
