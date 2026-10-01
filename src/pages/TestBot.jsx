@@ -122,7 +122,7 @@ export default function TestBot() {
         Chat virtual para pulir el bot sin usar WhatsApp real. El chat se conserva al cambiar de perfil; solo se limpia con <b>Nueva conversación</b> o <b>Borrar</b>.
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 350px) 1fr', gap: 14, alignItems: 'start' }}>
+      <div className="dos-paneles" style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 350px) 1fr', gap: 14, alignItems: 'start' }}>
         {/* Configuración */}
         <div className="glass" style={{ padding: 14 }}>
           <b style={{ fontSize: 13 }}>1 · Perfil a simular</b>

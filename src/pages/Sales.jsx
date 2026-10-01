@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import { fechaPe } from '../lib/lotes'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const EST = {
@@ -26,7 +27,7 @@ export default function Sales() {
   async function load() {
     if (!pidOp) return
     const { data } = await supabase.from('sales')
-      .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, client:clients!sales_client_id_fkey(full_name, doc_number), lot:lots!inner(mz, lt, project_id, associated_to), installments(amount, amount_paid, status)')
+      .select('id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, client:clients!sales_client_id_fkey(full_name, doc_number), lot:lots!inner(id, mz, lt, project_id, associated_to), installments(amount, amount_paid, status)')
       .eq('lot.project_id', pidOp)
       .order('sale_date', { ascending: false })
     setRows(data || [])
@@ -86,9 +87,10 @@ export default function Sales() {
               const conjunta = (r.lot?.associated_to || '').startsWith('VENTA CONJUNTA')
               return (
                 <tr key={r.id} style={r.status === 'pagado' ? { background: 'rgba(75,185,106,.08)' } : undefined}>
-                  <td><b>{conjunta ? r.lot.associated_to.split(' (')[0].replace('VENTA CONJUNTA ', '') : `${r.lot?.mz}-${r.lot?.lt}`}</b></td>
+                  {/* el lote lleva a su ficha: ahí se cobra, se ven las cuotas y el contrato */}
+                  <td><Link className="lote-chip" to={`/lotes/${r.lot?.id}`} title="Abrir la ficha del lote">{conjunta ? r.lot.associated_to.split(' (')[0].replace('VENTA CONJUNTA ', '') : `${r.lot?.mz}-${r.lot?.lt}`}</Link></td>
                   <td>{r.client?.full_name || '-'}</td>
-                  <td>{r.sale_date}</td>
+                  <td>{fechaPe(r.sale_date)}</td>
                   <td>{soles(r.total_sale_price)}</td>
                   <td style={{ color: '#4bb96a' }}>{soles(c.cobrado)}</td>
                   <td>{soles(c.saldo)}</td>

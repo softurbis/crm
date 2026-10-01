@@ -4,6 +4,8 @@ import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import LoteLink from '../components/LoteLink'
+import { fechaPe } from '../lib/lotes'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const hoy = () => new Date().toISOString().slice(0, 10)
@@ -254,9 +256,9 @@ export default function Commissions() {
             {filtradas.map(r => (
               <tr key={r.id}>
                 <td><b>{r.advisor?.code || '-'}</b></td>
-                <td>{r.sale?.lot ? `${r.sale.lot.mz}-${r.sale.lot.lt}` : '-'}</td>
+                <td><LoteLink lot={r.sale?.lot} /></td>
                 <td>{r.sale?.client?.full_name || '-'}</td>
-                <td>{r.sale?.sale_date || '-'}</td>
+                <td>{fechaPe(r.sale?.sale_date)}</td>
                 <td>{soles(r.sale?.total_sale_price)}</td>
                 <td>
                   {amtEdit?.id === r.id ? (
@@ -318,9 +320,9 @@ export default function Commissions() {
               <tbody>
                 {ventasSin.slice(0, 50).map(s => (
                   <tr key={s.id}>
-                    <td>{s.lot?.mz}-{s.lot?.lt}</td>
+                    <td><LoteLink lot={s.lot} /></td>
                     <td>{s.client?.full_name}</td>
-                    <td>{s.sale_date}</td>
+                    <td>{fechaPe(s.sale_date)}</td>
                     <td>{s.advisor?.code || <span className="muted">sin asesor</span>}</td>
                     <td>{soles(s.total_sale_price)}</td>
                     <td><button className="btn-ghost" onClick={() => { setAddSale(s); setAddMonto(''); setAddUrbis('') }}>+ Registrar comision</button></td>

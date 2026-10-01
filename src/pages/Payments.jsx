@@ -6,6 +6,8 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import DetallePago, { EstadoChip } from '../components/DetallePago'
 import BuscarLote from '../components/BuscarLote'
+import LoteLink from '../components/LoteLink'
+import { fechaPe } from '../lib/lotes'
 import {
   soles, estadoDe, conceptoPago, agruparPagos, COLS_PAGO as COLS, COLS_PAGO_NA as COLS_NA,
   subirDocPago, marcarNoAplica as marcarNA, quitarNoAplica as quitarNA,
@@ -372,8 +374,8 @@ export default function Payments() {
               return (
                 <Fragment key={g.key}>
                   <tr key={g.key} className={'row-' + estadoDe(r).toLowerCase()}>
-                    <td>{r.date}</td>
-                    <td>{g.lotes}</td>
+                    <td>{fechaPe(r.date)}</td>
+                    <td>{g.items.every(p => p.lot && p.lot.mz === r.lot?.mz && p.lot.lt === r.lot?.lt) ? <LoteLink lot={r.lot} /> : g.lotes}</td>
                     <td><button className="link-btn" title={expandible ? 'Ver cómo se distribuyó el pago' : 'Ver documentos'} onClick={() => expandible ? alternarGrupo(g.key) : abrirPago(r)}>
                       {expandible && (abierto ? '▾ ' : '▸ ')}{g.concepto}
                     </button></td>
@@ -395,7 +397,7 @@ export default function Payments() {
                   {abierto && g.items.map((p, i) => (
                     <tr key={p.id} style={{ background: 'rgba(255,255,255,.025)' }}>
                       <td></td>
-                      <td>{p.lot ? `${p.lot.mz}-${p.lot.lt}` : '-'}</td>
+                      <td><LoteLink lot={p.lot} /></td>
                       <td><button className="link-btn muted" title="Ver detalle de esta aplicación" onClick={() => abrirPago(p)}>↳ {conceptoPago(p)}</button></td>
                       <td><span className="muted small">aplicación</span></td>
                       <td>{editando

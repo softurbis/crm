@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { aplicarDni } from '../lib/leerDni'
@@ -54,7 +54,7 @@ export default function Clients() {
   async function load() {
     const [{ data, error }, prj] = await Promise.all([
       supabase.from('clients')
-        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), co_sales:sales!sales_co_client_id_fkey(id, status, lot:lots(mz, lt, project_id)), separations(id, status, lot:lots(mz, lt, project_id))')
+        .select('*, sales!sales_client_id_fkey(id, status, lot:lots(id, mz, lt, project_id)), co_sales:sales!sales_co_client_id_fkey(id, status, lot:lots(id, mz, lt, project_id)), separations(id, status, lot:lots(id, mz, lt, project_id))')
         .order('full_name'),
       supabase.from('projects').select('id, name').order('created_at'),
     ])
@@ -74,13 +74,13 @@ export default function Clients() {
     return [...ids]
   }
   const nombreProyFull = id => allProjects.find(p => p.id === id)?.name || 'PROYECTO'
-  // lotes del cliente agrupados por proyecto: { project_id: ['G-7', 'H-3 (exp)'] }
+  // lotes del cliente agrupados por proyecto: { project_id: [{ id, txt: 'G-7' }, { id, txt: 'H-3 ⚠' }] }
   function lotesDe(c) {
     const m = {}
     for (const s of ventasDe(c)) {
       const pid = s.lot?.project_id
       if (!pid || !s.lot?.mz) continue
-      ;(m[pid] = m[pid] || []).push(`${s.lot.mz}-${s.lot.lt}` + (s.status === 'expropiado' ? ' ⚠' : ''))
+      ;(m[pid] = m[pid] || []).push({ id: s.lot.id, txt: `${s.lot.mz}-${s.lot.lt}` + (s.status === 'expropiado' ? ' ⚠' : '') })
     }
     return m
   }
@@ -318,7 +318,10 @@ export default function Clients() {
                   if (!entradas.length) return <span className="muted">-</span>
                   return entradas.map(([pid, lotes]) => (
                     <span key={pid} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginRight: 6 }} title={nombreProyFull(pid)}>
-                      {lotes.map((l, i) => <span key={i} className="lote-chip">{l}</span>)}
+                      {/* cada lote lleva a su ficha */}
+                      {lotes.map((l, i) => l.id
+                        ? <Link key={i} className="lote-chip" to={`/lotes/${l.id}`} title="Abrir la ficha del lote">{l.txt}</Link>
+                        : <span key={i} className="lote-chip">{l.txt}</span>)}
                     </span>
                   ))
                 })()}</td>

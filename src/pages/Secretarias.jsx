@@ -255,7 +255,7 @@ export default function Secretarias() {
         </div>
       ) })()}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.4fr) minmax(280px, 1fr)', gap: 14, alignItems: 'start' }}>
+      <div className="dos-paneles" style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.4fr) minmax(280px, 1fr)', gap: 14, alignItems: 'start' }}>
         <div className="glass" style={{ padding: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
             {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map(d => <div key={d} className="muted" style={{ fontSize: 10, textAlign: 'center', fontWeight: 700 }}>{d}</div>)}

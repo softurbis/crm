@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext'
 import ContratoModal from '../components/ContratoModal'
 import { VARIABLES, BLOQUES, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO, subirContratoFirmado } from '../lib/contrato'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import LoteLink from '../components/LoteLink'
+import { fechaPe } from '../lib/lotes'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
@@ -200,10 +202,10 @@ export default function Contracts() {
           <tbody>
             {filtradas.map(v => (
               <tr key={v.id}>
-                <td>{v.lot?.mz}-{v.lot?.lt}</td>
+                <td><LoteLink lot={v.lot} /></td>
                 <td>{v.client?.full_name}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
                 <td>{soles(v.total_sale_price)}</td>
-                <td>{v.sale_date}
+                <td>{fechaPe(v.sale_date)}
                   {role === 'superuser' && <button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
                 </td>
                 <td>
