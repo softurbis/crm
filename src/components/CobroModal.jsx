@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
 import { confirmar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
+import { useProject } from '../context/ProjectContext'
 import DatosPago from './DatosPago'
 import FormPersona, { BuscarCliente } from './FormPersona'
 import { soles } from '../lib/pagos'
@@ -26,6 +27,9 @@ const TITULO = { separacion: 'Separar', inicial: 'Cobrar inicial', directa: 'Ven
 export default function CobroModal({ tipo, lote, detail, onClose, onListo, onContrato }) {
   const { profile, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const pidOp = lote.project_id
+  // ¿este proyecto emite sus boletas desde el panel (sql/113)? Cambia el aviso final.
+  const { projects } = useProject()
+  const facturaAqui = !!projects.find(p => p.id === pidOp)?.fact_activo
   const sep = detail.sep
   const sale = detail.sale
   const modo = tipo === 'inicial' && !sep ? 'directa' : tipo
@@ -239,7 +243,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
             <p className="ok cobro-hecho-t">✓ {hecho.titulo}</p>
             <p>{hecho.texto}</p>
             {(hecho.avisos || []).map((a, i) => <p key={i} className="warn">{a}</p>)}
-            <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>
+            {facturaAqui
+              ? <p className="muted small">Ya puedes emitir su boleta o factura electrónica: en la pestaña <b>Pagos y documentos</b> de la ficha, botón <b>🧾 Emitir</b>.</p>
+              : <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>}
             <div className="acc-row" style={{ marginTop: 10 }}>
               {hecho.saleId && (onContrato
                 ? <button className="btn-primary" onClick={() => onContrato(hecho.saleId)}>&#128196; Generar contrato</button>
