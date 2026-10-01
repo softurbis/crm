@@ -99,13 +99,29 @@ echo ""
 echo "--- El certificado digital ---"
 CERT=""
 for EXT in p12 pfx; do [ -f "$DIR/$RUC.$EXT" ] && CERT="$DIR/$RUC.$EXT"; done
+# El certificado más reciente que haya en /root: es el que se acaba de subir. Se
+# ofrece para aceptarlo con Enter, porque la ruta que pide esto es la del SERVIDOR
+# y lo natural es escribir la de la computadora (pasó tres veces el 1 oct).
+SUBIDO="$(ls -t /root/*.p12 /root/*.pfx 2>/dev/null | head -1 || true)"
 if [ -n "$CERT" ]; then
   echo "  Ya hay uno cargado: $CERT"
   read -r -p "  Ruta de uno NUEVO para reemplazarlo [Enter = dejar el que está]: " ORIGEN
+elif [ -n "$SUBIDO" ]; then
+  echo "  En el servidor está este: $SUBIDO  ($(date -r "$SUBIDO" '+subido el %d/%m/%Y a las %H:%M'))"
+  read -r -p "  Enter para usar ese (o escribe otra ruta DEL SERVIDOR; 'no' = todavía no lo tengo): " ORIGEN
+  case "${ORIGEN,,}" in no|n) ORIGEN="";; "") ORIGEN="$SUBIDO";; esac
 else
-  echo "  El archivo .p12 o .pfx que subiste al servidor (por ejemplo /root/certificado.p12)."
-  read -r -p "  Ruta del certificado [Enter = todavía no lo tengo]: " ORIGEN
+  echo "  Todavía no hay ningún .p12 o .pfx en /root. Se sube desde tu computadora con:"
+  echo "      scp \"C:\ruta\certificado.p12\" root@157.245.8.78:/root/"
+  read -r -p "  Ruta del certificado EN EL SERVIDOR [Enter = todavía no lo tengo]: " ORIGEN
 fi
+# una ruta de Windows (C:\..., con barras invertidas) es de la computadora, no de aquí
+case "$ORIGEN" in
+  *\\*|[A-Za-z]:*)
+    echo "  Esa es la ruta de TU computadora. Aquí va la del servidor."
+    if [ -n "$SUBIDO" ]; then echo "  Uso el que está subido: $SUBIDO"; ORIGEN="$SUBIDO"
+    else echo "  Primero súbelo con scp y vuelve a correr esto. No se guardó nada." >&2; exit 1; fi;;
+esac
 if [ -n "$ORIGEN" ]; then
   [ -f "$ORIGEN" ] || { echo "  No existe $ORIGEN. No se guardó nada." >&2; exit 1; }
   case "${ORIGEN,,}" in *.pfx) EXT=pfx;; *) EXT=p12;; esac
