@@ -127,10 +127,16 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
     : q.estado === 'ok' ? <span className="cp-busca ok">✓ {q.fuente === 'cliente' ? 'Ya es cliente: datos de su ficha' : 'Datos de ' + q.fuente}</span>
     : <span className="cp-busca no">{q.mensaje}</span>
 
-  // ya pedido: se mira hasta que salga (el servidor lo toma en segundos)
+  // ya pedido: se mira hasta que salga (el servidor lo toma en segundos). El PDF se
+  // arma un instante DESPUÉS de que SUNAT acepta: se sigue mirando un poco más para
+  // que aparezca "Ver / imprimir" sin tener que cerrar y volver a abrir.
+  const sinPdf = useRef(0)
   useEffect(() => {
-    if (!pedido || !enCamino(pedido)) return
+    if (!pedido) return
+    const faltaPdf = estaVivo(pedido) && !pedido.pdf_url && sinPdf.current < 20
+    if (!enCamino(pedido) && !faltaPdf) return
     const t = setInterval(async () => {
+      if (!enCamino(pedido)) sinPdf.current++
       const { data } = await supabase.from('comprobantes').select(COLS_COMPROBANTE).eq('id', pedido.id).maybeSingle()
       if (data) setPedido(data)
     }, 2000)
