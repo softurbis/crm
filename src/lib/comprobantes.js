@@ -94,6 +94,59 @@ export async function reintentarComprobante(id) {
   if (error) throw new Error(amable(error))
 }
 
+// ---- mandárselo al cliente por WhatsApp (sql/123) ----
+// Dos caminos. Si el proyecto tiene SU WhatsApp conectado en el sistema, el panel
+// solo lo pide y el PDF sale solo, desde el servidor. Si no lo tiene, se abre el
+// WhatsApp de quien cobra con el mensaje y el enlace del PDF ya escritos. Nunca
+// sale por el número de otro proyecto: cada proyecto es independiente.
+export async function wspDelProyecto(projectId) {
+  if (!projectId) return null
+  const { data, error } = await supabase.rpc('wsp_del_proyecto', { p_project: projectId })
+  return error ? null : (data || null)   // el número del proyecto, o null (también si sql/123 no está)
+}
+export function textoComprobanteWsp(c, proyecto) {
+  const items = (c.items || []).map(i => i.descripcion).filter(Boolean)
+  const detalle = items.slice(0, 3).join('; ') + (items.length > 3 ? ' y ' + (items.length - 3) + ' más' : '')
+  const firma = proyecto?.fact_razon_social || proyecto?.name || ''
+  return 'Buen día. Le enviamos su ' + (c.tipo === 'factura' ? 'factura electrónica ' : 'boleta de venta electrónica ')
+    + c.serie + '-' + c.numero + ' por S/ ' + Number(c.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    + (detalle ? '\n' + detalle : '')
+    + '\n\nPuede verla y descargarla aquí:\n' + c.pdf_url
+    + '\n\nGracias por su pago.' + (firma ? '\n' + firma : '')
+}
+export const enlaceWsp = (tel, texto) => {
+  const d = String(tel || '').replace(/\D/g, '')
+  return 'https://wa.me/' + (d.length === 9 ? '51' + d : d) + '?text=' + encodeURIComponent(texto)
+}
+export async function enviarComprobanteWsp(id, telefono) {
+  const { data, error } = await supabase.rpc('enviar_comprobante_wsp', { p_id: id, p_telefono: telefono })
+  if (error) {
+    const m = String(error.message || '')
+    if (/PGRST20[25]|schema cache|does not exist|Could not find/i.test(m)) throw new Error('El envío por WhatsApp todavía no está instalado en la base (falta correr sql/123).')
+    throw new Error(m)
+  }
+  return data   // el número al que va, ya con el código del país
+}
+// En qué va el envío. Se lee aparte de COLS_COMPROBANTE: si sql/123 no está
+// corrido, esto devuelve null y el resto del panel sigue igual.
+export async function envioWsp(id) {
+  const { data, error } = await supabase.from('comprobantes').select('wsp_a, wsp_at, wsp_estado, wsp_error').eq('id', id).maybeSingle()
+  return error ? null : data
+}
+// Los celulares registrados de a quien se le emitió (el de la ficha del cliente)
+export async function celularesDe(c) {
+  let cli = null
+  if (c?.client_id) cli = (await supabase.from('clients').select('phone, phone2').eq('id', c.client_id).maybeSingle()).data
+  if (!cli && c?.sale_id) cli = (await supabase.from('sales').select('client:clients!sales_client_id_fkey(phone, phone2)').eq('id', c.sale_id).maybeSingle()).data?.client
+  const limpio = t => { const d = String(t || '').replace(/\D/g, ''); return d.length === 11 && d.startsWith('51') ? d.slice(2) : d }
+  return [...new Set([cli?.phone, cli?.phone2].map(limpio).filter(d => d.length >= 9))]
+}
+export const celularBonito = t => {
+  const d = String(t || '').replace(/\D/g, '')
+  const n = d.length === 11 && d.startsWith('51') ? d.slice(2) : d
+  return n.length === 9 ? n.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3') : (d ? '+' + d : '')
+}
+
 // Los comprobantes de un lote o de un proyecto. Mientras alguno esté en camino se
 // vuelve a mirar cada 3 segundos; si no, no se gasta ni una consulta de más.
 // `filtro`: { lotId } o { projectId, desde }. Sin facturador en el proyecto, no consulta.

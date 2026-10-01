@@ -4206,9 +4206,32 @@ async function procesarSalientesPanel() {
   if (!SESSIONS.size) return
   const { data } = await supabase.from('scheduled_messages')
     .select('id, recipient_phone, body, media_url, media_type, media_name, session_id, conversation_id, sender_id, tipo, wa_msg_id')
-    .in('tipo', ['manual_panel', 'edit_panel', 'vcard_panel', 'label_panel']).eq('status', 'pendiente').order('scheduled_for').limit(10)
+    .in('tipo', ['manual_panel', 'edit_panel', 'vcard_panel', 'label_panel', 'comprobante_panel']).eq('status', 'pendiente').order('scheduled_for').limit(10)
   for (const m of (data || [])) {
     try {
+      // --- boleta o factura al cliente (sql/123): sale SOLO por el WhatsApp de su
+      //     proyecto (cada proyecto es independiente: nunca por el número de otro ni
+      //     por el principal) y el chat NO pasa a modo humano: no es una persona
+      //     atendiendo, es un documento ---
+      if (m.tipo === 'comprobante_panel') {
+        const num = String(m.recipient_phone || '').replace(/\D/g, '')
+        const S = m.session_id ? SESSIONS.get(m.session_id) : null
+        if (!S || !S.sock) throw new Error('el WhatsApp del proyecto no está conectado')
+        let destJid = jidDe(num)
+        const r = await S.sock.onWhatsApp(num + '@s.whatsapp.net').catch(() => null)
+        if (r && !(r[0] && r[0].exists)) throw new Error('ese número no tiene WhatsApp')
+        if (r && r[0] && r[0].jid) destJid = r[0].jid
+        const sent = await S.sock.sendMessage(destJid, {
+          document: { url: m.media_url }, fileName: m.media_name || 'COMPROBANTE.pdf', mimetype: 'application/pdf',
+          caption: (m.body || '').trim() || undefined,
+        })
+        guardarMsg(sent)
+        await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), wa_msg_id: sent?.key?.id || null }).eq('id', m.id)
+        await supabase.from('comprobantes').update({ wsp_estado: 'enviado', wsp_error: null }).eq('wsp_msg_id', m.id).then(() => {}, () => {})
+        log('PANEL -> COMPROBANTE', m.media_name || '', 'enviado a', num, 'por', S.row.label || 'PRINCIPAL')
+        continue
+      }
+
       let conv = null
       if (m.conversation_id) {
         const { data: c } = await supabase.from('whatsapp_conversations').select('id, wa_jid, phone, session_id, modo, wa_label_id, lead_id, flow_state').eq('id', m.conversation_id).maybeSingle()
@@ -4283,6 +4306,7 @@ async function procesarSalientesPanel() {
       log('PANEL -> ENVIADO a', m.recipient_phone, 'por', S.row.label || 'PRINCIPAL')
     } catch (e) {
       await supabase.from('scheduled_messages').update({ status: 'fallido', last_error: String(e.message || e) }).eq('id', m.id)
+      if (m.tipo === 'comprobante_panel') await supabase.from('comprobantes').update({ wsp_estado: 'fallido', wsp_error: String(e.message || e).slice(0, 300) }).eq('wsp_msg_id', m.id).then(() => {}, () => {})
       log('PANEL -> ERROR a', m.recipient_phone, String(e.message || e))
     }
   }

@@ -8,6 +8,7 @@ import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
 import { useComprobantes, ESTADOS, nombreComprobante, esPrueba, emisorDelServidor, emisorVisto } from '../lib/comprobantes'
 import { ComprobanteDetalle, MarcaEmisor } from '../components/Comprobante'
+import PagosTabs from '../components/PagosTabs'
 
 // COMPROBANTES: las boletas y facturas electrónicas del proyecto (sql/113), con lo
 // que le pasó a cada una. Se emiten desde el pago (ficha del lote o Pagos); aquí
@@ -64,7 +65,8 @@ export default function Comprobantes() {
   if (!proyecto) return <p className="muted">Elige un proyecto.</p>
   if (!hayBase || !proyecto.fact_activo) return (
     <>
-      <div className="page-head"><h1>Comprobantes</h1></div>
+      <div className="page-head"><h1>Boletas y facturas</h1></div>
+      <p><Link to="/pagos">← Volver a Pagos</Link></p>
       <div className="glass form-card" style={{ maxWidth: 'none' }}>
         <p><b>{proyecto.name}</b> no tiene prendido el facturador.</p>
         <p className="muted" style={{ textTransform: 'none' }}>
@@ -80,9 +82,10 @@ export default function Comprobantes() {
   return (
     <>
       <div className="page-head">
-        <h1>Comprobantes</h1>
+        <h1>Boletas y facturas</h1>
         <button className="btn-ghost" onClick={recargar} disabled={cargando}>↻ Actualizar</button>
       </div>
+      <PagosTabs />
 
       <div className="glass cp-cabecera">
         <MarcaEmisor proyecto={proyecto} />
@@ -136,7 +139,7 @@ export default function Comprobantes() {
                   <td><button type="button" className={'cp-chip ' + (ESTADOS[c.estado] || ESTADOS.pendiente).c} title={(ESTADOS[c.estado] || ESTADOS.pendiente).ayuda}
                     onClick={() => setVer(c)}>{(ESTADOS[c.estado] || ESTADOS.pendiente).t}{esPrueba(c) ? ' · prueba' : ''}</button>
                     {['rechazado', 'error'].includes(c.estado) && c.mensaje && <div className="muted small" style={{ textTransform: 'none', maxWidth: 320 }}>{c.mensaje}</div>}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{c.pdf_url && <a href={c.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{c.pdf_url && <a className="cp-pdf" href={c.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
                 </tr>
               ))}
               {!visibles.length && <tr><td colSpan={7} className="muted">Ningún comprobante coincide con el filtro.</td></tr>}

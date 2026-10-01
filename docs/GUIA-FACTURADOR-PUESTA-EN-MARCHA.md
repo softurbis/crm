@@ -109,6 +109,20 @@ Desde ahí la numeración empieza en **B001-1 / F001-1** y todo tiene valor.
 | **Pago con boleta** | No se puede borrar ni cambiarle el monto: primero se anula la boleta. |
 | **Apagar** | Proyectos → Configurar → desmarcar. Vuelve a subirse la boleta a mano. |
 
+## Emitir al cobrar y enviar por WhatsApp (1 oct 2026)
+
+- Al terminar un cobro en la ficha, la misma ventana ofrece **🧾 Emitir boleta o factura**: no hay que ir a buscar el pago.
+- Con el comprobante emitido aparece **📲 Enviar al cliente por WhatsApp**, con el celular de su ficha ya puesto (se puede escribir otro).
+  - Si el proyecto tiene **su** WhatsApp conectado en el sistema: botón **Enviar**, sale solo con el PDF adjunto (hace falta `sql/123` y actualizar el agente con el `07`).
+  - Si no lo tiene (hoy: Las Praderas de Pucallpa): botón **Abrir WhatsApp**, se abre el WhatsApp de quien cobra con el mensaje y el enlace del PDF ya escritos.
+  - Una boleta **nunca** sale por el número de otro proyecto: cada proyecto es independiente.
+- **Pagos** y **Boletas y facturas** son una sola entrada del menú con dos pestañas. En cada comprobante se ve su pago.
+- **Anular** no borra el pago: lo deja sin comprobante para emitirle otro. Y un pago con comprobante vigente no se puede borrar ni cambiar de monto: primero se anula.
+
+```bash
+scp "C:\Claude\Projects\Sistema CRM\sql\123_comprobante_por_whatsapp.sql" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 '. /root/urbis-supabase-claves.txt; PGPASSWORD=$POSTGRES_PASSWORD psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /root/123_comprobante_por_whatsapp.sql'
+```
+
 ## El rol Operador (para las secretarias)
 
 Con el 114 y el 115 corridos: Usuarios → cambiarle el rol a **Operador**. Trabaja

@@ -57,9 +57,9 @@ const MENU = [
   { to: '/hoy', label: 'Hoy', icon: '☀️', siempre: true, color: '#9ccb86' },
   { to: '/lotes', label: 'Mapa de lotes', icon: '🗺️', color: '#8fd16f', proy: true },
 
-  { to: '/pagos', label: 'Pagos', icon: '💵', color: '#4fc3a1', proy: true, grupo: 'Cobranza' },
-  // boletas y facturas electrónicas (sql/113): aparece cuando algún proyecto tiene el facturador prendido
-  { to: '/comprobantes', label: 'Comprobantes', icon: '📑', color: '#e58a7b', proy: true, grupo: 'Cobranza', fact: true },
+  // Pagos y sus boletas/facturas electrónicas (sql/113) son una sola entrada: dentro
+  // hay dos pestañas (components/PagosTabs). Un comprobante siempre es de un pago.
+  { to: '/pagos', label: 'Pagos y comprobantes', icon: '💵', color: '#4fc3a1', proy: true, grupo: 'Cobranza', tambien: ['/comprobantes'] },
   { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Cobranza' },
 
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)

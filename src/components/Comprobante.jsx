@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
@@ -9,6 +10,7 @@ import { consultarDoc, rucConProblema } from '../lib/consultaDoc'
 import {
   ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
   pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
+  enviarComprobanteWsp, envioWsp, celularesDe, celularBonito, wspDelProyecto, textoComprobanteWsp, enlaceWsp,
 } from '../lib/comprobantes'
 
 // La boleta o factura electrónica de un cobro (sql/113). Tres piezas:
@@ -39,6 +41,93 @@ export function ComprobanteChip({ c, onClick }) {
       {enCamino(c) && <span className="cp-gira" />}
       <b>{c.numero != null ? nombreComprobante(c) : c.tipo}</b> {e.t}{esPrueba(c) && estaVivo(c) ? ' · prueba' : ''}
     </button>
+  )
+}
+
+// ---------------------------------------------------------------- enviar
+// Mandarle el PDF al cliente por WhatsApp (sql/123): a su celular registrado o a
+// otro. Si el proyecto tiene SU WhatsApp conectado en el sistema, sale solo desde
+// el servidor en unos segundos. Si no, se abre el WhatsApp de quien cobra con el
+// mensaje y el enlace del PDF ya escritos (nunca sale por el número de otro proyecto).
+export function EnviarWsp({ c, proyecto }) {
+  const [numeroProyecto, setNumeroProyecto] = useState(undefined)   // undefined = averiguando · null = no tiene
+  const [tel, setTel] = useState('')
+  const [registrados, setRegistrados] = useState([])
+  const [envio, setEnvio] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const tocado = useRef(false)
+  const sirve = estaVivo(c) && !enCamino(c) && !!c.pdf_url && !esPrueba(c) && !c.motivo_baja
+
+  useEffect(() => {
+    if (!sirve) return
+    let vivo = true
+    celularesDe(c).then(l => { if (!vivo) return; setRegistrados(l); if (!tocado.current && l[0]) setTel(l[0]) })
+    envioWsp(c.id).then(e => { if (vivo && e) setEnvio(e) })
+    wspDelProyecto(c.project_id).then(n => { if (vivo) setNumeroProyecto(n) })
+    return () => { vivo = false }
+  }, [c.id, sirve])   // eslint-disable-line
+  // mientras está saliendo se vuelve a mirar (el servidor lo manda en menos de medio minuto)
+  const saliendo = envio?.wsp_estado === 'pendiente'
+  useEffect(() => {
+    if (!saliendo) return
+    const t = setInterval(async () => { const e = await envioWsp(c.id); if (e) setEnvio(e) }, 3000)
+    return () => clearInterval(t)
+  }, [saliendo, c.id])
+  if (!sirve) return null
+
+  const numero = () => {
+    const d = tel.replace(/\D/g, '')
+    if (d.length < 9) { setErr('Escribe el celular: 9 dígitos.'); return null }
+    return d
+  }
+  // desde el WhatsApp de quien cobra: se abre con el número, el mensaje y el enlace listos
+  function abrir() {
+    setErr('')
+    const d = numero()
+    if (d) window.open(enlaceWsp(d, textoComprobanteWsp(c, proyecto)), '_blank', 'noopener')
+  }
+  async function enviar() {
+    setErr('')
+    const d = numero()
+    if (!d) return
+    setBusy(true)
+    try {
+      const a = await enviarComprobanteWsp(c.id, d)
+      setEnvio({ wsp_a: a, wsp_at: new Date().toISOString(), wsp_estado: 'pendiente', wsp_error: null })
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+  const demora = saliendo && envio.wsp_at && Date.now() - new Date(envio.wsp_at).getTime() > 90000
+  const que = c.tipo === 'factura' ? 'la factura' : 'la boleta'
+  return (
+    <div className="cp-wsp">
+      <p className="cp-sub">📲 Enviar {que} al cliente por WhatsApp</p>
+      <div className="cp-wsp-fila">
+        <input value={tel} inputMode="tel" placeholder="Celular (9 dígitos)" aria-label="Celular al que se envía"
+          onChange={e => { tocado.current = true; setTel(e.target.value.replace(/[^\d+ ]/g, '').slice(0, 18)) }}
+          onKeyDown={e => { if (e.key === 'Enter' && numeroProyecto !== undefined) (numeroProyecto ? enviar : abrir)() }} />
+        {numeroProyecto
+          ? <button type="button" className="btn-primary" onClick={enviar} disabled={busy || (saliendo && !demora)}>
+              {busy ? 'Pidiendo…' : saliendo && !demora ? 'Enviando…' : envio?.wsp_estado === 'enviado' ? 'Enviar otra vez' : 'Enviar'}
+            </button>
+          : numeroProyecto === null && <button type="button" className="btn-primary" onClick={abrir}>Abrir WhatsApp</button>}
+      </div>
+      {registrados.length > 0
+        ? <p className="muted small cp-wsp-reg">Registrado{registrados.length > 1 ? 's' : ''}: {registrados.map(n => (
+            <button type="button" key={n} className={'link-btn' + (tel.replace(/\D/g, '').endsWith(n) ? ' on' : '')} onClick={() => { tocado.current = true; setTel(n) }}>{celularBonito(n)}</button>
+          ))} · o escribe otro número.</p>
+        : <p className="muted small cp-wsp-reg">El cliente no tiene celular en su ficha: escribe el número.</p>}
+      {numeroProyecto
+        ? <p className="muted small cp-wsp-reg">Sale solo, con el PDF adjunto, por el WhatsApp del proyecto ({celularBonito(numeroProyecto) || 'conectado'}). <button type="button" className="link-btn" onClick={abrir}>O mandarlo desde mi WhatsApp</button></p>
+        : numeroProyecto === null && <p className="muted small cp-wsp-reg">Se abre tu WhatsApp con el mensaje y el enlace {c.tipo === 'factura' ? 'de la factura' : 'de la boleta'} ya escritos: solo falta presionar enviar.</p>}
+      {err && <p className="error" style={{ textTransform: 'none', margin: '.3rem 0 0' }}>{err}</p>}
+      {!err && saliendo && <p className="cp-busca">{!demora && <span className="cp-gira" />}{demora
+        ? 'Está tardando más de lo normal: revisa que el WhatsApp del proyecto esté conectado. Se puede volver a enviar.'
+        : 'Enviando a ' + celularBonito(envio.wsp_a) + '… sale en unos segundos.'}</p>}
+      {!err && envio?.wsp_estado === 'enviado' && <p className="cp-busca ok">✓ Enviado a {celularBonito(envio.wsp_a)}{envio.wsp_at ? ' · ' + new Date(envio.wsp_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</p>}
+      {!err && envio?.wsp_estado === 'fallido' && <p className="cp-busca no">No se pudo enviar a {celularBonito(envio.wsp_a)}: {envio.wsp_error || 'sin detalle'}.</p>}
+    </div>
   )
 }
 
@@ -199,6 +288,7 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
               {pedido.pdf_url && <a className="btn-primary btn-link" href={pedido.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
               <button className="btn-ghost" onClick={onCerrar}>{enCamino(pedido) ? 'Cerrar (sigue saliendo solo)' : 'Cerrar'}</button>
             </div>
+            <EnviarWsp c={pedido} proyecto={proyecto} />
           </div>
         ) : (
           <>
@@ -310,6 +400,20 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
     setBusy(false)
   }
 
+  // El pago (o los pagos, si fue una cascada) de este comprobante. Anular no borra el
+  // pago: lo deja sin comprobante, libre para emitirle otro.
+  const [pagos, setPagos] = useState(null)
+  useEffect(() => {
+    const ids = (c.items || []).map(i => i.pago_id).filter(Boolean)
+    if (!ids.length) { setPagos([]); return }
+    let vivo = true
+    supabase.from('daily_income').select('id, date, amount, operation_number, voucher_url, lot:lots(id, mz, lt)').in('id', ids).order('date')
+      .then(({ data }) => { if (vivo) setPagos(data || []) })
+    return () => { vivo = false }
+  }, [c.id])   // eslint-disable-line
+  const lotePago = pagos?.find(p => p.lot)?.lot || null
+  const sinValor = !estaVivo(c)
+
   const puedeAnular = esJefe && estaVivo(c) && !['emitiendo', 'por_anular'].includes(c.estado) && !c.motivo_baja
   return (
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
@@ -331,6 +435,27 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
         {(c.items || []).map((it, i) => (
           <div className="cp-linea" key={i}><span>{it.descripcion}</span><b>{soles(it.monto)}</b></div>
         ))}
+        {pagos && (
+          <div className="cp-pago">
+            <p className="cp-sub">💵 El pago de {c.tipo === 'factura' ? 'esta factura' : 'esta boleta'}{lotePago ? ' · lote ' + lotePago.mz + '-' + lotePago.lt : ''}</p>
+            {pagos.length === 0
+              ? <p className="muted small">El pago ya no está en el sistema (fue borrado).</p>
+              : pagos.map(p => (
+                <div className="cp-linea" key={p.id}>
+                  <span>{fechaPe(p.date)} · operación {p.operation_number || '—'}{p.voucher_url && <> · <a href={p.voucher_url} target="_blank" rel="noreferrer">voucher</a></>}</span>
+                  <b>{soles(p.amount)}</b>
+                </div>
+              ))}
+            <p className="muted small" style={{ margin: '.4rem 0 0' }}>
+              {c.estado === 'por_anular' || (c.motivo_baja && c.estado !== 'anulado')
+                ? 'Se está anulando. Cuando SUNAT confirme la baja, el pago queda sin comprobante y se le puede emitir otro.'
+                : sinValor
+                  ? 'Este comprobante ya no vale: el pago quedó sin comprobante y se le puede emitir otro.'
+                  : 'Si se anula, el pago NO se borra: queda sin comprobante y se le emite otro. Mientras tenga comprobante, el pago no se puede borrar ni cambiar de monto.'}
+              {lotePago && <> <Link to={'/lotes/' + lotePago.id + '?tab=pagos'} onClick={onCerrar}>{sinValor ? 'Emitir otro desde la ficha del lote' : 'Ver el pago en la ficha del lote'} →</Link></>}
+            </p>
+          </div>
+        )}
         <div className="acc-row" style={{ marginTop: 14 }}>
           {c.pdf_url && <a className="btn-primary btn-link" href={c.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
           {c.xml_url && <a className="btn-ghost btn-link" href={c.xml_url} target="_blank" rel="noreferrer" title="El archivo firmado: es el comprobante de verdad">XML</a>}
@@ -338,6 +463,7 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
           {c.estado === 'error' && <button className="btn-ghost" onClick={reintentar} disabled={busy}>↻ Reintentar ahora</button>}
           {puedeAnular && <button className="btn-ghost cp-anular" onClick={anular} disabled={busy}>Anular</button>}
         </div>
+        <EnviarWsp c={c} proyecto={proyecto} />
       </div>
     </div>
   )

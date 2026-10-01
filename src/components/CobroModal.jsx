@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
-import { confirmar, pedirDatos } from '../lib/dialogos'
+import { confirmar, pedirDatos, avisar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import DatosPago from './DatosPago'
+import { EmitirComprobante, ComprobanteDetalle } from './Comprobante'
+import { estaVivo, nombreComprobante } from '../lib/comprobantes'
 import FormPersona, { BuscarCliente } from './FormPersona'
 import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
@@ -29,7 +31,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const pidOp = lote.project_id
   // ¿este proyecto emite sus boletas desde el panel (sql/113)? Cambia el aviso final.
   const { projects } = useProject()
-  const facturaAqui = !!projects.find(p => p.id === pidOp)?.fact_activo
+  const proyecto = projects.find(p => p.id === pidOp) || null
+  const facturaAqui = !!proyecto?.fact_activo
   const sep = detail.sep
   const sale = detail.sale
   const modo = tipo === 'inicial' && !sep ? 'directa' : tipo
@@ -40,7 +43,12 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const [secs, setSecs] = useState([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
-  const [hecho, setHecho] = useState(null)   // { titulo, texto, saleId, avisos }
+  const [hecho, setHecho] = useState(null)   // { titulo, texto, saleId, avisos, cobro }
+  // la boleta o factura del cobro recién hecho, sin salir de aquí (sql/113)
+  const [emitirDe, setEmitirDe] = useState(null)   // el depósito, como lo arma agruparPagos
+  const [comp, setComp] = useState(null)           // el comprobante ya pedido
+  const [verComp, setVerComp] = useState(false)
+  const [buscandoPago, setBuscandoPago] = useState(false)
 
   // ---- cuotas pendientes (cuota) ----
   const pendientes = useMemo(() => (sale ? detail.inst : [])
@@ -173,6 +181,22 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     return null
   }
 
+  // Las filas del pago que se acaba de registrar: se buscan por lote, fecha y N° de
+  // operación (las más nuevas), igual que las agrupa la ficha.
+  const refPago = n => ({ op: (String(pago.nroOp || '').trim() || 'SIN-REF').toUpperCase(), fecha: pago.fecha, n })
+  async function abrirEmitir() {
+    const c = hecho?.cobro
+    if (!c) return
+    setBuscandoPago(true)
+    const { data, error } = await supabase.from('daily_income')
+      .select('id, amount, income_type, installment_id, installment:installments(installment_number)')
+      .eq('lot_id', lote.id).eq('date', c.fecha).eq('operation_number', c.op)
+      .order('created_at', { ascending: false }).limit(c.n)
+    setBuscandoPago(false)
+    if (error || !data?.length) { avisar('No encontré el pago recién registrado. Emite el comprobante desde la pestaña Pagos y documentos de la ficha.', { tono: 'error' }); return }
+    setEmitirDe({ items: data })
+  }
+
   async function registrar() {
     setErr(null)
     const e = validar()
@@ -190,7 +214,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
           clienteId: clienteSel !== 'nuevo' ? clienteSel : null,
           nuevaPersona: clienteSel === 'nuevo' ? { nombre, celular: cel } : null,
         })
-        setHecho({ titulo: 'Separación registrada', texto: `MZ ${lote.mz} LT ${lote.lt} queda SEPARADO hasta el ${fechaPe(vence)}. Los datos del contrato (DNI, dirección…) se piden al cobrar la inicial.` })
+        const quien = clienteSel !== 'nuevo' ? hallado?.clientes.find(c => c.id === clienteSel) : { full_name: nombre.trim().toUpperCase() }
+        setHecho({ titulo: 'Separación registrada', cobro: { ...refPago(1), cliente: quien || null }, texto: `MZ ${lote.mz} LT ${lote.lt} queda SEPARADO hasta el ${fechaPe(vence)}. Los datos del contrato (DNI, dirección…) se piden al cobrar la inicial.` })
       }
       if (esInicial) {
         // el voucher primero: si no sube, no se toca ninguna ficha ni se crea la venta
@@ -204,13 +229,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
           advisorId, comision, comUrbis, profile, telefonos: [cliente.phone, cliente.phone2],
         })
         setHecho({
-          titulo: 'Venta registrada', saleId: r.sale.id, avisos: r.avisos,
+          titulo: 'Venta registrada', saleId: r.sale.id, avisos: r.avisos, cobro: { ...refPago(1), cliente },
           texto: `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}.`,
         })
       }
       if (modo === 'cuota') {
         await registrarCuota({ pidOp, lote, sale, pago, plan, profile })
-        setHecho({ titulo: 'Pago registrado', texto: plan.parts.map(p => `Cuota N° ${p.q.installment_number}: ${soles(p.take)}${p.resto > 0.004 ? ' (queda debiendo ' + soles(p.resto) + ')' : ' — pagada'}`).join(' · ') })
+        setHecho({ titulo: 'Pago registrado', cobro: { ...refPago(plan.parts.length), cliente: sale.client || null }, texto: plan.parts.map(p => `Cuota N° ${p.q.installment_number}: ${soles(p.take)}${p.resto > 0.004 ? ' (queda debiendo ' + soles(p.resto) + ')' : ' — pagada'}`).join(' · ') })
       }
       if (modo === 'cuadre') {
         await registrarCuadre({ pidOp, lote, sale, pago, tipo: cuadreTipo, profile })
@@ -243,10 +268,15 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
             <p className="ok cobro-hecho-t">✓ {hecho.titulo}</p>
             <p>{hecho.texto}</p>
             {(hecho.avisos || []).map((a, i) => <p key={i} className="warn">{a}</p>)}
-            {facturaAqui
-              ? <p className="muted small">Ya puedes emitir su boleta o factura electrónica: en la pestaña <b>Pagos y documentos</b> de la ficha, botón <b>🧾 Emitir</b>.</p>
-              : <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>}
+            {!facturaAqui
+              ? <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>
+              : estaVivo(comp)
+                ? <p className="ok small" style={{ textTransform: 'none' }}>🧾 {comp.tipo === 'factura' ? 'Factura' : 'Boleta'} {nombreComprobante(comp)} pedida para este pago. <button type="button" className="link-btn" onClick={() => setVerComp(true)}>Ver / enviar por WhatsApp</button></p>
+                : <p className="muted small">{hecho.cobro ? 'Emite ahora su boleta o factura electrónica y envíasela por WhatsApp. También' : 'La boleta o factura electrónica'} se puede emitir después, en la pestaña <b>Pagos y documentos</b> de la ficha, botón <b>🧾 Emitir</b>.</p>}
             <div className="acc-row" style={{ marginTop: 10 }}>
+              {facturaAqui && hecho.cobro && !estaVivo(comp) && (
+                <button className="btn-primary" onClick={abrirEmitir} disabled={buscandoPago}>{buscandoPago ? 'Buscando el pago…' : '🧾 Emitir boleta o factura'}</button>
+              )}
               {hecho.saleId && (onContrato
                 ? <button className="btn-primary" onClick={() => onContrato(hecho.saleId)}>&#128196; Generar contrato</button>
                 : <Link className="btn-primary" to={`/contratos?venta=${hecho.saleId}`}>&#128196; Generar contrato</Link>)}
@@ -407,6 +437,14 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
           </form>
         )}
       </div>
+      {emitirDe && (
+        <EmitirComprobante grupo={emitirDe} proyecto={proyecto} lote={lote} cliente={hecho?.cobro?.cliente || null}
+          totalCuotas={modo === 'cuota' && detail.inst?.length ? Math.max(...detail.inst.map(i => i.installment_number)) : null}
+          onCerrar={() => setEmitirDe(null)} onListo={c => setComp(c)} />
+      )}
+      {verComp && comp && (
+        <ComprobanteDetalle comprobante={comp} proyecto={proyecto} onCerrar={() => setVerComp(false)} onCambio={c => setComp(c)} />
+      )}
     </div>
   )
 }

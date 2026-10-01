@@ -10,6 +10,7 @@ import BuscarLote from '../components/BuscarLote'
 import LoteLink from '../components/LoteLink'
 import { fechaPe } from '../lib/lotes'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
+import PagosTabs from '../components/PagosTabs'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 import {
   soles, estadoDe, conceptoPago, agruparPagos, COLS_PAGO as COLS, COLS_PAGO_NA as COLS_NA,
@@ -335,6 +336,7 @@ export default function Payments() {
         <h1 style={{ margin: 0, flex: 1 }}>Pagos</h1>
         <ProjectPicker />
       </div>
+      <PagosTabs />
 
       {!readOnly && (
         <div className="glass" style={{ padding: '12px 14px', margin: '0 0 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid var(--accent)' }}>
