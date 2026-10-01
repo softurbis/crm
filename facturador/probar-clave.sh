@@ -57,4 +57,36 @@ if not cod and r.status_code >= 500:
     print("  SUNAT no está contestando (", r.status_code, "). Prueba de nuevo en unos minutos.")
     raise SystemExit(2)
 print("  CREDENCIALES OK (SUNAT contestó:", cod, msg[:60] + ")")
+
+# SEGUNDA PUERTA (1 oct 2026): la consulta de arriba y el ENVÍO son servicios
+# distintos de SUNAT, cada uno con su perfil. El usuario de Century pasó la consulta
+# y aun así SUNAT le rechazó la primera factura real con 0111: le faltaba el perfil
+# de envío. Aquí se toca el servicio de envío de verdad preguntando por un ticket
+# que no existe: no envía nada, pero SUNAT contesta 0111 si el perfil no está.
+sobre2 = """<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://service.sunat.gob.pe" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"><soapenv:Header><wsse:Security><wsse:UsernameToken><wsse:Username>%s</wsse:Username><wsse:Password>%s</wsse:Password></wsse:UsernameToken></wsse:Security></soapenv:Header><soapenv:Body><ser:getStatus><ticket>100000000000000</ticket></ser:getStatus></soapenv:Body></soapenv:Envelope>""" % (esc(d["ruc"] + d["usuario_sol"]), esc(d["clave_sol"]))
+try:
+    r2 = requests.post("https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService", data=sobre2.encode(), headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""}, timeout=40)
+except Exception as e:
+    print("  No se pudo llegar al servicio de ENVÍO de SUNAT:", e); raise SystemExit(2)
+cod2 = msg2 = ""
+try:
+    for el in etree.fromstring(r2.content).iter():
+        n2 = etree.QName(el).localname
+        if n2 in ("faultcode", "statusCode") and not cod2: cod2 = (el.text or "").strip()
+        if n2 in ("faultstring", "statusMessage") and not msg2: msg2 = (el.text or "").strip()
+except Exception:
+    pass
+n2 = (re.search(r"(\d{4})\s*$", cod2) or [None, ""])[1]
+if n2 in ("0110", "0111"):
+    print("  PERO NO PUEDE ENVIAR COMPROBANTES ->", cod2, msg2)
+    print("  En SUNAT (con la Clave SOL principal): Empresas -> Administración de usuarios secundarios ->")
+    print("  ese usuario -> marcar el perfil 'Envío de documentos electrónicos - Grandes Emisores'")
+    print("  (está dentro de Comprobantes de pago / SEE - Del Contribuyente) y guardar.")
+    raise SystemExit(1)
+if n2.isdigit() and 100 <= int(n2) <= 111:
+    print("  EL SERVICIO DE ENVÍO NO LO DEJÓ ENTRAR ->", cod2, msg2); raise SystemExit(1)
+if not cod2 and r2.status_code >= 500:
+    print("  El servicio de envío de SUNAT no está contestando (", r2.status_code, "): no se pudo comprobar el perfil de envío.")
+    raise SystemExit(2)
+print("  PUEDE ENVIAR COMPROBANTES (SUNAT contestó:", cod2, msg2[:60] + ")")
 PY
