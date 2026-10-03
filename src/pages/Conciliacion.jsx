@@ -50,6 +50,7 @@ export default function Conciliacion() {
       <button className="btn-primary" onClick={leer} disabled={busy}>Descargar respaldo actual</button>
       <p role="status">{msg}</p>
       {raw && <p>{raw.lots.length} lotes, {raw.sales.length} ventas, {raw.daily_income.length} aplicaciones de pagos, {raw.expenses.length} gastos y {raw.installments.length} cuotas.</p>}
+      {raw && <details><summary>Ver respaldo para copiar o revisar</summary><p>Si el navegador no guarda la descarga, puedes copiar este respaldo completo.</p><textarea aria-label="Contenido del respaldo completo" readOnly value={JSON.stringify(raw,null,2)} style={{width:'100%',height:240}} /></details>}
     </div>
     {raw && <div className="glass" style={{padding:20}}>
       <h2>Revisar cambios del Desglosado</h2>
