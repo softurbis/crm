@@ -24,6 +24,7 @@ import { useMsg } from '../lib/saveFx'
 import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import { Link } from 'react-router-dom'
 
 const CARPETAS = { VOUCHERS: 'voucher', BOLETAS: 'comprobante', DOCUMENTOS: 'contrato', DNI: 'dni' }
 const DESTINO_LBL = {
@@ -398,6 +399,7 @@ export default function Migracion() {
         <h1 style={{ margin: 0, flex: 1 }}>Cargar archivos de migración</h1>
         <ProjectPicker />
       </div>
+      {puedeCorregir && <p><Link to="/conciliacion">Conciliar el Desglosado de Neshuya y descargar respaldo de proyectos</Link></p>}
 
       <div className="glass" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '3px solid var(--accent)' }}>
         <p style={{ margin: '0 0 6px' }}><b>Cómo se usa</b></p>

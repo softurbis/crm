@@ -32,6 +32,7 @@ const Visitas = lazy(() => import('./pages/Visitas'))
 const Commissions = lazy(() => import('./pages/Commissions'))
 const Corretaje = lazy(() => import('./pages/Corretaje'))
 const Migracion = lazy(() => import('./pages/Migracion'))
+const Conciliacion = lazy(() => import('./pages/Conciliacion'))
 const Comprobantes = lazy(() => import('./pages/Comprobantes'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="secretarias" element={<Secretarias />} />
           <Route path="visitas" element={<Visitas />} />
           <Route path="lotes" element={<Lots />} />
+          <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />
           <Route path="lotes/:id" element={<FichaLote />} />
           <Route path="ventas" element={<Contracts />} />
           <Route path="pagos" element={<Payments />} />
