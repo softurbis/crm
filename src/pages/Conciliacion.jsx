@@ -10,10 +10,10 @@ function descargar(nombre,data) {
 }
 export default function Conciliacion() {
   const {puedeCorregir,profile}=useAuth(),{projects}=useProject()
-  const [raw,setRaw]=useState(null),[plan,setPlan]=useState(null),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[result,setResult]=useState(null)
+  const [raw,setRaw]=useState(null),[plan,setPlan]=useState(null),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[result,setResult]=useState(null),[compacto,setCompacto]=useState('')
   const seleccion=projects.filter(p=>/neshuya|praderas de cashibo/i.test(p.name))
   async function leer() {
-    setBusy(true);setPlan(null);setResult(null)
+    setBusy(true);setPlan(null);setResult(null);setCompacto('')
     try {
       if(seleccion.length!==2)throw new Error('Falta uno de los dos proyectos')
       const r=await respaldoProyectos(supabase,seleccion,setMsg);setRaw(r)
@@ -51,6 +51,8 @@ export default function Conciliacion() {
       <p role="status">{msg}</p>
       {raw && <p>{raw.lots.length} lotes, {raw.sales.length} ventas, {raw.daily_income.length} aplicaciones de pagos, {raw.expenses.length} gastos y {raw.installments.length} cuotas.</p>}
       {raw && <button onClick={async()=>{try{await navigator.clipboard.writeText(JSON.stringify(raw,null,2));setMsg('Respaldo completo copiado. Puedes guardarlo en un archivo JSON.')}catch(e){setMsg('No se pudo copiar: '+e.message)}}}>Copiar respaldo completo</button>}
+      {raw && <button onClick={async()=>{try{const stream=new Blob([JSON.stringify(raw)]).stream().pipeThrough(new CompressionStream('gzip'));const bytes=new Uint8Array(await new Response(stream).arrayBuffer());let bin='';for(let i=0;i<bytes.length;i+=8192)bin+=String.fromCharCode(...bytes.subarray(i,i+8192));setCompacto(btoa(bin));setMsg('Respaldo comprimido listo para guardar o copiar. Contiene todos los registros.')}catch(e){setMsg('No se pudo comprimir: '+e.message)}}}>Ver respaldo comprimido</button>}
+      {compacto && <><p>Respaldo completo en formato gzip/base64.</p><textarea aria-label="Respaldo comprimido gzip base64" readOnly value={compacto} style={{width:'100%',height:160}} /></>}
     </div>
     {raw && <div className="glass" style={{padding:20}}>
       <h2>Revisar cambios del Desglosado</h2>
