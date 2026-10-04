@@ -44,9 +44,9 @@ export default function Conciliacion() {
   }
   if(!puedeCorregir)return <p>Esta pantalla requiere permiso para corregir registros.</p>
   return <>
-    <h1>Conciliación de Neshuya y respaldo de proyectos</h1>
+    <h1>Conciliación y respaldo de proyectos</h1>
     <div className="glass" style={{padding:20,marginBottom:16}}>
-      <p>Leer el sistema actual antes de conciliar el Desglosado. El respaldo contiene ventas, pagos, gastos, cronogramas y lotes de Neshuya y Las Praderas de Cashibo.</p>
+      <p>Leer el sistema actual antes de conciliar. El respaldo contiene ventas, pagos, gastos, cronogramas y lotes de Neshuya y Las Praderas de Cashibo. Permite conciliar el Desglosado de Neshuya y los gastos documentados de ambos proyectos.</p>
       <button className="btn-primary" onClick={leer} disabled={busy}>Descargar respaldo actual</button>
       <p role="status">{msg}</p>
       {raw && <p>{raw.lots.length} lotes, {raw.sales.length} ventas, {raw.daily_income.length} aplicaciones de pagos, {raw.expenses.length} gastos y {raw.installments.length} cuotas.</p>}
@@ -55,14 +55,14 @@ export default function Conciliacion() {
       {compacto && <><p>Respaldo completo en formato gzip/base64.</p><textarea aria-label="Respaldo comprimido gzip base64" readOnly value={compacto} style={{width:'100%',height:160}} /></>}
     </div>
     {raw && <div className="glass" style={{padding:20}}>
-      <h2>Revisar cambios del Desglosado</h2>
+      <h2>Revisar cambios del proyecto</h2>
       <p>La carga conserva los documentos existentes y registra el motivo de cada cambio. Los registros que cambien mientras se prepara el plan detienen la carga.</p>
       <label>Archivo del plan de conciliación<input type="file" accept=".json" onChange={abrir} disabled={busy}/></label>
       {plan && <>
         <p><b>{plan.operations.length} cambios</b>. {plan.summary}</p>
         {plan.notes?.map((n,i)=><p key={i} className="hint">{n}</p>)}
         <div style={{maxHeight:450,overflow:'auto'}}><table><thead><tr><th>Registro</th><th>Acción</th><th>Cambio</th><th>Motivo</th></tr></thead><tbody>{plan.operations.map(op=><tr key={op.table+op.id}><td>{op.label || op.table}</td><td>{op.action==='insert'?'Agregar':'Actualizar'}</td><td>{JSON.stringify(op.values)}</td><td>{op.reason}</td></tr>)}</tbody></table></div>
-        <button className="btn-primary" onClick={aplicar} disabled={busy}>Aplicar cambios revisados de Neshuya</button>
+        <button className="btn-primary" onClick={aplicar} disabled={busy}>Aplicar cambios revisados de {seleccion.find(p=>p.id===plan.project_id)?.name || 'proyecto'}</button>
       </>}
     </div>}
     {result && <p>{result.operations.length} operaciones aplicadas. El detalle se descargó con los valores anteriores y nuevos.</p>}
