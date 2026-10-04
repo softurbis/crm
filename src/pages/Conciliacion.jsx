@@ -56,7 +56,7 @@ export default function Conciliacion() {
     </div>
     {raw && <div className="glass" style={{padding:20}}>
       <h2>Revisar cambios del proyecto</h2>
-      <p>La carga conserva los documentos existentes y registra el motivo de cada cambio. Los registros que cambien mientras se prepara el plan detienen la carga.</p>
+      <p>El plan muestra los valores anteriores y nuevos, incluidos los enlaces de documentos que se corrijan. No elimina archivos y registra el motivo de cada cambio. Los registros que cambien mientras se prepara el plan detienen la carga.</p>
       <label>Archivo del plan de conciliación<input type="file" accept=".json" onChange={abrir} disabled={busy}/></label>
       {plan && <>
         <p><b>{plan.operations.length} cambios</b>. {plan.summary}</p>

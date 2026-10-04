@@ -1,7 +1,7 @@
 // Lecturas completas y cambios revisables. No usa claves de servidor ni borra filas.
 export const CAMPOS_CONCILIACION = {
   daily_income: ['date','amount','observation','income_type','operation_number','operation_type','origin','approved','project_id','lot_id','sale_id','client_id','installment_id','financial_account_id'],
-  expenses: ['type','amount','issue_date','reception_date','description','status','project_id','recipient','sender','company','document_type','payment_method','discount_from','detail','request_doc_url'],
+  expenses: ['type','amount','issue_date','reception_date','description','status','project_id','recipient','sender','company','document_type','payment_method','discount_from','detail','request_doc_url','receipt_url','voucher_url'],
   installments: ['sale_id','installment_number','amount','amount_paid','due_date','paid_date','status'],
   sales: ['sale_date','total_sale_price','initial_amount_paid','financed_amount','monthly_amount','installments_count'],
 }
@@ -49,6 +49,13 @@ export function validarPlan(plan, raw) {
     if(proyecto===CASHIBO && op.table!=='expenses')throw new Error('La conciliación de Cashibo solo admite gastos')
     const key=op.table+op.id;if(vistos.has(key))throw new Error('Registro repetido en el plan');vistos.add(key)
     for(const k of Object.keys(op.values))if(!CAMPOS_CONCILIACION[op.table].includes(k))throw new Error('Campo no autorizado: '+k)
+    if(op.table==='expenses')for(const campo of ['request_doc_url','receipt_url','voucher_url']) {
+      const valor=op.values[campo]
+      if(valor==null)continue
+      let url
+      try { url=new URL(valor) } catch { throw new Error('Enlace de documento inválido: '+campo) }
+      if(url.protocol!=='https:' || url.username || url.password || !['drive.google.com','docs.google.com','pub-04e0a91c024a4012960f304ed7528b55.r2.dev'].includes(url.hostname))throw new Error('Origen de documento no autorizado: '+campo)
+    }
     if(op.values.amount!=null && !(Number(op.values.amount)>0))throw new Error('Importe inválido')
     const anterior=(raw[op.table] || []).find(r=>r.id===op.id)
     const scope=anterior || op.values
