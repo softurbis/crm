@@ -16,7 +16,7 @@ import ContratoDeVenta from '../components/ContratoDeVenta'
 import EditarPersonaModal from '../components/EditarPersonaModal'
 import { COLORS, LBL, hoyPeru, fechaPe, cuotaVencida } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
-import { soles, agruparPagos, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
+import { soles, agruparPagos, textoReparto, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 
@@ -1466,9 +1466,10 @@ export default function FichaLote() {
                     return (
                       <tr key={g.key}>
                         <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(r.date)}</td>
-                        <td><button className="link-btn" title="Ver los documentos de este pago" onClick={() => setVerPago(r)}>{g.concepto}</button>
-                          {g.items.length > 1 && <span className="muted small"> ({g.items.length} aplic.)</span>}
-                          {r.observation && <div className="muted small fl-obs">{r.observation}</div>}</td>
+                        <td><button className="link-btn" title="Ver este pago y sus documentos" onClick={() => setVerPago(r)}>{g.concepto}</button>
+                          {/* un voucher repartido en varias cuotas: se dice cuánto fue a cada una */}
+                          {g.reparto.length > 1 && <div className="small fl-reparto">Se repartió en: {textoReparto(g.reparto)}</div>}
+                          {g.notas && <div className="muted small fl-obs">{g.notas}</div>}</td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.total)}</b></td>
                         <td style={{ textTransform: 'none' }}>{r.operation_number}</td>
                         <td>{r.account?.name || '-'}</td>

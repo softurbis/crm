@@ -176,6 +176,39 @@ function filaPago({ pidOp, loteId, clienteId, pago, profile, subida }) {
   }
 }
 
+// ¿Este pago ya está registrado? El 7 oct se volvió a registrar un depósito que ya
+// estaba (venía del Excel con N° SIN-REF) y el lote quedó con S/ 500 de más.
+// Devuelve los avisos: el lote ya tiene un depósito del mismo día y monto, o el
+// N° de operación ya existe en el proyecto. No bloquea: la secretaria decide.
+export async function pagosParecidos({ pidOp, loteId, fecha, monto, op }) {
+  const opN = String(op || '').trim().toUpperCase()
+  const conOp = opN && opN !== 'SIN-REF'
+  const [delDia, mismaOp] = await Promise.all([
+    supabase.from('daily_income').select('date, amount, operation_number, financial_account_id').eq('lot_id', loteId).eq('date', fecha),
+    conOp
+      ? supabase.from('daily_income').select('date, amount, operation_number, financial_account_id, lot_id, lot:lots(mz,lt)').eq('project_id', pidOp).eq('operation_number', opN)
+      : Promise.resolve({ data: [] }),
+  ])
+  // las partes de una cascada son un solo depósito: se suman
+  const depositos = filas => Object.values((filas || []).reduce((m, x) => {
+    const k = (x.lot_id || '') + '|' + x.date + '|' + x.operation_number + '|' + (x.financial_account_id || '')
+    m[k] = m[k] || { ...x, total: 0 }
+    m[k].total = r2(m[k].total + Number(x.amount || 0))
+    return m
+  }, {}))
+  const fecha2 = f => f ? f.slice(8, 10) + '/' + f.slice(5, 7) + '/' + f.slice(0, 4) : '-'
+  const avisos = []
+  for (const d of depositos(mismaOp.data)) {
+    avisos.push(`El N° de operación ${opN} ya está registrado${d.lot ? ' en el lote ' + d.lot.mz + '-' + d.lot.lt : ''}: pago de S/ ${d.total.toFixed(2)} del ${fecha2(d.date)}.`)
+  }
+  for (const d of depositos(delDia.data)) {
+    if (Math.abs(d.total - r2(monto)) < 0.01 && !(conOp && String(d.operation_number).toUpperCase() === opN)) {
+      avisos.push(`Este lote ya tiene un pago de S/ ${d.total.toFixed(2)} del ${fecha2(d.date)} (N° de operación ${d.operation_number}).`)
+    }
+  }
+  return avisos
+}
+
 export function validarPago(pago, { voucherObligatorio = true } = {}) {
   if (voucherObligatorio && !pago.file) return 'OBLIGATORIO: adjunta la foto del voucher del cliente.'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pago.fecha || '')) return 'Revisa la fecha del pago.'

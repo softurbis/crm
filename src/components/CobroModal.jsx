@@ -14,7 +14,7 @@ import { fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
 import {
   hoyPe, sumarDias, sumarMeses, digitos, celularValido, esPendiente, faltanParaContrato,
-  buscarPorCelular, guardarPersona, validarPago, planCascada, subirVoucher,
+  buscarPorCelular, guardarPersona, validarPago, planCascada, subirVoucher, pagosParecidos,
   registrarSeparacion, registrarInicial, registrarCuota, registrarCuadre,
 } from '../lib/cobros'
 
@@ -207,6 +207,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       const { data: ahora } = await supabase.from('lots').select('status').eq('id', lote.id).single()
       if (modo === 'separacion' && ahora?.status !== 'disponible') throw new Error('Este lote ya no está disponible (ahora figura ' + (ahora?.status || '?').toUpperCase() + '). Recarga la ficha.')
       if (esInicial && !['disponible', 'separado'].includes(ahora?.status)) throw new Error('Este lote ya no se puede vender (ahora figura ' + (ahora?.status || '?').toUpperCase() + '). Recarga la ficha.')
+      // ¿ya está registrado? (mismo día y monto en el lote, o el mismo N° de operación)
+      if (modo === 'cuota' || modo === 'cuadre') {
+        const dup = await pagosParecidos({ pidOp, loteId: lote.id, fecha: pago.fecha, monto: pago.monto, op: pago.nroOp })
+        if (dup.length && !await confirmar('⚠ ¿ESTE PAGO YA ESTÁ REGISTRADO?\n\n' + dup.join('\n') +
+          '\n\nSi es el MISMO voucher, no lo registres otra vez: ábrelo en la pestaña "Pagos y documentos" y corrígele el N° de operación.',
+          { aceptar: 'Es un pago nuevo, registrarlo', cancelar: 'No, revisar primero', peligro: true })) { setBusy(false); return }
+      }
 
       if (modo === 'separacion') {
         await registrarSeparacion({

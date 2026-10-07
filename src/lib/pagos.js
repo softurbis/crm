@@ -30,6 +30,16 @@ export const conceptoPago = p => p.income_type === 'cuota' && p.installment
   ? `CUOTA N ${p.installment.installment_number}`
   : (p.income_type || '-').toUpperCase()
 
+// La etiqueta que traía el Excel ("CUOTA 6", "INICIAL") repite el concepto, y cuando
+// el depósito se repartió en otras cuotas (5 + 6) parecía decir otra cosa: no se
+// muestra. Lo demás de la observación (notas, correcciones) sí.
+const ETIQUETA_VIEJA = /^(CUOTA\s*(N[°º]?\s*)?\d+|INICIAL|SEPARACI[OÓ]N( E INICIAL)?)$/i
+export const notaVisible = obs => String(obs || '').split('|').map(s => s.trim())
+  .filter(s => s && !ETIQUETA_VIEJA.test(s)).join(' | ')
+
+// "cuota 5 (S/ 40.00) + cuota 6 (S/ 460.00)": cómo se repartió un depósito
+export const textoReparto = reparto => reparto.map(x => `cuota ${x.n} (${soles(x.monto)})`).join(' + ')
+
 // Una cascada genera varias aplicaciones de un único depósito. La operación, la
 // fecha y la cuenta identifican ese depósito sin mezclar los pagos sin referencia.
 export function agruparPagos(pagos) {
@@ -55,8 +65,14 @@ export function agruparPagos(pagos) {
     // canje). Vale para todo el grupo, que es como lo ve y lo marca el operador.
     const voucherNA = items.every(p => p.voucher_na)
     const comprobanteNA = items.every(p => p.receipt_na)
+    // a qué cuota fue cada parte del depósito, de la más antigua a la más nueva
+    const reparto = items.filter(p => p.income_type === 'cuota' && p.installment)
+      .map(p => ({ id: p.id, n: p.installment.installment_number, monto: Number(p.amount || 0) }))
+      .sort((a, b) => a.n - b.n)
     return {
       ...g,
+      reparto,
+      notas: [...new Set(items.map(p => notaVisible(p.observation)).filter(Boolean))].join(' | '),
       total: items.reduce((s, p) => s + Number(p.amount || 0), 0),
       concepto: cuotas.length === items.length
         ? `CUOTA${cuotas.length > 1 ? 'S' : ''} N ${cuotas.join(' + ')}`
@@ -71,6 +87,116 @@ export function agruparPagos(pagos) {
       comprobanteFaltante: items.some(p => !p.receipt_url && !p.receipt_na),
     }
   })
+}
+
+// ---- LA CASCADA, OTRA VEZ EN ORDEN ----
+// Vuelve a repartir los depósitos de cuotas de una venta con la regla del dueño:
+// cada depósito termina primero la cuota más antigua que debe y lo que sobra pasa a
+// la siguiente. Conserva cada depósito (fecha, operación, monto, voucher y boleta):
+// solo cambia a qué cuotas va. Rehace desde el depósito que contiene `desdeId`, o
+// desde el primero con fecha >= `desdeFecha`; los anteriores no se tocan. Reusa
+// las filas que ya existen (igual que reordenar_cascada, sql/120): agrega una si el
+// depósito ahora toca una cuota más y borra las que sobran.
+// Lo usan "Recalcular cascada" y el detalle del pago al borrar o corregir el monto:
+// sin esto quedaban cuotas con saldo antes de otras ya pagadas.
+const r2 = n => Math.round(Number(n) * 100) / 100
+const hoyLima = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
+
+export async function recalcularCascada({ saleId, desdeId = null, desdeFecha = null }) {
+  const [cuotasR, pagosR] = await Promise.all([
+    supabase.from('installments').select('id, installment_number, amount, amount_paid, due_date, status, paid_date')
+      .eq('sale_id', saleId).order('installment_number'),
+    supabase.from('daily_income').select('*').eq('sale_id', saleId).eq('income_type', 'cuota').eq('approved', true)
+      .not('installment_id', 'is', null).order('date').order('created_at'),
+  ])
+  if (cuotasR.error) throw cuotasR.error
+  if (pagosR.error) throw pagosR.error
+  const cuotas = cuotasR.data || []
+  if (!cuotas.length) return { cambios: 0 }
+  const grupos = agruparPagos(pagosR.data || [])
+  let desde = 0
+  if (desdeId) {
+    desde = grupos.findIndex(x => x.items.some(p => p.id === desdeId))
+    if (desde < 0) throw new Error('NO ENCONTRÉ EL PAGO A RECALCULAR.')
+  } else if (desdeFecha) {
+    desde = grupos.findIndex(x => (x.referencia.date || '') >= desdeFecha)
+    if (desde < 0) desde = grupos.length
+  }
+
+  // lo que ya pagaron los depósitos anteriores no se mueve
+  const pagado = new Map(cuotas.map(q => [q.id, 0]))
+  for (const p of grupos.slice(0, desde).flatMap(x => x.items)) pagado.set(p.installment_id, r2((pagado.get(p.installment_id) || 0) + Number(p.amount || 0)))
+
+  // primero el plan entero; si algo no cuadra, no se escribe nada
+  const planes = grupos.slice(desde).map(g => {
+    let resto = r2(g.total)
+    const partes = []
+    for (const q of cuotas) {
+      if (resto <= 0.004) break
+      const debe = r2(Number(q.amount) - (pagado.get(q.id) || 0))
+      if (debe <= 0.004) continue
+      const toma = Math.min(resto, debe)
+      partes.push({ cuota: q.id, monto: r2(toma) })
+      pagado.set(q.id, r2((pagado.get(q.id) || 0) + toma))
+      resto = r2(resto - toma)
+    }
+    if (resto > 0.01) throw new Error(`EL PAGO ${g.referencia.operation_number} DEL ${g.referencia.date} PASA LO QUE DEBE LA VENTA EN ${soles(resto)}.`)
+    return { g, partes }
+  })
+
+  let cambios = 0
+  for (const { g, partes } of planes) {
+    const filas = [...g.items].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '') || a.id.localeCompare(b.id))
+    // el voucher y la boleta son del DEPÓSITO: valen para todas sus partes
+    const docs = {}
+    for (const c of ['voucher_url', 'receipt_url']) {
+      const con = filas.find(p => p[c])
+      if (con) { docs[c] = con[c]; docs[campoNota(c)] = con[campoNota(c)] || null; docs[campoNA(c)] = false; docs[campoNAMotivo(c)] = null }
+    }
+    for (let i = 0; i < partes.length; i++) {
+      const f = filas[i], pt = partes[i]
+      if (f) {
+        const faltaDoc = Object.keys(docs).some(k => k.endsWith('_url') && !f[k])
+        if (f.installment_id === pt.cuota && Math.abs(Number(f.amount) - pt.monto) < 0.005 && !faltaDoc) continue
+        const { error } = await supabase.from('daily_income').update({ installment_id: pt.cuota, amount: pt.monto, ...docs }).eq('id', f.id)
+        if (error) throw error
+      } else {
+        // el depósito ahora toca una cuota más: una fila nueva, copia de la primera
+        const { id, comprobante_id, ...base } = filas[0]
+        const { error } = await supabase.from('daily_income').insert({ ...base, ...docs, installment_id: pt.cuota, amount: pt.monto })
+        if (error) throw error
+      }
+      cambios++
+    }
+    // el depósito ahora toca menos cuotas: las filas que sobran se van
+    const sobran = filas.slice(partes.length).map(p => p.id)
+    if (sobran.length) {
+      const { error } = await supabase.from('daily_income').delete().in('id', sobran)
+      if (error) throw error
+      cambios += sobran.length
+    }
+  }
+
+  // cada cuota, sumando lo que le quedó. Se compara contra cómo están AHORA: el
+  // trigger de la base (apply_income_to_installment) ya las fue tocando con cada
+  // fila escrita, y la foto del principio ya no sirve para saber si cambiaron.
+  const hoy = hoyLima()
+  const ultima = new Map()
+  for (const { g, partes } of planes) for (const pt of partes) if ((ultima.get(pt.cuota) || '') < g.referencia.date) ultima.set(pt.cuota, g.referencia.date)
+  const ahoraR = await supabase.from('installments').select('id, amount_paid, status, paid_date').eq('sale_id', saleId)
+  if (ahoraR.error) throw ahoraR.error
+  const ahora = new Map((ahoraR.data || []).map(q => [q.id, q]))
+  for (const c of cuotas) {
+    const q = { ...c, ...(ahora.get(c.id) || {}) }
+    const monto = r2(pagado.get(q.id) || 0)
+    const pagada = monto >= Number(q.amount) - 0.009
+    const status = pagada ? 'pagado' : q.due_date < hoy ? 'vencido' : 'pendiente'
+    const paid_date = pagada ? (ultima.get(q.id) || q.paid_date) : null
+    if (Math.abs(Number(q.amount_paid) - monto) < 0.005 && q.status === status && (q.paid_date || null) === (paid_date || null)) continue
+    const { error } = await supabase.from('installments').update({ amount_paid: monto, status, paid_date }).eq('id', q.id)
+    if (error) throw error
+  }
+  return { cambios }
 }
 
 // voucher_url -> voucher_na / voucher_na_reason / voucher_note (idem receipt_url)
