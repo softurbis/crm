@@ -1395,3 +1395,8 @@ span.cp-chip { cursor: default; }
 .proj-marca { margin: .35rem .2rem .1rem .9rem; padding: .35rem .5rem; border-radius: 9px; background: #fff; display: flex; justify-content: center; }
 .proj-marca img { max-height: 46px; max-width: 100%; object-fit: contain; display: block; }
 
+/* Gastos: voucher del gasto y voucher de la reposición en la misma casilla (sql/125) */
+.vouchers-gasto { display: flex; flex-direction: column; gap: .35rem; min-width: 150px; }
+.vouchers-gasto .vg-lbl { display: block; font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; opacity: .8; margin-bottom: .1rem; }
+.vouchers-gasto button.upload-btn { font-size: .78rem; padding: .2rem .6rem; }
+.vouchers-gasto > div + div { border-top: 1px dashed var(--line); padding-top: .3rem; }

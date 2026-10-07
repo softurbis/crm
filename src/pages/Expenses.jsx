@@ -11,6 +11,7 @@ import VisorDoc from '../components/VisorDoc'
 import FirmaPad from '../components/FirmaPad'
 import AprobarGasto from '../components/AprobarGasto'
 import RegistrarPago from '../components/RegistrarPago'
+import ReponerGasto from '../components/ReponerGasto'
 import { useEsCelular } from '../lib/useEsCelular'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
@@ -56,6 +57,8 @@ Pucallpa, {{FECHA_LETRAS}}.
 const estadoGasto = g => g.status === 'confirmado' ? 'confirmado'
   : g.rejected_at ? 'rechazado' : g.approved_at ? 'aprobado'
   : (g.requester_id && !g.requester_signed_at) ? 'por_firmar' : 'solicitado'
+// adelantado por alguien, sin devolver todavía y no rechazado (sql/125)
+const faltaReponer = g => !!g.adelanto_por && !g.reposicion_id && !g.rejected_at
 const fechaHora = s => new Date(s).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function Expenses() {
@@ -93,14 +96,20 @@ export default function Expenses() {
   const [prt, setPrt] = useState(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplText, setTplText] = useState('')
+  // REPOSICIONES (sql/125): devolverle el dinero a quien adelantó un gasto
+  const [reposiciones, setReposiciones] = useState({})  // id -> reposición
+  const [hay125, setHay125] = useState(false)           // la tabla existe: si no, nada de esto se muestra
+  const [reponer, setReponer] = useState(null)          // { persona, ids } ventana abierta
 
   async function load() {
     if (!pidOp) return
-    const [g, p] = await Promise.all([
+    const [g, p, r] = await Promise.all([
       supabase.from('expenses').select('*').eq('project_id', pidOp).order('issue_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
+      supabase.from('expense_reposiciones').select('*').eq('project_id', pidOp).order('fecha', { ascending: false }),
     ])
     setList(g.data || []); setProyecto(p.data || null)
+    setHay125(!r.error); setReposiciones(Object.fromEntries((r.data || []).map(x => [x.id, x])))
     setTplText((p.data?.expense_template) || DEFAULT_GASTO_TEMPLATE)
   }
   useEffect(() => { load() }, [pidOp])
@@ -141,8 +150,9 @@ export default function Expenses() {
       // un gasto marcado NO APLICA no es un faltante: no tiene que aparecer aqui
       if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na)) return false
       if (fest === 'no_aplica' && !(g.request_doc_na || g.receipt_na || g.voucher_na)) return false
+      if (fest === 'falta_reponer' && !faltaReponer(g)) return false
       if (!t) return true
-      return [g.company, g.recipient, g.sender, g.description, g.document_number, g.request_number ? 'sol-' + String(g.request_number).padStart(5, '0') : '']
+      return [g.company, g.recipient, g.sender, g.adelanto_por, g.description, g.document_number, g.request_number ? 'sol-' + String(g.request_number).padStart(5, '0') : '']
         .some(x => (x || '').toLowerCase().includes(t))
     })
   }, [list, fq, ftipo, fest, fanio, fmes])
@@ -178,6 +188,17 @@ export default function Expenses() {
   // cuando llegue la primera solicitud no tiene que aprender dos cosas a la vez
   const meToca = esSocio || miasPorFirmar > 0
   const faltaRH = list.filter(g => g.status === 'confirmado' && !g.receipt_url && !g.receipt_na).length
+  // lo que alguien adelantó con su dinero y todavía no se le devolvió, por persona
+  const porReponer = list.filter(faltaReponer)
+  const deudaPorPersona = Object.values(porReponer.reduce((m, g) => {
+    const k = g.adelanto_por
+    m[k] = m[k] || { persona: k, ids: [], total: 0 }
+    m[k].ids.push(g.id); m[k].total += Number(g.amount || 0)
+    return m
+  }, {})).sort((a, b) => b.total - a.total)
+  const totalPorReponer = porReponer.reduce((x, g) => x + Number(g.amount || 0), 0)
+  // suben la reposición la oficina y la socia del proyecto (cualquiera de las dos)
+  const puedeReponer = hay125 && (['admin', 'secretary', 'superuser', 'operador'].includes(role) || esSocio)
   const noAplican = list.filter(g => g.request_doc_na || g.receipt_na || g.voucher_na).length
 
   function abrirEditar(g) {
@@ -187,6 +208,7 @@ export default function Expenses() {
       requester_id: g.requester_id || '',
       discount_from: g.discount_from, payment_method: g.payment_method,
       document_type: g.document_type, description: g.description, detail: g.detail,
+      adelanto_por: g.adelanto_por || '',
     })
     setEditId(g.id); setShow(true); setMsg(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -218,6 +240,8 @@ export default function Expenses() {
         description: up(f.description), discount_from: f.discount_from || 'URBIS GROUP',
         detail: (f.detail || '').trim() || null,
       }
+      // quién adelantó el dinero (sql/125). Ya repuesto, no se cambia desde aquí.
+      if (hay125 && !(editId && list.find(x => x.id === editId)?.reposicion_id)) campos.adelanto_por = up(f.adelanto_por)
       // si todavía no se corrió sql/87, la columna sender_dni no existe: se
       // reintenta sin ella en vez de dejar a nadie sin poder registrar el gasto
       const sinDni = o => { const c = { ...o }; delete c.sender_dni; return c }
@@ -671,6 +695,58 @@ export default function Expenses() {
     ? <span className="muted small" style={{ textTransform: 'none' }}>{miPuedePagar(g) ? 'con 💸 Subir comprobante' : 'lo sube la socia'}</span>
     : <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
 
+  // ---- REPOSICIÓN (sql/125) ----
+  // El voucher del gasto es el pago a quien recibió el dinero; el de la reposición,
+  // la devolución a quien lo adelantó. Una transferencia puede devolver varios.
+  const abrirReponer = g => setReponer({ persona: g.adelanto_por || '', ids: [g.id] })
+  async function marcarAdelanto(g) {
+    const v = await pedir('¿Quién adelantó el dinero de este gasto?\n\nQueda en "falta reponer" hasta que se suba la devolución. Déjalo vacío si nadie lo adelantó (lo pagó Urbis o el proyecto).', { valor: g.adelanto_por || '' })
+    if (v === null) return
+    const { error } = await supabase.rpc('marcar_adelanto_gasto', { eid: g.id, persona: v })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: v.trim() ? 'MARCADO: FALTA REPONERLE A ' + v.trim().toUpperCase() + '.' : 'QUITADO: ESTE GASTO NO TIENE NADA QUE REPONER.' })
+    load()
+  }
+  async function quitarReposicion(r) {
+    const n = list.filter(g => g.reposicion_id === r.id).length
+    if (!await preguntar('¿Quitar la reposición de ' + soles(r.monto) + ' a ' + r.persona + '?\n\n' + (n > 1 ? 'Cubre ' + n + ' gastos: los ' + n + ' vuelven' : 'El gasto vuelve') + ' a "falta reponer". El voucher queda guardado y en la bitácora.', { peligro: true, aceptar: 'Sí, quitar' })) return
+    const { error } = await supabase.rpc('quitar_reposicion', { rid: r.id })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: 'REPOSICIÓN QUITADA. QUEDA EN BITÁCORA.' }); load()
+  }
+  const docReposicion = g => {
+    const r = g.reposicion_id && reposiciones[g.reposicion_id]
+    if (r) {
+      const n = list.filter(x => x.reposicion_id === r.id).length
+      return <>
+        <button className="link-btn" onClick={() => setVerDoc({ url: r.voucher_url, titulo: 'Reposición a ' + r.persona })}>VER</button>
+        {' '}<a href={r.voucher_url} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
+        {esJefe && <> <button className="link-btn" title="Quitar la reposición (queda en bitácora)" onClick={() => quitarReposicion(r)}>&#128465;</button></>}
+        <div className="muted small" style={{ textTransform: 'none' }}>
+          a {r.persona} · {r.fecha}{n > 1 ? ' · cubre ' + n + ' gastos (' + soles(r.monto) + ')' : ''}{r.operacion ? ' · OP ' + r.operacion : ''}
+        </div>
+      </>
+    }
+    if (g.rejected_at) return <span className="muted small">—</span>
+    if (g.adelanto_por) return <>
+      <span className="warn small" title={'Lo adelantó ' + g.adelanto_por}>⚠ falta reponer a {g.adelanto_por.split(' ')[0]}</span>
+      {puedeReponer && <div>
+        <button type="button" className="upload-btn" onClick={() => abrirReponer(g)}>subir</button>
+        {' '}<button type="button" className="link-btn muted small" onClick={() => marcarAdelanto(g)}>cambiar</button>
+      </div>}
+    </>
+    if (!puedeReponer) return <span className="muted small">—</span>
+    return <>
+      <button type="button" className="upload-btn" title="Alguien pagó este gasto con su dinero y ya se le devolvió: sube el voucher de la devolución" onClick={() => abrirReponer(g)}>subir</button>
+      <div><button type="button" className="link-btn muted small" title="Alguien pagó este gasto con su dinero y todavía no se le devuelve" onClick={() => marcarAdelanto(g)}>lo adelantó alguien</button></div>
+    </>
+  }
+  // la casilla de vouchers: el del gasto y, debajo, el de la reposición
+  const docVouchers = g => !hay125 ? docComprobante(g) : <div className="vouchers-gasto">
+    <div><span className="muted small vg-lbl">Gasto</span>{docComprobante(g)}</div>
+    <div><span className="muted small vg-lbl">Reposición</span>{docReposicion(g)}</div>
+  </div>
+
   async function eliminarGasto(g) {
     if (!await preguntar(`ELIMINAR la solicitud "${g.description || g.type}" (${soles(g.amount)})?\nSolo se pueden eliminar solicitudes NO confirmadas.`, { peligro: true, aceptar: 'Sí, eliminar' })) return
     const { error } = await supabase.from('expenses').delete().eq('id', g.id)
@@ -718,6 +794,7 @@ export default function Expenses() {
         <div className="gc-doc"><span className="muted">Constancia</span><span>{docConstancia(g)}</span></div>
         <div className="gc-doc"><span className="muted">RH / factura</span><span><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></span></div>
         <div className="gc-doc"><span className="muted">Comprobante de pago</span><span>{docComprobante(g)}</span></div>
+        {hay125 && <div className="gc-doc"><span className="muted">Reposición</span><span>{docReposicion(g)}</span></div>}
       </div>
       {!readOnly && <div className="gc-oficina">{accionesOficina(g)}</div>}
     </div>
@@ -777,6 +854,7 @@ export default function Expenses() {
           <option value="rechazado">RECHAZADOS</option>
           <option value="falta_rh">FALTA RH / FACTURA</option>
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
+          {hay125 && <option value="falta_reponer">FALTA REPONER (lo adelantó alguien)</option>}
         </select>
         {!readOnly && <button className="btn-primary" onClick={() => { setShow(!show); setEditId(null); setF(porDefecto()) }}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
@@ -788,7 +866,24 @@ export default function Expenses() {
         {!readOnly && pendConfirmar > 0 && <span className="warn"> | POR CONFIRMAR: {pendConfirmar}</span>}
         {!readOnly && faltaRH > 0 && <span className="bad"> | FALTA RH/FACTURA: {faltaRH}</span>}
         {!readOnly && noAplican > 0 && <span className="muted"> | SIN DOCUMENTO A PROPOSITO: {noAplican}</span>}
+        {porReponer.length > 0 && <span className="warn"> | FALTA REPONER: {soles(totalPorReponer)}</span>}
       </p>
+      {/* lo que se le debe a cada persona que adelantó dinero, con su botón */}
+      {deudaPorPersona.length > 0 && (
+        <div className="glass form-card" style={{ maxWidth: 'none', padding: '10px 14px' }}>
+          <p style={{ margin: '0 0 6px' }}><b>💸 FALTA REPONER</b> <span className="muted small" style={{ textTransform: 'none' }}>— dinero que alguien adelantó y todavía no se le devolvió</span></p>
+          {deudaPorPersona.map(d => (
+            <div key={d.persona} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '3px 0' }}>
+              <b style={{ minWidth: 180 }}>{d.persona}</b>
+              <span className="muted small">{d.ids.length} gasto{d.ids.length > 1 ? 's' : ''}</span>
+              <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(d.total)}</b>
+              <button type="button" className="link-btn small" onClick={() => { setFest('falta_reponer'); setFq(d.persona) }}>ver</button>
+              {puedeReponer && <button type="button" className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }}
+                onClick={() => setReponer({ persona: d.persona, ids: d.ids })}>💸 Subir reposición</button>}
+            </div>
+          ))}
+        </div>
+      )}
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       {/* exigir o no la firma del socio es una regla del proyecto: la decide solo el superusuario */}
@@ -862,6 +957,13 @@ export default function Expenses() {
                 }} />
             </label>
             {IN('sender_dni', 'DNI de quien entrega')}
+            {hay125 && (
+              <label>Lo adelantó con su dinero <span className="muted small">(opcional: hay que devolvérselo)</span>
+                <input list="personas-gasto" value={f.adelanto_por || ''} placeholder="vacío = lo pagó Urbis o el proyecto"
+                  disabled={!!(editId && list.find(x => x.id === editId)?.reposicion_id)}
+                  onChange={e => setF(x => ({ ...x, adelanto_por: e.target.value }))} />
+              </label>
+            )}
             <datalist id="personas-gasto">
               {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
             </datalist>
@@ -1007,7 +1109,7 @@ export default function Expenses() {
       ) : (
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma / pago</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>Comprobante de pago</th><th></th></tr></thead>
+          <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma / pago</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>{hay125 ? 'Vouchers (gasto / reposición)' : 'Comprobante de pago'}</th><th></th></tr></thead>
           <tbody>
             {filtrada.slice(0, 200).map(g => (
               <tr key={g.id}>
@@ -1022,7 +1124,7 @@ export default function Expenses() {
                 <td>{soles(g.amount)}</td>
                 <td>{docConstancia(g)}</td>
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
-                <td>{docComprobante(g)}</td>
+                <td>{docVouchers(g)}</td>
                 {/* los botones de firma viven en la columna "Firma", adelante:
                     acá quedan las acciones de oficina */}
                 <td>{accionesOficina(g)}</td>
@@ -1097,6 +1199,12 @@ export default function Expenses() {
         <RegistrarPago gasto={pagar} proyecto={proyecto}
           onCerrar={() => setPagar(null)}
           onHecho={t => { setPagar(null); setMsg({ ok: true, t }); load() }} />
+      )}
+
+      {reponer && (
+        <ReponerGasto pidOp={pidOp} gastos={list} inicial={reponer} opcionesPersonas={opcionesPersonas}
+          onCerrar={() => setReponer(null)}
+          onHecho={t => { setReponer(null); setMsg({ ok: true, t }); load() }} />
       )}
 
       {verDoc && (
