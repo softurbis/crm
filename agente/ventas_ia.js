@@ -87,7 +87,7 @@ CÓMO TRABAJAS
 REGLAS QUE NO SE ROMPEN
 1. Precios, áreas, iniciales, cuotas y lotes salen SOLO de lotes_disponibles, consultada en esta conversación. Nunca calcules, estimes ni redondees una cifra de dinero de memoria: si necesitas otra cuenta, vuelve a consultar.
 2. Financiamiento, intereses, títulos, habilitación, plazos y condiciones: solo lo que digan el manual o la ficha del proyecto. Si no lo dicen, dile que se lo confirmas.
-3. No das descuentos, no congelas precios, no recibes pagos, no pides fotos de DNI ni datos bancarios. La separación la hace el asesor: tú la propones y pasas a la persona con pasar_a_asesor.
+3. No das descuentos, salvo el de pagar todo al contado cuando lotes_disponibles trae precio_al_contado: ese, con su monto exacto. No congelas precios, no recibes pagos, no pides fotos de DNI ni datos bancarios. La separación la hace el asesor: tú la propones y pasas a la persona con pasar_a_asesor.
 4. Nunca uses como argumento cuántos lotes hay o quedan, ni urgencias que no están en el manual ("últimos lotes", "sube mañana").
 5. Reclamos, dudas legales o del contrato que no estén en el manual ni en la ficha, o una persona que ya es cliente y pregunta por sus cuotas: pasar_a_persona.
 6. Si la persona pide hablar con una persona, usa pasar_a_persona sin insistir.
@@ -119,7 +119,7 @@ const CINCO = {
 const HERRAMIENTAS = [
   {
     name: 'lotes_disponibles',
-    description: 'Lotes que se pueden ofrecer HOY de un proyecto, cada uno con área, precio por m², precio, inicial, cuota de contrato, última cuota (sale menor porque ahí se descuenta el redondeo), cuota semanal y diaria, y el ingreso mensual al que la cuota le pesa una cuarta parte. Trae también el número de cuotas y la separación. Úsala antes de dar cualquier cifra. Si la persona dice cuánto puede pagar al mes, filtra con cuota_max.',
+    description: 'Lotes que se pueden ofrecer HOY de un proyecto, cada uno con área, precio por m², precio, inicial, cuota de contrato, última cuota (sale menor porque ahí se descuenta el redondeo), cuota semanal y diaria, y el ingreso mensual al que la cuota le pesa una cuarta parte; si el proyecto tiene descuento por pago al contado, también el precio al contado. Trae también el número de cuotas y la separación. Úsala antes de dar cualquier cifra. Si la persona dice cuánto puede pagar al mes, filtra con cuota_max.',
     input_schema: {
       type: 'object',
       properties: {
@@ -446,6 +446,7 @@ module.exports = function crearVentasIA({ supabase, log }) {
     if (pp.error) return pp
     const { pc, N, lotes, fuera } = await ofrecibles(pp.pid)
     if (!lotes.length) return { proyecto: pp.nombre, nota: 'Hoy no hay lotes para ofrecer en este proyecto. Ofrece otros_proyectos.' }
+    const dto = Number(pc.descuento_contado) > 0 && Number(pc.descuento_contado) < 100 ? Number(pc.descuento_contado) : 0
     const buscado = input.lote ? normLote(input.lote) : ''
     const mz = String(input.manzana || '').trim().toUpperCase()
     const lista = lotes.filter(({ l, q }) =>
@@ -469,9 +470,13 @@ module.exports = function crearVentasIA({ supabase, log }) {
         precio: soles(l.total_price), inicial: soles(l.initial_payment_default),
         cuota_mensual: soles(q.cuota), ultima_cuota: soles(q.ultima), cuota_semanal: soles(q.semanal), cuota_diaria: soles(q.diaria),
         ingreso_al_que_pesa_25: soles(q.ingreso_25),
+        // el descuento por pagar todo al contado (sql/129): la cuenta la hace el sistema, no el agente
+        ...(dto > 0 ? { precio_al_contado: soles(Math.round(Number(l.total_price) * (100 - dto)) / 100) } : {}),
       })),
+      ...(dto > 0 ? { descuento_al_contado: dto + '% sobre el precio total, solo si paga todo de una vez' } : {}),
       hay_mas_opciones: lista.length > 8,
-      para_ti: 'Precio, inicial y cuota se dicen juntos. No digas cuántos lotes hay o quedan.',
+      para_ti: 'Precio, inicial y cuota se dicen juntos. No digas cuántos lotes hay o quedan.' +
+        (dto > 0 ? ' El precio al contado solo si pregunta por pagar al contado o de una vez, o si lo ves con la plata para hacerlo; con el monto exacto de precio_al_contado.' : ''),
     }
     if (buscado && !lista.length) out.para_ti = fuera.has(buscado)
       ? 'Ese lote no se ofrece por ahora: sin dar explicaciones, ofrécele uno parecido.'
@@ -922,7 +927,10 @@ module.exports = function crearVentasIA({ supabase, log }) {
         text: persona + '\n\n' + fichaTexto(p, !sinBot) +
           (manual ? '\n\nEl manual que manda en esta conversación es «' + manual.titulo + '».' : '') +
           (cfg.punto_encuentro ? '\n\nPunto de encuentro para las visitas: ' + cfg.punto_encuentro : '') +
-          (cfg.notas ? '\n\nINDICACIONES DEL NEGOCIO (mandan sobre lo demás):\n' + cfg.notas : ''),
+          (cfg.notas ? '\n\nINDICACIONES DEL NEGOCIO (mandan sobre lo demás):\n' + cfg.notas : '') +
+          '\n\nOFICINA DE URBIS GROUP (dirección vigente; reemplaza cualquier dirección de oficina anterior en la ficha, manual, indicaciones o historial):\n' +
+          'Jr. Augusto B. Leguía 482 - Callería. Referencia: por el colegio bautista. Google Maps: https://maps.app.goo.gl/3nyCne6oFdQ3sGE86\n' +
+          'Cuando pregunten dónde queda la oficina o cómo llegar, comparte la dirección, la referencia y este enlace. Esta es la oficina, no la ubicación del terreno; no reemplaza un punto de encuentro distinto que se haya acordado para una visita.',
         cache_control: { type: 'ephemeral' },
       },
       {
