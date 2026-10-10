@@ -986,23 +986,26 @@ export default function FichaLote() {
     if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     const sepAmt = r2(Number(sale.total_sale_price) - Number(sale.initial_amount_paid) - Number(sale.financed_amount))
     const pagadoCuotas = detail.inst.reduce((x, i) => x + Number(i.amount_paid), 0)
-    const pendientes = detail.inst.filter(i => i.status !== 'pagado')
+    const pendientes = detail.inst.filter(i => i.status !== 'pagado').sort((a, b) => a.installment_number - b.installment_number)
     const restante = r2(nuevo - Number(sale.initial_amount_paid) - sepAmt - pagadoCuotas)
     if (restante < 0) { await avisar('EL NUEVO PRECIO ES MENOR A LO YA PAGADO. NO PROCEDE.', { tono: 'error' }); return }
     if (!pendientes.length) { await avisar('NO HAY CUOTAS PENDIENTES PARA REDISTRIBUIR.', { tono: 'error' }); return }
-    if (!await confirmar(`Nuevo precio: S/ ${nuevo}\nYa pagado: S/ ${(Number(sale.initial_amount_paid) + sepAmt + pagadoCuotas).toFixed(2)}\nSaldo a repartir en ${pendientes.length} cuotas: S/ ${restante.toFixed(2)} (aprox S/ ${(restante / pendientes.length).toFixed(2)} c/u)\n\nMOTIVO: ${motivo}\n\nConfirmar?`)) return
-    const share = Math.floor(restante / pendientes.length * 100) / 100
-    let acum = 0
+    // Las cuotas pendientes se rehacen en soles enteros, como una venta nueva
+    // (lib/cronograma): todas iguales y la última absorbe la diferencia. Antes se
+    // repartía al céntimo y quedaban cuotas de S/ 470.83 (H-1 de Praderas, 9 oct).
+    const pagadoEnPendientes = pendientes.reduce((x, i) => x + Number(i.amount_paid), 0)
+    const montos = repartirCuotas(r2(restante + pagadoEnPendientes), pendientes.length)
+    if (montos.length !== pendientes.length || pendientes.some((q, i) => montos[i] < Number(q.amount_paid) - 0.004)) {
+      await avisar('NO SE PUEDEN REPARTIR LAS CUOTAS: una cuota pendiente ya tiene pagado más de lo que le tocaría. Revisa los pagos antes de ajustar el precio.', { tono: 'error' }); return
+    }
+    if (!await confirmar(`Nuevo precio: S/ ${nuevo}\nYa pagado: S/ ${(Number(sale.initial_amount_paid) + sepAmt + pagadoCuotas).toFixed(2)}\nSaldo por pagar: S/ ${restante.toFixed(2)}\nLas ${pendientes.length} cuotas pendientes quedan en: ${textoCuotas(montos)}\n\nMOTIVO: ${motivo}\n\nConfirmar?`)) return
     for (let i = 0; i < pendientes.length; i++) {
-      const q = pendientes[i]
-      const extra = i === pendientes.length - 1 ? r2(restante - acum) : share
-      acum += extra
-      await supabase.from('installments').update({ amount: r2(Number(q.amount_paid) + extra) }).eq('id', q.id)
+      await supabase.from('installments').update({ amount: montos[i] }).eq('id', pendientes[i].id)
     }
     await supabase.from('sales').update({
       total_sale_price: nuevo,
       financed_amount: r2(nuevo - Number(sale.initial_amount_paid) - sepAmt),
-      monthly_amount: share,
+      monthly_amount: montos[0],
     }).eq('id', sale.id)
     await avisar('PRECIO AJUSTADO. MOTIVO REGISTRADO EN BITACORA: ' + motivo.toUpperCase(), { tono: 'ok' })
     reload()

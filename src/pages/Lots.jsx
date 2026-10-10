@@ -16,7 +16,7 @@ export default function Lots() {
   const irA = useNavigate()
   const esCelular = useEsCelular()   // en el celular no se abre el teclado solo
   const [lots, setLots] = useState([])
-  const [vencidos, setVencidos] = useState(new Set())
+  const [vencidos, setVencidos] = useState(new Map())   // lote → cuántas cuotas vencidas tiene
   const [expropiados, setExpropiados] = useState(new Map())
   const [contactosLote, setContactosLote] = useState(new Map())
   const [searchParams, setSearchParams] = useSearchParams()
@@ -62,9 +62,14 @@ export default function Lots() {
     supabase.from('installments').select('amount, amount_paid, sales!inner(lot_id, status, lot:lots!inner(project_id))')
       .neq('status', 'pagado').lt('due_date', hoyVenc)
       .eq('sales.status', 'en_proceso').eq('sales.lot.project_id', pidOp)
-      .then(({ data }) => setVencidos(new Set((data || [])
-        .filter(r => saldoCuota(r) > TOLERANCIA_CUOTA)   // misma regla que la ficha (lib/lotes)
-        .map(r => r.sales.lot_id))))
+      .then(({ data }) => {
+        const m = new Map()
+        for (const r of (data || [])) {
+          if (saldoCuota(r) <= TOLERANCIA_CUOTA) continue   // misma regla que la ficha (lib/lotes)
+          m.set(r.sales.lot_id, (m.get(r.sales.lot_id) || 0) + 1)
+        }
+        setVencidos(m)
+      })
     // lotes con historial de EXPROPIACION (cuantas veces) — aparte del estado actual del lote
     supabase.from('sales').select('lot_id, lot:lots!inner(project_id)').eq('status', 'expropiado').eq('lot.project_id', pidOp)
       .then(({ data }) => { const m = new Map(); for (const r of (data || [])) m.set(r.lot_id, (m.get(r.lot_id) || 0) + 1); setExpropiados(m) })
@@ -99,7 +104,8 @@ export default function Lots() {
   function tituloLote(l) {
     const contacto = contactosLote.get(l.id)
     const base = `Mz ${l.mz} Lt ${l.lt} — ${LBL[l.status]} — ${l.area_m2} m²`
-    const alerta = vencidos.has(l.id) ? ' — CON CUOTAS VENCIDAS' : ''
+    const nv = vencidos.get(l.id) || 0
+    const alerta = nv ? ' — ' + nv + (nv === 1 ? ' CUOTA VENCIDA' : ' CUOTAS VENCIDAS') : ''
     if (!contacto) return base + alerta
     return `${base}${alerta}\n${contacto.tipo}: ${contacto.full_name}\nCelular: ${contacto.phone || 'sin celular'}\nDocumento: ${contacto.doc_number || 'sin documento'}`
   }
@@ -127,7 +133,7 @@ export default function Lots() {
     for (const l of activos) c[l.status] = (c[l.status] || 0) + 1
     // los históricos también se cuentan solo sobre lotes que existen, para que el
     // número del chip coincida con lo que aparece al hacerle clic
-    c.vencidas = [...vencidos].filter(id => vivos.has(id)).length
+    c.vencidas = [...vencidos.keys()].filter(id => vivos.has(id)).length
     c.expropiado = [...expropiados.keys()].filter(id => vivos.has(id)).length
     c.cartera = EN_CARTERA.reduce((s, st) => s + (c[st] || 0), 0)
     c.eliminado = lots.length - activos.length
@@ -244,6 +250,7 @@ export default function Lots() {
                   <div key={i} className="fila-lotes">
                     {fila.map(l => (
                       <button key={l.id} className={`parcela ${vencidos.has(l.id) ? 'venc' : ''}`}
+                        data-venc={vencidos.get(l.id) || undefined}
                         style={{ '--st': COLORS[l.status] }}
                         title={tituloLote(l)}
                         onClick={() => abrirLote(l)}>
@@ -264,6 +271,7 @@ export default function Lots() {
             <div className="lot-grid">
               {arr.map(l => (
                 <button key={l.id} className={`lot-cell ${vencidos.has(l.id) ? 'venc' : ''}`}
+                  data-venc={vencidos.get(l.id) || undefined}
                   style={{ background: COLORS[l.status] }}
                   title={tituloLote(l)}
                   onClick={() => abrirLote(l)}>

@@ -231,7 +231,7 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 
 /* ---- lotes con cuotas vencidas ---- */
 .lot-cell.venc { box-shadow: 0 0 0 3px #e05252; position: relative; }
-.lot-cell.venc::after { content: '!'; position: absolute; top: -7px; right: -5px; background: #e05252; color: #fff; border-radius: 50%; width: 16px; height: 16px; font-size: 11px; line-height: 16px; }
+.lot-cell.venc::after { content: attr(data-venc); position: absolute; top: -7px; right: -5px; background: #e05252; color: #fff; border-radius: 8px; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; font-size: 11px; line-height: 16px; }
 
 /* ---- estado de cuenta imprimible ---- */
 .print-area { background: #fff; color: #111; padding: 2rem; border-radius: var(--radius); max-width: 900px; margin: 0 auto; }
@@ -456,10 +456,11 @@ tr.row-sel td { background: rgba(156,203,134,.15); }
 .parcela b { font-size: 1.05rem; line-height: 1; }
 .parcela small { font-size: .58rem; color: var(--muted); line-height: 1; }
 .parcela:hover { transform: scale(1.12); z-index: 2; box-shadow: 0 6px 18px rgba(0,0,0,.5); background: color-mix(in srgb, var(--st) 45%, #121a15); border-left-width: 1.5px; }
+/* el círculo rojo dice CUÁNTAS cuotas vencidas tiene el lote (data-venc) */
 .parcela.venc::after {
-  content: '!'; position: absolute; top: 2px; right: 3px;
-  background: #e05252; color: #fff; border-radius: 50%;
-  width: 14px; height: 14px; font-size: .62rem; font-weight: 800;
+  content: attr(data-venc); position: absolute; top: 2px; right: 3px;
+  background: #e05252; color: #fff; border-radius: 8px;
+  min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; font-size: .62rem; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
 }
 .parcela.venc { box-shadow: inset 0 0 0 1.5px rgba(224,82,82,.8); }
