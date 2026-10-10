@@ -355,9 +355,12 @@ export default function Users() {
     const next = on ? [...new Set([...cur, p])] : cur.filter(x => x !== p)
     const { error } = await supabase.from('profiles').update({ permisos: next }).eq('id', u.id)
     if (error) setMsg({ ok: false, t: /permisos/.test(error.message) ? 'FALTA CORRER sql/76 EN LA BASE.' : 'ERROR: ' + error.message })
-    else setMsg({ ok: true, t: on
-      ? (u.full_name || u.email) + ' AHORA ES RESPONSABLE DE COBRANZA: valida pagos y maneja el agente. Que cierre sesión y vuelva a entrar para ver la pantalla.'
-      : 'PERMISO DE COBRANZA QUITADO A ' + (u.full_name || u.email) })
+    else setMsg({ ok: true, t: p === 'planilla'
+      ? (on ? (u.full_name || u.email) + ' AHORA VE LA PLANILLA (Configuración → Planilla). Que cierre sesión y vuelva a entrar para verla.'
+            : 'PLANILLA QUITADA A ' + (u.full_name || u.email))
+      : on
+        ? (u.full_name || u.email) + ' AHORA ES RESPONSABLE DE COBRANZA: valida pagos y maneja el agente. Que cierre sesión y vuelva a entrar para ver la pantalla.'
+        : 'PERMISO DE COBRANZA QUITADO A ' + (u.full_name || u.email) })
     load()
   }
 
@@ -567,6 +570,13 @@ export default function Users() {
                       title="Valida los vouchers que lee el agente de cobranza, maneja el agente y ve sus conversaciones (sql/76)">
                       <input type="checkbox" checked={(u.permisos || []).includes('cobranza')} onChange={e => togglePermiso(u, 'cobranza', e.target.checked)} />
                       🤝 <b>Responsable de cobranza</b>
+                    </label>
+                  )}
+                  {u.role !== 'superuser' && (
+                    <label className="inline-check" style={{ fontSize: 11, marginTop: 4, display: 'flex' }}
+                      title="Ve y usa la planilla: sueldos, adelantos, descuentos, tardanzas, faltas y bonos (sql/132). Sin esto, solo la ve el superusuario.">
+                      <input type="checkbox" checked={(u.permisos || []).includes('planilla')} onChange={e => togglePermiso(u, 'planilla', e.target.checked)} />
+                      👷 <b>Planilla</b>
                     </label>
                   )}
                 </td>

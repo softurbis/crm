@@ -68,8 +68,6 @@ const MENU = [
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
 
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos' },
-  // sueldos, adelantos, descuentos y tardanzas (sql/131): aparte de Gastos, solo calcula
-  { to: '/planilla', label: 'Planilla', icon: '👷', jefe: true, color: '#e0a96d', grupo: 'Gastos' },
 
   { to: '/whatsapp', label: 'WhatsApp', icon: '💬', color: '#58c482', grupo: 'Comercial' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
@@ -84,6 +82,9 @@ const MENU = [
   { to: '/ventas-ia', label: 'Agente de ventas', icon: '🤖', admin: true, color: '#8ab4f8', grupo: 'Configuración' },
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Configuración' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Configuración' },
+  // sueldos, adelantos, descuentos y tardanzas (sql/131): de todo Urbis, no de un proyecto.
+  // La ve el superusuario y a quien él le dé el permiso 'planilla' en Usuarios (sql/132).
+  { to: '/planilla', label: 'Planilla', icon: '👷', permiso: 'planilla', color: '#e0a96d', grupo: 'Configuración' },
   { to: '/bitacora', label: 'Bitácora', icon: '📋', admin: true, color: '#9daab6', grupo: 'Configuración' },
   // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
   { to: '/migracion', label: 'Migración', icon: '📥', corrige: true, color: '#7fb0d8', grupo: 'Configuración' },
@@ -94,7 +95,8 @@ const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', '
 const ICONO_GRUPO = { Cobranza: '💰', Ventas: '🏷️', Gastos: '🧾', Comercial: '📢', Reportes: '📈', 'Configuración': '⚙️' }
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
 // Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
-export const PANELS = MENU.filter(m => !m.admin && !m.corrige && !m.cobranza && !m.siempre && !m.fact && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
+// Los que van por permiso especial (la planilla) tampoco: se dan con su propia casilla.
+export const PANELS = MENU.filter(m => !m.admin && !m.corrige && !m.cobranza && !m.permiso && !m.siempre && !m.fact && m.to !== '/').map(m => ({ to: m.to, label: m.label, icon: m.icon }))
 
 export default function Layout() {
   const { profile, role, esSuper, puedeCorregir, esJefe, logout } = useAuth()
@@ -161,7 +163,7 @@ export default function Layout() {
   const panelsUser = Array.isArray(profile?.panels) ? profile.panels : null
   // `tambien`: quien tenía habilitado el panel viejo de Contratos ve "Ventas y contratos"
   // Comprobantes va con Pagos: quien cobra es quien emite la boleta
-  const enPanel = m => puedeCorregir || m.to === '/' || m.siempre || m.admin || m.corrige || m.cobranza || !panelsUser || panelsUser.includes(m.fact ? '/pagos' : m.to) || (m.tambien || []).some(t => panelsUser.includes(t))
+  const enPanel = m => puedeCorregir || m.to === '/' || m.siempre || m.admin || m.corrige || m.cobranza || m.permiso || !panelsUser || panelsUser.includes(m.fact ? '/pagos' : m.to) || (m.tambien || []).some(t => panelsUser.includes(t))
   // Cobranza IA la abre el permiso especial (sql/76), no el rol ni los paneles.
   // El administrador la ve para consultar; la pantalla le quita los botones.
   // El OPERADOR no entra en esta lista: solo la ve si se le dio el permiso especial.
@@ -169,8 +171,9 @@ export default function Layout() {
   // ¿este ítem es visible para el usuario? (mismo criterio que tenía el menú plano)
   // `staff` NO incluye al operador a propósito: campañas, corretaje y probar bot no son suyos.
   const hayFacturador = projects.some(p => p.fact_activo)
-  // `jefe`: administrador, superusuario y operador (la planilla)
-  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.jefe || esJefe) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
+  // `permiso`: el superusuario y quien tenga ese permiso especial en Usuarios (la planilla, sql/132)
+  const tienePermiso = p => esSuper || (profile?.permisos || []).includes(p)
+  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.permiso || tienePermiso(m.permiso)) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
   const grupoAbierto = g => !gruposCerrados[g]
   const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
 

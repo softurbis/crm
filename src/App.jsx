@@ -120,7 +120,7 @@ export default function App() {
           <Route path="comprobantes" element={<Comprobantes />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />
-          <Route path="planilla" element={<Vedada para={a => !a.esJefe}><Planilla /></Vedada>} />
+          <Route path="planilla" element={<Vedada para={a => !a.esSuper && !(a.profile?.permisos || []).includes('planilla')}><Planilla /></Vedada>} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="comisiones" element={<Commissions />} />
           <Route path="proyectos" element={<Projects />} />
