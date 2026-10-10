@@ -68,6 +68,8 @@ const MENU = [
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
 
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos' },
+  // sueldos, adelantos, descuentos y tardanzas (sql/131): aparte de Gastos, solo calcula
+  { to: '/planilla', label: 'Planilla', icon: '👷', jefe: true, color: '#e0a96d', grupo: 'Gastos' },
 
   { to: '/whatsapp', label: 'WhatsApp', icon: '💬', color: '#58c482', grupo: 'Comercial' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },
@@ -167,7 +169,8 @@ export default function Layout() {
   // ¿este ítem es visible para el usuario? (mismo criterio que tenía el menú plano)
   // `staff` NO incluye al operador a propósito: campañas, corretaje y probar bot no son suyos.
   const hayFacturador = projects.some(p => p.fact_activo)
-  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
+  // `jefe`: administrador, superusuario y operador (la planilla)
+  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.jefe || esJefe) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
   const grupoAbierto = g => !gruposCerrados[g]
   const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
 

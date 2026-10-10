@@ -34,6 +34,7 @@ const Corretaje = lazy(() => import('./pages/Corretaje'))
 const Migracion = lazy(() => import('./pages/Migracion'))
 const Conciliacion = lazy(() => import('./pages/Conciliacion'))
 const Comprobantes = lazy(() => import('./pages/Comprobantes'))
+const Planilla = lazy(() => import('./pages/Planilla'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 
@@ -119,6 +120,7 @@ export default function App() {
           <Route path="comprobantes" element={<Comprobantes />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />
+          <Route path="planilla" element={<Vedada para={a => !a.esJefe}><Planilla /></Vedada>} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="comisiones" element={<Commissions />} />
           <Route path="proyectos" element={<Projects />} />
