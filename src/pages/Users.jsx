@@ -44,6 +44,7 @@ const ROLES = [
   ['manager', 'GERENCIA (solo ver)'],
   ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
   ['socio', 'SOCIO (ve SOLO sus proyectos · aprueba gastos con firma)'],   // sql/73: sin proyectos asignados NO ve nada
+  ['facturacion', 'FACTURACIÓN (otra empresa: solo ve pagos y sube boletas/facturas de sus proyectos)'],   // sql/133-134
 ]
 
 // la línea que explica al OPERADOR debajo del selector de rol (al crear y en su fila)
@@ -465,7 +466,8 @@ export default function Users() {
                       titulo="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo."
                       onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
-                    {u.role === 'socio' && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
+                    {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
+                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos de los proyectos que le marques y sube sus boletas y facturas. Nada más.</span>}
                   </div>
                 </td>
                 <td>
@@ -555,6 +557,8 @@ export default function Users() {
                     ? <span className="muted" style={{ fontSize: 11 }}>Todos</span>
                     // el operador ve el menú del superusuario menos la administración: no se recorta por paneles
                     : u.role === 'operador' ? <span className="muted" style={{ fontSize: 11 }}>Todos, menos administración</span>
+                    // facturación tiene una sola pantalla: no hay paneles que elegir (sql/134)
+                    : u.role === 'facturacion' ? <span className="muted" style={{ fontSize: 11 }}>Solo "Comprobantes por subir"</span>
                     : PANELS.map(p => {
                       const on = Array.isArray(u.panels) ? u.panels.includes(p.to) : true
                       return (
@@ -564,15 +568,15 @@ export default function Users() {
                         </label>
                       )
                     })}
-                  {u.role !== 'superuser' && u.role !== 'operador' && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
-                  {u.role !== 'superuser' && u.role !== 'socio' && (
+                  {!['superuser', 'operador', 'facturacion'].includes(u.role) && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
+                  {!['superuser', 'socio', 'facturacion'].includes(u.role) && (
                     <label className="inline-check" style={{ fontSize: 11, marginTop: 8, display: 'flex' }}
                       title="Valida los vouchers que lee el agente de cobranza, maneja el agente y ve sus conversaciones (sql/76)">
                       <input type="checkbox" checked={(u.permisos || []).includes('cobranza')} onChange={e => togglePermiso(u, 'cobranza', e.target.checked)} />
                       🤝 <b>Responsable de cobranza</b>
                     </label>
                   )}
-                  {u.role !== 'superuser' && (
+                  {!['superuser', 'facturacion'].includes(u.role) && (
                     <label className="inline-check" style={{ fontSize: 11, marginTop: 4, display: 'flex' }}
                       title="Ve y usa la planilla: sueldos, adelantos, descuentos, tardanzas, faltas y bonos (sql/132). Sin esto, solo la ve el superusuario.">
                       <input type="checkbox" checked={(u.permisos || []).includes('planilla')} onChange={e => togglePermiso(u, 'planilla', e.target.checked)} />

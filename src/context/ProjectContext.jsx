@@ -35,6 +35,8 @@ export function ProjectProvider({ children }) {
 
   useEffect(() => {
     if (!profile) return
+    // facturación no lee tablas (sql/134): sus proyectos vienen en su propia pantalla
+    if (role === 'facturacion') { setProjects([]); return }
     async function load() {
       let lista = []
       // administrador, superusuario y operador ven todos los proyectos

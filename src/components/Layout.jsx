@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useProject, colorProyecto, logoProyecto } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
@@ -89,6 +89,9 @@ const MENU = [
   // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
   { to: '/migracion', label: 'Migración', icon: '📥', corrige: true, color: '#7fb0d8', grupo: 'Configuración' },
 ]
+// El rol FACTURACIÓN (la secretaria de la otra empresa, sql/134) ve SOLO esto: no está
+// en MENU para que nadie más lo tenga en su menú.
+const MENU_FACTURACION = { to: '/facturacion', label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
 const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
@@ -201,6 +204,25 @@ export default function Layout() {
     return () => clearInterval(t)
   }, [esAdmin])
 
+  // facturación: cuántos pagos le faltan, en el menú (se cuenta cada minuto, con la pestaña a la vista)
+  const esFacturacion = role === 'facturacion'
+  const [pendFact, setPendFact] = useState(0)
+  useEffect(() => {
+    if (!esFacturacion) return
+    let vivo = true
+    const contar = () => supabase.rpc('facturacion_pagos', { p_solo_pendientes: true }).then(({ data, error }) => {
+      if (!vivo || error) return
+      const deps = new Set((data || []).map(f => {
+        const op = String(f.operation_number || '').trim().toUpperCase()
+        return !op || op === 'SIN-REF' ? f.id : [f.project_id, f.date, op, f.financial_account_id || ''].join('|')
+      }))
+      setPendFact(deps.size)
+    })
+    contar()
+    const t = setInterval(() => { if (!document.hidden) contar() }, 60000)
+    return () => { vivo = false; clearInterval(t) }
+  }, [esFacturacion])
+
   const _loc = useLocation()
   const pathname = _loc.pathname
   const accentMod = MENU.find(m => m.to === '/' ? pathname === '/' : (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))?.color
@@ -228,12 +250,15 @@ export default function Layout() {
     // "Ventas y contratos" también queda marcado cuando se está en /contratos
     <NavLink key={m.to} to={m.to} end={m.end} style={{ '--mi': m.color }}
       className={({ isActive }) => (isActive || (m.tambien || []).some(t => pathname.startsWith(t))) ? 'nav-item active' : 'nav-item'}>
-      <span>{m.icon}</span> {m.label}
+      <span>{m.icon}</span> {m.label}{m.badge > 0 && <span className="nav-badge">{m.badge}</span>}
     </NavLink>
   )
   // la secretaria entra a Hoy (App.jsx): su Dashboard vive en /dashboard
   const delRol = m => (m.to === '/' && role === 'secretary' ? { ...m, to: '/dashboard', end: false } : m)
   const visibles = MENU.filter(verItem).map(delRol)
+
+  // facturación no tiene otra pantalla: cualquier otra dirección la devuelve a la suya
+  if (esFacturacion && !pathname.startsWith('/facturacion')) return <Navigate to="/facturacion" replace />
 
   return (
     <div className="shell">
@@ -247,6 +272,7 @@ export default function Layout() {
           {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
           {role === 'asesor'
             ? MENU.filter(m => m.to === '/whatsapp').map(Item)
+            : esFacturacion ? Item({ ...MENU_FACTURACION, badge: pendFact })
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
                     (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}
@@ -341,7 +367,7 @@ export default function Layout() {
             <div style={{ minWidth: 0, flex: 1 }}>
               <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={profile?.full_name}>{profile?.full_name}</p>
-              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'operador' ? 'OPERADOR' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : 'SECRETARIA'}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'operador' ? 'OPERADOR' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : role === 'facturacion' ? 'FACTURACIÓN' : role === 'asesor' ? 'ASESOR' : 'SECRETARIA'}</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>

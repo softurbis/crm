@@ -35,6 +35,7 @@ const Migracion = lazy(() => import('./pages/Migracion'))
 const Conciliacion = lazy(() => import('./pages/Conciliacion'))
 const Comprobantes = lazy(() => import('./pages/Comprobantes'))
 const Planilla = lazy(() => import('./pages/Planilla'))
+const Facturacion = lazy(() => import('./pages/Facturacion'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 
@@ -54,6 +55,8 @@ function Home() {
   const { role } = useAuth()
   if (role === 'asesor') return <Navigate to="/whatsapp" replace />
   if (role === 'secretary') return <Navigate to="/hoy" replace />
+  // la secretaria de la otra empresa: solo sube boletas y facturas (sql/134)
+  if (role === 'facturacion') return <Navigate to="/facturacion" replace />
   return <Dashboard />
 }
 
@@ -120,6 +123,7 @@ export default function App() {
           <Route path="comprobantes" element={<Comprobantes />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />
+          <Route path="facturacion" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><Facturacion /></Vedada>} />
           <Route path="planilla" element={<Vedada para={a => !a.esSuper && !(a.profile?.permisos || []).includes('planilla')}><Planilla /></Vedada>} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="comisiones" element={<Commissions />} />
