@@ -27,6 +27,8 @@ const VIA = require('./ventas_ia')({ supabase, log: (...a) => log(...a) })
 const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(...a) })
 // lee con IA el DNI que se sube al registrar un cliente y llena sus datos (sql/112)
 const LECTOR_DNI = require('./lector_dni')({ supabase, log: (...a) => log(...a) })
+// avisos de firma de gastos: a quien pide y a los socios, cada 4 horas, WhatsApp y Telegram (sql/135)
+const AVISOS_FIRMA = require('./avisos_firma').crearAvisosFirma({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
 // trae el nombre de un DNI o la razón social de un RUC al emitir un comprobante (sql/119)
 const CONSULTA_DOC = require('./consulta_doc')({ supabase, log: (...a) => log(...a) })
 // emite las boletas y facturas que pide el panel, con el RUC de cada proyecto (sql/113)
@@ -3471,55 +3473,10 @@ async function avisarAprobaciones() {
   const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
   const dig = t => String(t || '').replace(/\D/g, '')
 
-  // 0) solicitudes nuevas -> a quien le toca firmarlas como solicitante (sql/74)
-  const { data: firmar, error: e0 } = await supabase.from('expenses')
-    .select('id, request_number, amount, recipient, description, requester_id, registered_by, project:projects(name)')
-    .eq('status', 'solicitado').is('requester_signed_at', null).is('rejected_at', null)
-    .is('requester_notified_at', null).not('requester_id', 'is', null).limit(20)
-  if (!e0) for (const g of (firmar || [])) {
-    const { data: quien } = await supabase.from('profiles').select('full_name, phone').eq('id', g.requester_id).maybeSingle()
-    const { data: sec } = g.registered_by
-      ? await supabase.from('profiles').select('full_name').eq('id', g.registered_by).maybeSingle()
-      : { data: null }
-    const tel = dig(quien?.phone)
-    if (tel.length >= 11) {
-      await enviar(tel, '✍ *SOLICITUD DE GASTO PARA TU FIRMA*\n' + (g.project?.name || '') + ' · ' + sol(g)
-        + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + '\n' + (g.description || '')
-        + (sec?.full_name ? '\nLa registró ' + sec.full_name : '')
-        + '\n\nRevísala y fírmala aquí: ' + panel, { tipo: 'aviso_admin' })
-    }
-    // se marca aunque no tenga telefono: el banner del panel igual se la muestra
-    await supabase.from('expenses').update({ requester_notified_at: new Date().toISOString() }).eq('id', g.id)
-    log('GASTO', sol(g), 'por firmar: avisado a', quien?.full_name || g.requester_id)
-  }
-
-  // 1) solicitudes YA FIRMADAS por el solicitante -> a los socios del proyecto
-  const { data: pend, error } = await supabase.from('expenses')
-    .select('id, request_number, amount, recipient, description, requester_name, project_id, project:projects!inner(name, expense_approval)')
-    .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).is('approval_notified_at', null)
-    .or('requester_id.is.null,requester_signed_at.not.is.null')
-    .eq('project.expense_approval', true).limit(20)
-  if (error) return      // sql/73 o sql/74 sin correr: nada que hacer
-  for (const g of (pend || [])) {
-    const { data: asig } = await supabase.from('project_assignments').select('user_id').eq('project_id', g.project_id)
-    const ids = (asig || []).map(a => a.user_id)
-    const { data: socios } = ids.length
-      ? await supabase.from('profiles').select('full_name, phone').in('id', ids).eq('role', 'socio').neq('active', false)
-      : { data: [] }
-    let avisados = 0
-    for (const s of (socios || [])) {
-      if (dig(s.phone).length < 11) continue
-      const ok = await enviar(dig(s.phone), '✍ *SOLICITUD DE GASTO POR APROBAR*\n' + g.project.name + ' · ' + sol(g)
-        + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + '\n' + (g.description || '')
-        + (g.requester_name ? '\nYa la firmó ' + g.requester_name : '')
-        + '\n\nRevísala y fírmala aquí: ' + panel, { tipo: 'aviso_admin' })
-      if (ok) avisados++
-    }
-    // se marca aunque no haya socio con telefono: el aviso del panel (banner)
-    // igual la muestra, y no tiene sentido reintentar cada minuto
-    await supabase.from('expenses').update({ approval_notified_at: new Date().toISOString() }).eq('id', g.id)
-    log('GASTO', sol(g), 'por aprobar: avisado a', avisados, 'socio(s)')
-  }
+  // 0-1) quien pide y los socios: aviso apenas se registra, "ya puedes firmar" cuando
+  // firma quien la pidió, y recordatorio cada 4 horas por WhatsApp y Telegram hasta
+  // que firmen (avisos_firma.js, sql/135; antes era un solo aviso por un solo canal)
+  await AVISOS_FIRMA.tick().catch(e => log('avisos de firma:', String(e.message || e)))
 
   // 2) decisiones -> a quien pidio el gasto (su Telegram/WhatsApp de seguimiento)
   const { data: dec } = await supabase.from('expenses')
