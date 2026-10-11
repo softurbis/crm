@@ -14,7 +14,8 @@ import RegistrarPago from '../components/RegistrarPago'
 import ReponerGasto from '../components/ReponerGasto'
 import { useEsCelular } from '../lib/useEsCelular'
 
-const hoy = () => new Date().toISOString().slice(0, 10)
+// la fecha de HOY en Lima: con la hora UTC, después de las 7 pm salía la de mañana
+const hoy = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const TIPOS = ['PAGO DE COMISION', 'GASTOS DE DESARROLLO', 'GASTOS ADMINISTRATIVOS', 'OTROS']
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SETIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
@@ -68,9 +69,11 @@ export default function Expenses() {
   const { pidOp } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
   const esSocio = role === 'socio'
-  // la APROBACIÓN FIRMADA es del socio (y del superusuario): el operador no aprueba,
-  // o la segunda firma de la constancia la pondría la misma oficina que pide el gasto
-  const puedeAprobar = ['socio', 'superuser'].includes(role)
+  // la APROBACIÓN FIRMADA es SOLO de la socia del proyecto (sql/136, 10 oct): ni el
+  // superusuario ni la oficina, o la segunda firma no controlaría nada
+  const puedeAprobar = role === 'socio'
+  // registrar el pago con su voucher: la socia, o el superusuario si hace falta (sql/101)
+  const puedePagar = ['socio', 'superuser'].includes(role)
   const [aprobar, setAprobar] = useState(null)          // { g, modo } solicitud abierta para firmar
   const [pagar, setPagar] = useState(null)              // solicitud aprobada a la que la socia le sube el comprobante
   const esCelular = useEsCelular()                      // en el celular la tabla ancha se vuelve tarjetas
@@ -92,6 +95,9 @@ export default function Expenses() {
   const [fanio, setFanio] = useState('todos')
   const [fmes, setFmes] = useState('todos')
   const [f, setF] = useState({})
+  const [paso, setPaso] = useState(1)                   // la solicitud se llena por pasos (1 a 4)
+  const [faltaPaso, setFaltaPaso] = useState('')        // lo que falta para pasar al siguiente
+  const [conDetalle, setConDetalle] = useState(false)   // la tabla de detalle, opcional
   const [editId, setEditId] = useState(null)
   const [prt, setPrt] = useState(null)
   const [tplOpen, setTplOpen] = useState(false)
@@ -164,11 +170,14 @@ export default function Expenses() {
   // Dos firmas, dos personas (sql/100): la de la solicitud es SOLO de quien pide el
   // gasto (el superusuario ya no la firma "de respaldo") y quien lo pidió no lo aprueba.
   const miPuedeFirmar = g => estadoGasto(g) === 'por_firmar' && g.requester_id === profile?.id
-  const miPuedeAprobar = g => puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id !== profile?.id
+  // en los proyectos con firma de socio, una solicitud sin "quien la pide" no se
+  // aprueba: primero se corrige (sql/136)
+  const sinSolicitante = g => !!proyecto?.expense_approval && !g.requester_id && estadoGasto(g) === 'solicitado'
+  const miPuedeAprobar = g => puedeAprobar && estadoGasto(g) === 'solicitado' && !sinSolicitante(g) && g.requester_id !== profile?.id
   // Tercer paso en los proyectos con aprobación (sql/101): aprobada la solicitud, la
   // socia paga y sube el comprobante. Hasta entonces el gasto está "pago pendiente".
   const pagoPendiente = g => !!proyecto?.expense_approval && estadoGasto(g) === 'aprobado'
-  const miPuedePagar = g => puedeAprobar && pagoPendiente(g) && g.requester_id !== profile?.id
+  const miPuedePagar = g => puedePagar && pagoPendiente(g) && g.requester_id !== profile?.id
   const miasPorFirmar = list.filter(miPuedeFirmar).length
   const nombreFirmante = g => firmantes.find(p => p.id === g.requester_id)?.full_name || g.requester_name || 'quien la pidió'
   // el primer nombre; sin nombre (el socio no carga la lista de firmantes) no se corta la frase
@@ -204,18 +213,22 @@ export default function Expenses() {
   function abrirEditar(g) {
     setF({
       type: g.type, issue_date: g.issue_date, amount: g.amount,
-      recipient: g.recipient, recipient_dni: g.recipient_dni, sender: g.sender,
+      recipient: g.recipient, recipient_dni: g.recipient_dni, sender: g.sender, sender_dni: g.sender_dni || '',
       requester_id: g.requester_id || '',
       discount_from: g.discount_from, payment_method: g.payment_method,
       document_type: g.document_type, description: g.description, detail: g.detail,
       adelanto_por: g.adelanto_por || '',
     })
     setEditId(g.id); setShow(true); setMsg(null)
+    setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function guardar(e) {
     e.preventDefault()
+    // por pasos: Enter o "Siguiente" en los pasos 1 a 3 solo avanza
+    if (paso < 4) { irAPaso(paso + 1); return }
+    for (const n of [1, 2, 3]) { const t = faltaEn(n); if (t) { setPaso(n); setFaltaPaso(t); return } }
     setBusy(true); setMsg(null)
     try {
       const up = x => (x || '').toUpperCase().trim() || null
@@ -229,7 +242,9 @@ export default function Expenses() {
         // quien ENTREGA el dinero (el remitente de la constancia) es un dato
         // propio: antes se copiaba el nombre de quien firma la solicitud, que
         // casi siempre es OTRA persona — justamente la que recibe (sql/87)
-        sender: up(f.sender), sender_dni: (f.sender_dni || '').trim() || null,
+        // con firma de socio y una sola socia, ella entrega: su nombre y su DNI (sql/136)
+        sender: sociaFija ? up(sociaFija.full_name) : up(f.sender),
+        sender_dni: (sociaFija?.dni || f.sender_dni || '').trim() || null,
         amount: Number(f.amount),
         // la columna solo se manda si sql/74 esta corrido (si no, firmantes_gasto
         // no responde y la lista queda vacia). Sin esto, un panel desplegado
@@ -521,20 +536,32 @@ export default function Expenses() {
 
   // ---- ATAJOS: los gastos que se piden siempre, ya prellenados ----
   // El texto sale igual que en las constancias de papel; despues se puede editar.
+  // `ej`: un ejemplo real de cómo se escribe el motivo de ese gasto (paso 1)
   const ATAJOS = [
-    { t: '📅 Administrativos del mes', f: { type: 'GASTOS ADMINISTRATIVOS', description: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], discount_from: 'URBIS GROUP', payment_method: 'EFECTIVO' } },
-    { t: '🤝 Pago de comisión', f: { type: 'PAGO DE COMISION', description: 'PAGO DE COMISION POR LA VENTA DEL LOTE ', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
-    { t: '📣 Publicidad (ADS)', f: { type: 'GASTOS ADMINISTRATIVOS', description: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'TRANSFERENCIA' } },
-    { t: '🧰 Compra de materiales', f: { type: 'GASTOS DE DESARROLLO', description: 'COMPRA DE MATERIALES PARA EL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+    { t: '🤝 Comisión', ej: 'PAGO DE COMISION POR LA VENTA DEL LOTE MZ B LT 7', f: { type: 'PAGO DE COMISION', description: 'PAGO DE COMISION POR LA VENTA DEL LOTE ', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+    { t: '📅 Administrativos del mes', ej: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], f: { type: 'GASTOS ADMINISTRATIVOS', description: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], discount_from: 'URBIS GROUP', payment_method: 'EFECTIVO' } },
+    { t: '📣 Publicidad (ADS)', ej: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO DEL MES DE ' + MESES[new Date().getMonth()], f: { type: 'GASTOS ADMINISTRATIVOS', description: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'TRANSFERENCIA' } },
+    { t: '🧰 Materiales u obra', ej: 'SERVICIO DE EXCAVADORA ORUGA PARA LA APERTURA DE CALLES', f: { type: 'GASTOS DE DESARROLLO', description: 'COMPRA DE MATERIALES PARA EL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+    { t: '✏️ Otro', ej: 'MOVILIDAD PARA LA ENTREGA DE LOTES DEL SABADO', f: { type: 'OTROS', description: '' } },
   ]
+  const EJEMPLO_TIPO = {
+    'PAGO DE COMISION': 'PAGO DE COMISION POR LA VENTA DEL LOTE MZ B LT 7',
+    'GASTOS ADMINISTRATIVOS': 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()],
+    'GASTOS DE DESARROLLO': 'SERVICIO DE EXCAVADORA ORUGA PARA LA APERTURA DE CALLES',
+    OTROS: 'MOVILIDAD PARA LA ENTREGA DE LOTES DEL SABADO',
+  }
+  // las socias del proyecto: en los proyectos con firma de socio, ELLA entrega el
+  // dinero y firma la aprobación (sql/136). Con una sola, se pone sola.
+  const socias = personas.filter(p => p.rol === 'socio')
+  const sociaFija = proyecto?.expense_approval && socias.length === 1 ? socias[0] : null
   // Lo que ya sabemos del proyecto viene puesto: quién firma la solicitud y a
   // quién se le suele entregar el dinero (lo último registrado de ese tipo).
   // Todo se puede cambiar: son valores de arranque, no una regla.
   function porDefecto(extra = {}) {
     const ult = list.find(g => (!extra.type || g.type === extra.type) && g.recipient) || {}
     const previo = firmantes.length === 1 ? firmantes[0].id : (list.find(g => g.requester_id)?.requester_id || '')
-    // quien ENTREGA de parte de Urbis: el socio del proyecto, o el último que entregó
-    const socio = personas.find(p => p.rol === 'socio')
+    // quien ENTREGA de parte de Urbis: la socia del proyecto, o el último que entregó
+    const socio = socias[0]
     const ultEntrega = list.find(g => g.sender) || {}
     return {
       issue_date: hoy(),
@@ -546,7 +573,42 @@ export default function Expenses() {
       ...extra,
     }
   }
-  const usarAtajo = a => { setEditId(null); setF(porDefecto(a.f)); setShow(true) }
+  // paso 1: elegir qué se paga llena tipo, motivo, de dónde se descuenta y cómo se
+  // paga; no toca a las personas ni el monto ya escritos
+  const elegirQue = a => { setF(x => ({ ...x, ...a.f })); setFaltaPaso('') }
+  const atajoActivo = a => a.f.type === f.type && (!a.f.description || String(f.description || '').startsWith(a.f.description.slice(0, 15)))
+  const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
+  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setMsg(null) }
+
+  // ---- LA SOLICITUD POR PASOS (10 oct 2026, pedido del dueño: "más práctico de
+  // entender, con ejemplos") ----
+  //   1. ¿Qué se paga?   2. ¿Quién pide y quién recibe?   3. ¿Cuánto y cómo?   4. Revisa
+  // Lo que falta en cada paso se dice ahí mismo, antes de pasar al siguiente.
+  const PASOS = ['¿Qué se paga?', '¿Quién pide y quién recibe?', '¿Cuánto y cómo?', 'Revisa y registra']
+  const solicitante = firmantes.find(p => p.id === f.requester_id) || null
+  function faltaEn(n) {
+    if (n === 1) {
+      if (!f.type) return 'Elige qué se paga (o "Otro").'
+      if (String(f.description || '').trim().length < 6) return 'Escribe el motivo: es lo que sale en la constancia después de "pago por".'
+    }
+    if (n === 2) {
+      if (proyecto?.expense_approval && hay74 && !f.requester_id) return 'Elige quién pide el gasto: su firma va primero (la de la izquierda).'
+      if (!String(f.recipient || '').trim()) return 'Escribe quién recibe el dinero.'
+      if (!String(f.recipient_dni || '').trim()) return 'Falta el DNI de quien recibe el dinero.'
+    }
+    if (n === 3) {
+      if (!(Number(f.amount) > 0)) return 'Escribe el monto.'
+      if (!f.issue_date) return 'Falta la fecha.'
+      if (proyecto?.expense_approval && !socias.length) return 'Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios.'
+      if (!sociaFija && !String(f.sender || '').trim()) return 'Escribe quién entrega el dinero.'
+    }
+    return ''
+  }
+  function irAPaso(n) {
+    // hacia atrás siempre; hacia adelante, solo con los pasos anteriores completos
+    for (let i = 1; i < n; i++) { const t = faltaEn(i); if (t) { setPaso(i); setFaltaPaso(t); return } }
+    setPaso(n); setFaltaPaso('')
+  }
 
   // Copiar una solicitud anterior: sirve para el gasto que se repite cada mes.
   // No se copian ni el correlativo ni las firmas: es una solicitud nueva.
@@ -554,10 +616,10 @@ export default function Expenses() {
     setEditId(null)
     setF({
       type: g.type, issue_date: hoy(), amount: g.amount, recipient: g.recipient, recipient_dni: g.recipient_dni,
-      requester_id: g.requester_id || '', sender: g.sender, discount_from: g.discount_from,
+      requester_id: g.requester_id || '', sender: g.sender, sender_dni: g.sender_dni || '', discount_from: g.discount_from,
       payment_method: g.payment_method, document_type: g.document_type, description: g.description, detail: g.detail,
     })
-    setShow(true)
+    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -667,6 +729,7 @@ export default function Expenses() {
       : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
     if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}</span></span>
+    if (sinSolicitante(g)) return <span className="bad" title="Se registró sin elegir quién pide el gasto: nadie firmó primero">⚠ FALTA QUIÉN LA PIDE<br /><span className="muted small" style={{ textTransform: 'none' }}>corrígela con "editar"</span></span>
     return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
   }
 
@@ -856,7 +919,7 @@ export default function Expenses() {
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
           {hay125 && <option value="falta_reponer">FALTA REPONER (lo adelantó alguien)</option>}
         </select>
-        {!readOnly && <button className="btn-primary" onClick={() => { setShow(!show); setEditId(null); setF(porDefecto()) }}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
+        {!readOnly && <button className="btn-primary" onClick={() => show ? setShow(false) : abrirNueva()}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
 
       <p className="hint">
@@ -910,168 +973,281 @@ export default function Expenses() {
           {' '}Tu firma registrada · <button className="link-btn" onClick={() => setCambiarFirma(true)}>cambiarla</button>
         </p>
       )}
-      {esSuper && proyecto?.expense_approval && !tengoFirma && !cambiarFirma && (
-        <p className="hint muted">Tú también puedes aprobar los gastos que no pediste: <button className="link-btn" onClick={() => setCambiarFirma(true)}>registrar mi firma</button></p>
-      )}
 
       {show && !readOnly && (
-        <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardar}>
-          <p><b>{editId ? 'CORREGIR SOLICITUD (se mantiene el mismo correlativo)' : 'SOLICITUD DE GASTO'}</b> — genera la CONSTANCIA DE RECEPCION para firma; al entregarse el dinero se confirma.</p>
-          {!editId && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px', alignItems: 'center' }}>
-              <span className="muted small" style={{ textTransform: 'none' }}>Atajos:</span>
-              {ATAJOS.map(a => (
-                <button key={a.t} type="button" className="chip" style={{ textTransform: 'none' }}
-                  title="Llena el gasto típico; después puedes cambiar lo que quieras" onClick={() => usarAtajo(a)}>{a.t}</button>
-              ))}
+        <form className="glass form-card sg" style={{ maxWidth: 'none' }} onSubmit={guardar} noValidate>
+          <div className="sg-cab">
+            <b>{editId ? 'CORREGIR LA SOLICITUD ' + numeroDe(list.find(g => g.id === editId) || {}) : 'NUEVA SOLICITUD DE GASTO'}</b>
+            <span className="muted small" style={{ textTransform: 'none' }}>
+              {editId ? 'Se mantiene el mismo número. Si ya tenía firmas, hay que volver a firmarla.' : 'Cuatro pasos. Al final ves la constancia tal como se va a firmar.'}
+            </span>
+          </div>
+          {/* los cuatro pasos: tocando uno se vuelve a él (hacia adelante, solo si
+              lo anterior está completo) */}
+          <ol className="sg-pasos">
+            {PASOS.map((t, i) => (
+              <li key={t} className={paso === i + 1 ? 'on' : paso > i + 1 ? 'hecho' : ''}>
+                <button type="button" onClick={() => irAPaso(i + 1)}><span className="sg-n">{paso > i + 1 ? '✓' : i + 1}</span>{t}</button>
+              </li>
+            ))}
+          </ol>
+
+          {paso === 1 && (
+            <div className="sg-paso">
+              <p className="sg-preg">1. ¿Qué se paga?</p>
+              <div className="chips" style={{ margin: '0 0 12px' }}>
+                {ATAJOS.map(a => (
+                  <button key={a.t} type="button" className={'chip' + (atajoActivo(a) ? ' on' : '')} style={{ textTransform: 'none' }}
+                    onClick={() => elegirQue(a)}>{a.t}</button>
+                ))}
+              </div>
+              <div className="form-grid">
+                <label>Tipo de gasto
+                  <select value={f.type || ''} onChange={e => { setF(x => ({ ...x, type: e.target.value })); setFaltaPaso('') }}>
+                    <option value="">- elegir -</option>
+                    {TIPOS.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </label>
+                <label>Se descuenta de
+                  <select value={f.discount_from || 'URBIS GROUP'} onChange={e => setF(x => ({ ...x, discount_from: e.target.value }))}>
+                    <option>URBIS GROUP</option>
+                    <option>EL PROYECTO</option>
+                  </select>
+                </label>
+                <label className="span2">Motivo <span className="muted small" style={{ textTransform: 'none' }}>(en la constancia sale: "este monto corresponde al pago por …")</span>
+                  <input value={f.description || ''} placeholder={EJEMPLO_TIPO[f.type] || ATAJOS[0].ej}
+                    onChange={e => { setF(x => ({ ...x, description: e.target.value })); setFaltaPaso('') }} />
+                  <span className="sg-ej">Ej.: {EJEMPLO_TIPO[f.type] || ATAJOS[0].ej}</span>
+                </label>
+              </div>
+              {/* El detalle se llena como una tabla, no escribiendo con barras: cada
+                  fila sale igual en la constancia y el total puede llenar el monto. */}
+              {!conDetalle ? (
+                <button type="button" className="link-btn" style={{ marginTop: 8 }} onClick={() => setConDetalle(true)}>
+                  + Agregar el detalle en una tabla <span className="muted">(opcional: cuando un pago junta varias cosas)</span>
+                </button>
+              ) : (
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ marginBottom: 4 }}>Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="ctable" style={{ fontSize: 12, minWidth: 440 }}>
+                      <thead><tr><th style={{ width: 130 }}>Fecha</th><th>Descripción</th><th style={{ width: 110 }}>Monto S/</th><th style={{ width: 34 }}></th></tr></thead>
+                      <tbody>
+                        {filasVista.map((r, i) => (
+                          <tr key={i}>
+                            <td>{esFechaDmy(r.fecha) || !r.fecha
+                              ? <input type="date" value={aIso(r.fecha)} style={{ width: '100%' }} onChange={e => setFila(i, 'fecha', e.target.value)} />
+                              : <input value={r.fecha} style={{ width: '100%', textTransform: 'none' }} title="Este gasto viejo no usa fecha en esta columna" onChange={e => setFila(i, 'fecha', e.target.value)} />}</td>
+                            <td><input value={r.desc} style={{ width: '100%', textTransform: 'none' }} placeholder="VENENO PARA FUMIGACION" onChange={e => setFila(i, 'desc', e.target.value)} /></td>
+                            <td><input type="number" step="0.01" value={r.monto} style={{ width: '100%' }} onChange={e => setFila(i, 'monto', e.target.value)} /></td>
+                            <td>{filasVista.length > 1 && <button type="button" className="link-btn bad" title="Quitar esta fila"
+                              onClick={() => guardarFilas(filasVista.filter((_, j) => j !== i))}>✕</button>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                    <button type="button" className="btn-ghost" onClick={() => guardarFilas([...filasVista, { fecha: '', desc: '', monto: '' }])}>+ Agregar fila</button>
+                    {totalDetalle > 0 && <>
+                      <b>TOTAL {soles(totalDetalle)}</b>
+                      {Number(f.amount || 0) !== Number(totalDetalle.toFixed(2)) &&
+                        <button type="button" className="btn-act" onClick={() => setF(x => ({ ...x, amount: totalDetalle.toFixed(2) }))}>Usar como monto</button>}
+                    </>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-          {/* dos columnas: los campos a la izquierda y la constancia a la
-              derecha, para llenar mirando cómo va quedando. En pantalla angosta
-              se apilan solas. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: 18, alignItems: 'start' }}>
-          <div className="form-grid">
-            <label>Tipo
-              <select value={f.type || ''} onChange={e => setF(x => ({ ...x, type: e.target.value }))} required>
-                <option value="">- elegir -</option>
-                {TIPOS.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </label>
-            {IN('issue_date', 'Fecha', 'date', true)}
-            {IN('amount', 'Monto S/', 'number', true)}
-            {/* LAS DOS PERSONAS DE LA CONSTANCIA. Al elegir a alguien conocido
-                (del sistema o de un gasto anterior) su DNI se llena solo. */}
-            <label>Quien RECIBE el dinero
-              <input list="personas-gasto" value={f.recipient || ''} required
-                onChange={e => {
-                  const v = e.target.value, d = dniDe(v)
-                  setF(x => ({ ...x, recipient: v, ...(d ? { recipient_dni: d } : {}) }))
-                }} />
-            </label>
-            {IN('recipient_dni', 'DNI de quien recibe', 'text', true)}
-            <label>Quien ENTREGA el dinero <span className="muted small">(de parte de Urbis)</span>
-              <input list="personas-gasto" value={f.sender || ''}
-                onChange={e => {
-                  const v = e.target.value, d = dniDe(v)
-                  setF(x => ({ ...x, sender: v, ...(d ? { sender_dni: d } : {}) }))
-                }} />
-            </label>
-            {IN('sender_dni', 'DNI de quien entrega')}
-            {hay125 && (
-              <label>Lo adelantó con su dinero <span className="muted small">(opcional: hay que devolvérselo)</span>
-                <input list="personas-gasto" value={f.adelanto_por || ''} placeholder="vacío = lo pagó Urbis o el proyecto"
-                  disabled={!!(editId && list.find(x => x.id === editId)?.reposicion_id)}
-                  onChange={e => setF(x => ({ ...x, adelanto_por: e.target.value }))} />
-              </label>
-            )}
-            <datalist id="personas-gasto">
-              {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
-            </datalist>
-            {/* El solicitante deja de ser un texto suelto: es la persona que
-                despues FIRMA la solicitud en el panel (sql/74). Si el proyecto
-                exige la aprobacion del socio, elegirlo es obligatorio — sin
-                solicitante no hay primera firma y el pago no se destraba. */}
-            <label>Quien FIRMA la solicitud <span className="muted small">(normalmente, quien recibe)</span>
-              {firmantes.length > 0 ? (
-                <select value={f.requester_id || ''} required={!!proyecto?.expense_approval}
-                  onChange={e => {
-                    const id = e.target.value
-                    const p = firmantes.find(x => x.id === id)
-                    // si todavía no se puso a quién se le entrega, se asume que
-                    // es esta misma persona: es lo que pasa casi siempre
-                    setF(x => ({
-                      ...x, requester_id: id,
-                      ...(p && !x.recipient ? { recipient: p.full_name, recipient_dni: p.dni || x.recipient_dni || '' } : {}),
-                    }))
-                  }}>
-                  <option value="">{proyecto?.expense_approval ? '- elegir -' : '- nadie / se firma en papel -'}</option>
-                  {firmantes.map(p => (
-                    <option key={p.id} value={p.id}>{p.full_name}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
-                  ))}
-                </select>
-              ) : (
-                <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
-              )}
-            </label>
-            <label>Se descuenta de
-              <select value={f.discount_from || 'URBIS GROUP'} onChange={e => setF(x => ({ ...x, discount_from: e.target.value }))}>
-                <option>URBIS GROUP</option>
-                <option>EL PROYECTO</option>
-              </select>
-            </label>
-            <label>Metodo de pago
-              <select value={f.payment_method || ''} onChange={e => setF(x => ({ ...x, payment_method: e.target.value }))}>
-                <option value="">- elegir -</option>
-                {['EFECTIVO', 'TRANSFERENCIA', 'DEPOSITO', 'YAPE'].map(m => <option key={m}>{m}</option>)}
-              </select>
-            </label>
-            {IN('document_type', 'Comprobante a presentar (RH, FACTURA...)')}
-            <label className="span2">Motivo (sale en la constancia: "pago por ...")
-              <input value={f.description || ''} onChange={e => setF(x => ({ ...x, description: e.target.value }))} required
-                placeholder="GASTOS ADMINISTRATIVOS DEL MES DE JULIO / COMISION POR LA VENTA DEL LOTE MZ K LT 8 / OBRAS DE FUMIGADO..." />
-            </label>
-            {/* El detalle se llena como una tabla, no escribiendo con barras: cada
-                fila sale igual en la constancia y el total puede llenar el monto. */}
-            <div className="span2">
-              <label style={{ marginBottom: 4 }}>Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
-              <div style={{ overflowX: 'auto' }}>
-              <table className="ctable" style={{ fontSize: 12, minWidth: 440 }}>
-                <thead><tr><th style={{ width: 130 }}>Fecha</th><th>Descripción</th><th style={{ width: 110 }}>Monto S/</th><th style={{ width: 34 }}></th></tr></thead>
-                <tbody>
-                  {filasVista.map((r, i) => (
-                    <tr key={i}>
-                      <td>{esFechaDmy(r.fecha) || !r.fecha
-                        ? <input type="date" value={aIso(r.fecha)} style={{ width: '100%' }} onChange={e => setFila(i, 'fecha', e.target.value)} />
-                        : <input value={r.fecha} style={{ width: '100%', textTransform: 'none' }} title="Este gasto viejo no usa fecha en esta columna" onChange={e => setFila(i, 'fecha', e.target.value)} />}</td>
-                      <td><input value={r.desc} style={{ width: '100%', textTransform: 'none' }} placeholder="VENENO PARA FUMIGACION" onChange={e => setFila(i, 'desc', e.target.value)} /></td>
-                      <td><input type="number" step="0.01" value={r.monto} style={{ width: '100%' }} onChange={e => setFila(i, 'monto', e.target.value)} /></td>
-                      <td>{filasVista.length > 1 && <button type="button" className="link-btn bad" title="Quitar esta fila"
-                        onClick={() => guardarFilas(filasVista.filter((_, j) => j !== i))}>✕</button>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-                <button type="button" className="btn-ghost" onClick={() => guardarFilas([...filasVista, { fecha: '', desc: '', monto: '' }])}>+ Agregar fila</button>
-                {totalDetalle > 0 && <>
-                  <b>TOTAL {soles(totalDetalle)}</b>
-                  {Number(f.amount || 0) !== Number(totalDetalle.toFixed(2)) &&
-                    <button type="button" className="btn-act" onClick={() => setF(x => ({ ...x, amount: totalDetalle.toFixed(2) }))}>Usar como monto</button>}
-                </>}
-              </div>
-            </div>
-          </div>
-          {/* VISTA PREVIA: la MISMA constancia que se imprime, armada con lo que
-              está escrito ahora. Se actualiza al escribir, así nadie descubre un
-              error recién cuando la imprime para hacerla firmar. */}
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <b style={{ fontSize: 13 }}>👁️ VISTA PREVIA DE LA CONSTANCIA</b>
-              <span className="muted small" style={{ textTransform: 'none' }}>se actualiza mientras escribes</span>
-              {puedeCorregir && (
-                <button type="button" className="link-btn" onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                  ✏️ cambiar el texto de la plantilla
-                </button>
-              )}
-            </div>
-            <div className="print-area contract"
-              style={{ background: '#fff', color: '#111', padding: '20px 22px', borderRadius: 8, marginTop: 6, maxHeight: 460, overflow: 'auto' }}>
-              <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
-              {constanciaDe({
-                ...f,
-                amount: Number(f.amount || 0),
-                issue_date: f.issue_date || hoy(),
-                request_number: editId ? (list.find(g => g.id === editId)?.request_number ?? null) : null,
-              })}
-            </div>
-            <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
-              Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
-            </p>
-          </div>
-          </div>
 
-          <button className="btn-primary" disabled={busy} style={{ marginTop: 12 }}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>
+          {paso === 2 && (
+            <div className="sg-paso">
+              <p className="sg-preg">2. ¿Quién pide el gasto y quién recibe el dinero?</p>
+              <div className="form-grid">
+                {/* El solicitante es la persona que despues FIRMA la solicitud en el
+                    panel (sql/74). Con firma de socio es obligatorio (sql/136): sin
+                    él no hay primera firma y la socia no puede aprobar. */}
+                <label className="span2">¿Quién pide el gasto? <span className="muted small" style={{ textTransform: 'none' }}>(firma 1, la de la izquierda{proyecto?.expense_approval ? ' · obligatoria' : ''})</span>
+                  {firmantes.length > 0 ? (
+                    <select value={f.requester_id || ''}
+                      onChange={e => {
+                        const id = e.target.value
+                        const p = firmantes.find(x => x.id === id)
+                        setFaltaPaso('')
+                        // si todavía no se puso a quién se le entrega, se asume que
+                        // es esta misma persona: es lo que pasa casi siempre
+                        setF(x => ({
+                          ...x, requester_id: id,
+                          ...(p && !x.recipient ? { recipient: p.full_name, recipient_dni: p.dni || x.recipient_dni || '' } : {}),
+                        }))
+                      }}>
+                      <option value="">{proyecto?.expense_approval ? '- elegir -' : '- nadie / se firma en papel -'}</option>
+                      {firmantes.map(p => (
+                        <option key={p.id} value={p.id}>{p.full_name}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
+                  )}
+                  <span className="sg-ej">Le llega un aviso por WhatsApp y Telegram para firmar con su código. Ej.: VICTOR, que pide el pago de su comisión.</span>
+                  {solicitante && !solicitante.tiene_firma && (
+                    <span className="warn small" style={{ textTransform: 'none' }}>⚠ {primerNombre(solicitante.full_name)} todavía no registró su firma: se la pide el panel la primera vez que entre a Gastos.</span>
+                  )}
+                </label>
+                <label>¿Quién recibe el dinero?
+                  <input list="personas-gasto" value={f.recipient || ''}
+                    onChange={e => {
+                      const v = e.target.value, d = dniDe(v)
+                      setFaltaPaso('')
+                      setF(x => ({ ...x, recipient: v, ...(d ? { recipient_dni: d } : {}) }))
+                    }} />
+                  <span className="sg-ej">Ej.: el vendedor que cobra su comisión, o el proveedor (el dueño de la excavadora).</span>
+                  {solicitante && String(f.recipient || '').trim().toUpperCase() !== String(solicitante.full_name || '').toUpperCase() && (
+                    <button type="button" className="link-btn small" style={{ textAlign: 'left' }}
+                      onClick={() => setF(x => ({ ...x, recipient: solicitante.full_name, recipient_dni: solicitante.dni || dniDe(solicitante.full_name) || x.recipient_dni || '' }))}>
+                      👤 lo recibe {primerNombre(solicitante.full_name)}, el mismo que lo pide
+                    </button>
+                  )}
+                </label>
+                <label>DNI de quien recibe
+                  <input value={f.recipient_dni || ''} inputMode="numeric" onChange={e => { setFaltaPaso(''); setF(x => ({ ...x, recipient_dni: e.target.value })) }} />
+                </label>
+                {hay125 && (
+                  <label className="span2">¿Alguien lo pagó con su propio dinero? <span className="muted small" style={{ textTransform: 'none' }}>(opcional: queda en "falta reponer" hasta que se le devuelva)</span>
+                    <input list="personas-gasto" value={f.adelanto_por || ''} placeholder="vacío = lo paga Urbis o el proyecto"
+                      disabled={!!(editId && list.find(x => x.id === editId)?.reposicion_id)}
+                      onChange={e => setF(x => ({ ...x, adelanto_por: e.target.value }))} />
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
+          {paso === 3 && (
+            <div className="sg-paso">
+              <p className="sg-preg">3. ¿Cuánto, cuándo y cómo se paga?</p>
+              <div className="form-grid">
+                <label>Monto S/
+                  <input type="number" step="0.01" min="0" value={f.amount || ''} placeholder="700.00"
+                    onChange={e => { setFaltaPaso(''); setF(x => ({ ...x, amount: e.target.value })) }} />
+                </label>
+                <label>Fecha
+                  <input type="date" value={f.issue_date || ''} onChange={e => setF(x => ({ ...x, issue_date: e.target.value }))} />
+                </label>
+                <label>¿Cómo se paga?
+                  <select value={f.payment_method || ''} onChange={e => setF(x => ({ ...x, payment_method: e.target.value }))}>
+                    <option value="">- elegir -</option>
+                    {['EFECTIVO', 'TRANSFERENCIA', 'DEPOSITO', 'YAPE'].map(m => <option key={m}>{m}</option>)}
+                  </select>
+                </label>
+                <label>Comprobante que va a presentar
+                  <input value={f.document_type || ''} placeholder="RH, FACTURA, BOLETA…" onChange={e => setF(x => ({ ...x, document_type: e.target.value }))} />
+                  <span className="sg-ej">Ej.: RH, si cobra con recibo por honorarios.</span>
+                </label>
+                <div className="span2">
+                  <p className="sg-sub">¿Quién entrega el dinero? <span className="muted small" style={{ textTransform: 'none' }}>(firma 2, la de la derecha)</span></p>
+                  {proyecto?.expense_approval ? (
+                    sociaFija ? (
+                      <div className="sg-fija">
+                        <b>{sociaFija.full_name}</b>{sociaFija.dni ? ' · DNI ' + sociaFija.dni : <span className="warn"> · ⚠ sin DNI: cárgalo en Usuarios</span>}
+                        <div className="muted small" style={{ textTransform: 'none' }}>Es la socia del proyecto: aprueba, entrega el dinero y sube el voucher del pago. La pone el sistema.</div>
+                      </div>
+                    ) : socias.length > 1 ? (
+                      <select value={f.sender || ''} onChange={e => { const s = socias.find(x => x.full_name === e.target.value); setFaltaPaso(''); setF(x => ({ ...x, sender: e.target.value, sender_dni: s?.dni || '' })) }}>
+                        <option value="">- elegir la socia -</option>
+                        {socias.map(s => <option key={s.id} value={s.full_name}>{s.full_name}</option>)}
+                      </select>
+                    ) : (
+                      <p className="bad small" style={{ textTransform: 'none' }}>Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios.</p>
+                    )
+                  ) : (
+                    <div className="form-grid" style={{ margin: 0 }}>
+                      <label>Nombre
+                        <input list="personas-gasto" value={f.sender || ''}
+                          onChange={e => {
+                            const v = e.target.value, d = dniDe(v)
+                            setFaltaPaso('')
+                            setF(x => ({ ...x, sender: v, ...(d ? { sender_dni: d } : {}) }))
+                          }} />
+                      </label>
+                      <label>DNI
+                        <input value={f.sender_dni || ''} inputMode="numeric" onChange={e => setF(x => ({ ...x, sender_dni: e.target.value }))} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {paso === 4 && (() => {
+            const quienPide = solicitante?.full_name || ''
+            const recibe = String(f.recipient || '').trim().toUpperCase()
+            const mismo = quienPide && recibe === quienPide.toUpperCase()
+            const entrega = sociaFija?.full_name || f.sender || ''
+            return (
+              <div className="sg-paso">
+                <p className="sg-preg">4. Revisa y registra</p>
+                <div className="sg-firmas">
+                  <div>
+                    <span className="muted small">FIRMA 1 · IZQUIERDA</span>
+                    <b>{quienPide || (proyecto?.expense_approval ? '⚠ falta elegir' : 'se firma en papel')}</b>
+                    <span className="small" style={{ textTransform: 'none' }}>{mismo ? 'pide el gasto y recibe el dinero' : 'pide el gasto' + (recibe ? ' · el dinero lo recibe ' + recibe : '')}</span>
+                  </div>
+                  <div>
+                    <span className="muted small">FIRMA 2 · DERECHA</span>
+                    <b>{entrega || '—'}</b>
+                    <span className="small" style={{ textTransform: 'none' }}>{proyecto?.expense_approval ? 'aprueba y entrega el dinero' : 'entrega el dinero'}</span>
+                  </div>
+                </div>
+                <ol className="sg-flujo">
+                  <li>{quienPide ? primerNombre(quienPide) + ' firma la solicitud con su código (le llega el aviso).' : 'Se imprime y se firma en papel.'}</li>
+                  {proyecto?.expense_approval && <li>{primerNombre(entrega) || 'La socia'} la revisa y la aprueba con su firma.</li>}
+                  {proyecto?.expense_approval && <li>{primerNombre(entrega) || 'La socia'} paga y sube el voucher del pago.</li>}
+                  <li>Se sube {f.document_type ? 'el ' + String(f.document_type).toUpperCase() : 'el RH o la factura'} de quien recibió el dinero.</li>
+                </ol>
+                <p className="sg-resumen"><b>{soles(f.amount)}</b> · {f.issue_date ? fechaLetras(f.issue_date) : ''} · {f.payment_method || 'sin método de pago'}</p>
+                {/* VISTA PREVIA: la MISMA constancia que se imprime, armada con lo que
+                    está escrito ahora. Así nadie descubre un error recién cuando la
+                    imprime para hacerla firmar. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+                  <b style={{ fontSize: 13 }}>👁️ ASÍ SALE LA CONSTANCIA</b>
+                  {puedeCorregir && (
+                    <button type="button" className="link-btn" onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                      ✏️ cambiar el texto de la plantilla
+                    </button>
+                  )}
+                </div>
+                <div className="print-area contract"
+                  style={{ background: '#fff', color: '#111', padding: '20px 22px', borderRadius: 8, marginTop: 6, maxHeight: 460, overflow: 'auto' }}>
+                  <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
+                  {constanciaDe({
+                    ...f,
+                    sender: entrega || f.sender,
+                    sender_dni: sociaFija?.dni || f.sender_dni,
+                    amount: Number(f.amount || 0),
+                    issue_date: f.issue_date || hoy(),
+                    request_number: editId ? (list.find(g => g.id === editId)?.request_number ?? null) : null,
+                  })}
+                </div>
+                <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+                  Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
+                </p>
+              </div>
+            )
+          })()}
+
+          <datalist id="personas-gasto">
+            {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
+          </datalist>
+          {faltaPaso && <p className="error" style={{ textTransform: 'none', margin: '10px 0 0' }}>{faltaPaso}</p>}
+          <div className="sg-botones">
+            {paso > 1 && <button type="button" className="btn-ghost" onClick={() => { setPaso(paso - 1); setFaltaPaso('') }}>← Atrás</button>}
+            {paso < 4
+              ? <button className="btn-primary">Siguiente →</button>
+              : <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>}
+            <button type="button" className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setShow(false)} disabled={busy}>Cancelar</button>
+          </div>
         </form>
       )}
 

@@ -1420,3 +1420,32 @@ span.cp-chip { cursor: default; }
 .vouchers-gasto .vg-lbl { display: block; font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; opacity: .8; margin-bottom: .1rem; }
 .vouchers-gasto button.upload-btn { font-size: .78rem; padding: .2rem .6rem; }
 .vouchers-gasto > div + div { border-top: 1px dashed var(--line); padding-top: .3rem; }
+
+/* ---- SOLICITUD DE GASTO POR PASOS (Expenses.jsx, 10 oct 2026) ---- */
+.sg-cab { display: flex; flex-direction: column; gap: .15rem; margin-bottom: .7rem; }
+.sg-pasos { list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; padding: 0; }
+.sg-pasos li { flex: 1 1 160px; }
+.sg-pasos button {
+  width: 100%; display: flex; align-items: center; gap: .5rem; text-align: left;
+  background: var(--panel); color: var(--muted); border: 1px solid rgba(127,148,118,.25);
+  border-radius: 10px; padding: .5rem .7rem; font-weight: 700; font-size: .78rem; cursor: pointer; text-transform: none;
+}
+.sg-pasos .sg-n {
+  flex: 0 0 auto; width: 1.5rem; height: 1.5rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(127,148,118,.2); color: var(--text); font-size: .78rem;
+}
+.sg-pasos li.on button { border-color: var(--accent); color: var(--text); background: rgba(156,203,134,.1); }
+.sg-pasos li.on .sg-n { background: var(--accent); color: #0e120d; }
+.sg-pasos li.hecho .sg-n { background: rgba(134,181,126,.35); color: var(--ok); }
+.sg-paso { min-height: 180px; }
+.sg-preg { font-size: 1.05rem; font-weight: 800; margin: 0 0 .7rem; }
+.sg-sub { font-weight: 700; margin: .2rem 0 .35rem; }
+.sg-ej { display: block; margin-top: .25rem; font-size: .74rem; font-weight: 500; color: var(--muted); text-transform: none; }
+.sg-fija { padding: .6rem .8rem; border-radius: 10px; border: 1px solid rgba(156,203,134,.35); background: rgba(156,203,134,.08); }
+.sg-firmas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem; margin: 0 0 .8rem; }
+.sg-firmas > div { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .85rem; border-radius: 10px; border: 1px solid rgba(127,148,118,.3); background: var(--panel); }
+.sg-firmas b { font-size: .95rem; }
+.sg-flujo { margin: 0 0 .6rem 1.2rem; padding: 0; font-size: .84rem; text-transform: none; }
+.sg-flujo li { margin: .15rem 0; }
+.sg-resumen { margin: .2rem 0 0; text-transform: none; }
+.sg-botones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }

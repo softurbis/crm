@@ -13,8 +13,10 @@
 //  3. Cada 4 horas, de día o de noche, a cada persona que sigue con algo por firmar:
 //     un resumen con todas sus solicitudes. El reloj es por persona
 //     (profiles.firma_aviso_at): un aviso inmediato también lo reinicia.
+//  4. (10 oct) Aprobada y sin pagar: el mismo recordatorio le dice a la socia que le
+//     falta pagar y subir el voucher (sql/101), hasta que lo suba.
 // Todo sale por WhatsApp Y por Telegram (si lo tiene vinculado). Se deja de avisar
-// cuando firma, cuando la solicitud se rechaza o cuando deja de estar "solicitado".
+// cuando firma o paga, cuando la solicitud se rechaza o cuando deja de estar "solicitado".
 //
 // planificar() decide qué mandar sin tocar nada (se prueba aparte); tick() lee, manda
 // y anota.
@@ -45,6 +47,8 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   }
   const falta = g => g.requester_id && !g.requester_signed_at          // la firma de quien la pide
   const socioToca = g => g.project?.expense_approval && !g.approved_at  // la firma del socio
+  // aprobada y sin pagar: la socia paga y sube el voucher (sql/101; pedido del 10 oct)
+  const pagoToca = g => g.project?.expense_approval && !!g.approved_at
 
   for (const g of gastos) {
     const socios = socioToca(g) ? (sociosDe.get(g.project_id) || []) : []
@@ -71,11 +75,13 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   }
 
   // 3. recordatorio cada 4 horas: lo pendiente de cada persona, en un solo mensaje
-  const pend = new Map()   // userId → [{ g, puede, espera }]
+  //    (firmas, y para la socia también los gastos aprobados que falta pagar)
+  const pend = new Map()   // userId → [{ g, puede, espera, paga }]
   const sumar = (uid, item) => { if (!pend.has(uid)) pend.set(uid, []); pend.get(uid).push(item) }
   for (const g of gastos) {
     if (falta(g)) sumar(g.requester_id, { g, puede: true })
     if (socioToca(g)) for (const s of (sociosDe.get(g.project_id) || [])) sumar(s.id, { g, puede: !falta(g), espera: falta(g) ? nombreSolicitante(g) : null })
+    if (pagoToca(g)) for (const s of (sociosDe.get(g.project_id) || [])) if (s.id !== g.requester_id) sumar(s.id, { g, paga: true })
   }
   for (const [uid, items] of pend) {
     if (avisados.has(uid)) continue
@@ -83,15 +89,22 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
     if (!p) continue
     const ultimo = p.firma_aviso_at ? new Date(p.firma_aviso_at).getTime() : 0
     if (ahora - ultimo < CADA_MS) continue
-    const ya = items.filter(x => x.puede).length
-    const lineas = items
-      .sort((a, b) => new Date(a.g.created_at) - new Date(b.g.created_at))
-      .map(x => '• ' + (x.g.project?.name || '') + ' · ' + sol(x.g) + ' · ' + soles(x.g.amount) + ' → ' + (x.g.recipient || '-') +
-        '\n   ' + (x.puede ? '✍ te toca firmar' : '⏳ espera la firma de ' + primerNombre(x.espera)) + ' · pedida ' + haceCuanto(x.g.created_at, ahora))
-    decir(uid, '⏰ *' + (primerNombre(p.full_name) ? primerNombre(p.full_name) + ', tienes ' : 'Tienes ') + items.length +
-      (items.length === 1 ? ' solicitud de gasto pendiente de firma*' : ' solicitudes de gasto pendientes de firma*') +
-      (ya === items.length ? '' : ya === 0 ? ' (todavía no te toca: falta la firma de quien las pidió)' : ' (' + ya + ' ya para firmar)') + '\n\n' + lineas.join('\n') +
-      '\n\nFírmalas aquí: ' + panel + '\n(te lo recuerdo cada 4 horas hasta que estén firmadas)')
+    const firmas = items.filter(x => !x.paga), pagos = items.filter(x => x.paga)
+    const ya = firmas.filter(x => x.puede).length
+    const lineas = [...firmas, ...pagos]
+      .sort((a, b) => !!a.paga - !!b.paga || new Date(a.g.created_at) - new Date(b.g.created_at))
+      .map(x => '• ' + (x.g.project?.name || '') + ' · ' + sol(x.g) + ' · ' + soles(x.g.amount) + ' → ' + (x.g.recipient || '-') + '\n   ' +
+        (x.paga ? '💸 falta pagar y subir el voucher · aprobada ' + haceCuanto(x.g.approved_at, ahora)
+          : (x.puede ? '✍ te toca firmar' : '⏳ espera la firma de ' + primerNombre(x.espera)) + ' · pedida ' + haceCuanto(x.g.created_at, ahora)))
+    const que = [
+      firmas.length && firmas.length + (firmas.length === 1 ? ' solicitud de gasto pendiente de firma' : ' solicitudes de gasto pendientes de firma'),
+      pagos.length && pagos.length + (pagos.length === 1 ? ' gasto aprobado por pagar' : ' gastos aprobados por pagar'),
+    ].filter(Boolean).join(' y ')
+    decir(uid, '⏰ *' + (primerNombre(p.full_name) ? primerNombre(p.full_name) + ', tienes ' : 'Tienes ') + que + '*' +
+      (!firmas.length || ya === firmas.length ? '' : ya === 0 ? ' (las firmas todavía no te tocan: falta la firma de quien las pidió)' : ' (' + ya + ' ya para firmar)') +
+      '\n\n' + lineas.join('\n') +
+      '\n\n' + (pagos.length && !firmas.length ? 'Sube el voucher aquí: ' : firmas.length && !pagos.length ? 'Fírmalas aquí: ' : 'Entra aquí: ') + panel +
+      '\n(te lo recuerdo cada 4 horas hasta que ' + (pagos.length && !firmas.length ? 'estén pagados)' : firmas.length && !pagos.length ? 'estén firmadas)' : 'esté todo al día)'))
   }
   return { mensajes, gastosUpd, avisados }
 }
