@@ -668,7 +668,10 @@ export default function Expenses() {
   const numeroDe = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0')
     : g.id ? String(g.id).slice(0, 8).toUpperCase() : '(se asigna al registrarla)'
 
-  function constanciaDe(g) {
+  // `conFirmas`: abajo van las DOS firmas (receptor y remitente), así que la línea de
+  // firma del receptor de la plantilla ({{FIRMA_RECEPTOR}}) sobra: salía el nombre de
+  // quien recibe dos veces (10 oct, "sale de más la firma de Victor arriba")
+  function constanciaDe(g, { conFirmas = false } = {}) {
     const vars = {
       RECEPTOR: g.recipient || '____________________',
       RECEPTOR_DNI: g.recipient_dni || '__________',
@@ -701,7 +704,7 @@ export default function Expenses() {
         </td>
       </tr></tbody></table>
     )
-    const BLOQ = { TABLA_DETALLE: TablaDetalle, FIRMA_RECEPTOR: Firma }
+    const BLOQ = { TABLA_DETALLE: TablaDetalle, FIRMA_RECEPTOR: conFirmas ? null : Firma }
 
     // firmada: manda la copia del texto que se guardó al firmar (sql/102). Cambiar la
     // plantilla después no puede cambiar lo que alguien ya firmó.
@@ -1228,7 +1231,18 @@ export default function Expenses() {
                     amount: Number(f.amount || 0),
                     issue_date: f.issue_date || hoy(),
                     request_number: editId ? (list.find(g => g.id === editId)?.request_number ?? null) : null,
-                  })}
+                  }, { conFirmas: true })}
+                  {/* las dos firmas, como salen al imprimir (ahí van con la firma y el código) */}
+                  <table className="ctable firmas"><tbody><tr>
+                    <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
+                      ______________________________<br /><b>RECEPTOR</b><br />{quienPide || f.recipient || ''}
+                      {f.recipient_dni ? <><br />DNI: {f.recipient_dni}</> : null}
+                    </td>
+                    <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
+                      ______________________________<br /><b>REMITENTE</b><br />{entrega}
+                      {(sociaFija?.dni || f.sender_dni) ? <><br />DNI: {sociaFija?.dni || f.sender_dni}</> : null}
+                    </td>
+                  </tr></tbody></table>
                 </div>
                 <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
                   Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
@@ -1327,7 +1341,7 @@ export default function Expenses() {
                     🔒 Texto fijado al firmar: la plantilla del proyecto cambió después y esta constancia no la toma.
                   </p>
                 )}
-                {constanciaDe(prt)}
+                {constanciaDe(prt, { conFirmas: true })}
                 <table className="ctable firmas"><tbody><tr>
                   {/* las DOS firmas de la constancia. Cada una sale con su
                       codigo: quien reciba el papel puede pedir que se verifique

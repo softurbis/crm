@@ -1449,3 +1449,25 @@ span.cp-chip { cursor: default; }
 .sg-flujo li { margin: .15rem 0; }
 .sg-resumen { margin: .2rem 0 0; text-transform: none; }
 .sg-botones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
+
+/* ---- AL ENTRAR: LO QUE TE TOCA EN GASTOS (Layout.jsx, 10 oct 2026) ---- */
+.tp { padding: .9rem 1rem; margin-bottom: 14px; border-left: 4px solid #e8b04f; }
+.tp-cab { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; align-items: baseline; margin-bottom: .7rem; }
+.tp-cab > b { font-size: 1.02rem; }
+.tp-cab span { color: var(--muted); font-size: .85rem; text-transform: none; }
+.tp-cab span b { color: var(--text); font-size: .95rem; }
+.tp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .6rem; }
+.tp-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; text-align: left; cursor: pointer;
+  padding: .8rem .9rem; border-radius: 12px; border: 1px solid rgba(232,176,79,.45); background: rgba(232,176,79,.08); color: var(--text);
+  text-transform: none; transition: transform .1s, background .1s;
+}
+.tp-card.pago { border-color: rgba(111,221,155,.45); background: rgba(111,221,155,.08); }
+.tp-card:hover { transform: translateY(-1px); background: rgba(232,176,79,.16); }
+.tp-card.pago:hover { background: rgba(111,221,155,.16); }
+.tp-tipo { font-size: .72rem; font-weight: 800; letter-spacing: .3px; color: #e8b04f; text-transform: uppercase; }
+.tp-card.pago .tp-tipo { color: #6fdd9b; }
+.tp-proy { font-size: .9rem; }
+.tp-monto { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.tp-n { font-size: .78rem; color: var(--muted); }
+.tp-ir { margin-top: .35rem; font-size: .8rem; font-weight: 700; color: var(--accent-strong); }

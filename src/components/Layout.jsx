@@ -89,6 +89,37 @@ const MENU = [
   // carga masiva de vouchers/contratos/DNI cuando entra un proyecto nuevo
   { to: '/migracion', label: 'Migración', icon: '📥', corrige: true, color: '#7fb0d8', grupo: 'Configuración' },
 ]
+const solesMenu = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// Al entrar al sistema: lo que le toca firmar o pagar en Gastos, por proyecto, con el
+// total arriba. Cada tarjeta lleva a Gastos con ese proyecto ya elegido (10 oct).
+function TarjetasPendientes({ porFirmar, porPagar, esSocia, onIr }) {
+  const suma = l => l.reduce((s, p) => s + p.total, 0)
+  const cuenta = l => l.reduce((s, p) => s + p.n, 0)
+  const tarjeta = (p, tipo) => (
+    <button key={tipo + p.id} type="button" className={'tp-card ' + tipo} onClick={() => onIr(p.id)}>
+      <span className="tp-tipo">{tipo === 'firma' ? (esSocia ? '✍ Por aprobar y firmar' : '✍ Tus solicitudes por firmar') : '💸 Por pagar · subir el voucher'}</span>
+      <b className="tp-proy">{p.name}</b>
+      <span className="tp-monto">{solesMenu(p.total)}</span>
+      <span className="tp-n">{p.n} {tipo === 'firma' ? (p.n === 1 ? 'solicitud' : 'solicitudes') : (p.n === 1 ? 'gasto aprobado' : 'gastos aprobados')}</span>
+      <span className="tp-ir">{tipo === 'firma' ? 'Firmar ahora →' : 'Subir voucher →'}</span>
+    </button>
+  )
+  return (
+    <div className="glass tp">
+      <div className="tp-cab">
+        <b>📌 Te toca en Gastos</b>
+        {porFirmar.length > 0 && <span>Por firmar: <b>{solesMenu(suma(porFirmar))}</b> ({cuenta(porFirmar)})</span>}
+        {porPagar.length > 0 && <span>Por pagar: <b>{solesMenu(suma(porPagar))}</b> ({cuenta(porPagar)})</span>}
+      </div>
+      <div className="tp-grid">
+        {porFirmar.map(p => tarjeta(p, 'firma'))}
+        {porPagar.map(p => tarjeta(p, 'pago'))}
+      </div>
+    </div>
+  )
+}
+
 // El rol FACTURACIÓN (la secretaria de la otra empresa, sql/134) ve SOLO esto: no está
 // en MENU para que nadie más lo tenga en su menú.
 const MENU_FACTURACION = { to: '/facturacion', label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
@@ -120,24 +151,29 @@ export default function Layout() {
     if (!profile?.id) return
     const esSocio = role === 'socio'
     let vivo = true
+    // por proyecto: cuántas y cuánto suman (las tarjetas muestran el total, 10 oct)
+    const sumar = (m, r) => {
+      m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0, total: 0 }
+      m[r.project_id].n++; m[r.project_id].total += Number(r.amount || 0)
+    }
     const contarPagos = async () => {
       if (!esSocio) return
       const { data, error } = await supabase.from('expenses')
-        .select('project_id, requester_id, project:projects!inner(name, expense_approval)')
+        .select('project_id, requester_id, amount, project:projects!inner(name, expense_approval)')
         .eq('status', 'solicitado').not('approved_at', 'is', null).is('rejected_at', null)
         .eq('project.expense_approval', true).limit(200)
       if (!vivo || error) return
       const m = {}
       for (const r of (data || [])) {
         if (r.requester_id === profile.id) continue      // quien pidió el gasto no registra su pago
-        m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++
+        sumar(m, r)
       }
       setPorPagar(Object.values(m))
     }
     const contar = async () => {
       contarPagos()
       const base = supabase.from('expenses')
-        .select('project_id, requester_id, requester_signed_at, project:projects!inner(name, expense_approval)')
+        .select('project_id, requester_id, requester_signed_at, amount, project:projects!inner(name, expense_approval)')
         .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).limit(200)
       const { data, error } = esSocio
         ? await base.eq('project.expense_approval', true)
@@ -145,10 +181,11 @@ export default function Layout() {
       if (!vivo || error) return       // sql/74 sin correr: el aviso no aparece y ya
       const m = {}
       for (const r of (data || [])) {
-        // al socio no se le cuenta lo que todavia no firmo el solicitante: no es
-        // su turno, y un contador que no puede bajar deja de significar algo
-        if (esSocio && r.requester_id && !r.requester_signed_at) continue
-        m[r.project_id] = m[r.project_id] || { id: r.project_id, name: r.project?.name, n: 0 }; m[r.project_id].n++
+        // al socio no se le cuenta lo que todavia no firmo el solicitante (ni lo que se
+        // registró sin solicitante, sql/136): no es su turno, y un contador que no
+        // puede bajar deja de significar algo
+        if (esSocio && (!r.requester_id || !r.requester_signed_at)) continue
+        sumar(m, r)
       }
       setPorFirmar(Object.values(m))
     }
@@ -387,23 +424,34 @@ export default function Layout() {
           '--accent-strong': `color-mix(in srgb, ${colorActivo} 62%, #ffffff)`,
         } : {}),
       }}>
-        {porFirmar.length > 0 && (
-          <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
-            <b>✍ Esperan tu firma:</b>
-            {porFirmar.map(p => (
-              <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
-                onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n}</button>
-            ))}
-          </div>
-        )}
-        {porPagar.length > 0 && (
-          <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #6fdd9b' }}>
-            <b>💸 Pagos pendientes · sube el comprobante:</b>
-            {porPagar.map(p => (
-              <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
-                onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n}</button>
-            ))}
-          </div>
+        {/* LO QUE ESPERA A ESTA PERSONA EN GASTOS (10 oct, pedido del dueño): al entrar
+            al sistema, tarjetas con el total por firmar y por pagar; cada una lleva a
+            Gastos del proyecto, ya elegido. En las demás pantallas, la franja corta. En
+            Gastos no va: ahí está "Te toca" con sus botones. */}
+        {(porFirmar.length > 0 || porPagar.length > 0) && !pathname.startsWith('/gastos') && (
+          ['/', '/hoy', '/dashboard'].includes(pathname)
+            ? <TarjetasPendientes porFirmar={porFirmar} porPagar={porPagar} esSocia={role === 'socio'}
+                onIr={pidIr => { select(pidIr); irA('/gastos') }} />
+            : <>
+                {porFirmar.length > 0 && (
+                  <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
+                    <b>✍ Esperan tu firma:</b>
+                    {porFirmar.map(p => (
+                      <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                        onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n} · {solesMenu(p.total)}</button>
+                    ))}
+                  </div>
+                )}
+                {porPagar.length > 0 && (
+                  <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #6fdd9b' }}>
+                    <b>💸 Por pagar · sube el voucher:</b>
+                    {porPagar.map(p => (
+                      <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                        onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n} · {solesMenu(p.total)}</button>
+                    ))}
+                  </div>
+                )}
+              </>
         )}
         {/* cada pantalla se baja al abrirla (App.jsx): mientras llega, el menu queda quieto */}
         <Suspense fallback={<p className="muted" style={{ padding: '1rem 0' }}>Cargando…</p>}>
