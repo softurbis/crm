@@ -23,6 +23,18 @@
 
 const CADA_MS = 4 * 3600 * 1000
 const dig = t => String(t || '').replace(/\D/g, '')
+// el celular al que van los avisos: el de avisos (profiles.phone) y, si está vacío o
+// incompleto, el celular para firmar (firma_phone, sql/86), que es el suyo y donde ya le
+// llegan los códigos. 9 dígitos del Perú → con 51 adelante. (10 oct: Yomaira no tenía
+// celular de avisos y no le llegaba nada.)
+const celularDe = p => {
+  for (const t of [p?.phone, p?.firma_phone]) {
+    let d = dig(t)
+    if (d.length === 9 && d.startsWith('9')) d = '51' + d
+    if (d.length >= 11) return d
+  }
+  return ''
+}
 const sol = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : 'solicitud'
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
@@ -43,8 +55,9 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   const decir = (userId, texto) => {
     const p = perfiles.get(userId)
     if (!p) return false
-    if (dig(p.phone).length < 11) { sinCelular.add(userId); return false }
-    mensajes.push({ userId, tel: dig(p.phone), texto })
+    const tel = celularDe(p)
+    if (!tel) { sinCelular.add(userId); return false }
+    mensajes.push({ userId, tel, texto })
     avisados.add(userId)
     return true
   }
@@ -142,7 +155,7 @@ function crearAvisosFirma({ supabase, enviar, log = () => {}, panel }) {
       : { data: [] }
     const ids = [...new Set([...(asig || []).map(a => a.user_id), ...gastos.map(g => g.requester_id).filter(Boolean)])]
     const { data: perf, error: e2 } = ids.length
-      ? await supabase.from('profiles').select('id, full_name, phone, role, active, firma_aviso_at').in('id', ids)
+      ? await supabase.from('profiles').select('id, full_name, phone, firma_phone, role, active, firma_aviso_at').in('id', ids)
       : { data: [] }
     if (e2) { if (!avisoFalta) { log('AVISOS DE FIRMA (¿falta sql/135?):', e2.message); avisoFalta = true } return }
     const perfiles = new Map((perf || []).map(p => [p.id, p]))
@@ -159,7 +172,7 @@ function crearAvisosFirma({ supabase, enviar, log = () => {}, panel }) {
       if (sinCelularVisto.has(id)) continue
       sinCelularVisto.add(id)
       const p = perfiles.get(id)
-      log('AVISO DE FIRMA ✗ ' + (p?.full_name || id) + ' no tiene celular válido en Usuarios (' + (p?.phone || 'vacío') + '): no le llega nada hasta corregirlo')
+      log('AVISO DE FIRMA ✗ ' + (p?.full_name || id) + ' no tiene celular válido en Usuarios (avisos: ' + (p?.phone || 'vacío') + ' · firma: ' + (p?.firma_phone || 'vacío') + '): no le llega nada hasta corregirlo')
     }
     for (const m of plan.mensajes) {
       const r = await porLosDos(m.tel, m.texto)
