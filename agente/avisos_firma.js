@@ -39,11 +39,14 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   const avisados = new Set()   // a quién se le avisó en esta vuelta (su reloj vuelve a cero)
   const nombreSolicitante = g => g.requester_name || perfiles.get(g.requester_id)?.full_name || 'quien la pidió'
   const cab = g => (g.project?.name || '') + ' · ' + sol(g) + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + (g.description ? '\n' + g.description : '')
+  const sinCelular = new Set() // a quién le tocaba un aviso y no tiene celular válido (51 + 9 dígitos)
   const decir = (userId, texto) => {
     const p = perfiles.get(userId)
-    if (!p || dig(p.phone).length < 11) return
+    if (!p) return false
+    if (dig(p.phone).length < 11) { sinCelular.add(userId); return false }
     mensajes.push({ userId, tel: dig(p.phone), texto })
     avisados.add(userId)
+    return true
   }
   const falta = g => g.requester_id && !g.requester_signed_at          // la firma de quien la pide
   const socioToca = g => g.project?.expense_approval && !g.approved_at  // la firma del socio
@@ -54,12 +57,17 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
     const socios = socioToca(g) ? (sociosDe.get(g.project_id) || []) : []
     // 1. solicitud nueva: a los dos
     if (!g.requester_notified_at) {
+      // se marca como avisada solo si le llegó a alguien: si a quien le toca no tiene
+      // celular válido, se vuelve a intentar en la vuelta siguiente (10 oct: se marcaban
+      // "avisadas" sin que nadie recibiera nada)
+      const antes = mensajes.length, tocaba = (falta(g) ? 1 : 0) + socios.length
       if (falta(g)) decir(g.requester_id, '✍ *SOLICITUD DE GASTO PARA TU FIRMA*\n' + cab(g) + '\n\nFírmala aquí: ' + panel + '\n(te lo recuerdo cada 4 horas hasta que la firmes)')
       for (const s of socios) {
         decir(s.id, falta(g)
           ? '📝 *SOLICITUD DE GASTO — PENDIENTE DE TU FIRMA*\n' + cab(g) + '\n\nPrimero la firma ' + nombreSolicitante(g) + '; apenas firme te aviso para que la apruebes. ' + panel
           : '✍ *SOLICITUD DE GASTO POR APROBAR*\n' + cab(g) + (g.requester_name ? '\nYa la firmó ' + g.requester_name : '') + '\n\nRevísala y fírmala aquí: ' + panel)
       }
+      if (tocaba && mensajes.length === antes) continue
       const campos = { requester_notified_at: new Date(ahora).toISOString() }
       if (socios.length && !falta(g)) campos.approval_notified_at = campos.requester_notified_at   // ya se le dijo "puedes firmar"
       gastosUpd.push({ id: g.id, campos })
@@ -67,10 +75,11 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
     }
     // 2. quien la pidió ya firmó: a los socios, "ya puedes firmar"
     if (socioToca(g) && !falta(g) && !g.approval_notified_at) {
+      const antes = mensajes.length
       for (const s of socios) {
         decir(s.id, '✍ *YA PUEDES FIRMAR — SOLICITUD DE GASTO*\n' + cab(g) + '\nYa la firmó ' + nombreSolicitante(g) + '.\n\nRevísala y fírmala aquí: ' + panel)
       }
-      gastosUpd.push({ id: g.id, campos: { approval_notified_at: new Date(ahora).toISOString() } })
+      if (!socios.length || mensajes.length > antes) gastosUpd.push({ id: g.id, campos: { approval_notified_at: new Date(ahora).toISOString() } })
     }
   }
 
@@ -106,12 +115,13 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
       '\n\n' + (pagos.length && !firmas.length ? 'Sube el voucher aquí: ' : firmas.length && !pagos.length ? 'Fírmalas aquí: ' : 'Entra aquí: ') + panel +
       '\n(te lo recuerdo cada 4 horas hasta que ' + (pagos.length && !firmas.length ? 'estén pagados)' : firmas.length && !pagos.length ? 'estén firmadas)' : 'esté todo al día)'))
   }
-  return { mensajes, gastosUpd, avisados }
+  return { mensajes, gastosUpd, avisados, sinCelular }
 }
 
 function crearAvisosFirma({ supabase, enviar, log = () => {}, panel }) {
   const PANEL = panel || ((process.env.PANEL_URL || 'https://panel.urbisgroupinmobiliaria.com') + '/gastos')
   let avisoFalta = false
+  const sinCelularVisto = new Set()
 
   // por WhatsApp Y por Telegram: enviar() elige uno solo, así que se le pide cada uno
   async function porLosDos(tel, texto) {
@@ -144,6 +154,13 @@ function crearAvisosFirma({ supabase, enviar, log = () => {}, panel }) {
       sociosDe.get(a.project_id).push(p)
     }
     const plan = planificar({ gastos, sociosDe, perfiles }, Date.now(), PANEL)
+    // quien tendría que recibir avisos y no tiene celular válido: se anota una vez
+    for (const id of plan.sinCelular) {
+      if (sinCelularVisto.has(id)) continue
+      sinCelularVisto.add(id)
+      const p = perfiles.get(id)
+      log('AVISO DE FIRMA ✗ ' + (p?.full_name || id) + ' no tiene celular válido en Usuarios (' + (p?.phone || 'vacío') + '): no le llega nada hasta corregirlo')
+    }
     for (const m of plan.mensajes) {
       const r = await porLosDos(m.tel, m.texto)
       log('AVISO DE FIRMA a', perfiles.get(m.userId)?.full_name || m.userId, '· WhatsApp', r.wsp ? '✔' : '✗', '· Telegram', r.tg ? '✔' : '✗')
