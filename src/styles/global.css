@@ -1477,3 +1477,9 @@ span.cp-chip { cursor: default; }
 .docs-dep small { font-size: .7em; }
 .docs-otro { margin-left: .45rem; font-size: .72rem; opacity: .75; cursor: pointer; }
 .docs-otro:hover { opacity: 1; }
+
+/* ---- el texto de UNA constancia, editable en la vista previa (Expenses.jsx, sql/143) ---- */
+.sg-texto { margin: .5rem 0 .4rem; padding: .7rem .8rem; border-radius: 10px; border: 1px dashed rgba(232,176,79,.5); background: rgba(232,176,79,.06); }
+.sg-texto textarea { width: 100%; text-transform: none; font-family: Georgia, 'Times New Roman', serif; font-size: .86rem; line-height: 1.45; }
+.sg-vars { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin: .4rem 0; font-size: .72rem; color: var(--muted); text-transform: none; }
+.sg-vars code { font-size: .7rem; }

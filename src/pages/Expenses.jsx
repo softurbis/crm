@@ -98,6 +98,7 @@ export default function Expenses() {
   const [paso, setPaso] = useState(1)                   // la solicitud se llena por pasos (1 a 4)
   const [faltaPaso, setFaltaPaso] = useState('')        // lo que falta para pasar al siguiente
   const [conDetalle, setConDetalle] = useState(false)   // la tabla de detalle, opcional
+  const [editTexto, setEditTexto] = useState(false)     // el texto de ESTA constancia, abierto para editar (sql/143)
   const [editId, setEditId] = useState(null)
   const [prt, setPrt] = useState(null)
   const [tplOpen, setTplOpen] = useState(false)
@@ -218,7 +219,9 @@ export default function Expenses() {
       discount_from: g.discount_from, payment_method: g.payment_method,
       document_type: g.document_type, description: g.description, detail: g.detail,
       adelanto_por: g.adelanto_por || '',
+      plantilla_propia: g.plantilla_propia || '',
     })
+    setEditTexto(false)
     setEditId(g.id); setShow(true); setMsg(null)
     setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -257,10 +260,16 @@ export default function Expenses() {
       }
       // quién adelantó el dinero (sql/125). Ya repuesto, no se cambia desde aquí.
       if (hay125 && !(editId && list.find(x => x.id === editId)?.reposicion_id)) campos.adelanto_por = up(f.adelanto_por)
-      // si todavía no se corrió sql/87, la columna sender_dni no existe: se
-      // reintenta sin ella en vez de dejar a nadie sin poder registrar el gasto
-      const sinDni = o => { const c = { ...o }; delete c.sender_dni; return c }
-      const faltaCol = e => /sender_dni/i.test(e?.message || '')
+      // el texto propio de ESTA constancia (sql/143): vacío = la plantilla del proyecto.
+      // Se manda si se escribió algo o si la base ya tiene la columna.
+      const filaAntes = editId ? list.find(x => x.id === editId) : null
+      if ((f.plantilla_propia || '').trim() || (filaAntes && 'plantilla_propia' in filaAntes)) campos.plantilla_propia = (f.plantilla_propia || '').trim() || null
+      // si todavía no se corrió sql/87 (sender_dni) o sql/143 (plantilla_propia), esa
+      // columna no existe: se reintenta sin ella en vez de dejar a nadie sin poder
+      // registrar el gasto
+      let sinTexto = false
+      const sinDni = o => { const c = { ...o }; delete c.sender_dni; if ('plantilla_propia' in c) { delete c.plantilla_propia; sinTexto = true } return c }
+      const faltaCol = e => /sender_dni|plantilla_propia/i.test(e?.message || '')
 
       if (editId) {
         // corrige la MISMA solicitud: conserva el correlativo (request_number).
@@ -284,7 +293,7 @@ export default function Expenses() {
         let { error } = await supabase.from('expenses').update({ ...campos, ...reinicio }).eq('id', editId)
         if (error && faltaCol(error)) ({ error } = await supabase.from('expenses').update({ ...sinDni(campos), ...reinicio }).eq('id', editId))
         if (error) throw new Error(error.message)
-        setMsg({ ok: true, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' })
+        setMsg({ ok: !sinTexto, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00f3 (falta correr sql/143).' : '') })
       } else {
         const base = { project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id }
         let { data: creado, error } = await supabase.from('expenses')
@@ -298,7 +307,8 @@ export default function Expenses() {
           ok: true,
           t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. '
             + (firm ? (firm.id === profile?.id ? 'F\u00CDRMALA T\u00DA CON "\u270D FIRMAR" Y PASA AL SOCIO.' : 'SE LE AVISA A ' + (firm.full_name || '').split(' ')[0] + ' PARA QUE LA FIRME.')
-                    : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.'),
+                    : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.')
+            + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : ''),
         })
       }
       setF({}); setEditId(null); setShow(false); load()
@@ -578,7 +588,7 @@ export default function Expenses() {
   const elegirQue = a => { setF(x => ({ ...x, ...a.f })); setFaltaPaso('') }
   const atajoActivo = a => a.f.type === f.type && (!a.f.description || String(f.description || '').startsWith(a.f.description.slice(0, 15)))
   const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
-  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setMsg(null) }
+  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setEditTexto(false); setMsg(null) }
 
   // ---- LA SOLICITUD POR PASOS (10 oct 2026, pedido del dueño: "más práctico de
   // entender, con ejemplos") ----
@@ -618,8 +628,9 @@ export default function Expenses() {
       type: g.type, issue_date: hoy(), amount: g.amount, recipient: g.recipient, recipient_dni: g.recipient_dni,
       requester_id: g.requester_id || '', sender: g.sender, sender_dni: g.sender_dni || '', discount_from: g.discount_from,
       payment_method: g.payment_method, document_type: g.document_type, description: g.description, detail: g.detail,
+      plantilla_propia: g.plantilla_propia || '',
     })
-    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail)
+    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setEditTexto(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -708,7 +719,8 @@ export default function Expenses() {
 
     // firmada: manda la copia del texto que se guardó al firmar (sql/102). Cambiar la
     // plantilla después no puede cambiar lo que alguien ya firmó.
-    const tpl = g.plantilla_firmada || proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
+    // sin firmar: el texto propio de esta solicitud (sql/143) o el del proyecto
+    const tpl = g.plantilla_firmada || (g.plantilla_propia || '').trim() || proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
     let primera = true
     return tpl.split('\n').map((ln, i) => {
       const t = ln.trim()
@@ -1216,12 +1228,45 @@ export default function Expenses() {
                     imprime para hacerla firmar. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
                   <b style={{ fontSize: 13 }}>👁️ ASÍ SALE LA CONSTANCIA</b>
-                  {puedeCorregir && (
-                    <button type="button" className="link-btn" onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                      ✏️ cambiar el texto de la plantilla
-                    </button>
-                  )}
+                  {(f.plantilla_propia || '').trim() && !editTexto && <span className="warn small" style={{ textTransform: 'none' }}>con texto propio de esta solicitud</span>}
+                  <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setEditTexto(x => !x)}>
+                    {editTexto ? '✓ Listo' : '✏️ Editar el texto de esta constancia'}
+                  </button>
                 </div>
+                {/* EL TEXTO DE ESTA SOLA CONSTANCIA (sql/143, 12 oct): se edita aquí, mirando
+                    la vista previa de abajo. La plantilla del proyecto no se toca. */}
+                {editTexto && (() => {
+                  const base = proyecto?.expense_template || DEFAULT_GASTO_TEMPLATE
+                  const firmada = editId && (filaEdit => filaEdit && (filaEdit.requester_signed_at || filaEdit.approved_at))(list.find(g => g.id === editId))
+                  return (
+                    <div className="sg-texto">
+                      <p className="muted small" style={{ textTransform: 'none', margin: '0 0 6px' }}>
+                        Cambia solo <b>esta</b> constancia; la plantilla del proyecto queda igual. Lo que está entre <code>{'{{ }}'}</code> se llena
+                        solo con los datos de la solicitud (nombre, DNI, monto…): puedes moverlo, pero no lo borres.
+                        {firmada && <b className="warn"> Esta solicitud ya tiene firmas: al guardarla con otro texto hay que volver a firmarla.</b>}
+                      </p>
+                      <textarea rows={11} value={(f.plantilla_propia || '').trim() ? f.plantilla_propia : base} spellCheck="false"
+                        onChange={e => setF(x => ({ ...x, plantilla_propia: e.target.value === base ? '' : e.target.value }))} />
+                      <div className="sg-vars">
+                        {[['RECEPTOR', 'quien recibe'], ['RECEPTOR_DNI', 'su DNI'], ['REMITENTE', 'quien entrega'], ['REMITENTE_DNI', 'su DNI'],
+                          ['MONTO', 'monto'], ['MONTO_LETRAS', 'monto en letras'], ['MOTIVO', 'motivo'], ['FECHA_LETRAS', 'fecha'],
+                          ['PROYECTO', 'proyecto'], ['DESCUENTO', 'se descuenta de'], ['TABLA_DETALLE', 'tabla del detalle']].map(([v, t]) => (
+                          <span key={v}><code>{'{{' + v + '}}'}</code> {t}</span>
+                        ))}
+                      </div>
+                      {(f.plantilla_propia || '').trim() && (
+                        <button type="button" className="link-btn small" onClick={() => setF(x => ({ ...x, plantilla_propia: '' }))}>
+                          ↺ volver al texto del proyecto
+                        </button>
+                      )}
+                      {puedeCorregir && (
+                        <button type="button" className="link-btn small" style={{ marginLeft: 12 }} onClick={() => { setTplOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                          cambiar la plantilla del proyecto (para TODAS las solicitudes)
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div className="print-area contract"
                   style={{ background: '#fff', color: '#111', padding: '20px 22px', borderRadius: 8, marginTop: 6, maxHeight: 460, overflow: 'auto' }}>
                   <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
@@ -1337,7 +1382,7 @@ export default function Expenses() {
               <div className="print-area contract">
                 <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(prt)}</b></p>
                 {prt.rejected_at && <p style={{ textAlign: 'center', border: '2px solid #c0392b', color: '#c0392b', padding: 6 }}><b>SOLICITUD RECHAZADA</b> · {prt.rejected_reason}</p>}
-                {prt.plantilla_firmada && proyecto?.expense_template && prt.plantilla_firmada !== proyecto.expense_template && (
+                {prt.plantilla_firmada && proyecto?.expense_template && prt.plantilla_firmada !== ((prt.plantilla_propia || '').trim() || proyecto.expense_template) && (
                   <p className="no-print small" style={{ textAlign: 'center', color: '#6b5a1e', background: '#fff6d6', padding: 4, borderRadius: 4 }}>
                     🔒 Texto fijado al firmar: la plantilla del proyecto cambió después y esta constancia no la toma.
                   </p>
