@@ -16,7 +16,8 @@ import ContratoDeVenta from '../components/ContratoDeVenta'
 import EditarPersonaModal from '../components/EditarPersonaModal'
 import { COLORS, LBL, hoyPeru, fechaPe, cuotaVencida } from '../lib/lotes'
 import { repartirCuotas, textoCuotas } from '../lib/cronograma'
-import { soles, agruparPagos, textoReparto, COLS_PAGO, COLS_PAGO_NA, subirDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
+import { soles, agruparPagos, textoReparto, COLS_PAGO, COLS_PAGO_NA, subirDocPago, subirOtroDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
+import DocsDeposito from '../components/DocsDeposito'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 
@@ -1012,9 +1013,17 @@ export default function FichaLote() {
   }
 
   // ---- documentos de un pago desde la pestaña de pagos ----
-  async function subirDoc(row, file, campo) {
+  // `filas`: todas las partes del depósito (el documento vale para todas)
+  async function subirDoc(filas, file, campo) {
     try {
-      const t = await subirDocPago(row, file, campo, naOk)
+      const t = await subirDocPago(filas, file, campo, naOk)
+      if (!t) return
+      setMsg({ ok: true, t }); reload()
+    } catch (err) { setMsg({ ok: false, t: err.message }) }
+  }
+  async function subirOtro(g, file, campo) {
+    try {
+      const t = await subirOtroDocPago(g, file, campo, naOk)
       if (!t) return
       setMsg({ ok: true, t }); reload()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
@@ -1113,12 +1122,13 @@ export default function FichaLote() {
     const url = esVoucher ? g.voucherUrl : g.comprobanteUrl
     const na = esVoucher ? g.voucherNA : g.comprobanteNA
     const motivo = esVoucher ? g.voucherNAMotivo : g.comprobanteNAMotivo
-    const falta = esVoucher ? g.voucherFaltante : g.comprobanteFaltante
     // el comprobante electrónico manda: si el depósito ya tiene boleta o factura
     // (o está saliendo), se muestra esa y no se ofrece subir otra a mano
     const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
     if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
-    if (url) return <><a href={url} target="_blank" rel="noreferrer">VER</a>{falta && <span className="warn small"> + falta</span>}</>
+    // uno basta para todo el depósito; "+ otro" sube uno para una sola cuota
+    if (url) return <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
+      onOtro={file => subirOtro(g, file, campo)} />
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
@@ -1138,7 +1148,7 @@ export default function FichaLote() {
         <label className={!esVoucher && proyecto?.fact_activo ? 'upload-btn cp-mano' : 'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>
           {esVoucher ? '⬆ subir' : proyecto?.fact_activo ? 'subir a mano' : '⚠ subir'}
           <input type="file" accept="image/*,.pdf" hidden
-            onChange={e => e.target.files[0] && subirDoc(g.referencia, e.target.files[0], campo)} />
+            onChange={e => e.target.files[0] && subirDoc(g.items, e.target.files[0], campo)} />
         </label>
         {naOk && <button className="link-btn" style={{ display: 'block', fontSize: 10, marginTop: 2 }}
           title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo."

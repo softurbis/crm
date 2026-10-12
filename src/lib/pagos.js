@@ -4,7 +4,7 @@
 // copias terminan contando historias distintas.
 import { supabase } from './supabase'
 import { upload } from './archivos'
-import { confirmar, pedir } from './dialogos'
+import { confirmar, pedir, pedirDatos } from './dialogos'
 
 export const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
@@ -79,14 +79,30 @@ export function agruparPagos(pagos) {
         : conceptos.join(' + '),
       lotes: lotes.join(' + '),
       clientes: clientes.join(' + '),
+      // UN documento basta para todo el depósito, aunque se haya repartido en varias
+      // cuotas (12 oct, pedido del dueño: salía "VER + falta"). Si se subió uno por
+      // cuota, vienen todos, cada uno con las cuotas que cubre.
       voucherUrl: voucher?.voucher_url || null,
+      voucherDocs: docsDelDeposito(items, 'voucher_url'),
       voucherNA, voucherNAMotivo: items.find(p => p.voucher_na_reason)?.voucher_na_reason || null,
-      voucherFaltante: items.some(p => !p.voucher_url && !p.voucher_na),
       comprobanteUrl: comprobante?.receipt_url || null,
+      comprobanteDocs: docsDelDeposito(items, 'receipt_url'),
       comprobanteNA, comprobanteNAMotivo: items.find(p => p.receipt_na_reason)?.receipt_na_reason || null,
-      comprobanteFaltante: items.some(p => !p.receipt_url && !p.receipt_na),
     }
   })
+}
+
+// los documentos distintos de un depósito: [{ url, nota, cuotas: [10, 11], ids }]
+function docsDelDeposito(items, campo) {
+  const m = new Map()
+  for (const p of items) {
+    if (!p[campo]) continue
+    if (!m.has(p[campo])) m.set(p[campo], { url: p[campo], nota: p[campoNota(campo)] || null, cuotas: [], ids: [] })
+    const d = m.get(p[campo])
+    d.ids.push(p.id)
+    if (p.installment) d.cuotas.push(p.installment.installment_number)
+  }
+  return [...m.values()].map(d => ({ ...d, cuotas: d.cuotas.sort((a, b) => a - b) }))
 }
 
 // ---- LA CASCADA, OTRA VEZ EN ORDEN ----
@@ -217,16 +233,39 @@ export function filasDelPago(r, pagos) {
 
 // Sube el voucher o el comprobante de un pago, con su nota. Devuelve el texto
 // del aviso, o null si se cancelo la nota (no se sube nada).
-export async function subirDocPago(row, file, campo, naOk = true) {
+// `filas`: una fila o TODAS las partes del depósito. Desde el historial se le pasa el
+// depósito entero: el documento queda en todas sus partes y ninguna sale "falta"
+// (12 oct). Para subir uno distinto a una sola cuota, se le pasa solo esa parte.
+export async function subirDocPago(filas, file, campo, naOk = true) {
+  const lista = (Array.isArray(filas) ? filas : [filas]).filter(Boolean)
   const nota = await pedir('Comentario / nota de este documento (opcional, Enter para saltar):')
   if (nota === null) return null
-  const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${row.id}`, file)
+  const url = await upload(`${campo === 'voucher_url' ? 'vouchers' : 'comprobantes'}/${lista[0].id}`, file)
   const patch = { [campo]: url, [campoNota(campo)]: nota.trim() || null }
   // si el documento aparecio despues de todo, la marca "no aplica" ya no vale
   if (naOk) { patch[campoNA(campo)] = false; patch[campoNAMotivo(campo)] = null }
-  const { error } = await supabase.from('daily_income').update(patch).eq('id', row.id)
+  const { error } = await supabase.from('daily_income').update(patch).in('id', lista.map(p => p.id))
   if (error) throw error
-  return campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO'
+  const que = campo === 'voucher_url' ? 'VOUCHER SUBIDO' : 'COMPROBANTE SUBIDO'
+  return lista.length > 1 ? que + ': VALE PARA LAS ' + lista.length + ' CUOTAS DE ESTE DEPÓSITO' : que
+}
+
+// "+ otro": un segundo documento para UNA cuota del depósito (por ejemplo, una boleta
+// por cuota). Se elige a qué cuota va; las demás se quedan con el que tenían.
+export async function subirOtroDocPago(g, file, campo, naOk = true) {
+  let filas = g.items
+  if (g.items.length > 1) {
+    const r = await pedirDatos({
+      titulo: campo === 'voucher_url' ? 'Otro voucher para este depósito' : 'Otro comprobante para este depósito',
+      mensaje: 'Normalmente basta UNO para todo el depósito. Si este es de una sola cuota, elige cuál: esa cuota queda con este archivo y las demás con el que ya tenían.',
+      campos: [{ clave: 'id', etiqueta: '¿Para qué cuota es?', tipo: 'opcion', valor: g.items[g.items.length - 1].id,
+        opciones: g.items.map(p => ({ valor: p.id, etiqueta: conceptoPago(p) + ' · ' + soles(p.amount) })) }],
+      aceptar: 'Subir',
+    })
+    if (!r) return null
+    filas = g.items.filter(p => p.id === r.id)
+  }
+  return subirDocPago(filas, file, campo, naOk)
 }
 
 const registrarNoAplica = (filas, campo, motivo, marcado, email, pidOp) => supabase.from('activity_log').insert({

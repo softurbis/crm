@@ -1471,3 +1471,9 @@ span.cp-chip { cursor: default; }
 .tp-monto { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tp-n { font-size: .78rem; color: var(--muted); }
 .tp-ir { margin-top: .35rem; font-size: .8rem; font-weight: 700; color: var(--accent-strong); }
+
+/* ---- documentos de un depósito: uno basta para todas sus cuotas (DocsDeposito.jsx, 12 oct 2026) ---- */
+.docs-dep { white-space: nowrap; }
+.docs-dep small { font-size: .7em; }
+.docs-otro { margin-left: .45rem; font-size: .72rem; opacity: .75; cursor: pointer; }
+.docs-otro:hover { opacity: 1; }

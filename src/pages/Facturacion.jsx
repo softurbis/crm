@@ -30,14 +30,16 @@ export function agruparDepositos(filas) {
     const r = g.items[0]
     const cuotas = g.items.filter(x => x.tipo === 'cuota' && x.cuota).map(x => x.cuota).sort((a, b) => a - b)
     const tipos = [...new Set(g.items.map(x => x.tipo))]
+    const comprobante = g.items.find(x => x.receipt_url) || null
+    const electronico = g.items.find(x => x.ce_estado && !['rechazado', 'anulado', 'error'].includes(x.ce_estado)) || null
+    const noAplica = g.items.every(x => x.receipt_na)
     return {
       ...g, r,
       total: Math.round(g.items.reduce((s, x) => s + Number(x.amount || 0), 0) * 100) / 100,
       concepto: cuotas.length === g.items.length ? (cuotas.length > 1 ? 'CUOTAS N ' + cuotas.join(' + ') : 'CUOTA N ' + cuotas[0]) : tipos.map(t => TIPO[t] || t.toUpperCase()).join(' + '),
-      pendiente: g.items.some(x => x.pendiente),
-      comprobante: g.items.find(x => x.receipt_url) || null,
-      electronico: g.items.find(x => x.ce_estado && !['rechazado', 'anulado', 'error'].includes(x.ce_estado)) || null,
-      noAplica: g.items.every(x => x.receipt_na),
+      // un comprobante basta para todo el depósito (12 oct): pendiente solo si no tiene ninguno
+      pendiente: !comprobante && !electronico && !noAplica,
+      comprobante, electronico, noAplica,
       esMio: g.items.some(x => x.es_mio),
     }
   })

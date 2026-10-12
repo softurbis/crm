@@ -11,10 +11,11 @@ import LoteLink from '../components/LoteLink'
 import { fechaPe } from '../lib/lotes'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
 import PagosTabs from '../components/PagosTabs'
+import DocsDeposito from '../components/DocsDeposito'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 import {
   soles, estadoDe, conceptoPago, agruparPagos, COLS_PAGO as COLS, COLS_PAGO_NA as COLS_NA,
-  subirDocPago, marcarNoAplica as marcarNA, quitarNoAplica as quitarNA, recalcularCascada,
+  subirDocPago, subirOtroDocPago, marcarNoAplica as marcarNA, quitarNoAplica as quitarNA, recalcularCascada,
 } from '../lib/pagos'
 
 
@@ -98,10 +99,19 @@ export default function Payments() {
   }
   useEffect(() => { if (pidOp) loadBase() }, [pidOp])
 
-  async function subirDoc(row, file, campo) {
+  // `filas`: todas las partes del depósito (el documento vale para todas)
+  async function subirDoc(filas, file, campo) {
     try {
-      const t = await subirDocPago(row, file, campo, naOk)
+      const t = await subirDocPago(filas, file, campo, naOk)
       if (!t) return   // cancelo la nota: no se sube nada
+      setMsg({ ok: true, t })
+      loadBase()
+    } catch (err) { setMsg({ ok: false, t: err.message }) }
+  }
+  async function subirOtro(g, file, campo) {
+    try {
+      const t = await subirOtroDocPago(g, file, campo, naOk)
+      if (!t) return
       setMsg({ ok: true, t })
       loadBase()
     } catch (err) { setMsg({ ok: false, t: err.message }) }
@@ -237,11 +247,12 @@ export default function Payments() {
     const url = esVoucher ? g.voucherUrl : g.comprobanteUrl
     const na = esVoucher ? g.voucherNA : g.comprobanteNA
     const motivo = esVoucher ? g.voucherNAMotivo : g.comprobanteNAMotivo
-    const falta = esVoucher ? g.voucherFaltante : g.comprobanteFaltante
     // el comprobante electrónico (sql/113) manda sobre el que se sube a mano
     const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
     if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
-    if (url) return <><a href={url} target="_blank" rel="noreferrer">VER</a>{falta && <span className="warn small"> + falta</span>}</>
+    // uno basta para todo el depósito; "+ otro" sube uno para una sola cuota
+    if (url) return <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
+      onOtro={file => subirOtro(g, file, campo)} />
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
@@ -259,7 +270,7 @@ export default function Payments() {
         {comp && <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />}
         <label className={!esVoucher && proyFact?.fact_activo ? 'upload-btn cp-mano' : 'upload-btn ' + (esVoucher ? 'warn' : 'bad')}>{esVoucher ? 'subir' : proyFact?.fact_activo ? 'subir a mano' : '⚠ falta'}
           <input type="file" accept="image/*,.pdf" hidden
-            onChange={e => e.target.files[0] && subirDoc(g.referencia, e.target.files[0], campo)} />
+            onChange={e => e.target.files[0] && subirDoc(g.items, e.target.files[0], campo)} />
         </label>
         {naOk && <button className="link-btn" style={{ display: 'block', fontSize: 10, marginTop: 2 }}
           title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo."
@@ -370,7 +381,7 @@ export default function Payments() {
                       <td colSpan="5" className="muted small">{editando && i === g.items.length - 1 ? <>
                         Reparto: <b className={Math.abs(totalEditado - Number(g.total)) <= 0.009 ? 'ok' : 'bad'}>{soles(totalEditado)} de {soles(g.total)}</b>{' '}
                         <button className="btn-ghost" style={{ fontSize: 11 }} disabled={repartoBusy || Math.abs(totalEditado - Number(g.total)) > 0.009} onClick={() => guardarReparto(g)}>{repartoBusy ? 'Guardando...' : 'Guardar reparto'}</button>
-                      </> : <>Parte del pago S/ {soles(g.total)} · operación {r.operation_number}</>}</td>
+                      </> : <>Parte del pago de {soles(g.total)} · operación {r.operation_number}</>}</td>
                     </tr>
                   ))}
                 </Fragment>
