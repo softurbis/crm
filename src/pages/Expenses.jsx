@@ -1093,6 +1093,7 @@ export default function Expenses() {
                     <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
                   )}
                   <span className="sg-ej">Le llega un aviso por WhatsApp y Telegram para firmar con su código. Ej.: VICTOR, que pide el pago de su comisión.</span>
+                  <span className="sg-ej">¿No aparece quien pide? Aquí salen solo los usuarios del panel que tienen <b>este proyecto</b> asignado (se marca en Usuarios). La socia no sale: ella firma del otro lado.</span>
                   {solicitante && !solicitante.tiene_firma && (
                     <span className="warn small" style={{ textTransform: 'none' }}>⚠ {primerNombre(solicitante.full_name)} todavía no registró su firma: se la pide el panel la primera vez que entre a Gastos.</span>
                   )}
