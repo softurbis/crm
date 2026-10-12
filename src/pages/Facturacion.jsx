@@ -29,6 +29,9 @@ export function agruparDepositos(filas) {
   return [...m.values()].map(g => {
     const r = g.items[0]
     const cuotas = g.items.filter(x => x.tipo === 'cuota' && x.cuota).map(x => x.cuota).sort((a, b) => a - b)
+    // repartido en varias cuotas: se nombra por la que recibió más (igual que en Pagos, 12 oct)
+    const piezas = g.items.filter(x => x.tipo === 'cuota' && x.cuota).sort((a, b) => a.cuota - b.cuota)
+    const mayor = piezas.reduce((a, b) => (a && Number(a.amount) + 0.004 >= Number(b.amount) ? a : b), null)
     const tipos = [...new Set(g.items.map(x => x.tipo))]
     const comprobante = g.items.find(x => x.receipt_url) || null
     const electronico = g.items.find(x => x.ce_estado && !['rechazado', 'anulado', 'error'].includes(x.ce_estado)) || null
@@ -36,7 +39,9 @@ export function agruparDepositos(filas) {
     return {
       ...g, r,
       total: Math.round(g.items.reduce((s, x) => s + Number(x.amount || 0), 0) * 100) / 100,
-      concepto: cuotas.length === g.items.length ? (cuotas.length > 1 ? 'CUOTAS N ' + cuotas.join(' + ') : 'CUOTA N ' + cuotas[0]) : tipos.map(t => TIPO[t] || t.toUpperCase()).join(' + '),
+      concepto: cuotas.length === g.items.length
+        ? 'CUOTA N ' + (cuotas.length > 1 ? mayor.cuota + ' (+ ' + piezas.filter(x => x !== mayor).map(x => 'cuota ' + x.cuota + ' S/ ' + Number(x.amount).toFixed(2)).join(', ') + ')' : cuotas[0])
+        : tipos.map(t => TIPO[t] || t.toUpperCase()).join(' + '),
       // un comprobante basta para todo el depósito (12 oct): pendiente solo si no tiene ninguno
       pendiente: !comprobante && !electronico && !noAplica,
       comprobante, electronico, noAplica,

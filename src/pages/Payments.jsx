@@ -351,7 +351,9 @@ export default function Payments() {
                     <td>{g.items.every(p => p.lot && p.lot.mz === r.lot?.mz && p.lot.lt === r.lot?.lt) ? <LoteLink lot={r.lot} /> : g.lotes}</td>
                     <td><button className="link-btn" title={expandible ? 'Ver cómo se distribuyó el pago' : 'Ver documentos'} onClick={() => expandible ? alternarGrupo(g.key) : abrirPago(r)}>
                       {expandible && (abierto ? '▾ ' : '▸ ')}{g.concepto}
-                    </button></td>
+                    </button>
+                      {g.resto?.length > 0 && <div className="muted small" style={{ textTransform: 'none' }}>+ {g.resto.map(x => 'cuota ' + x.n + ' (' + soles(x.monto) + ')').join(' + ')}</div>}
+                    </td>
                     <td><EstadoChip r={r} /></td>
                     <td><b>{soles(g.total)}</b>{expandible && <span className="muted small"> ({g.items.length} cuotas)</span>}
                       {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} title="Corregir directamente cómo se repartió este voucher" onClick={() => editando ? setRepartoEdit(null) : editarReparto(g)}>

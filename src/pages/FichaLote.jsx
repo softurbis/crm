@@ -1086,7 +1086,8 @@ export default function FichaLote() {
       if (pagoFiltro === 'sin_comprobante' && (g.comprobanteUrl || g.comprobanteNA)) return false
       if (!terms.length) return true
       const r = g.referencia
-      const heno = [r.date || '', fechaPe(r.date), g.concepto, r.operation_number || '', r.account?.name || '',
+      // el concepto nombra solo la cuota principal: las demás del reparto también se buscan
+      const heno = [r.date || '', fechaPe(r.date), g.concepto, g.reparto.map(x => 'cuota ' + x.n).join(' '), r.operation_number || '', r.account?.name || '',
         g.items.map(p => p.observation || '').join(' '), String(g.total)].join(' ').toLowerCase()
       return terms.every(w => heno.includes(w))
     })

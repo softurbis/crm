@@ -69,13 +69,19 @@ export function agruparPagos(pagos) {
     const reparto = items.filter(p => p.income_type === 'cuota' && p.installment)
       .map(p => ({ id: p.id, n: p.installment.installment_number, monto: Number(p.amount || 0) }))
       .sort((a, b) => a.n - b.n)
+    // repartido en varias cuotas: el pago se nombra por la cuota que recibió MÁS (12 oct,
+    // pedido del dueño: "CUOTAS N 5 + 6" con 1,099.95 + 0.05 confundía); el resto se
+    // ve aparte ("+ cuota 6 S/ 0.05") y en "Se repartió en"
+    const principal = reparto.length > 1 ? reparto.reduce((a, b) => (b.monto > a.monto + 0.004 ? b : a)) : null
     return {
       ...g,
       reparto,
+      principal,
+      resto: principal ? reparto.filter(x => x !== principal) : [],
       notas: [...new Set(items.map(p => notaVisible(p.observation)).filter(Boolean))].join(' | '),
       total: items.reduce((s, p) => s + Number(p.amount || 0), 0),
       concepto: cuotas.length === items.length
-        ? `CUOTA${cuotas.length > 1 ? 'S' : ''} N ${cuotas.join(' + ')}`
+        ? `CUOTA N ${principal ? principal.n : cuotas[0]}`
         : conceptos.join(' + '),
       lotes: lotes.join(' + '),
       clientes: clientes.join(' + '),
