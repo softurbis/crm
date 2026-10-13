@@ -28,6 +28,12 @@ const ESTADOS = [
   ['falta_rh', 'Pagados sin RH / factura'],
   ['rechazados', 'Rechazados'],
 ]
+// el día del pago: si se pagó por el panel, cuándo se registró (hora de Lima); los gastos
+// cargados de las constancias tienen como confirmed_at el día de la carga: para ellos, la
+// fecha de la constancia
+const pagadoEl = g => g.confirmed_by && g.confirmed_at
+  ? new Date(new Date(g.confirmed_at).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10)
+  : (g.reception_date || g.issue_date || null)
 const MAX_LOTE = 60   // imprimir de una vez: más hojas que esto se cuelga el navegador
 
 export default function GastosFacturacion() {
@@ -82,7 +88,7 @@ export default function GastosFacturacion() {
 
   const estadoDe = g => {
     const e = estadoGasto(g)
-    if (e === 'confirmado') return <span className="ok">✔ PAGADO{g.confirmed_at && <><br /><span className="muted small">{fechaPe(g.confirmed_at.slice(0, 10))}</span></>}</span>
+    if (e === 'confirmado') { const d = pagadoEl(g); return <span className="ok">✔ PAGADO{d && <><br /><span className="muted small">{fechaPe(d)}</span></>}</span> }
     if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'aprobado') return porPagar(g)
       ? <span className="warn">💸 POR PAGAR<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · falta el voucher</span></span>

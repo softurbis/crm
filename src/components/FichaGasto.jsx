@@ -29,13 +29,20 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
   const items = (g.detail || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 2)
   const pidio = g.requester_name || g.pedido_por_nombre
 
+  // los gastos cargados de las constancias (migraciones por SQL) no tienen quién los
+  // registró ni quién los pagó, y su confirmed_at es el día de la carga: para ellos el
+  // pago es la fecha de la constancia, no la de la carga
+  const cargado = !g.registered_by && !g.confirmed_by && !g.requester_signed_at && !g.approved_at
+  const pagadoEl = g.confirmed_by ? g.confirmed_at : (g.status === 'confirmado' ? (g.reception_date || g.issue_date) : null)
   // el recorrido del gasto, en orden
   const pasos = [
-    { t: 'Registrada', cuando: g.created_at, quien: g.registrado_por_nombre },
+    cargado ? { t: 'Cargado al sistema', cuando: g.created_at, quien: 'gasto anterior, desde su constancia' }
+      : { t: 'Registrada', cuando: g.created_at, quien: g.registrado_por_nombre },
     g.requester_id && { t: 'Firmó quien lo pide', cuando: g.requester_signed_at, quien: pidio, cod: g.requester_code, espera: 'espera la firma de ' + (pidio || 'quien lo pide') },
-    proyecto?.expense_approval && !g.rejected_at && { t: 'Aprobó la socia', cuando: g.approved_at, quien: g.approved_name, cod: g.approval_code, espera: 'espera la aprobación de la socia' },
+    // un gasto ya pagado sin aprobación es de antes del circuito de firmas: no "espera" nada
+    proyecto?.expense_approval && !g.rejected_at && (g.approved_at || g.status !== 'confirmado') && { t: 'Aprobó la socia', cuando: g.approved_at, quien: g.approved_name, cod: g.approval_code, espera: 'espera la aprobación de la socia' },
     g.rejected_at && { t: 'Rechazada', cuando: g.rejected_at, quien: g.rejected_reason, mal: true },
-    !g.rejected_at && { t: 'Pagado', cuando: g.confirmed_at, quien: g.pagado_por_nombre, nota: g.voucher_note, espera: porPagar ? 'falta subir el voucher' : 'todavía no se paga' },
+    !g.rejected_at && { t: 'Pagado', cuando: pagadoEl, quien: g.confirmed_by ? g.pagado_por_nombre : 'según la constancia', nota: g.voucher_note, espera: porPagar ? 'falta subir el voucher' : 'todavía no se paga' },
     g.adelanto_por && { t: 'Reposición a ' + g.adelanto_por, cuando: g.reposicion?.fecha, nota: g.reposicion?.operacion ? 'OP ' + g.reposicion.operacion : '', espera: 'falta devolverle el dinero' },
   ].filter(Boolean)
 
