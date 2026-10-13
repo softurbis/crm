@@ -60,7 +60,10 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho })
       const fin = Date.now() + 120000
       while (vivo.current && Date.now() < fin) {
         await espera(2000)
-        const { data: fila } = await supabase.from('comprobante_lecturas').select('estado, lectura, validacion, alertas, error').eq('id', id).maybeSingle()
+        // por la función (sql/145): la secretaria de facturación no lee la tabla directo.
+        // Sin el 145 corrido, como antes.
+        let { data: fila, error: e2 } = await supabase.rpc('lectura_comprobante', { p_id: id })
+        if (e2) ({ data: fila } = await supabase.from('comprobante_lecturas').select('estado, lectura, validacion, alertas, error').eq('id', id).maybeSingle())
         if (fila && (fila.estado === 'listo' || fila.estado === 'error')) {
           if (!vivo.current) return
           setRes(fila)

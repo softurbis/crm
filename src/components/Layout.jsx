@@ -121,8 +121,10 @@ function TarjetasPendientes({ porFirmar, porPagar, esSocia, onIr }) {
 }
 
 // El rol FACTURACIÓN (la secretaria de la otra empresa, sql/134) ve SOLO esto: no está
-// en MENU para que nadie más lo tenga en su menú.
-const MENU_FACTURACION = { to: '/facturacion', label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
+// en MENU para que nadie más lo tenga en su menú. Desde el 13 oct también Gastos
+// (sql/145): lo ve todo, imprime y sube el voucher de los pagos de la socia.
+const MENU_FACTURACION = { to: '/facturacion', end: true, label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
+const MENU_FACT_GASTOS = { to: '/facturacion/gastos', label: 'Gastos', icon: '💸', color: '#e0b23f' }
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
 const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
@@ -148,7 +150,8 @@ export default function Layout() {
   const [porPagar, setPorPagar] = useState([])
   const irA = usarNavegacion()
   useEffect(() => {
-    if (!profile?.id) return
+    // facturación no lee la tabla (el candado de sql/134): cuenta lo suyo por su función
+    if (!profile?.id || role === 'facturacion') return
     const esSocio = role === 'socio'
     let vivo = true
     // por proyecto: cuántas y cuánto suman (las tarjetas muestran el total, 10 oct)
@@ -241,9 +244,11 @@ export default function Layout() {
     return () => clearInterval(t)
   }, [esAdmin])
 
-  // facturación: cuántos pagos le faltan, en el menú (se cuenta cada minuto, con la pestaña a la vista)
+  // facturación: cuántos pagos le faltan y cuántos gastos esperan su voucher, en el
+  // menú (se cuenta cada minuto, con la pestaña a la vista)
   const esFacturacion = role === 'facturacion'
   const [pendFact, setPendFact] = useState(0)
+  const [pendGastos, setPendGastos] = useState(0)
   useEffect(() => {
     if (!esFacturacion) return
     let vivo = true
@@ -255,8 +260,11 @@ export default function Layout() {
       }))
       setPendFact(deps.size)
     })
-    contar()
-    const t = setInterval(() => { if (!document.hidden) contar() }, 60000)
+    const contarGastos = () => supabase.rpc('facturacion_gastos', { p_por_pagar: true }).then(({ data, error }) => {
+      if (vivo && !error) setPendGastos((data?.gastos || []).length)
+    })
+    contar(); contarGastos()
+    const t = setInterval(() => { if (!document.hidden) { contar(); contarGastos() } }, 60000)
     return () => { vivo = false; clearInterval(t) }
   }, [esFacturacion])
 
@@ -309,7 +317,7 @@ export default function Layout() {
           {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
           {role === 'asesor'
             ? MENU.filter(m => m.to === '/whatsapp').map(Item)
-            : esFacturacion ? Item({ ...MENU_FACTURACION, badge: pendFact })
+            : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}</>
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
                     (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}

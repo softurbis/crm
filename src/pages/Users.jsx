@@ -44,7 +44,7 @@ const ROLES = [
   ['manager', 'GERENCIA (solo ver)'],
   ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
   ['socio', 'SOCIO (ve SOLO sus proyectos · aprueba gastos con firma)'],   // sql/73: sin proyectos asignados NO ve nada
-  ['facturacion', 'FACTURACIÓN (otra empresa: solo ve pagos y sube boletas/facturas de sus proyectos)'],   // sql/133-134
+  ['facturacion', 'FACTURACIÓN (otra empresa: ve pagos y gastos de sus proyectos; sube boletas/facturas y el voucher de los pagos de la socia)'],   // sql/133-134, 145
 ]
 
 // la línea que explica al OPERADOR debajo del selector de rol (al crear y en su fila)
@@ -467,7 +467,7 @@ export default function Users() {
                       onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
                     {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
-                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos de los proyectos que le marques y sube sus boletas y facturas. Nada más.</span>}
+                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas, el voucher de los pagos que hizo la socia, e imprime constancias. Nada más.</span>}
                   </div>
                 </td>
                 <td>
@@ -558,7 +558,7 @@ export default function Users() {
                     // el operador ve el menú del superusuario menos la administración: no se recorta por paneles
                     : u.role === 'operador' ? <span className="muted" style={{ fontSize: 11 }}>Todos, menos administración</span>
                     // facturación tiene una sola pantalla: no hay paneles que elegir (sql/134)
-                    : u.role === 'facturacion' ? <span className="muted" style={{ fontSize: 11 }}>Solo "Comprobantes por subir"</span>
+                    : u.role === 'facturacion' ? <span className="muted" style={{ fontSize: 11 }}>Solo "Boletas y facturas" y "Gastos"</span>
                     : PANELS.map(p => {
                       const on = Array.isArray(u.panels) ? u.panels.includes(p.to) : true
                       return (
