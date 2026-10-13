@@ -467,7 +467,7 @@ export default function Users() {
                       onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
                     {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
-                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas, el voucher de los pagos que hizo la socia, e imprime constancias. Nada más.</span>}
+                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas y el voucher de los pagos que hizo la socia, imprime constancias y ve el estado de cuenta de sus lotes. Nada más.</span>}
                   </div>
                 </td>
                 <td>

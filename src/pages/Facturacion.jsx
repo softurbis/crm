@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext'
 import { hoyPe } from '../lib/cobros'
 import { fechaPe } from '../lib/lotes'
 import VisorDoc from '../components/VisorDoc'
+import BuscarLote from '../components/BuscarLote'
+import EstadoCuentaLote from '../components/EstadoCuentaLote'
 
 // COMPROBANTES POR SUBIR (sql/133-134, 9 oct 2026): la pantalla del rol FACTURACIÓN,
 // la secretaria de la otra empresa que hace las boletas y facturas en su propio
@@ -16,6 +18,8 @@ import VisorDoc from '../components/VisorDoc'
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const finDeMes = m => { const [y, mm] = m.split('-').map(Number); return m + '-' + String(new Date(Date.UTC(y, mm, 0)).getUTCDate()).padStart(2, '0') }
 const TIPO = { cuota: 'CUOTA', inicial: 'INICIAL', separacion: 'SEPARACIÓN', mora: 'MORA', otro: 'OTRO' }
+// los lotes de sus proyectos para el buscador (sql/146): ella no lee las tablas
+const cargarLotes = async () => { const { data, error } = await supabase.rpc('facturacion_lotes'); return error ? [] : (data || []) }
 
 // las partes de un mismo depósito (una cascada lo reparte en varias cuotas): un pago
 export function agruparDepositos(filas) {
@@ -59,6 +63,7 @@ export default function Facturacion() {
   const [filas, setFilas] = useState(null)
   const [verDoc, setVerDoc] = useState(null)
   const [subiendo, setSubiendo] = useState(null)
+  const [loteVer, setLoteVer] = useState(null)   // estado de cuenta de un lote (sql/146), solo leer
 
   async function cargar() {
     setFilas(null)
@@ -107,6 +112,15 @@ export default function Facturacion() {
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
+      {/* ESTADO DE CUENTA DE UN LOTE (13 oct): el cliente con su documento y dirección, la
+          venta, el cronograma y los pagos, para emitir la boleta con los datos correctos */}
+      <div className="glass" style={{ padding: '10px 14px', margin: '0 0 12px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid var(--accent)' }}>
+        <span style={{ flex: '1 1 240px', textTransform: 'none' }}>📄 <b>Estado de cuenta de un lote</b>: el cliente, la venta, el cronograma y los pagos.</span>
+        <div style={{ flex: '1 1 320px', maxWidth: 460 }}>
+          <BuscarLote cargar={cargarLotes} onElegir={l => setLoteVer(l.id)} placeholder="Lote (A1, G-7), nombre o DNI…" />
+        </div>
+      </div>
+
       <div className="chips">
         <button className={`chip ${vista === 'pendientes' ? 'on' : ''}`} onClick={() => setVista('pendientes')}>⏳ Pendientes{vista === 'pendientes' && filas ? ' (' + totalPend + ')' : ''}</button>
         <button className={`chip ${vista === 'mes' ? 'on' : ''}`} onClick={() => setVista('mes')}>📅 Todos los pagos del mes</button>
@@ -137,7 +151,9 @@ export default function Facturacion() {
               {vistaGrupos.map(g => (
                 <tr key={g.key}>
                   <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(g.r.date)}</td>
-                  <td className="small">{g.r.proyecto}<div><b>{g.r.mz ? 'MZ ' + g.r.mz + ' LT ' + g.r.lt : '—'}</b></div></td>
+                  <td className="small">{g.r.proyecto}<div>{g.r.mz
+                    ? (g.r.lot_id ? <button className="link-btn" title="Ver el estado de cuenta de este lote" onClick={() => setLoteVer(g.r.lot_id)}><b>MZ {g.r.mz} LT {g.r.lt}</b></button> : <b>MZ {g.r.mz} LT {g.r.lt}</b>)
+                    : <b>—</b>}</div></td>
                   <td className="small" style={{ textTransform: 'none' }}>{g.r.cliente || '—'}
                     {g.r.doc_number && <div className="muted">{g.r.doc_type || 'DOC'} {g.r.doc_number}</div>}</td>
                   <td className="small">{g.concepto}{g.r.venta_estado === 'expropiado' && <div className="warn">venta expropiada</div>}</td>
@@ -166,6 +182,8 @@ export default function Facturacion() {
           </table>
         </div>
       )}
+
+      {loteVer && <EstadoCuentaLote lotId={loteVer} onCerrar={() => setLoteVer(null)} />}
 
       {verDoc && (
         <div className="modal-bg" onClick={() => setVerDoc(null)}>

@@ -979,6 +979,36 @@ select { cursor: pointer; }
 }
 .fx-clear:hover { background: var(--error); color: #0d150f; border-color: var(--error); }
 
+/* ---- panel de búsqueda de Gastos (components/BuscadorGastos, 13 oct) ---- */
+.bg-panel { padding: .7rem .9rem; margin: 0 0 .8rem; display: flex; flex-direction: column; gap: .5rem; }
+.bg-fila { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.bg-q { flex: 1 1 320px; min-width: 220px; text-transform: none; }
+.bg-chips { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.bg-chips .chip { padding: .3rem .7rem; font-size: .78rem; text-transform: none; }
+.bg-lbl { min-width: 52px; text-transform: uppercase; letter-spacing: .04em; font-size: .68rem; }
+.bg-n { opacity: .7; font-weight: 700; margin-left: .2rem; }
+.bg-fecha { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; flex-direction: row; margin: 0; }
+.bg-fecha input { padding: .25rem .4rem; font-size: .8rem; }
+@media (max-width: 720px) { .bg-lbl { min-width: 100%; } }
+
+/* ---- ficha de un gasto (components/FichaGasto) ---- */
+.fg-modal { max-width: 980px; width: 96%; max-height: 92vh; overflow-y: auto; }
+.fg-cab { text-align: center; margin: .2rem 0 .9rem; }
+.fg-monto { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.fg-motivo { text-transform: none; opacity: .85; margin-top: .2rem; overflow-wrap: anywhere; }
+.fg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: .8rem; }
+.fg-sub { margin: .2rem 0 .4rem; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+.fg-dato { display: flex; justify-content: space-between; gap: .8rem; padding: .28rem 0; border-bottom: 1px solid rgba(127,148,118,.15); font-size: .85rem; }
+.fg-dato > span:last-child { text-align: right; text-transform: none; overflow-wrap: anywhere; }
+.fg-detalle { width: 100%; font-size: .8rem; margin-top: .5rem; }
+.fg-pasos { list-style: none; margin: 0; padding: 0 0 0 .2rem; display: flex; flex-direction: column; gap: .55rem; }
+.fg-pasos li { display: flex; flex-direction: column; padding-left: 1.4rem; position: relative; text-transform: none; }
+.fg-pasos li::before { content: ''; position: absolute; left: 0; top: .3rem; width: .7rem; height: .7rem; border-radius: 50%; border: 2px solid var(--muted); }
+.fg-pasos li.hecho::before { background: var(--ok); border-color: var(--ok); }
+.fg-pasos li.mal::before { background: var(--error); border-color: var(--error); }
+.fg-pasos li.falta { opacity: .75; }
+@media (max-width: 720px) { .fg-grid { grid-template-columns: 1fr; } }
+
 /* ---- campos editables por superusuario (cronograma / ficha) ---- */
 .fecha-edit {
   background: transparent; border: 1px dashed rgba(156,203,134,.4); color: inherit;
@@ -1183,6 +1213,7 @@ a.btn-ghost, a.btn-act { text-decoration: none; display: inline-flex; align-item
 .bl-op { align-items: center; }
 .bl-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .bl-lote { flex: none; min-width: 44px; color: var(--accent-strong); }
+.bl-exacto { flex: none; font-size: .62rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: .05rem .4rem; border-radius: 8px; background: var(--accent); color: #0d150f; }
 
 .fl-top { display: flex; align-items: flex-start; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
 .fl-titulo { flex: 1 1 320px; min-width: 0; }

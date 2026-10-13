@@ -19,6 +19,25 @@ async function todas(hacer) {
   return out
 }
 
+// lo que se busca de cada lote: el lote escrito de varias formas y su gente
+const conHeno = lotes => lotes.map(lote => ({
+  ...lote,
+  heno: sinTildes([
+    `${lote.mz}${lote.lt} ${lote.mz}-${lote.lt} mz ${lote.mz} lt ${lote.lt}`,
+    ...lote.personas.map(p => `${p.full_name} ${p.doc_number || ''} ${digitos(p.phone)}`),
+  ].join(' ')),
+}))
+
+// ¿Lo escrito es un lote? "a1", "a 1", "a-1", "mz a lt 1", "A1" → { mz: 'a', lt: '1' }.
+// Una letra sola es la manzana entera.
+function comoLote(t) {
+  const m = t.match(/^(?:mz\.?\s*)?([a-z]{1,2})\s*[-.]?\s*(?:(?:lt|lote)\.?\s*)?(\d{1,3})$/)
+  if (m) return { mz: m[1], lt: String(Number(m[2])) }
+  const sola = t.match(/^(?:mz\.?\s*)?([a-z])$/)
+  return sola ? { mz: sola[1], lt: '' } : null
+}
+const numLt = lt => Number(String(lt).replace(/\D/g, '')) || 0
+
 // Quien esta ligado a cada lote: titular y co-comprador de la venta viva, o quien
 // lo separo. Se consulta recien al usar el buscador, no al abrir la pantalla: la
 // mayoria de las veces nadie lo toca. Puede ser de uno o de varios proyectos.
@@ -42,29 +61,23 @@ async function cargarGente(pids) {
   }
   for (const x of (v.data || [])) { poner(x.lot_id, x.client, 'titular'); poner(x.lot_id, x.co_client, 'co-comprador') }
   for (const x of (s.data || [])) poner(x.lot_id, x.client, 'separó')
-  return (l.data || []).map(lote => {
-    const personas = gente.get(lote.id) || []
-    return {
-      ...lote, personas,
-      heno: sinTildes([
-        `${lote.mz}${lote.lt} ${lote.mz}-${lote.lt} mz ${lote.mz} lt ${lote.lt}`,
-        ...personas.map(p => `${p.full_name} ${p.doc_number || ''} ${digitos(p.phone)}`),
-      ].join(' ')),
-    }
-  })
+  return conHeno((l.data || []).map(lote => ({ ...lote, personas: gente.get(lote.id) || [] })))
 }
+
 
 // Buscador de la ficha del lote: se escribe el lote (G7, G-7), un nombre, el DNI
 // o el celular, y se cae directo en la ficha. Es la puerta de entrada del dia a
 // dia de la secretaria.
 //   proyectos = ids donde buscar (en "Hoy" son todos los de la persona); si no
 //   llega, busca en el proyecto elegido.
-export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7), nombre, DNI o celular…', proyectos }) {
+//   cargar = otra fuente de lotes ([{ id, mz, lt, status, project_id, proyecto, personas }]):
+//   la usa facturación, que no lee las tablas (sql/146). onElegir = qué hacer al
+//   elegir uno (si no llega, se abre la ficha del lote).
+export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7), nombre, DNI o celular…', proyectos, cargar, onElegir }) {
   const { pidOp, projects } = useProject()
   const pids = proyectos?.length ? proyectos : (pidOp ? [pidOp] : [])
   const clavePids = pids.join(',')
-  const varios = pids.length > 1
-  const nombreProy = id => projects.find(x => x.id === id)?.name || ''
+  const nombreProy = l => l.proyecto || projects.find(x => x.id === l.project_id)?.name || ''
   const irA = useNavigate()
   const [datos, setDatos] = useState(null)       // null = todavia no se consulto
   const [cargando, setCargando] = useState(false)
@@ -78,14 +91,25 @@ export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7),
   useEffect(() => { setDatos(null) }, [clavePids])
 
   async function asegurarDatos() {
-    if (datos || cargando || !pids.length) return
+    if (datos || cargando || (!cargar && !pids.length)) return
     setCargando(true)
-    try { setDatos(await cargarGente(pids)) } finally { setCargando(false) }
+    try { setDatos(cargar ? conHeno(await cargar()) : await cargarGente(pids)) } finally { setCargando(false) }
   }
+  const varios = cargar ? new Set((datos || []).map(l => l.project_id)).size > 1 : pids.length > 1
 
   const resultados = useMemo(() => {
     const t = sinTildes(q).trim()
     if (!t || !datos) return []
+    // "a 1": el A-1 primero y después los de la A que empiezan con 1 (A-10, A-11…),
+    // nunca mezclado con otras manzanas ni con nombres que tengan una "a" (13 oct)
+    const lote = comoLote(t)
+    if (lote) {
+      const deLaMz = datos.filter(l => sinTildes(l.mz) === lote.mz && String(numLt(l.lt)).startsWith(lote.lt))
+      if (deLaMz.length) return deLaMz
+        .map(l => ({ l, exacto: lote.lt !== '' && String(numLt(l.lt)) === lote.lt }))
+        .sort((a, b) => b.exacto - a.exacto || numLt(a.l.lt) - numLt(b.l.lt) || String(a.l.lt).localeCompare(String(b.l.lt)))
+        .slice(0, 60).map(x => x.l)
+    }
     const partes = t.split(/\s+/)
     const compacto = t.replace(/[\s-]/g, '')
     return datos
@@ -101,6 +125,7 @@ export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7),
       .map(x => x.l)
   }, [q, datos])
 
+  const exacto = l => { const lo = comoLote(sinTildes(q).trim()); return !!lo && lo.lt !== '' && sinTildes(l.mz) === lo.mz && String(numLt(l.lt)) === lo.lt }
   useEffect(() => { setI(0) }, [q])
   useEffect(() => { lista.current?.children[i]?.scrollIntoView({ block: 'nearest' }) }, [i])
   useEffect(() => {
@@ -110,7 +135,7 @@ export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7),
     return () => document.removeEventListener('mousedown', fuera)
   }, [abierto])
 
-  const elegir = l => { setAbierto(false); setQ(''); irA('/lotes/' + l.id) }
+  const elegir = l => { setAbierto(false); setQ(''); onElegir ? onElegir(l) : irA('/lotes/' + l.id) }
   const tecla = e => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setAbierto(true); setI(x => Math.min(resultados.length - 1, x + 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setI(x => Math.max(0, x - 1)) }
@@ -137,11 +162,12 @@ export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7),
                   onMouseEnter={() => setI(k)} onClick={() => elegir(l)}>
                   <span className="bl-dot" style={{ background: COLORS[l.status] }} />
                   <b className="bl-lote">{l.mz}-{l.lt}</b>
+                  {k === 0 && exacto(l) && <span className="bl-exacto">este</span>}
                   <span className="bsc-lbl">
                     {p ? p.full_name : <span className="muted">sin cliente</span>}
                     {l.personas.length > 1 && <span className="muted"> + {l.personas.slice(1).map(x => x.full_name).join(', ')}</span>}
                   </span>
-                  <span className="bsc-sub muted">{p?.doc_number && !String(p.doc_number).startsWith('PEND') ? p.doc_number + ' · ' : ''}{LBL[l.status]}{varios ? ' · ' + nombreProy(l.project_id) : ''}</span>
+                  <span className="bsc-sub muted">{p?.doc_number && !String(p.doc_number).startsWith('PEND') ? p.doc_number + ' · ' : ''}{LBL[l.status]}{varios ? ' · ' + nombreProy(l) : ''}</span>
                 </button>
               )
             })}

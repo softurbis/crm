@@ -6,6 +6,10 @@ import { useMsg } from '../lib/saveFx'
 import { avisar, confirmar as preguntar, pedir } from '../lib/dialogos'
 import { fechaLetras } from '../lib/letras'
 import { DEFAULT_GASTO_TEMPLATE, estadoGasto, numeroGasto, constanciaGasto, HojaConstancia } from '../components/ConstanciaGasto'
+import { filtrarGastos, FILTRO_VACIO } from '../lib/buscarGastos'
+import BuscadorGastos from '../components/BuscadorGastos'
+import FichaGasto from '../components/FichaGasto'
+import Paginador, { usePaginacion } from '../components/Paginador'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import VisorDoc from '../components/VisorDoc'
@@ -72,11 +76,9 @@ export default function Expenses() {
   const [verDoc, setVerDoc] = useState(null)   // { url, titulo } del documento abierto
   const [busy, setBusy] = useState(false)
   const [show, setShow] = useState(false)
-  const [fq, setFq] = useState('')
+  const [fb, setFb] = useState(FILTRO_VACIO)           // la búsqueda: palabras, motivo y fechas (components/BuscadorGastos)
   const [ftipo, setFtipo] = useState('todos')
   const [fest, setFest] = useState('todos')
-  const [fanio, setFanio] = useState('todos')
-  const [fmes, setFmes] = useState('todos')
   const [f, setF] = useState({})
   const [paso, setPaso] = useState(1)                   // la solicitud se llena por pasos (1 a 4)
   const [faltaPaso, setFaltaPaso] = useState('')        // lo que falta para pasar al siguiente
@@ -84,6 +86,8 @@ export default function Expenses() {
   const [editTexto, setEditTexto] = useState(false)     // el texto de ESTA constancia, abierto para editar (sql/143)
   const [editId, setEditId] = useState(null)
   const [prt, setPrt] = useState(null)
+  const [prtLote, setPrtLote] = useState(null)          // { lista, verifs }: imprimir lo encontrado, una por hoja
+  const [ficha, setFicha] = useState(null)              // la ficha de un gasto (components/FichaGasto)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplText, setTplText] = useState('')
   // REPOSICIONES (sql/125): devolverle el dinero a quien adelantó un gasto
@@ -119,18 +123,11 @@ export default function Expenses() {
     supabase.rpc('verificar_gasto', { eid: prt.id }).then(({ data }) => setVerif(data || null), () => {})
   }, [prt])
 
-  // años que existen de verdad en los gastos del proyecto (no una lista fija)
-  const anios = useMemo(
-    () => [...new Set(list.map(g => String(g.issue_date || g.reception_date || '').slice(0, 4)).filter(Boolean))].sort().reverse(),
-    [list])
-
-  const filtrada = useMemo(() => {
-    const t = fq.trim().toLowerCase()
+  // primero el tipo y el estado; después la búsqueda (palabras, motivo, fechas: lib/buscarGastos).
+  // Los motivos del panel se cuentan sobre lo que dejan el tipo y el estado.
+  const porEstado = useMemo(() => {
     return list.filter(g => {
       if (ftipo !== 'todos' && g.type !== ftipo) return false
-      const fecha = String(g.issue_date || g.reception_date || '')
-      if (fanio !== 'todos' && fecha.slice(0, 4) !== fanio) return false
-      if (fmes !== 'todos' && fecha.slice(5, 7) !== fmes) return false
       if (fest === 'solicitado' && g.status !== 'solicitado') return false
       if (fest === 'confirmado' && g.status !== 'confirmado') return false
       if (fest === 'por_aprobar' && estadoGasto(g) !== 'solicitado') return false
@@ -141,11 +138,11 @@ export default function Expenses() {
       if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na)) return false
       if (fest === 'no_aplica' && !(g.request_doc_na || g.receipt_na || g.voucher_na)) return false
       if (fest === 'falta_reponer' && !faltaReponer(g)) return false
-      if (!t) return true
-      return [g.company, g.recipient, g.sender, g.adelanto_por, g.description, g.document_number, g.request_number ? 'sol-' + String(g.request_number).padStart(5, '0') : '']
-        .some(x => (x || '').toLowerCase().includes(t))
+      return true
     })
-  }, [list, fq, ftipo, fest, fanio, fmes])
+  }, [list, ftipo, fest])
+  const filtrada = useMemo(() => filtrarGastos(porEstado, fb), [porEstado, fb])
+  const pag = usePaginacion(filtrada, 100)
   const total = filtrada.reduce((s, g) => s + Number(g.amount), 0)
   const pendConfirmar = list.filter(g => g.status === 'solicitado').length
   const porAprobar = list.filter(g => estadoGasto(g) === 'solicitado').length
@@ -662,6 +659,24 @@ export default function Expenses() {
   const numeroDe = numeroGasto
   const constanciaDe = (g, opciones) => constanciaGasto(g, proyecto, opciones)
 
+  // ---- LA FICHA y IMPRIMIR LO ENCONTRADO (13 oct) ----
+  // la ficha muestra nombres: los de quien pide y la socia salen de las listas que ya
+  // carga la pantalla (firmantes y personas del proyecto)
+  const nombreDe = id => id ? (firmantes.find(p => p.id === id) || personas.find(p => p.id === id))?.full_name || null : null
+  const abrirFicha = g => (
+    <button className="link-btn" title="Ver todo de este gasto" onClick={() => setFicha({
+      ...g, pedido_por_nombre: nombreDe(g.requester_id), registrado_por_nombre: nombreDe(g.registered_by), pagado_por_nombre: nombreDe(g.confirmed_by),
+      reposicion: g.reposicion_id && reposiciones[g.reposicion_id] ? reposiciones[g.reposicion_id] : null,
+    })}><b>{g.request_number ? numeroDe(g) : '—'}</b></button>
+  )
+  async function imprimirLote() {
+    if (filtrada.length > 60) { setMsg({ ok: false, t: 'Son ' + filtrada.length + ' constancias: busca o filtra por fecha (máximo 60 de una vez).' }); return }
+    // cada firma con su verificación, igual que al imprimir una sola
+    const firmados = filtrada.filter(g => g.approved_at || g.requester_signed_at)
+    const res = await Promise.all(firmados.map(g => supabase.rpc('verificar_gasto', { eid: g.id }).then(({ data }) => [g.id, data || null], () => [g.id, null])))
+    setPrtLote({ lista: filtrada, verifs: Object.fromEntries(res) })
+  }
+
   // ---- LAS PIEZAS DE CADA GASTO ----
   // Las usan igual la tabla (computadora) y las tarjetas (celular): así un estado o
   // un botón nuevo aparece en los dos lados. Son funciones que devuelven JSX, no
@@ -790,7 +805,7 @@ export default function Expenses() {
   const tarjetaGasto = g => (
     <div key={g.id} className="glass gasto-card">
       <div className="gc-top">
-        <b>{g.request_number ? numeroDe(g) : '—'}</b>
+        {abrirFicha(g)}
         <span className="muted small">{g.issue_date || g.reception_date || ''}</span>
       </div>
       <div>{estadoDe(g)}</div>
@@ -839,18 +854,9 @@ export default function Expenses() {
       )}
 
       <div className="toolbar">
-        <input className="search" placeholder="Buscar por receptor, descripcion..." value={fq} onChange={e => setFq(e.target.value)} />
         <select value={ftipo} onChange={e => setFtipo(e.target.value)}>
           <option value="todos">TODOS LOS TIPOS</option>
           {TIPOS.map(t => <option key={t}>{t}</option>)}
-        </select>
-        <select value={fanio} onChange={e => setFanio(e.target.value)}>
-          <option value="todos">TODOS LOS AÑOS</option>
-          {anios.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select value={fmes} onChange={e => setFmes(e.target.value)}>
-          <option value="todos">TODOS LOS MESES</option>
-          {MESES.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
         </select>
         <select value={fest} onChange={e => setFest(e.target.value)}>
           <option value="todos">TODOS LOS ESTADOS</option>
@@ -864,8 +870,10 @@ export default function Expenses() {
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
           {hay125 && <option value="falta_reponer">FALTA REPONER (lo adelantó alguien)</option>}
         </select>
+        {filtrada.length > 0 && <button className="btn-ghost" onClick={imprimirLote} title="Imprimir las constancias de lo que se está viendo, una por hoja">🖨 Imprimir {filtrada.length === 1 ? 'esta' : 'las ' + filtrada.length}</button>}
         {!readOnly && <button className="btn-primary" onClick={() => show ? setShow(false) : abrirNueva()}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
+      <BuscadorGastos base={porEstado} f={fb} setF={setFb} />
 
       <p className="hint">
         {filtrada.length} gastos | TOTAL: <b>{soles(total)}</b>
@@ -885,7 +893,7 @@ export default function Expenses() {
               <b style={{ minWidth: 180 }}>{d.persona}</b>
               <span className="muted small">{d.ids.length} gasto{d.ids.length > 1 ? 's' : ''}</span>
               <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(d.total)}</b>
-              <button type="button" className="link-btn small" onClick={() => { setFest('falta_reponer'); setFq(d.persona) }}>ver</button>
+              <button type="button" className="link-btn small" onClick={() => { setFest('falta_reponer'); setFb({ ...FILTRO_VACIO, q: d.persona }) }}>ver</button>
               {puedeReponer && <button type="button" className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }}
                 onClick={() => setReponer({ persona: d.persona, ids: d.ids })}>💸 Subir reposición</button>}
             </div>
@@ -1270,16 +1278,16 @@ export default function Expenses() {
       {esCelular ? (
         <div className="gastos-cards">
           {filtrada.length === 0 && <p className="muted" style={{ padding: 12 }}>No hay gastos con estos filtros.</p>}
-          {filtrada.slice(0, 200).map(tarjetaGasto)}
+          {pag.pagina.map(tarjetaGasto)}
         </div>
       ) : (
       <div className="glass table-wrap">
         <table>
           <thead><tr><th>N&#176;</th><th>Fecha</th><th>Estado</th><th>Firma / pago</th><th>Tipo</th><th>Receptor</th><th>Monto</th><th>Constancia</th><th>RH/Factura</th><th>{hay125 ? 'Vouchers (gasto / reposición)' : 'Comprobante de pago'}</th><th></th></tr></thead>
           <tbody>
-            {filtrada.slice(0, 200).map(g => (
+            {pag.pagina.map(g => (
               <tr key={g.id}>
-                <td>{g.request_number ? <b>{'SOL-' + String(g.request_number).padStart(5, '0')}</b> : <span className="muted">-</span>}</td>
+                <td>{abrirFicha(g)}</td>
                 <td>{g.issue_date || g.reception_date || '-'}</td>
                 <td>{estadoDe(g)}</td>
                 {/* La firma va ADELANTE: antes estaba en la última columna y había
@@ -1299,6 +1307,30 @@ export default function Expenses() {
           </tbody>
         </table>
       </div>
+      )}
+
+      <Paginador {...pag} />
+
+      {ficha && <FichaGasto g={ficha} proyecto={proyecto} onCerrar={() => setFicha(null)}
+        onImprimir={g => { setFicha(null); setPrt(list.find(x => x.id === g.id) || g) }} />}
+
+      {prtLote && (
+        <div className="modal-bg" onClick={() => setPrtLote(null)}>
+          <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head no-print">
+              <h2>{prtLote.lista.length === 1 ? 'Constancia' : prtLote.lista.length + ' constancias (una por hoja)'}</h2>
+              <button className="btn-primary" onClick={() => window.print()}>Imprimir / PDF</button>
+              <button className="btn-ghost" onClick={() => setPrtLote(null)}>&#10005;</button>
+            </div>
+            <div className="print-area">
+              {prtLote.lista.map(g => (
+                <div key={g.id} className="contract hoja-gasto">
+                  <HojaConstancia g={g} proyecto={proyecto} verif={prtLote.verifs[g.id]} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {prt && (
