@@ -7,6 +7,7 @@ import Logo from './Logo'
 import Avatar from './Avatar'
 import SaveFx from './SaveFx'
 import InstalarApp from './InstalarApp'
+import { useTablasAlAlto } from '../lib/tablasAlAlto'
 import { useNavigate as usarNavegacion } from 'react-router-dom'
 
 // Boton flotante "volver arriba": aparece al bajar y desaparece arriba del todo.
@@ -270,6 +271,8 @@ export default function Layout() {
 
   const _loc = useLocation()
   const pathname = _loc.pathname
+  // cada tabla, del alto que queda en la pantalla: su barra de costado siempre a la vista (14 oct)
+  useTablasAlAlto(pathname)
   const accentMod = MENU.find(m => m.to === '/' ? pathname === '/' : (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))?.color
 
   // Color del proyecto activo: se inyecta como --accent en el contenido, asi los

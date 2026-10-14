@@ -151,12 +151,12 @@ export default function Facturacion() {
               {vistaGrupos.map(g => (
                 <tr key={g.key}>
                   <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(g.r.date)}</td>
-                  <td className="small">{g.r.proyecto}<div>{g.r.mz
+                  <td className="small" style={{ whiteSpace: 'normal', minWidth: 130 }}>{g.r.proyecto}<div>{g.r.mz
                     ? (g.r.lot_id ? <button className="link-btn" title="Ver el estado de cuenta de este lote" onClick={() => setLoteVer(g.r.lot_id)}><b>MZ {g.r.mz} LT {g.r.lt}</b></button> : <b>MZ {g.r.mz} LT {g.r.lt}</b>)
                     : <b>—</b>}</div></td>
-                  <td className="small" style={{ textTransform: 'none' }}>{g.r.cliente || '—'}
+                  <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}>{g.r.cliente || '—'}
                     {g.r.doc_number && <div className="muted">{g.r.doc_type || 'DOC'} {g.r.doc_number}</div>}</td>
-                  <td className="small">{g.concepto}{g.r.venta_estado === 'expropiado' && <div className="warn">venta expropiada</div>}</td>
+                  <td className="small" style={{ whiteSpace: 'normal', minWidth: 110 }}>{g.concepto}{g.r.venta_estado === 'expropiado' && <div className="warn">venta expropiada</div>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.total)}</b></td>
                   <td className="small" style={{ textTransform: 'none' }}>{g.r.operation_number}<div className="muted">{g.r.banco || ''}</div></td>
                   <td>{g.r.voucher_url
