@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg, savedFx } from '../lib/saveFx'
+import { upload } from '../lib/archivos'
+import { pedir } from '../lib/dialogos'
 import { useEsCelular } from '../lib/useEsCelular'
 import { filtrarGastos, FILTRO_VACIO } from '../lib/buscarGastos'
 import VisorDoc from '../components/VisorDoc'
@@ -21,7 +23,7 @@ const fechaPe = d => d ? d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0,
 const ESTADOS = [
   ['todos', 'Todos los estados'],
   ['pendientes', '⏳ Sin pagar'],
-  ['por_pagar', '💸 Por pagar (falta el voucher)'],
+  ['por_pagar', '💸 Por pagar (falta el voucher o confirmarlo)'],
   ['por_firmar', 'Por firmar (quien lo pide)'],
   ['por_aprobar', 'Por aprobar (la socia)'],
   ['pagados', '✔ Pagados'],
@@ -59,7 +61,9 @@ export default function GastosFacturacion() {
   const proyDe = useMemo(() => Object.fromEntries(proyectos.map(p => [p.id, p])), [proyectos])
   const todos = useMemo(() => (datos?.gastos || []).filter(g => proy === 'todos' || g.project_id === proy), [datos, proy])
   // aprobada y firmada por la socia, sin pagar todavía: le toca subir el voucher
-  const porPagar = g => !!proyDe[g.project_id]?.expense_approval && estadoGasto(g) === 'aprobado' && !g.voucher_url
+  // (14 oct) también los que YA tienen voucher (subido antes de las firmas): falta confirmar el pago
+  const porPagar = g => !!proyDe[g.project_id]?.expense_approval && estadoGasto(g) === 'aprobado'
+  const botonPago = (g, st) => <button className="btn-primary" style={st || { fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setPagar(g)}>{g.voucher_url ? '✔ Confirmar pago' : '💸 Subir voucher'}</button>
   const listaPorPagar = todos.filter(porPagar)
 
   // primero el estado, después la búsqueda (los motivos se cuentan sobre lo que deja el estado)
@@ -91,7 +95,7 @@ export default function GastosFacturacion() {
     if (e === 'confirmado') { const d = pagadoEl(g); return <span className="ok">✔ PAGADO{d && <><br /><span className="muted small">{fechaPe(d)}</span></>}</span> }
     if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'aprobado') return porPagar(g)
-      ? <span className="warn">💸 POR PAGAR<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · falta el voucher</span></span>
+      ? <span className="warn">💸 POR PAGAR<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar' : 'falta el voucher'}</span></span>
       : <span className="ok">✍ APROBADO</span>
     if (e === 'por_firmar') return <span className="warn">⏳ POR FIRMAR<br /><span className="muted small" style={{ textTransform: 'none' }}>{g.pedido_por_nombre ? 'firma ' + g.pedido_por_nombre.split(' ')[0] : 'firma quien lo pide'}</span></span>
     return <span className="warn">⏳ {proyDe[g.project_id]?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}{proyDe[g.project_id]?.expense_approval && <><br /><span className="muted small" style={{ textTransform: 'none' }}>firma la socia</span></>}</span>
@@ -103,12 +107,41 @@ export default function GastosFacturacion() {
     <button className="link-btn" onClick={() => setPrt({ lista: [g] })}>🖨 imprimir</button>
     {g.request_doc_url && <> · {doc(g.request_doc_url, 'Constancia firmada · ' + numeroGasto(g))}</>}
   </>
-  const docRH = g => doc(g.receipt_url, 'RH / factura · ' + numeroGasto(g), g.receipt_note)
-    || (g.receipt_na ? <span className="muted small">no aplica</span> : estadoGasto(g) === 'confirmado' ? <span className="bad small">falta</span> : <span className="muted small">—</span>)
-  // lo único que sube: el voucher del pago que hizo la socia
-  const docVoucher = g => doc(g.voucher_url, 'Voucher del pago · ' + numeroGasto(g), g.voucher_note)
-    || (porPagar(g) ? <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setPagar(g)}>💸 Subir voucher</button>
-      : g.voucher_na ? <span className="muted small">no aplica</span> : <span className="muted small">—</span>)
+  // SUBIR LO QUE FALTA (sql/147, 14 oct): el RH o la factura (o uno más) y el voucher de un
+  // gasto ya pagado que no lo tiene. Nunca reemplaza ni borra: eso es del superusuario.
+  async function subirDoc(g, file, campo) {
+    const nota = await pedir(campo === 'receipt_url' ? 'N° del RH o de la factura (opcional, ej.: E001-9):' : 'Nota del voucher (opcional, ej.: BCP · OP 123456):', { valor: '' })
+    if (nota === null) return
+    try {
+      const url = await upload((campo === 'receipt_url' ? 'gastos/rh/' : 'gastos/sustentos/') + g.id, file)
+      const { error } = await supabase.rpc('facturacion_subir_doc_gasto', { p_eid: g.id, p_campo: campo, p_url: url, p_nota: nota.trim().toUpperCase() || null })
+      if (error) throw new Error(/facturacion_subir_doc_gasto/.test(error.message) ? 'Falta correr sql/147 en el servidor.' : error.message)
+      setMsg({ ok: true, t: (campo === 'receipt_url' ? 'RH / FACTURA SUBIDO · ' : 'VOUCHER SUBIDO · ') + numeroGasto(g) })
+      savedFx(); cargar()
+    } catch (e) { setMsg({ ok: false, t: e.message || String(e) }) }
+  }
+  const subirBtn = (g, campo, texto, cls) => (
+    <label className={'upload-btn ' + (cls || '')} style={{ fontSize: 12 }}>{texto}
+      <input type="file" accept="image/*,.pdf" hidden onChange={e => { const f = e.target.files[0]; e.target.value = ''; if (f) subirDoc(g, f, campo) }} />
+    </label>
+  )
+  const extrasRH = g => (Array.isArray(g.receipt_docs) ? g.receipt_docs : [])
+  const docRH = g => g.receipt_url ? <>
+      {doc(g.receipt_url, 'RH / factura · ' + numeroGasto(g), g.receipt_note)}
+      {extrasRH(g).map((d, i) => <div key={i} className="small"><button className="link-btn" onClick={() => setVerDoc({ url: d.url, titulo: 'RH ' + (i + 2) + ' · ' + numeroGasto(g) })}>VER RH {i + 2}</button>{d.note && <span className="muted"> {d.note}</span>}</div>)}
+      {!g.rejected_at && extrasRH(g).length < 7 && <div>{subirBtn(g, 'receipt_url', '+ otro')}</div>}
+    </>
+    : g.rejected_at ? <span className="muted small">—</span>
+    : <>{g.receipt_na && <div className="muted small">no aplica</div>}{subirBtn(g, 'receipt_url', '⬆ subir', estadoGasto(g) === 'confirmado' && !g.receipt_na ? 'warn' : '')}</>
+  // el voucher: el del pago pendiente va por el botón de pago (queda PAGADO); el de un gasto
+  // ya pagado que no lo tiene, se sube aquí; sin las dos firmas, nada (sql/147)
+  const docVoucher = g => {
+    if (g.voucher_url) return <>{doc(g.voucher_url, 'Voucher del pago · ' + numeroGasto(g), g.voucher_note)}{porPagar(g) && <div style={{ marginTop: 4 }}>{botonPago(g)}</div>}</>
+    if (porPagar(g)) return botonPago(g)
+    if (estadoGasto(g) === 'confirmado') return <>{g.voucher_na && <div className="muted small">no aplica</div>}{subirBtn(g, 'voucher_url', '⬆ subir', g.voucher_na ? '' : 'warn')}</>
+    if (g.rejected_at) return <span className="muted small">—</span>
+    return <span className="muted small" style={{ textTransform: 'none' }}>{proyDe[g.project_id]?.expense_approval ? 'después de las dos firmas' : '—'}</span>
+  }
   const docRepo = g => g.reposicion
     ? <>{doc(g.reposicion.voucher_url, 'Reposición a ' + g.reposicion.persona)}<div className="muted small" style={{ textTransform: 'none' }}>a {g.reposicion.persona} · {fechaPe(g.reposicion.fecha)}</div></>
     : g.adelanto_por && !g.rejected_at ? <span className="warn small">falta reponer a {g.adelanto_por.split(' ')[0]}</span> : <span className="muted small">—</span>
@@ -132,8 +165,8 @@ export default function GastosFacturacion() {
       {/* LO QUE LE TOCA: los pagos que esperan su voucher, arriba y con su botón */}
       {listaPorPagar.length > 0 && (
         <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>💸 FALTA SUBIR EL VOUCHER ({listaPorPagar.length})</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — aprobados por la socia, esperan el voucher del pago</span></p>
+          <p style={{ margin: '0 0 8px' }}><b>💸 FALTA SUBIR O CONFIRMAR EL VOUCHER ({listaPorPagar.length})</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — aprobados por la socia, esperan el voucher del pago (o confirmar el que ya está)</span></p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {listaPorPagar.slice(0, 10).map(g => (
               <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -142,8 +175,7 @@ export default function GastosFacturacion() {
                 <span className="muted small" style={{ textTransform: 'none', flexBasis: esCelular ? '100%' : undefined }}>
                   {proyectos.length > 1 ? nombreProy(g) + ' · ' : ''}{g.recipient || '—'} · {(g.description || g.type || '').slice(0, 60)}
                 </span>
-                <button className="btn-primary" style={esCelular ? { width: '100%', padding: '.8rem' } : { fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}
-                  onClick={() => setPagar(g)}>💸 Subir voucher</button>
+                {botonPago(g, esCelular ? { width: '100%', padding: '.8rem' } : { fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' })}
               </div>
             ))}
           </div>
@@ -242,7 +274,7 @@ export default function GastosFacturacion() {
       )}
 
       {pagar && (
-        <RegistrarPago gasto={pagar} proyecto={proyDe[pagar.project_id]}
+        <RegistrarPago gasto={pagar} proyecto={proyDe[pagar.project_id]} urlInicial={pagar.voucher_url || null}
           onCerrar={() => setPagar(null)}
           onHecho={t => { setPagar(null); setMsg({ ok: true, t }); savedFx(); cargar() }} />
       )}

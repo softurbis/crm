@@ -20,7 +20,9 @@ const faltaSql = e => /pedir_lectura_comprobante|registrar_pago_gasto|comprobant
 // 3. Si algo NO cuadra (o la IA no pudo leer), para seguir tiene que escribir el
 //    monto que ve en el comprobante y marcar que lo revisó. La base también lo exige.
 // ============================================================
-export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho }) {
+// urlInicial: el voucher YA está subido (se subió antes de las firmas, 14 oct): no se
+// vuelve a subir, la IA lee ese mismo y se confirma el pago.
+export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, urlInicial = null }) {
   const [file, setFile] = useState(null)
   const [vista, setVista] = useState(null)
   const [fase, setFase] = useState('elegir')        // elegir | leyendo | resultado
@@ -52,32 +54,44 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho })
     try {
       const u = await upload(`gastos/sustentos/${g.id}`, f)
       if (!vivo.current) return
-      setUrl(u)
-      const { data: id, error } = await supabase.rpc('pedir_lectura_comprobante', { eid: g.id, url: u })
-      if (error) throw new Error(faltaSql(error.message) ? 'Falta correr sql/103 en la base.' : error.message)
-      setLecturaId(id)
-      // el servidor la toma en ~3 s; la IA tarda unos segundos más
-      const fin = Date.now() + 120000
-      while (vivo.current && Date.now() < fin) {
-        await espera(2000)
-        // por la función (sql/145): la secretaria de facturación no lee la tabla directo.
-        // Sin el 145 corrido, como antes.
-        let { data: fila, error: e2 } = await supabase.rpc('lectura_comprobante', { p_id: id })
-        if (e2) ({ data: fila } = await supabase.from('comprobante_lecturas').select('estado, lectura, validacion, alertas, error').eq('id', id).maybeSingle())
-        if (fila && (fila.estado === 'listo' || fila.estado === 'error')) {
-          if (!vivo.current) return
-          setRes(fila)
-          const L = fila.lectura
-          if (L) setNota([L.banco_o_app, L.numero_operacion && 'OP ' + L.numero_operacion, L.fecha && dmy(L.fecha)].filter(Boolean).join(' · '))
-          setFase('resultado')
-          return
-        }
-      }
-      if (vivo.current) { setRes({ estado: 'demora' }); setFase('resultado') }
+      await leer(u)
     } catch (e) {
       if (!vivo.current) return
       setErr(e.message); setFase('elegir'); setFile(null)
     }
+  }
+
+  // el voucher que ya estaba: se lee apenas se abre la ventana
+  useEffect(() => {
+    if (!urlInicial) return
+    setFase('leyendo')
+    leer(urlInicial).catch(e => { if (vivo.current) { setErr(e.message); setFase('elegir') } })
+  }, [urlInicial])
+
+  // la IA lee el comprobante (sql/103) y el servidor lo compara con la solicitud
+  async function leer(u) {
+    setUrl(u)
+    const { data: id, error } = await supabase.rpc('pedir_lectura_comprobante', { eid: g.id, url: u })
+    if (error) throw new Error(faltaSql(error.message) ? 'Falta correr sql/103 en la base.' : error.message)
+    setLecturaId(id)
+    // el servidor la toma en ~3 s; la IA tarda unos segundos más
+    const fin = Date.now() + 120000
+    while (vivo.current && Date.now() < fin) {
+      await espera(2000)
+      // por la función (sql/145): la secretaria de facturación no lee la tabla directo.
+      // Sin el 145 corrido, como antes.
+      let { data: fila, error: e2 } = await supabase.rpc('lectura_comprobante', { p_id: id })
+      if (e2) ({ data: fila } = await supabase.from('comprobante_lecturas').select('estado, lectura, validacion, alertas, error').eq('id', id).maybeSingle())
+      if (fila && (fila.estado === 'listo' || fila.estado === 'error')) {
+        if (!vivo.current) return
+        setRes(fila)
+        const L = fila.lectura
+        if (L) setNota([L.banco_o_app, L.numero_operacion && 'OP ' + L.numero_operacion, L.fecha && dmy(L.fecha)].filter(Boolean).join(' · '))
+        setFase('resultado')
+        return
+      }
+    }
+    if (vivo.current) { setRes({ estado: 'demora' }); setFase('resultado') }
   }
 
   const L = res?.lectura || null
@@ -104,7 +118,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho })
     <div className="modal-bg" onClick={busy || fase === 'leyendo' ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540, width: '96%', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>💸 SUBIR COMPROBANTE DE PAGO · {numSol(g)}</b>
+          <b style={{ flex: 1 }}>{urlInicial ? '✔ CONFIRMAR EL PAGO' : '💸 SUBIR COMPROBANTE DE PAGO'} · {numSol(g)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">✕</button>
         </div>
 
@@ -124,6 +138,10 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho })
             <input type="file" accept="image/*,.pdf" hidden onChange={e => { elegir(e.target.files[0]); e.target.value = '' }} />
           </label>
         )}
+        {urlInicial && !file && <>
+          <p className="small" style={{ textTransform: 'none', margin: '10px 0 4px' }}>El voucher ya estaba subido: se revisa ese mismo. <a href={urlInicial} target="_blank" rel="noreferrer">verlo aparte ↗</a></p>
+          {/\.(jpe?g|png|webp|gif)(\?|$)/i.test(urlInicial) && <img src={urlInicial} alt="Voucher ya subido" style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, background: '#0a0d09' }} />}
+        </>}
         {vista && <img src={vista} alt="Comprobante elegido" style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, background: '#0a0d09', marginTop: 10 }} />}
         {file && !vista && <p className="small" style={{ textTransform: 'none', marginTop: 8 }}>📄 {file.name}</p>}
 

@@ -15,8 +15,9 @@ const ESTADO = {
 
 export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
   const e = estadoGasto(g)
-  const porPagar = e === 'aprobado' && !!proyecto?.expense_approval && !g.voucher_url
-  const [cls, txt] = porPagar ? ['warn', '💸 POR PAGAR · falta el voucher'] : ESTADO[e]
+  // aprobado y sin pagar: falta el voucher, o confirmar el que ya se subió (14 oct)
+  const porPagar = e === 'aprobado' && !!proyecto?.expense_approval
+  const [cls, txt] = porPagar ? ['warn', g.voucher_url ? '💸 POR PAGAR · voucher subido, falta confirmar' : '💸 POR PAGAR · falta el voucher'] : ESTADO[e]
   const extras = Array.isArray(g.receipt_docs) ? g.receipt_docs : []
   const docs = [
     g.request_doc_url && { url: g.request_doc_url, t: 'Constancia firmada', nota: g.request_doc_note },
@@ -42,7 +43,7 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
     // un gasto ya pagado sin aprobación es de antes del circuito de firmas: no "espera" nada
     proyecto?.expense_approval && !g.rejected_at && (g.approved_at || g.status !== 'confirmado') && { t: 'Aprobó la socia', cuando: g.approved_at, quien: g.approved_name, cod: g.approval_code, espera: 'espera la aprobación de la socia' },
     g.rejected_at && { t: 'Rechazada', cuando: g.rejected_at, quien: g.rejected_reason, mal: true },
-    !g.rejected_at && { t: 'Pagado', cuando: pagadoEl, quien: g.confirmed_by ? g.pagado_por_nombre : 'según la constancia', nota: g.voucher_note, espera: porPagar ? 'falta subir el voucher' : 'todavía no se paga' },
+    !g.rejected_at && { t: 'Pagado', cuando: pagadoEl, quien: g.confirmed_by ? g.pagado_por_nombre : 'según la constancia', nota: g.voucher_note, espera: porPagar ? (g.voucher_url ? 'el voucher ya está: falta confirmar el pago' : 'falta subir el voucher') : 'todavía no se paga' },
     g.adelanto_por && { t: 'Reposición a ' + g.adelanto_por, cuando: g.reposicion?.fecha, nota: g.reposicion?.operacion ? 'OP ' + g.reposicion.operacion : '', espera: 'falta devolverle el dinero' },
   ].filter(Boolean)
 

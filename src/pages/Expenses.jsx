@@ -685,7 +685,7 @@ export default function Expenses() {
     const e = estadoGasto(g)
     if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
     if (e === 'aprobado') return pagoPendiente(g)
-      ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · falta comprobante</span></span>
+      ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar el pago' : 'falta comprobante'}</span></span>
       : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
     if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}</span></span>
@@ -702,8 +702,8 @@ export default function Expenses() {
       {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && espera('espera la firma de ' + primerFirmante(g))}
       {miPuedeAprobar(g) && <button className="btn-primary" style={st} onClick={() => setAprobar({ g, modo: 'aprobar' })}>✍ Revisar y firmar</button>}
       {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id === profile?.id && espera('la aprueba otra persona')}
-      {miPuedePagar(g) && <button className="btn-primary" style={st} onClick={() => setPagar(g)}>💸 Subir comprobante</button>}
-      {pagoPendiente(g) && !miPuedePagar(g) && espera('la socia paga y sube el comprobante')}
+      {miPuedePagar(g) && <button className="btn-primary" style={st} onClick={() => setPagar(g)}>{g.voucher_url ? '✔ Confirmar pago' : '💸 Subir comprobante'}</button>}
+      {pagoPendiente(g) && !miPuedePagar(g) && espera(g.voucher_url ? 'la socia o su secretaria confirma el pago' : 'la socia o su secretaria sube el comprobante')}
     </>
   }
 
@@ -712,11 +712,20 @@ export default function Expenses() {
     <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />
   </>
 
-  // el comprobante de un pago pendiente lo sube la socia con su botón (queda PAGADO al
-  // subirlo): la oficina no lo sube por su lado, o quedaría el archivo sin el pago
-  const docComprobante = g => pagoPendiente(g) && !g.voucher_url
-    ? <span className="muted small" style={{ textTransform: 'none' }}>{miPuedePagar(g) ? 'con 💸 Subir comprobante' : 'lo sube la socia'}</span>
-    : <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
+  // el comprobante de un pago lo sube la socia (o su secretaria, sql/145) con el botón de
+  // pago, y queda PAGADO al subirlo. En los proyectos con firma de socia, SIN LAS DOS
+  // FIRMAS NO SE SUBE (14 oct, "sin ambas firmas no se sube comprobante"; la base también
+  // lo impide, sql/147): antes la oficina podía subirlo mientras el gasto esperaba las
+  // firmas y quedaba el archivo sin el pago (SOL-00353). La reposición va aparte.
+  const docComprobante = g => {
+    if (proyecto?.expense_approval && g.status !== 'confirmado' && !g.rejected_at) {
+      if (g.voucher_url) return <><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
+        {pagoPendiente(g) && <div className="warn small" style={{ textTransform: 'none' }}>falta confirmar el pago</div>}</>
+      return <span className="muted small" style={{ textTransform: 'none' }}>{!pagoPendiente(g) ? 'se sube después de las dos firmas'
+        : miPuedePagar(g) ? 'con 💸 Subir comprobante' : 'lo sube la socia o su secretaria'}</span>
+    }
+    return <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
+  }
 
   // ---- REPOSICIÓN (sql/125) ----
   // El voucher del gasto es el pago a quien recibió el dinero; el de la reposición,
@@ -1265,7 +1274,7 @@ export default function Expenses() {
                 <button className="btn-primary"
                   style={esCelular ? { width: '100%', padding: '.8rem' } : { fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' }}
                   onClick={() => modo === 'pagar' ? setPagar(g) : setAprobar({ g, modo })}>
-                  {modo === 'solicitar' ? '✍ Firmar' : modo === 'pagar' ? '💸 Subir comprobante de pago' : '✍ Revisar y firmar'}
+                  {modo === 'solicitar' ? '✍ Firmar' : modo === 'pagar' ? (g.voucher_url ? '✔ Confirmar pago' : '💸 Subir comprobante de pago') : '✍ Revisar y firmar'}
                 </button>
               </div>
             ))}
@@ -1356,7 +1365,7 @@ export default function Expenses() {
       )}
 
       {pagar && (
-        <RegistrarPago gasto={pagar} proyecto={proyecto}
+        <RegistrarPago gasto={pagar} proyecto={proyecto} urlInicial={pagar.voucher_url || null}
           onCerrar={() => setPagar(null)}
           onHecho={t => { setPagar(null); setMsg({ ok: true, t }); load() }} />
       )}
