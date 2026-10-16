@@ -39,6 +39,7 @@ const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
+const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
 
 const Cargando = () => <div className="center-screen">Cargando…</div>
 
@@ -104,6 +105,7 @@ export default function App() {
         <Route path="/reset" element={<Reset />} />
         <Route path="/propiedades" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
         <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
+        <Route path="/c/:token" element={SITIO_PUBLICO ? <AlSitioPublico /> : <ComprobantePublico />} />
         <Route path="/" element={<Protected><Layout /></Protected>}>
           <Route index element={<Home />} />
           <Route path="hoy" element={<Inicio />} />

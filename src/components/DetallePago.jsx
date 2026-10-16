@@ -416,10 +416,16 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
       + '\n\nPuede verla y descargarla aquí:\n' + pago.receipt_url
       + '\n\nGracias por su pago.' + (firma ? '\n' + firma : '')
   }
-  function abrir() {
+  async function abrir() {
     setErr('')
     const d = numero()
-    if (d) window.open(enlaceWsp(d, texto()), '_blank', 'noopener')
+    if (!d) return
+    // la ventana se abre ya (si no, el navegador la bloquea) y se llena con el mensaje
+    const w = window.open('', '_blank')
+    const { data, error } = await supabase.rpc('recibo_mensaje_panel', { p_id: pago.id })
+    const url = enlaceWsp(d, !error && data?.texto ? data.texto : texto())
+    if (w) w.location.href = url
+    else window.open(url, '_blank', 'noopener')
   }
   async function enviar() {
     setErr('')

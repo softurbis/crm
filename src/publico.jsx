@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Publico from './pages/Publico'
 import Landing from './pages/Landing'
+import ComprobantePublico from './pages/ComprobantePublico'
 import './styles/global.css'
 
 // WEB PÚBLICA (urbisgroupinmobiliaria.com): solo propiedades y landing.
@@ -16,6 +17,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/" element={<Publico />} />
         <Route path="/propiedades" element={<Publico />} />
         <Route path="/p/:slug" element={<Landing />} />
+        {/* la boleta del cliente, el enlace corto del WhatsApp (sql/153) */}
+        <Route path="/c/:token" element={<ComprobantePublico />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
