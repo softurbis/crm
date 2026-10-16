@@ -364,6 +364,7 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
     const t = setInterval(cargar, 3000)
     return () => clearInterval(t)
   }, [saliendo, cargar])
+  if (info?.falta) return <p className="muted" style={{ textTransform: 'none' }}>El envío todavía no está instalado en la base: falta correr sql/148.</p>
   if (!info) return enDialogo && info === null
     ? <p className="muted" style={{ textTransform: 'none' }}>Tu usuario no puede enviar este comprobante (o el pago ya no lo tiene).</p>
     : null

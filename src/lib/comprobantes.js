@@ -198,7 +198,8 @@ export const emisorVisto = e => !!e && (Date.now() - new Date(e.visto_at).getTim
 // proyecto no lo tiene conectado, se abre el WhatsApp de quien la manda.
 export async function reciboWspInfo(pagoId) {
   const { data, error } = await supabase.rpc('recibo_wsp_info', { p_id: pagoId })
-  return error ? null : (data || null)   // null: sin permiso, sin boleta o sql/148 sin correr
+  if (error && /PGRST20[25]|schema cache|does not exist|Could not find/i.test(String(error.code) + ' ' + String(error.message))) return { falta: true }
+  return error ? null : (data || null)   // null: sin permiso o sin boleta · { falta }: sql/148 sin correr
 }
 export async function enviarReciboWsp(pagoId, telefono, tipo) {
   const { data, error } = await supabase.rpc('enviar_recibo_wsp', { p_id: pagoId, p_telefono: telefono, p_tipo: tipo })
