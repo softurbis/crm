@@ -9,7 +9,7 @@ import { useProject } from '../context/ProjectContext'
 import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
 import BuscarLote from '../components/BuscarLote'
 import Buscador from '../components/Buscador'
-import DetallePago from '../components/DetallePago'
+import DetallePago, { DialogoEnviarRecibo } from '../components/DetallePago'
 import CobroModal from '../components/CobroModal'
 import ContratoModal from '../components/ContratoModal'
 import ContratoDeVenta from '../components/ContratoDeVenta'
@@ -111,6 +111,7 @@ export default function FichaLote() {
   const [verPago, setVerPago] = useState(null)
   const [emitirDe, setEmitirDe] = useState(null)   // el depósito al que se le emite boleta o factura
   const [verComp, setVerComp] = useState(null)     // el comprobante electrónico abierto
+  const [enviarDe, setEnviarDe] = useState(null)   // depósito cuya boleta se manda al cliente
   const [cobro, setCobro] = useState(null)   // separacion | inicial | cuota | cuadre (fase 2: se cobra aqui mismo)
   const [contrato, setContrato] = useState(null)   // id de la venta cuyo contrato se genera aqui mismo (fase 3)
   const [persona, setPersona] = useState(null)     // { c, titulo }: la persona cuyos datos se editan aquí mismo
@@ -1128,8 +1129,14 @@ export default function FichaLote() {
     const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
     if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
     // uno basta para todo el depósito; "+ otro" sube uno para una sola cuota
-    if (url) return <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
-      onOtro={file => subirOtro(g, file, campo)} />
+    if (url) return <>
+      <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
+        onOtro={file => subirOtro(g, file, campo)} />
+      {/* la boleta o factura que subió facturación, al cliente por WhatsApp (sql/148) */}
+      {!esVoucher && !readOnly && role !== 'facturacion' &&
+        <button type="button" className="cp-emitir" style={{ display: 'block', marginTop: 3 }}
+          title="Enviar esta boleta o factura al cliente por WhatsApp" onClick={() => setEnviarDe(g)}>📲 Enviar</button>}
+    </>
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
@@ -1665,6 +1672,7 @@ export default function FichaLote() {
           totalCuotas={detail.inst?.length ? Math.max(...detail.inst.map(i => i.installment_number)) : null}
           onCerrar={() => { setEmitirDe(null); comps.recargar(); reload() }} onListo={() => comps.recargar()} />
       )}
+      {enviarDe && <DialogoEnviarRecibo filas={enviarDe.items} onClose={() => setEnviarDe(null)} />}
       {verComp && (
         <ComprobanteDetalle comprobante={verComp} proyecto={proyecto}
           onCerrar={() => { setVerComp(null); comps.recargar(); reload() }} onCambio={() => comps.recargar()} />

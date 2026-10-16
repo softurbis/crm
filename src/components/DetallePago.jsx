@@ -343,7 +343,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
 // sola, adjunta, por el WhatsApp del proyecto. Sin descargar nada. Si el proyecto
 // no tiene su WhatsApp conectado, se abre el de quien la manda con todo escrito.
 const limpio = t => { const d = String(t || '').replace(/\D/g, ''); return d.length === 11 && d.startsWith('51') ? d.slice(2) : d }
-function EnviarRecibo({ pago, filas, total, proyecto }) {
+function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
   const [info, setInfo] = useState(undefined)   // undefined = averiguando · null = no corresponde
   const [tel, setTel] = useState('')
   const [tipo, setTipo] = useState(() => /factura|^\s*F[A-Z0-9]{3}-/i.test(pago.receipt_note || '') ? 'factura' : 'boleta')
@@ -364,7 +364,9 @@ function EnviarRecibo({ pago, filas, total, proyecto }) {
     const t = setInterval(cargar, 3000)
     return () => clearInterval(t)
   }, [saliendo, cargar])
-  if (!info) return null
+  if (!info) return enDialogo && info === null
+    ? <p className="muted" style={{ textTransform: 'none' }}>Tu usuario no puede enviar este comprobante (o el pago ya no lo tiene).</p>
+    : null
 
   const registrados = [...new Set((info.telefonos || []).map(limpio).filter(d => d.length >= 9))]
   const que = tipo === 'factura' ? 'la factura' : 'la boleta'
@@ -438,6 +440,28 @@ function EnviarRecibo({ pago, filas, total, proyecto }) {
         : 'Enviando a ' + celularBonito(envio.a) + '… sale en unos segundos.'}</p>}
       {!err && envio?.estado === 'enviado' && <p className="cp-busca ok">✓ Enviado a {celularBonito(envio.a)}{envio.enviado_at ? ' · ' + new Date(envio.enviado_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</p>}
       {!err && envio?.estado === 'fallido' && <p className="cp-busca no">No se pudo enviar a {celularBonito(envio.a)}: {envio.error || 'sin detalle'}.</p>}
+    </div>
+  )
+}
+
+// El mismo envío, directo desde la tabla (botón "📲 Enviar" al lado del VER del
+// comprobante en Pagos y en la ficha del lote): sin abrir el detalle del pago.
+//   filas = las partes del depósito (g.items de agruparPagos)
+export function DialogoEnviarRecibo({ filas, onClose }) {
+  const { pidOp, projects } = useProject()
+  const pago = filas.find(x => x.receipt_url)
+  const total = r2(filas.reduce((s, x) => s + Number(x.amount || 0), 0))
+  if (!pago) return null
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="glass modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>{pago.lot ? `MZ ${pago.lot.mz} LT ${pago.lot.lt}` : 'PAGO'} | <span className="accent">{soles(total)}</span></h2>
+          <button className="btn-ghost" onClick={onClose}>&#10005;</button>
+        </div>
+        <p className="muted">{pago.client?.full_name || '-'} | {pago.date ? pago.date.split('-').reverse().join('/') : ''} | <a href={pago.receipt_url} target="_blank" rel="noreferrer">ver el comprobante</a></p>
+        <EnviarRecibo pago={pago} filas={filas} total={total} proyecto={(projects || []).find(p => p.id === pidOp)} enDialogo />
+      </div>
     </div>
   )
 }

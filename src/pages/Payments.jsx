@@ -5,7 +5,7 @@ import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
-import DetallePago, { EstadoChip } from '../components/DetallePago'
+import DetallePago, { EstadoChip, DialogoEnviarRecibo } from '../components/DetallePago'
 import BuscarLote from '../components/BuscarLote'
 import LoteLink from '../components/LoteLink'
 import { fechaPe } from '../lib/lotes'
@@ -27,6 +27,7 @@ export default function Payments() {
   const comps = useComprobantes({ projectId: pidOp }, !!proyFact && 'fact_activo' in proyFact)
   const [emitirDe, setEmitirDe] = useState(null)
   const [verComp, setVerComp] = useState(null)
+  const [enviarDe, setEnviarDe] = useState(null)   // depósito cuya boleta se manda al cliente
   // Desde la fase 2 (24 sep 2026) se cobra en la ficha del lote (CobroModal):
   // esta pantalla queda como historial y reporte de todos los pagos del
   // proyecto, con sus documentos y las correcciones.
@@ -251,8 +252,14 @@ export default function Payments() {
     const comp = esVoucher ? null : comprobanteDeGrupo(comps.porPago, g)
     if (estaVivo(comp)) return <ComprobanteChip c={comp} onClick={() => setVerComp(comp)} />
     // uno basta para todo el depósito; "+ otro" sube uno para una sola cuota
-    if (url) return <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
-      onOtro={file => subirOtro(g, file, campo)} />
+    if (url) return <>
+      <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
+        onOtro={file => subirOtro(g, file, campo)} />
+      {/* la boleta o factura que subió facturación, al cliente por WhatsApp (sql/148) */}
+      {!esVoucher && !readOnly && role !== 'facturacion' &&
+        <button type="button" className="cp-emitir" style={{ display: 'block', marginTop: 3 }}
+          title="Enviar esta boleta o factura al cliente por WhatsApp" onClick={() => setEnviarDe(g)}>📲 Enviar</button>}
+    </>
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
@@ -403,6 +410,7 @@ export default function Payments() {
           ventaId={emitirDe.referencia.sale_id}
           onCerrar={() => { setEmitirDe(null); comps.recargar(); loadBase() }} onListo={() => comps.recargar()} />
       )}
+      {enviarDe && <DialogoEnviarRecibo filas={enviarDe.items} onClose={() => setEnviarDe(null)} />}
       {verComp && (
         <ComprobanteDetalle comprobante={verComp} proyecto={proyFact}
           onCerrar={() => { setVerComp(null); comps.recargar(); loadBase() }} onCambio={() => comps.recargar()} />
