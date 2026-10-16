@@ -365,6 +365,20 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
   const envio = info?.envio
   const saliendo = envio?.estado === 'pendiente'
   const lect = info?.lectura
+  // por qué número sale a ESTE celular (sql/152): el del proyecto, o el del panel donde ya
+  // hay un chat con el cliente. undefined = sin averiguar (o 152 sin correr) · null = ninguno
+  const [canal, setCanal] = useState(undefined)
+  const nueve = tel.replace(/\D/g, '').slice(-9)
+  useEffect(() => {
+    if (!info || nueve.length < 9) { setCanal(undefined); return }
+    let vivo = true
+    const t = setTimeout(async () => {
+      const { data, error } = await supabase.rpc('recibo_wsp_canales', { p_id: pago.id, p_tels: [nueve] })
+      if (vivo) setCanal(error ? undefined : ((data || [])[0] || null))
+    }, 300)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [nueve, !!info, pago.id])   // eslint-disable-line
+  const sale = canal !== undefined ? !!canal : !!info?.numero_proyecto
   const leyendo = lect?.estado === 'pendiente' || lect?.estado === 'leyendo'
   // mientras está saliendo (o la IA leyendo) se vuelve a mirar: tarda segundos
   useEffect(() => {
@@ -437,8 +451,8 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
       <div className="cp-wsp-fila">
         <input value={tel} inputMode="tel" placeholder="Celular (9 dígitos)" aria-label="Celular al que se envía"
           onChange={e => { tocado.current = true; setTel(e.target.value.replace(/[^\d+ ]/g, '').slice(0, 18)) }}
-          onKeyDown={e => { if (e.key === 'Enter') (info.numero_proyecto ? enviar : abrir)() }} />
-        {info.numero_proyecto
+          onKeyDown={e => { if (e.key === 'Enter') (sale ? enviar : abrir)() }} />
+        {sale
           ? <button type="button" className="btn-primary" onClick={enviar} disabled={busy || (saliendo && !demora)}>
               {busy ? 'Pidiendo…' : saliendo && !demora ? 'Enviando…' : envio?.estado === 'enviado' ? 'Enviar otra vez' : conAviso(lect) ? 'Enviar igual' : 'Enviar'}
             </button>
@@ -449,8 +463,10 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
             <button type="button" key={n} className={'link-btn' + (tel.replace(/\D/g, '').endsWith(n) ? ' on' : '')} onClick={() => { tocado.current = true; setTel(n) }}>{celularBonito(n)}</button>
           ))} · o escribe otro número.</p>
         : <p className="muted small cp-wsp-reg">El cliente no tiene celular en su ficha: escribe el número.</p>}
-      {info.numero_proyecto
-        ? <p className="muted small cp-wsp-reg">Sale solo, con el archivo adjunto, por el WhatsApp del proyecto ({celularBonito(info.numero_proyecto) || 'conectado'}). <button type="button" className="link-btn" onClick={abrir}>O mandarlo desde mi WhatsApp</button></p>
+      {sale
+        ? <p className="muted small cp-wsp-reg">{canal && !canal.del_proyecto
+            ? <>Sale solo, con el archivo adjunto, por nuestro WhatsApp {canal.etiqueta ? <b>{canal.etiqueta}</b> : ''} ({celularBonito(canal.numero) || 'conectado'}), en el chat que ya tienen en el panel.</>
+            : <>Sale solo, con el archivo adjunto, por el WhatsApp del proyecto ({celularBonito(canal?.numero || info.numero_proyecto) || 'conectado'}).</>} <button type="button" className="link-btn" onClick={abrir}>O mandarlo desde mi WhatsApp</button></p>
         : <p className="muted small cp-wsp-reg">El proyecto no tiene su WhatsApp conectado: se abre el tuyo con el mensaje y el enlace ya escritos, solo falta presionar enviar.</p>}
       {err && <p className="error" style={{ textTransform: 'none', margin: '.3rem 0 0' }}>{err}</p>}
       {!err && saliendo && <p className="cp-busca">{!demora && <span className="cp-gira" />}{demora

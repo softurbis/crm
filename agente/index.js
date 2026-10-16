@@ -4178,9 +4178,16 @@ async function procesarSalientesPanel() {
         const S = m.session_id ? SESSIONS.get(m.session_id) : null
         if (!S || !S.sock) throw new Error('el WhatsApp del proyecto no está conectado')
         let destJid = jidDe(num)
-        const r = await S.sock.onWhatsApp(num + '@s.whatsapp.net').catch(() => null)
-        if (r && !(r[0] && r[0].exists)) throw new Error('ese número no tiene WhatsApp')
-        if (r && r[0] && r[0].jid) destJid = r[0].jid
+        // con chat en la bandeja (sql/152): al mismo contacto de ese chat (puede ser un LID)
+        const { data: chat } = m.conversation_id
+          ? await supabase.from('whatsapp_conversations').select('wa_jid').eq('id', m.conversation_id).maybeSingle()
+          : { data: null }
+        if (chat?.wa_jid) destJid = chat.wa_jid
+        else {
+          const r = await S.sock.onWhatsApp(num + '@s.whatsapp.net').catch(() => null)
+          if (r && !(r[0] && r[0].exists)) throw new Error('ese número no tiene WhatsApp')
+          if (r && r[0] && r[0].jid) destJid = r[0].jid
+        }
         // el archivo se baja aquí, como navegador: R2 le da 403 a quien no lo parece.
         // La boleta que sube facturación (sql/148) puede ser foto o PDF.
         const resp = await fetch(m.media_url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36' } })
