@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
@@ -6,6 +6,7 @@ import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import VisorDoc from './VisorDoc'
+import { reciboWspInfo, enviarReciboWsp, celularBonito, enlaceWsp } from '../lib/comprobantes'
 import {
   soles, estadoDe, campoNA, campoNAMotivo, campoNota, filasDelPago, marcarNoAplica, quitarNoAplica,
   notaVisible, recalcularCascada,
@@ -31,7 +32,7 @@ export const EstadoChip = ({ r }) => {
 //   onCambio  = el padre recarga su lista despues de cada cambio
 export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, naOk = true, onClose, onCambio }) {
   const { profile, role, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
-  const { pidOp } = useProject()
+  const { pidOp, projects } = useProject()
   const readOnly = ['manager', 'socio'].includes(role)
   // las partes del depósito se fijan al abrir: corregir el N° de operación de todas
   // juntas no tiene que "despegarlas" mientras la lista del padre se recarga
@@ -326,11 +327,117 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
                           onClick={() => noAplica(campo, true)}>No aplica a este pago</button>}
                       </>
                   : <VisorDoc url={u} titulo={t} />}
+                {u && campo === 'receipt_url' && !readOnly && role !== 'facturacion' &&
+                  <EnviarRecibo key={u} pago={f} filas={filas} total={total} proyecto={(projects || []).find(p => p.id === pidOp)} />}
               </div>
             )
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// "Enviar al cliente" la boleta o factura que subió facturación (sql/148): sale
+// sola, adjunta, por el WhatsApp del proyecto. Sin descargar nada. Si el proyecto
+// no tiene su WhatsApp conectado, se abre el de quien la manda con todo escrito.
+const limpio = t => { const d = String(t || '').replace(/\D/g, ''); return d.length === 11 && d.startsWith('51') ? d.slice(2) : d }
+function EnviarRecibo({ pago, filas, total, proyecto }) {
+  const [info, setInfo] = useState(undefined)   // undefined = averiguando · null = no corresponde
+  const [tel, setTel] = useState('')
+  const [tipo, setTipo] = useState(() => /factura|^\s*F[A-Z0-9]{3}-/i.test(pago.receipt_note || '') ? 'factura' : 'boleta')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const tocado = useRef(false)
+  const cargar = useCallback(() => reciboWspInfo(pago.id).then(i => {
+    setInfo(i)
+    if (i && !tocado.current) { const t = (i.telefonos || []).map(limpio).find(d => d.length >= 9); if (t) setTel(t) }
+    return i
+  }), [pago.id])
+  useEffect(() => { cargar() }, [cargar])
+  const envio = info?.envio
+  const saliendo = envio?.estado === 'pendiente'
+  // mientras está saliendo se vuelve a mirar (el servidor lo manda en menos de medio minuto)
+  useEffect(() => {
+    if (!saliendo) return
+    const t = setInterval(cargar, 3000)
+    return () => clearInterval(t)
+  }, [saliendo, cargar])
+  if (!info) return null
+
+  const registrados = [...new Set((info.telefonos || []).map(limpio).filter(d => d.length >= 9))]
+  const que = tipo === 'factura' ? 'la factura' : 'la boleta'
+  const numero = () => {
+    const d = tel.replace(/\D/g, '')
+    if (d.length < 9) { setErr('Escribe el celular: 9 dígitos.'); return null }
+    return d
+  }
+  // el mismo texto que arma el servidor, más el enlace del archivo
+  function texto() {
+    const cuotas = [...new Set(filas.filter(x => x.income_type === 'cuota' && x.installment).map(x => x.installment.installment_number))].sort((a, b) => a - b)
+    const otros = { separacion: 'la separación', inicial: 'la cuota inicial', mora: 'la mora', otro: 'su pago' }
+    const partes = []
+    if (cuotas.length === 1) partes.push('la cuota N° ' + cuotas[0])
+    else if (cuotas.length > 1) partes.push('las cuotas N° ' + cuotas.slice(0, -1).join(', ') + ' y ' + cuotas[cuotas.length - 1])
+    for (const t of new Set(filas.filter(x => x.income_type !== 'cuota').map(x => x.income_type))) partes.push(otros[t] || 'su pago')
+    const lote = pago.lot ? pago.lot.mz + '-' + pago.lot.lt : null
+    const nombre = String(info.cliente || '').trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())
+    const fecha = pago.date ? pago.date.split('-').reverse().join('/') : ''
+    const firma = proyecto?.fact_razon_social || proyecto?.name || ''
+    return 'Buen día' + (nombre ? ', ' + nombre : '') + '. Le estamos enviando su ' + (tipo === 'factura' ? 'factura' : 'boleta de venta')
+      + ' correspondiente a ' + (partes.join(' y ') || 'su pago') + (lote ? ' del lote ' + lote : '') + (proyecto?.name ? ' de ' + proyecto.name : '')
+      + ' (pago de ' + soles(total) + (fecha ? ' del ' + fecha : '') + ').'
+      + '\n\nPuede verla y descargarla aquí:\n' + pago.receipt_url
+      + '\n\nGracias por su pago.' + (firma ? '\n' + firma : '')
+  }
+  function abrir() {
+    setErr('')
+    const d = numero()
+    if (d) window.open(enlaceWsp(d, texto()), '_blank', 'noopener')
+  }
+  async function enviar() {
+    setErr('')
+    const d = numero()
+    if (!d) return
+    setBusy(true)
+    try { await enviarReciboWsp(pago.id, d, tipo); await cargar() } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+  const demora = saliendo && envio.at && Date.now() - new Date(envio.at).getTime() > 90000
+  return (
+    <div className="cp-wsp">
+      <p className="cp-sub">📲 Enviar {que} al cliente por WhatsApp</p>
+      <div className="cp-wsp-fila" style={{ marginBottom: '.4rem' }}>
+        {[['boleta', 'Es boleta'], ['factura', 'Es factura']].map(([v, t]) => (
+          <button key={v} type="button" className={tipo === v ? 'btn-primary' : 'btn-ghost'} style={{ fontSize: 12, padding: '.25rem .7rem' }}
+            onClick={() => setTipo(v)}>{t}</button>
+        ))}
+      </div>
+      <div className="cp-wsp-fila">
+        <input value={tel} inputMode="tel" placeholder="Celular (9 dígitos)" aria-label="Celular al que se envía"
+          onChange={e => { tocado.current = true; setTel(e.target.value.replace(/[^\d+ ]/g, '').slice(0, 18)) }}
+          onKeyDown={e => { if (e.key === 'Enter') (info.numero_proyecto ? enviar : abrir)() }} />
+        {info.numero_proyecto
+          ? <button type="button" className="btn-primary" onClick={enviar} disabled={busy || (saliendo && !demora)}>
+              {busy ? 'Pidiendo…' : saliendo && !demora ? 'Enviando…' : envio?.estado === 'enviado' ? 'Enviar otra vez' : 'Enviar'}
+            </button>
+          : <button type="button" className="btn-primary" onClick={abrir}>Abrir WhatsApp</button>}
+      </div>
+      {registrados.length > 0
+        ? <p className="muted small cp-wsp-reg">Registrado{registrados.length > 1 ? 's' : ''}: {registrados.map(n => (
+            <button type="button" key={n} className={'link-btn' + (tel.replace(/\D/g, '').endsWith(n) ? ' on' : '')} onClick={() => { tocado.current = true; setTel(n) }}>{celularBonito(n)}</button>
+          ))} · o escribe otro número.</p>
+        : <p className="muted small cp-wsp-reg">El cliente no tiene celular en su ficha: escribe el número.</p>}
+      {info.numero_proyecto
+        ? <p className="muted small cp-wsp-reg">Sale solo, con el archivo adjunto, por el WhatsApp del proyecto ({celularBonito(info.numero_proyecto) || 'conectado'}). <button type="button" className="link-btn" onClick={abrir}>O mandarlo desde mi WhatsApp</button></p>
+        : <p className="muted small cp-wsp-reg">El proyecto no tiene su WhatsApp conectado: se abre el tuyo con el mensaje y el enlace ya escritos, solo falta presionar enviar.</p>}
+      {err && <p className="error" style={{ textTransform: 'none', margin: '.3rem 0 0' }}>{err}</p>}
+      {!err && saliendo && <p className="cp-busca">{!demora && <span className="cp-gira" />}{demora
+        ? 'Está tardando más de lo normal: revisa que el WhatsApp del proyecto esté conectado. Se puede volver a enviar.'
+        : 'Enviando a ' + celularBonito(envio.a) + '… sale en unos segundos.'}</p>}
+      {!err && envio?.estado === 'enviado' && <p className="cp-busca ok">✓ Enviado a {celularBonito(envio.a)}{envio.enviado_at ? ' · ' + new Date(envio.enviado_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</p>}
+      {!err && envio?.estado === 'fallido' && <p className="cp-busca no">No se pudo enviar a {celularBonito(envio.a)}: {envio.error || 'sin detalle'}.</p>}
     </div>
   )
 }

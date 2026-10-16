@@ -4178,10 +4178,19 @@ async function procesarSalientesPanel() {
         const r = await S.sock.onWhatsApp(num + '@s.whatsapp.net').catch(() => null)
         if (r && !(r[0] && r[0].exists)) throw new Error('ese número no tiene WhatsApp')
         if (r && r[0] && r[0].jid) destJid = r[0].jid
-        const sent = await S.sock.sendMessage(destJid, {
-          document: { url: m.media_url }, fileName: m.media_name || 'COMPROBANTE.pdf', mimetype: 'application/pdf',
-          caption: (m.body || '').trim() || undefined,
-        })
+        // el archivo se baja aquí, como navegador: R2 le da 403 a quien no lo parece.
+        // La boleta que sube facturación (sql/148) puede ser foto o PDF.
+        const resp = await fetch(m.media_url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36' } })
+        if (!resp.ok) throw new Error('no se pudo bajar el archivo (' + resp.status + ')')
+        const buf = Buffer.from(await resp.arrayBuffer())
+        const caption = (m.body || '').trim() || undefined
+        const nombre = m.media_name || 'COMPROBANTE.pdf'
+        const sent = m.media_type === 'image'
+          ? await S.sock.sendMessage(destJid, { image: buf, caption })
+          : await S.sock.sendMessage(destJid, {
+              document: buf, fileName: nombre, caption,
+              mimetype: /\.pdf$/i.test(nombre) ? 'application/pdf' : (resp.headers.get('content-type') || 'application/octet-stream'),
+            })
         guardarMsg(sent)
         await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), wa_msg_id: sent?.key?.id || null }).eq('id', m.id)
         await supabase.from('comprobantes').update({ wsp_estado: 'enviado', wsp_error: null }).eq('wsp_msg_id', m.id).then(() => {}, () => {})
