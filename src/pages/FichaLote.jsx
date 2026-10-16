@@ -951,6 +951,46 @@ export default function FichaLote() {
     reload()
   }
 
+  // El cliente quiere su separacion en otro lote del mismo proyecto (sql/149):
+  // la separacion, sus pagos y el cliente pasan juntos; este lote queda libre.
+  async function moverSep() {
+    const sep = detail.sep
+    const { data: libres, error: el } = await supabase.from('lots').select('id, mz, lt, area_m2, total_price, associated_to')
+      .eq('project_id', sel.project_id).eq('status', 'disponible').neq('id', sel.id).order('mz').order('lt')
+    if (el) { await avisar('No se pudieron leer los lotes libres: ' + el.message); return }
+    const opciones = (libres || []).filter(l => !(l.associated_to || '').trim())
+      .sort((a, b) => a.mz.localeCompare(b.mz) || (parseInt(a.lt, 10) - parseInt(b.lt, 10)) || String(a.lt).localeCompare(String(b.lt)))
+      .map(l => ({ valor: l.id, etiqueta: l.mz + '-' + l.lt + ' · ' + Number(l.area_m2 || 0) + ' m² · ' + soles(l.total_price) }))
+    if (!opciones.length) { await avisar('No hay lotes libres en este proyecto.'); return }
+    const r = await pedirDatos({
+      titulo: 'Mover la separación a otro lote',
+      campos: [
+        { clave: 'dest', etiqueta: 'LOTE NUEVO (libres del mismo proyecto)', tipo: 'opcion', opciones, valor: opciones[0].valor, obligatorio: true },
+        { clave: 'motivo', etiqueta: 'MOTIVO', tipo: 'largo', valor: 'EL CLIENTE PIDE CAMBIAR DE LOTE', obligatorio: true },
+      ],
+      aceptar: 'Continuar',
+    })
+    if (!r) return
+    const dest = (libres || []).find(l => l.id === r.dest)
+    const motivo = (r.motivo || '').trim()
+    if (!dest) return
+    if (motivo.length < 5) { await avisar('MOTIVO OBLIGATORIO (minimo 5 caracteres).'); return }
+    if (!await confirmar('MOVER la separación de ' + (sep.client?.full_name || 'este cliente') + ' (S/ ' + Number(sep.amount).toFixed(2) + ')\n\n'
+      + 'del lote ' + sel.mz + '-' + sel.lt + '  →  al lote ' + dest.mz + '-' + dest.lt + '\n\n'
+      + 'Pasan la separación, sus pagos y el cliente. El ' + sel.mz + '-' + sel.lt + ' queda DISPONIBLE y el ' + dest.mz + '-' + dest.lt + ' SEPARADO. Queda en la bitácora.',
+    { aceptar: 'Sí, mover' })) return
+    const { data, error } = await supabase.rpc('mover_separacion', { p_sep: sep.id, p_destino: dest.id, p_motivo: motivo })
+    if (error) {
+      await avisar(/mover_separacion/.test(error.message) && /function|schema cache/i.test(error.message)
+        ? 'Falta correr sql/149 en la base (mover separación).'
+        : 'NO SE MOVIÓ: ' + error.message)
+      return
+    }
+    savedFx()
+    await avisar('SEPARACIÓN MOVIDA: ' + data.de + ' → ' + data.a + ' (' + data.pagos + ' pago(s), S/ ' + Number(data.total).toFixed(2) + '). Queda en la bitácora.')
+    irA('/lotes/' + dest.id)
+  }
+
   async function toggleCobranza() {
     const nuevoVal = detail.sale.auto_cobranza === false
     if (!await confirmar(nuevoVal
@@ -1303,6 +1343,11 @@ export default function FichaLote() {
                 {sepInfo.sep.advisor?.code && <><dt>Asesor</dt><dd>{sepInfo.sep.advisor.code}{sepInfo.sep.advisor.full_name && sepInfo.sep.advisor.full_name !== sepInfo.sep.advisor.code ? ' - ' + sepInfo.sep.advisor.full_name : ''}</dd></>}
               </dl>
               {sepInfo.vencida && <p className="error">&#128274; LOTE BLOQUEADO: no se puede vender ni liberar hasta que el administrador decida — extender el plazo o marcar perdida.</p>}
+              {puedeEditar && !sale && !sepInfo.vencida && (
+                <p className="acc-row">
+                  <button className="btn-ghost" onClick={moverSep} title="El cliente pasa su separación a otro lote libre del mismo proyecto">&#8644; Mover separación a otro lote</button>
+                </p>
+              )}
               {esAdmin && (
                 <p className="acc-row">
                   <button className="btn-ghost" onClick={extenderSep}>&#8987; Extender plazo</button>
