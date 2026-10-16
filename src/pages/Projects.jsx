@@ -166,6 +166,9 @@ export default function Projects() {
     base.bot_knowledge = p?.bot_knowledge ?? ''
     base.poder_expiry = p?.poder_expiry ?? ''
     base.carta_poder_note = p?.carta_poder_note ?? ''
+    base.representante_nombre = p?.representante_nombre ?? ''
+    base.representante_dni = p?.representante_dni ?? ''
+    base.representante_texto = p?.representante_texto ?? ''
     setF(base); setFLiteral(null); setFPoder(null); setFPlano(null); setFFoto1(null); setFFoto2(null); setFFoto3(null); setFVideo(null); setFBrochure(null); setFLogo(null); setMsg(null)
   }
 
@@ -214,6 +217,10 @@ export default function Projects() {
       payload.carta_poder_url = poderUrl
       payload.poder_expiry = f.poder_expiry || null
       payload.carta_poder_note = (f.carta_poder_note || '').trim() || null
+      // el apoderado del contrato "con poder" (sql/150): sin nombre no se ofrece ese formato
+      payload.representante_nombre = (f.representante_nombre || '').trim().toUpperCase() || null
+      payload.representante_dni = (f.representante_dni || '').trim() || null
+      payload.representante_texto = (f.representante_texto || '').trim() || null
       payload.bot_knowledge = f.bot_knowledge || null
       payload.plano_url = planoUrl
       payload.brochure_url = brochureUrl
@@ -290,6 +297,20 @@ export default function Projects() {
         <label>Vigencia del poder
           <input type="date" value={f.poder_expiry || ''}
             onChange={e => setF(x => ({ ...x, poder_expiry: e.target.value }))} />
+        </label>
+        <p className="span2" style={{ margin: '8px 0 0' }}><b>✍ CONTRATO CON PODER</b> — si se llena, al generar el contrato se elige: el de siempre (firma el titular) o el de su apoderado, que firma por él.</p>
+        <label>Apoderado que firma (nombre)
+          <input value={f.representante_nombre || ''} placeholder="ej. JOSE MACEDO SANCHEZ"
+            onChange={e => setF(x => ({ ...x, representante_nombre: e.target.value }))} />
+        </label>
+        <label>DNI del apoderado
+          <input value={f.representante_dni || ''}
+            onChange={e => setF(x => ({ ...x, representante_dni: e.target.value }))} />
+        </label>
+        <label className="span2">Texto que va después de "debidamente representada por" (datos del apoderado y de su poder)
+          <textarea rows={3} value={f.representante_texto || ''} style={{ textTransform: 'none' }}
+            placeholder="el Sr. ..., peruano, identificado con DNI N.º ..., con domicilio en ..., según otorgamiento de poder por escritura pública N.º ..."
+            onChange={e => setF(x => ({ ...x, representante_texto: e.target.value }))} />
         </label>
         <label>Logo del proyecto (para el contrato) {pcur?.logo_url && <a href={pcur.logo_url} target="_blank" rel="noreferrer" style={{ textTransform: 'none' }}>ver actual</a>}
           <input type="file" accept="image/*" onChange={e => setFLogo(e.target.files[0] || null)} />

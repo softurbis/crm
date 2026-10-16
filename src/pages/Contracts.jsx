@@ -212,8 +212,10 @@ export default function Contracts() {
                           <ContratoDeVenta venta={v} puedeEditar={!soloMira}
                             alCambiar={t => { setMsg({ ok: true, t }); load() }}
                             alFallar={t => setMsg({ ok: false, t })} />
-                          {/* con el firmado ya subido no se genera otro: el que vale es el firmado */}
-                          {!v.signed_contract_url && <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => setGen(v.id)}>&#128196; Generar contrato</button>}
+                          {/* con el firmado ya subido no se regenera el mismo; quien corrige puede armar uno NUEVO que lo reemplace */}
+                          {!v.signed_contract_url
+                            ? <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => setGen(v.id)}>&#128196; Generar contrato</button>
+                            : puedeCorregir && <button className="link-btn" style={{ marginTop: 4 }} onClick={() => setGen(v.id)}>&#128196; contrato nuevo</button>}
                         </>
                       : v.signed_contract_url
                         ? <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="muted">ver firmado</a>

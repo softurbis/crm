@@ -49,7 +49,7 @@ export function fechasDeDeposito(pagos, tipo, respaldo) {
   return t.length === 1 ? t[0] : t.slice(0, -1).join(', el ') + ' y el ' + t[t.length - 1]
 }
 
-export const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_LETRAS','SEPARACION_FECHA','INICIAL','INICIAL_LETRAS','INICIAL_FECHA','FECHA_VENTA','SALDO','SALDO_LETRAS','NUM_CUOTAS','CUOTA','CUOTAS_DETALLE','PRIMERA_CUOTA','PAGADO_FIRMA','ASESOR','MORA','PARTIDA','DIA','MES','ANIO']
+export const VARIABLES = ['PROYECTO','VENDEDOR','VENDEDOR_DNI','VENDEDOR_DOMICILIO','COMPRADORES','COMPRADOR_DOMICILIO','MZ','LT','AREA','PRECIO','PRECIO_LETRAS','SEPARACION','SEPARACION_LETRAS','SEPARACION_FECHA','INICIAL','INICIAL_LETRAS','INICIAL_FECHA','FECHA_VENTA','SALDO','SALDO_LETRAS','NUM_CUOTAS','CUOTA','CUOTAS_DETALLE','PRIMERA_CUOTA','PAGADO_FIRMA','ASESOR','MORA','PARTIDA','DIA','MES','ANIO','REPRESENTANTE','REPRESENTANTE_DNI','REPRESENTACION']
 export const BLOQUES = ['TABLA_LOTE','TABLA_CUENTA','TABLA_CRONOGRAMA','FIRMAS','ANEXO_CRONOGRAMA','ANEXO_FICHA','SALTO_PAGINA']
 
 // "47 cuotas mensuales de S/ 482.00 y 1 cuota de S/ 446.00", sacado del
@@ -68,14 +68,15 @@ export function detalleCuotas(inst) {
 }
 
 // lo que hace falta de una venta para armar su contrato
-export const COLS_VENTA_CONTRATO = 'id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id, associated_to)'
+export const COLS_VENTA_CONTRATO = 'id, total_sale_price, initial_amount_paid, financed_amount, installments_count, monthly_amount, sale_date, status, signed_contract_url, contract_note, extra_docs, contratos_anteriores, separation_id, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), lot:lots!inner(id, mz, lt, area_m2, boundaries, project_id, associated_to)'
 
 // Sube el contrato FIRMADO de una venta, con su nota. Si ya habia uno, lo
-// reemplaza. Devuelve el aviso, o null si se cancelo la nota (no se sube nada).
+// reemplaza y el anterior queda en sales.contratos_anteriores (lo guarda el
+// trigger de sql/150). Devuelve el aviso, o null si se cancelo la nota.
 export async function subirContratoFirmado(venta, file) {
   const reemplaza = !!venta.signed_contract_url
   const nota = await pedir(
-    (reemplaza ? '⚠ REEMPLAZANDO el contrato firmado actual por este archivo nuevo.\n\n' : '') +
+    (reemplaza ? '⚠ Este archivo pasa a ser el contrato VIGENTE. El firmado de ahora no se pierde: queda en "contratos anteriores".\n\n' : '') +
     'Comentario / nota de este contrato (opcional, Enter para saltar):\n\nEj: firmado con poder · falta legalizar · copia escaneada que mando el cliente',
     { valor: venta.contract_note || '' })
   if (nota === null) return null
@@ -83,7 +84,7 @@ export async function subirContratoFirmado(venta, file) {
   const url = await subirRuta(`contratos/${venta.lot?.mz}-${venta.lot?.lt}-${Date.now()}.${ext}`, file)
   const { error } = await supabase.from('sales').update({ signed_contract_url: url, contract_note: nota.trim() || null }).eq('id', venta.id)
   if (error) throw new Error(error.message)
-  return reemplaza ? 'CONTRATO FIRMADO REEMPLAZADO' : 'CONTRATO FIRMADO SUBIDO'
+  return reemplaza ? 'CONTRATO NUEVO SUBIDO — EL ANTERIOR QUEDÓ EN CONTRATOS ANTERIORES' : 'CONTRATO FIRMADO SUBIDO'
 }
 
 export const DEFAULT_TEMPLATE = `CONTRATO PRIVADO DE COMPROMISO DE COMPRAVENTA DE LOTE EN HABILITACION URBANA PROGRESIVA CON RESERVA DE PROPIEDAD

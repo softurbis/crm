@@ -5,6 +5,7 @@ import { soles } from '../lib/pagos'
 import { MESES, fechaPe, letras, detalleCuotas, fechasDeDeposito, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
 import { imprimirConPie, prepararArchivo, precargar } from '../lib/contratoArchivos'
 import { avisar } from '../lib/dialogos'
+import { useAuth } from '../context/AuthContext'
 
 // **negrita** dentro de una linea de la plantilla
 const conNegritas = t => t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (/^\*\*[^*]+\*\*$/.test(x) ? <b key={i}>{x.slice(2, -2)}</b> : x))
@@ -20,6 +21,9 @@ export default function ContratoModal({ saleId, onClose }) {
   const [error, setError] = useState(null)
   const [bajando, setBajando] = useState(null)  // 'pdf' | 'word' mientras se arma el archivo
   const [listo, setListo] = useState(null)      // { tipo, url, nombre }: el enlace "guardar" de respaldo
+  const [formato, setFormato] = useState(null)  // 'normal' | 'poder' (solo si el proyecto tiene apoderado)
+  const [nuevo, setNuevo] = useState(false)     // contrato nuevo sobre uno ya firmado
+  const { puedeCorregir } = useAuth()
   const hoja = useRef(null)
   useEffect(() => { precargar() }, [])
   // la dirección del archivo anterior se libera al armar otro o al cerrar
@@ -59,13 +63,37 @@ export default function ContratoModal({ saleId, onClose }) {
     </div>
   )
 
-  // con el firmado ya subido no se vuelve a generar (lo pidió el dueño el 30 sep):
-  // un contrato nuevo podría salir distinto del que el cliente firmó
-  if (gen.signed_contract_url) return (
+  const p = proyecto || {}
+  // Con el firmado ya subido no se regenera ese mismo contrato (30 sep): saldría
+  // distinto del que el cliente firmó. Desde el 16 oct sí se puede armar un contrato
+  // NUEVO que lo reemplace (Neshuya tras el plano nuevo): lo decide quien corrige, y
+  // el firmado de antes queda en el historial al subir el nuevo (sql/150).
+  const conPoder = !!p.representante_nombre
+  if ((gen.signed_contract_url && !nuevo) || (conPoder && !formato)) return (
     <div className="modal-bg" onClick={onClose}>
       <div className="glass modal" onClick={e => e.stopPropagation()}>
-        <p><b>Este contrato ya está firmado y subido.</b> Ya no se genera otro: el que vale es el firmado.</p>
-        <p><a href={gen.signed_contract_url} target="_blank" rel="noreferrer">Ver el contrato firmado</a></p>
+        {gen.signed_contract_url && !nuevo
+          ? <>
+              <p><b>Este lote ya tiene su contrato firmado y subido.</b></p>
+              <p><a href={gen.signed_contract_url} target="_blank" rel="noreferrer">Ver el contrato firmado</a></p>
+              {puedeCorregir
+                ? <>
+                    <p className="muted small" style={{ textTransform: 'none' }}>Si el cliente tiene que firmar un contrato nuevo (por ejemplo, con el plano nuevo), genéralo aquí. Cuando subas el nuevo firmado, ese pasa a ser el vigente y el de ahora queda guardado en "contratos anteriores".</p>
+                    <button className="btn-primary" onClick={() => setNuevo(true)}>&#128196; Generar contrato NUEVO</button>{' '}
+                  </>
+                : <p className="muted small">Para hacer un contrato nuevo que lo reemplace, pídeselo a la secretaria o al superusuario.</p>}
+            </>
+          : <>
+              <p><b>¿Con qué formato se genera el contrato?</b></p>
+              <div style={{ display: 'grid', gap: 8, margin: '10px 0' }}>
+                <button className="btn-ghost" style={{ textAlign: 'left', textTransform: 'none' }} onClick={() => setFormato('normal')}>
+                  <b>Formato de siempre</b><br /><span className="muted small">Vende y firma {p.titular_name || 'la titular'}.</span>
+                </button>
+                <button className="btn-ghost" style={{ textAlign: 'left', textTransform: 'none' }} onClick={() => setFormato('poder')}>
+                  <b>Formato CON PODER</b><br /><span className="muted small">{p.titular_name || 'La titular'}, representada por {p.representante_nombre} según su poder; firma {p.representante_nombre}.</span>
+                </button>
+              </div>
+            </>}
         <button className="btn-ghost" onClick={onClose}>Cerrar</button>
       </div>
     </div>
@@ -74,7 +102,7 @@ export default function ContratoModal({ saleId, onClose }) {
   const hoy = new Date()
   const c = gen.client || {}
   const l = gen.lot || {}
-  const p = proyecto || {}
+  const poder = formato === 'poder'
   const b = l.boundaries || {}
   const med = b.medidas || {}
   const col = b.colindancias || {}
@@ -117,7 +145,11 @@ export default function ContratoModal({ saleId, onClose }) {
     MORA: Number(p.late_penalty_rate || 1.5).toFixed(2),
     PARTIDA: p.partida_number || '__________',
     DIA: hoy.getDate(), MES: MESES[hoy.getMonth()], ANIO: hoy.getFullYear(),
+    // formato con poder: quien firma por la titular
+    REPRESENTANTE: p.representante_nombre || '__________', REPRESENTANTE_DNI: p.representante_dni || '__________',
   }
+  // quien firma como EL VENDEDOR: la titular, o su apoderado en el formato con poder
+  const firmaVendedor = poder ? { nombre: vars.REPRESENTANTE, dni: vars.REPRESENTANTE_DNI } : { nombre: vars.VENDEDOR, dni: vars.VENDEDOR_DNI }
   const fill = t => t.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] !== undefined ? String(vars[k]) : m)
 
   const TablaLote = (
@@ -144,7 +176,7 @@ export default function ContratoModal({ saleId, onClose }) {
   const Firmas = (
     <table className="ctable firmas" key="fi"><tbody><tr>
       <td style={{ textAlign: 'center', paddingTop: '4em' }}>
-        ______________________________<br /><b>EL VENDEDOR</b><br />{vars.VENDEDOR}<br />DNI: {vars.VENDEDOR_DNI}
+        ______________________________<br /><b>EL VENDEDOR</b><br />{firmaVendedor.nombre}<br />DNI: {firmaVendedor.dni}
       </td>
       <td style={{ textAlign: 'center', paddingTop: '4em' }}>
         ______________________________<br /><b>EL COMPRADOR</b><br />{c.full_name}<br />{c.doc_type || 'DNI'}: {c.doc_number}
@@ -212,14 +244,27 @@ export default function ContratoModal({ saleId, onClose }) {
   //     solo si la venta tuvo separacion / co-comprador
   //   · CLAUSULA... / ANEXO...             -> titulo;  **texto** -> negrita
   const tpl = p.contract_template || DEFAULT_TEMPLATE
+  // Formato con poder (16 oct): "..., debidamente representada por <representante_texto>,
+  // a quien en adelante se denominará EL VENDEDOR". Va donde la plantilla diga
+  // {{REPRESENTACION}} o, si no lo dice, antes de esa frase la primera vez que aparece.
+  // En el formato de siempre {{REPRESENTACION}} no deja nada.
+  const representacion = poder ? ', debidamente representada por ' + (p.representante_texto || p.representante_nombre) : ''
+  const FRASE_VENDEDOR = /,?\s*(a quien en adelante se denominar[aá] EL VENDEDOR)/i
+  let representado = !poder
   const lineas = []
   for (const ln of tpl.split('\n')) {
     let t = ln.trim()
     if (!t) continue
+    if (t.includes('{{REPRESENTACION}}')) { t = t.split('{{REPRESENTACION}}').join(representacion); representado = true }
+    else if (!representado && FRASE_VENDEDOR.test(t)) {
+      t = t.replace(FRASE_VENDEDOR, (m, frase) => representacion + ', ' + frase)
+      representado = true
+    }
     if (t.startsWith('{{SI_SEPARACION}}')) { if (!data.sep) continue; t = t.slice(17).trim() }
     if (t.startsWith('{{SI_CO_COMPRADOR}}')) { if (!gen.co_client) continue; t = t.slice(19).trim() }
     lineas.push(t)
   }
+  if (!representado) problemas.push('LA PLANTILLA NO TIENE DÓNDE PONER EL PODER: agrega {{REPRESENTACION}} en la línea de EL VENDEDOR (Contratos → plantilla)')
   const cuerpo = []
   let primera = true
   for (let i = 0; i < lineas.length; i++) {
@@ -273,7 +318,7 @@ export default function ContratoModal({ saleId, onClose }) {
     <div className="modal-bg" onClick={onClose}>
       <div className="glass modal print-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head no-print">
-          <h2>Contrato - {c.full_name}</h2>
+          <h2>Contrato{poder ? ' con poder' : ''}{nuevo ? ' NUEVO' : ''} - {c.full_name}</h2>
           <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('pdf')}>{bajando === 'pdf' ? 'Armando PDF…' : '⬇ Descargar PDF'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('word')}>{bajando === 'word' ? 'Armando Word…' : '⬇ Descargar Word'}</button>
@@ -285,6 +330,11 @@ export default function ContratoModal({ saleId, onClose }) {
             ✓ {listo.tipo === 'pdf' ? 'PDF' : 'Word'} listo. Si no se descargó solo:{' '}
             <a href={listo.url} download={listo.nombre}><b>⬇ haz clic aquí para guardarlo</b></a>
             <button className="link-btn" style={{ marginLeft: 10 }} onClick={() => setListo(null)} aria-label="Cerrar aviso">✕</button>
+          </p>
+        )}
+        {nuevo && (
+          <p className="no-print warn" style={{ padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(224,178,63,.1)', border: '1px solid rgba(224,178,63,.35)', textTransform: 'none' }}>
+            &#9888; Contrato NUEVO para un lote que ya tiene uno firmado. Cuando el cliente lo firme, súbelo en la ficha con <b>&#128260; subir contrato nuevo</b>: pasa a ser el vigente y el anterior queda en <b>contratos anteriores</b>.
           </p>
         )}
         {problemas.length > 0 && (

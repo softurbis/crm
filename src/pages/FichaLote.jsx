@@ -1258,8 +1258,11 @@ export default function FichaLote() {
           ? <a className="btn-act" href={waMessage()} target="_blank" rel="noreferrer">&#128172; WhatsApp de cobro</a>
           : <span className="fl-aviso warn">Celular no válido: corrígelo en los datos del cliente</span>)}
         {sale && <EstadoCuentaDownload key={sale.id} cliente={sale.client || {}} saleId={sale.id} secundario />}
-        {/* con el firmado ya subido no se genera otro: el que vale es el firmado */}
-        {sale && !sale.signed_contract_url && <button className="btn-act alt" onClick={() => setContrato(sale.id)}>&#128196; Generar contrato</button>}
+        {/* con el firmado ya subido no se regenera el mismo; quien corrige puede armar uno
+            NUEVO que lo reemplace (Neshuya tras el plano nuevo) y el viejo queda de historial */}
+        {sale && (!sale.signed_contract_url
+          ? <button className="btn-act alt" onClick={() => setContrato(sale.id)}>&#128196; Generar contrato</button>
+          : puedeCorregir && <button className="btn-act alt" onClick={() => setContrato(sale.id)} title="El cliente firma un contrato nuevo que reemplaza al firmado">&#128196; Contrato nuevo</button>)}
       </div>
 
       {emsg && <p className={emsg.startsWith('ERROR') || emsg.startsWith('NO SE') ? 'error' : 'ok'} style={{ margin: '0 0 10px' }}>{emsg}</p>}

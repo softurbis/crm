@@ -16,6 +16,8 @@ import { confirmar, pedir } from '../lib/dialogos'
 export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEditar = true }) {
   const { puedeCorregir } = useAuth()   // superusuario u operador: reemplazar y quitar
   const docs = Array.isArray(v.extra_docs) ? v.extra_docs : []
+  // los firmados que fueron reemplazados o quitados (sql/150), el último primero
+  const anteriores = (Array.isArray(v.contratos_anteriores) ? v.contratos_anteriores : []).slice().reverse()
   const hecho = t => alCambiar?.(t)
   const fallo = e => alFallar?.('ERROR: ' + (e?.message || e))
   const guardar = async (cambios, aviso) => {
@@ -31,7 +33,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
   }
   // quitar el contrato firmado (superusuario): la venta vuelve a figurar SIN CONTRATO
   async function quitar() {
-    if (!await confirmar('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volverá a figurar como SIN CONTRATO FIRMADO y podrás subir otro o generar uno nuevo. El archivo anterior queda en el almacenamiento.', { peligro: true, aceptar: 'Sí, quitar' })) return
+    if (!await confirmar('¿Quitar el contrato firmado de ' + (v.client?.full_name || 'esta venta') + '?\n\nLa venta volverá a figurar como SIN CONTRATO FIRMADO y podrás subir otro o generar uno nuevo. El archivo quitado queda en "contratos anteriores".', { peligro: true, aceptar: 'Sí, quitar' })) return
     guardar({ signed_contract_url: null, contract_note: null }, 'CONTRATO QUITADO — YA PUEDES SUBIR OTRO')
   }
   async function nota() {
@@ -72,7 +74,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
             {/* reemplazar o quitar uno ya subido queda para el superusuario */}
             {puedeEditar && puedeCorregir && (<>
               {' '}
-              <label className="link-btn" style={{ cursor: 'pointer' }}>&#128260; reemplazar
+              <label className="link-btn" style={{ cursor: 'pointer' }} title="El contrato nuevo ya firmado: pasa a ser el vigente y el de ahora queda en contratos anteriores">&#128260; subir contrato nuevo
                 <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
               </label>{' '}
               <button type="button" className="link-btn" onClick={quitar}>&#128465; quitar</button>
@@ -84,6 +86,19 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
               <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
             </label>
           : <span className="warn">sin contrato firmado</span>}
+      {/* los contratos firmados de antes (reemplazados por uno nuevo o quitados): solo se consultan */}
+      {anteriores.length > 0 && (
+        <details className="small" style={{ marginTop: 4, textTransform: 'none' }}>
+          <summary style={{ cursor: 'pointer' }}>&#128220; contratos anteriores ({anteriores.length})</summary>
+          {anteriores.map((a, i) => (
+            <div key={i} style={{ margin: '2px 0 2px 14px' }}>
+              <a href={a.url} target="_blank" rel="noreferrer" className="muted">ver</a>
+              {' '}<span className="muted">{a.como === 'quitado' ? 'quitado' : 'reemplazado'} el {String(a.hasta || '').slice(0, 10).split('-').reverse().join('/')}{a.por ? ' por ' + a.por : ''}</span>
+              {a.nota && <div className="muted" style={{ marginLeft: 26 }}>{a.nota}</div>}
+            </div>
+          ))}
+        </details>
+      )}
       {/* documentos de respaldo del contrato (traspaso, iniciales, adenda…): máx. 2 */}
       {(docs.length > 0 || puedeEditar) && (
         <div style={{ marginTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 5 }}>
