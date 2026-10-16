@@ -1265,8 +1265,10 @@ export default function FichaLote() {
         {/* con el firmado ya subido no se regenera el mismo; quien corrige puede armar uno
             NUEVO que lo reemplace (Neshuya tras el plano nuevo) y el viejo queda de historial */}
         {sale && (!sale.signed_contract_url
-          ? <button className="btn-act alt" onClick={() => setContrato(sale.id)}>&#128196; Generar contrato</button>
-          : puedeCorregir && <button className="btn-act alt" onClick={() => setContrato(sale.id)} title="El cliente firma un contrato nuevo que reemplaza al firmado">&#128196; Contrato nuevo</button>)}
+          ? <button className="btn-act alt" onClick={() => setContrato(sale.id)}
+              title={'GENERAR CONTRATO\nArma el contrato de esta venta con sus datos: cliente, lote, medidas, precio, inicial y cronograma.\nEn Neshuya primero eliges el formato: el de siempre (firma la titular) o CON PODER (firma el apoderado).\nLo descargas en Word o PDF para imprimir y firmar. Después sube el firmado en "Contrato" (más abajo).'}>&#128196; Generar contrato</button>
+          : puedeCorregir && <button className="btn-act alt" onClick={() => setContrato(sale.id)}
+              title={'CONTRATO NUEVO (reemplaza al firmado)\nPara cuando el cliente tiene que firmar otra vez, por ejemplo por el plano nuevo de Neshuya.\nArma el contrato con los datos de HOY del lote; en Neshuya eliges el formato (el de siempre o CON PODER).\nGenerar NO cambia nada: el firmado de ahora sigue vigente hasta que subas el nuevo firmado en "Contrato" → "Contrato nuevo" → "2 · Subir firmado". El de antes queda en "contratos anteriores".'}>&#128196; Contrato nuevo</button>)}
       </div>
 
       {emsg && <p className={emsg.startsWith('ERROR') || emsg.startsWith('NO SE') ? 'error' : 'ok'} style={{ margin: '0 0 10px' }}>{emsg}</p>}
@@ -1378,7 +1380,7 @@ export default function FichaLote() {
                 <dt>Contrato</dt><dd>
                   {/* ver, subir, nota, documentos de respaldo y quitar: la misma pieza de la lista
                       "Ventas y contratos", así nada del contrato obliga a salir de la ficha */}
-                  <ContratoDeVenta venta={{ ...sale, lot: sel }} puedeEditar={puedeEditar}
+                  <ContratoDeVenta venta={{ ...sale, lot: sel }} puedeEditar={puedeEditar} alGenerar={() => setContrato(sale.id)}
                     alCambiar={t => { setMsg({ ok: true, t }); savedFx(); reload() }}
                     alFallar={t => setMsg({ ok: false, t })} />
                 </dd>

@@ -276,6 +276,22 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .big-alert { font-size: 1.2rem; padding: 3rem 0; text-align: center; }
 .link-btn { background: none; border: none; color: var(--accent); text-decoration: underline; padding: 0; font-size: inherit; text-transform: uppercase; }
 .link-btn:hover { color: var(--accent-strong); }
+
+/* ---- celda "Contrato" (ContratoDeVenta): cada acción, un botón con aire ---- */
+.cv { display: flex; flex-direction: column; gap: 8px; }
+.cv-fila { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.04); color: var(--accent); font-size: .74rem; font-weight: 600; text-transform: uppercase; text-decoration: none;
+  cursor: pointer; white-space: nowrap; line-height: 1.3; }
+.cv-btn:hover { background: rgba(255,255,255,.1); color: var(--accent-strong); }
+.cv-btn.ok { color: #4bb96a; border-color: rgba(75,185,106,.45); }
+.cv-btn.malo { color: var(--error); border-color: rgba(224,90,90,.5); }
+.cv-btn.peligro { color: var(--muted); }
+.cv-btn.peligro:hover { color: var(--error); }
+.cv-nuevo { padding: 6px 8px; border-radius: 10px; border: 1px dashed rgba(224,178,63,.45); background: rgba(224,178,63,.06); }
+.cv-titulo { display: block; font-size: .66rem; font-weight: 700; color: #e0b23f; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 5px; }
+.cv-respaldo { display: flex; flex-direction: column; gap: 5px; border-top: 1px dashed rgba(255,255,255,.12); padding-top: 7px; }
+.cv-respaldo .cv-btn { align-self: flex-start; }
 @media (max-width: 720px) { .docs-grid { grid-template-columns: 1fr; } }
 
 /* ---- bitacora / usuarios ---- */

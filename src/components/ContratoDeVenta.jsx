@@ -13,7 +13,9 @@ import { confirmar, pedir } from '../lib/dialogos'
 //   alCambiar   se llama con el aviso tras cada cambio (para mostrarlo y recargar)
 //   alFallar    se llama con el error
 //   puedeEditar false = solo mirar (gerencia, socio)
-export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEditar = true }) {
+//   alGenerar   abre el contrato para armarlo (Word/PDF); con uno ya firmado arma el NUEVO
+// Cada acción es un botón aparte (16 oct: "los botones están tan juntos que no se pueden usar").
+export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEditar = true, alGenerar }) {
   const { puedeCorregir } = useAuth()   // superusuario u operador: reemplazar y quitar
   const docs = Array.isArray(v.extra_docs) ? v.extra_docs : []
   // los firmados que fueron reemplazados o quitados (sql/150), el último primero
@@ -63,36 +65,61 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
     guardar({ extra_docs: docs.map((d, k) => (k === i ? { ...d, note: etiqueta.trim() || 'Documento de respaldo' } : d)) }, 'ETIQUETA GUARDADA')
   }
 
+  // Lo que dice cada botón al pasar el mouse (pedido del 16 oct: "un texto muy detallado")
+  const AYUDA = {
+    ver: 'VER FIRMADO\nAbre en otra pestaña el contrato firmado que está vigente hoy (el escaneo o la foto que se subió). Solo lo muestra: no cambia nada.',
+    nota: 'NOTA\nEscribe o corrige un comentario sobre este contrato. Ej.: "firmado con poder", "falta legalizar", "copia escaneada que mandó el cliente". La nota se ve debajo de los botones.',
+    quitar: 'QUITAR EL CONTRATO FIRMADO\nLa venta vuelve a figurar SIN CONTRATO FIRMADO. El archivo NO se borra: queda guardado en "contratos anteriores" con la fecha y quién lo quitó.\nÚsalo solo si se subió un archivo equivocado. Para cambiarlo por un contrato nuevo, usa el recuadro "Contrato nuevo".',
+    generarNuevo: 'PASO 1 · GENERAR EL CONTRATO NUEVO\nArma el contrato con los datos de HOY: el lote y sus medidas del plano nuevo, el precio, la inicial, el cronograma y el cliente.\nEn Neshuya primero eliges el formato: el de siempre (firma la titular) o CON PODER (firma el apoderado).\nLo descargas en Word o PDF para imprimir y que el cliente firme. Generar NO cambia nada en el sistema: el firmado de ahora sigue vigente hasta el paso 2.',
+    subirNuevo: 'PASO 2 · SUBIR EL CONTRATO NUEVO YA FIRMADO\nElige el escaneo o la foto (PDF o imagen) del contrato nuevo con las firmas.\nAl subirlo, ese pasa a ser el contrato VIGENTE y el firmado de antes NO se pierde: queda en "contratos anteriores", con la fecha y quién lo cambió.\nTe pedirá una nota opcional.',
+    generar: 'GENERAR CONTRATO\nArma el contrato de esta venta con sus datos: cliente, lote, medidas, precio, inicial y cronograma.\nEn Neshuya primero eliges el formato: el de siempre (firma la titular) o CON PODER (firma el apoderado).\nLo descargas en Word o PDF para imprimir y firmar. Después sube el firmado con "Subir firmado".',
+    subir: 'SUBIR FIRMADO\nEsta venta todavía NO tiene contrato firmado en el sistema.\nElige el escaneo o la foto (PDF o imagen) del contrato con las firmas del cliente y del vendedor. Te pedirá una nota opcional.',
+    anteriores: 'CONTRATOS ANTERIORES\nLos contratos firmados que se cambiaron por uno nuevo o que se quitaron. Solo se consultan: no se pueden borrar ni cambiar.\nCada uno dice cuándo y quién lo cambió.',
+    respaldo: 'DOCUMENTO DE RESPALDO\nSube un papel que acompaña al contrato pero NO lo reemplaza: traspaso, documento de iniciales, adenda, carta de compromiso, etc.\nMáximo 2 por contrato. Te pedirá una etiqueta corta para reconocerlo.',
+    etiqueta: 'CAMBIAR LA ETIQUETA\nCorrige el nombre con que se ve este documento de respaldo (ej.: TRASPASO, ADENDA). El archivo no cambia.',
+    quitarRespaldo: 'QUITAR ESTE DOCUMENTO DE RESPALDO\nDeja de verse en el contrato. El archivo queda guardado en el almacenamiento.',
+  }
+
   const elegir = alElegir => e => { const f = e.target.files[0]; e.target.value = ''; if (f) alElegir(f) }
 
   return (
-    <div>
+    <div className="cv">
       {v.signed_contract_url
         ? <>
-            <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="ok">VER FIRMADO</a>
-            {puedeEditar && <>{' '}<button type="button" className="link-btn" onClick={nota}>&#128221; nota</button></>}
-            {/* reemplazar o quitar uno ya subido queda para el superusuario */}
-            {puedeEditar && puedeCorregir && (<>
-              {' '}
-              <label className="link-btn" style={{ cursor: 'pointer' }} title="El contrato nuevo ya firmado: pasa a ser el vigente y el de ahora queda en contratos anteriores">&#128260; subir contrato nuevo
-                <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
-              </label>{' '}
-              <button type="button" className="link-btn" onClick={quitar}>&#128465; quitar</button>
-            </>)}
+            <div className="cv-fila">
+              <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="cv-btn ok" title={AYUDA.ver}>&#128065; Ver firmado</a>
+              {puedeEditar && <button type="button" className="cv-btn" onClick={nota} title={AYUDA.nota}>&#128221; Nota</button>}
+              {puedeEditar && puedeCorregir && <button type="button" className="cv-btn peligro" onClick={quitar} title={AYUDA.quitar}>&#128465;</button>}
+            </div>
             {v.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{v.contract_note}</div>}
+            {/* contrato NUEVO que reemplaza al firmado: lo hace quien corrige, en dos pasos */}
+            {puedeEditar && puedeCorregir && (
+              <div className="cv-nuevo">
+                <span className="cv-titulo">Contrato nuevo</span>
+                <div className="cv-fila">
+                  {alGenerar && <button type="button" className="cv-btn" onClick={alGenerar} title={AYUDA.generarNuevo}>1 · &#128196; Generar</button>}
+                  <label className="cv-btn" title={AYUDA.subirNuevo}>{alGenerar ? '2 · ' : ''}&#11014; Subir firmado
+                    <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
+                  </label>
+                </div>
+              </div>
+            )}
           </>
         : puedeEditar
-          ? <label className="upload-btn bad">&#9888; subir firmado
-              <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
-            </label>
+          ? <div className="cv-fila">
+              {alGenerar && <button type="button" className="cv-btn" onClick={alGenerar} title={AYUDA.generar}>&#128196; Generar contrato</button>}
+              <label className="cv-btn malo" title={AYUDA.subir}>&#9888; Subir firmado
+                <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirFirmado)} />
+              </label>
+            </div>
           : <span className="warn">sin contrato firmado</span>}
       {/* los contratos firmados de antes (reemplazados por uno nuevo o quitados): solo se consultan */}
       {anteriores.length > 0 && (
         <details className="small" style={{ marginTop: 4, textTransform: 'none' }}>
-          <summary style={{ cursor: 'pointer' }}>&#128220; contratos anteriores ({anteriores.length})</summary>
+          <summary style={{ cursor: 'pointer' }} title={AYUDA.anteriores}>&#128220; contratos anteriores ({anteriores.length})</summary>
           {anteriores.map((a, i) => (
             <div key={i} style={{ margin: '2px 0 2px 14px' }}>
-              <a href={a.url} target="_blank" rel="noreferrer" className="muted">ver</a>
+              <a href={a.url} target="_blank" rel="noreferrer" className="muted" title="Abre en otra pestaña este contrato anterior. Ya no es el vigente: queda solo como historial.">ver</a>
               {' '}<span className="muted">{a.como === 'quitado' ? 'quitado' : 'reemplazado'} el {String(a.hasta || '').slice(0, 10).split('-').reverse().join('/')}{a.por ? ' por ' + a.por : ''}</span>
               {a.nota && <div className="muted" style={{ marginLeft: 26 }}>{a.nota}</div>}
             </div>
@@ -101,18 +128,18 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
       )}
       {/* documentos de respaldo del contrato (traspaso, iniciales, adenda…): máx. 2 */}
       {(docs.length > 0 || puedeEditar) && (
-        <div style={{ marginTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)', paddingTop: 5 }}>
+        <div className="cv-respaldo">
           {docs.map((d, i) => (
             <div key={i} className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', textTransform: 'none', marginBottom: 2 }}>
               <span>📎</span>
-              <a href={d.url} target="_blank" rel="noreferrer" className="ok">{d.note || 'Respaldo'}</a>
-              {puedeEditar && <button type="button" className="link-btn" title="Editar etiqueta" onClick={() => etiquetarRespaldo(i)}>&#9998;</button>}
-              {puedeEditar && puedeCorregir && <button type="button" className="link-btn" title="Quitar" onClick={() => quitarRespaldo(i)}>&#128465;</button>}
+              <a href={d.url} target="_blank" rel="noreferrer" className="ok" title="Abre en otra pestaña este documento de respaldo del contrato.">{d.note || 'Respaldo'}</a>
+              {puedeEditar && <button type="button" className="link-btn" title={AYUDA.etiqueta} onClick={() => etiquetarRespaldo(i)}>&#9998;</button>}
+              {puedeEditar && puedeCorregir && <button type="button" className="link-btn" title={AYUDA.quitarRespaldo} onClick={() => quitarRespaldo(i)}>&#128465;</button>}
             </div>
           ))}
           {puedeEditar && docs.length < 2 && (
-            <label className="link-btn" style={{ cursor: 'pointer' }} title="Traspaso, documento de iniciales, adenda, etc.">
-              &#10133; documento de respaldo
+            <label className="cv-btn" title={AYUDA.respaldo}>
+              &#10133; Documento de respaldo
               <input type="file" accept="image/*,.pdf" hidden onChange={elegir(subirRespaldo)} />
             </label>
           )}

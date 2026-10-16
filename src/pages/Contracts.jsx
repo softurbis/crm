@@ -209,13 +209,11 @@ export default function Contracts() {
                   <td style={{ whiteSpace: 'normal', minWidth: 190 }}>
                     {VIVA.includes(v.status)
                       ? <>
-                          <ContratoDeVenta venta={v} puedeEditar={!soloMira}
+                          {/* generar va dentro: sin firmado, "Generar contrato"; con firmado, el
+                              bloque "Contrato nuevo" (1 generar, 2 subir firmado) para quien corrige */}
+                          <ContratoDeVenta venta={v} puedeEditar={!soloMira} alGenerar={() => setGen(v.id)}
                             alCambiar={t => { setMsg({ ok: true, t }); load() }}
                             alFallar={t => setMsg({ ok: false, t })} />
-                          {/* con el firmado ya subido no se regenera el mismo; quien corrige puede armar uno NUEVO que lo reemplace */}
-                          {!v.signed_contract_url
-                            ? <button className="btn-ghost" style={{ marginTop: 6 }} onClick={() => setGen(v.id)}>&#128196; Generar contrato</button>
-                            : puedeCorregir && <button className="link-btn" style={{ marginTop: 4 }} onClick={() => setGen(v.id)}>&#128196; contrato nuevo</button>}
                         </>
                       : v.signed_contract_url
                         ? <a href={v.signed_contract_url} target="_blank" rel="noreferrer" className="muted">ver firmado</a>
