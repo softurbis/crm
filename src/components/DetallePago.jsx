@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import VisorDoc from './VisorDoc'
 import { reciboWspInfo, enviarReciboWsp, celularBonito, enlaceWsp } from '../lib/comprobantes'
+import { ListaValidacion, conAviso, nombreTipo } from './LecturaBoleta'
 import {
   soles, estadoDe, campoNA, campoNAMotivo, campoNota, filasDelPago, marcarNoAplica, quitarNoAplica,
   notaVisible, recalcularCascada,
@@ -350,20 +351,27 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const tocado = useRef(false)
+  const tipoAMano = useRef(false)
+  const [cambiarTipo, setCambiarTipo] = useState(false)
   const cargar = useCallback(() => reciboWspInfo(pago.id).then(i => {
     setInfo(i)
     if (i && !tocado.current) { const t = (i.telefonos || []).map(limpio).find(d => d.length >= 9); if (t) setTel(t) }
+    // boleta o factura: lo que leyó la IA (sql/151), mientras nadie lo cambie a mano
+    const lt = i?.lectura?.tipo
+    if (!tipoAMano.current && (lt === 'boleta' || lt === 'factura')) setTipo(lt)
     return i
   }), [pago.id])
   useEffect(() => { cargar() }, [cargar])
   const envio = info?.envio
   const saliendo = envio?.estado === 'pendiente'
-  // mientras está saliendo se vuelve a mirar (el servidor lo manda en menos de medio minuto)
+  const lect = info?.lectura
+  const leyendo = lect?.estado === 'pendiente' || lect?.estado === 'leyendo'
+  // mientras está saliendo (o la IA leyendo) se vuelve a mirar: tarda segundos
   useEffect(() => {
-    if (!saliendo) return
+    if (!saliendo && !leyendo) return
     const t = setInterval(cargar, 3000)
     return () => clearInterval(t)
-  }, [saliendo, cargar])
+  }, [saliendo, leyendo, cargar])
   if (info?.falta) return <p className="muted" style={{ textTransform: 'none' }}>El envío todavía no está instalado en la base: falta correr sql/148.</p>
   if (!info) return enDialogo && info === null
     ? <p className="muted" style={{ textTransform: 'none' }}>Tu usuario no puede enviar este comprobante (o el pago ya no lo tiene).</p>
@@ -411,19 +419,28 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
   return (
     <div className="cp-wsp">
       <p className="cp-sub">📲 Enviar {que} al cliente por WhatsApp</p>
-      <div className="cp-wsp-fila" style={{ marginBottom: '.4rem' }}>
-        {[['boleta', 'Es boleta'], ['factura', 'Es factura']].map(([v, t]) => (
-          <button key={v} type="button" className={tipo === v ? 'btn-primary' : 'btn-ghost'} style={{ fontSize: 12, padding: '.25rem .7rem' }}
-            onClick={() => setTipo(v)}>{t}</button>
-        ))}
-      </div>
+      {/* boleta o factura: lo sabe la IA; los botones solo si no se pudo leer o se quiere cambiar */}
+      {lect?.estado === 'listo' && ['boleta', 'factura'].includes(lect.tipo) && !cambiarTipo
+        ? <p className="muted small cp-wsp-reg" style={{ marginBottom: '.4rem' }}>📄 Es <b>{nombreTipo(tipo)}</b>{lect.serie_numero ? ' ' + lect.serie_numero : ''} (lo leyó la IA). <button type="button" className="link-btn" onClick={() => setCambiarTipo(true)}>cambiar</button></p>
+        : <div className="cp-wsp-fila" style={{ marginBottom: '.4rem' }}>
+            {[['boleta', 'Es boleta'], ['factura', 'Es factura']].map(([v, t]) => (
+              <button key={v} type="button" className={tipo === v ? 'btn-primary' : 'btn-ghost'} style={{ fontSize: 12, padding: '.25rem .7rem' }}
+                onClick={() => { tipoAMano.current = true; setTipo(v) }}>{t}</button>
+            ))}
+            {leyendo && <span className="cp-busca"><span className="cp-gira" /> la IA la está leyendo…</span>}
+          </div>}
+      {/* la IA encontró algo que no cuadra y facturación todavía no lo revisó: se avisa antes de mandarla */}
+      {conAviso(lect) && <div className="cp-aviso">
+        <p><b>⚠ Ojo antes de enviarla:</b> la IA encontró diferencias con el pago y facturación todavía no la revisó.</p>
+        <ListaValidacion l={{ validacion: lect.validacion.filter(v => v.nivel === 'mal') }} />
+      </div>}
       <div className="cp-wsp-fila">
         <input value={tel} inputMode="tel" placeholder="Celular (9 dígitos)" aria-label="Celular al que se envía"
           onChange={e => { tocado.current = true; setTel(e.target.value.replace(/[^\d+ ]/g, '').slice(0, 18)) }}
           onKeyDown={e => { if (e.key === 'Enter') (info.numero_proyecto ? enviar : abrir)() }} />
         {info.numero_proyecto
           ? <button type="button" className="btn-primary" onClick={enviar} disabled={busy || (saliendo && !demora)}>
-              {busy ? 'Pidiendo…' : saliendo && !demora ? 'Enviando…' : envio?.estado === 'enviado' ? 'Enviar otra vez' : 'Enviar'}
+              {busy ? 'Pidiendo…' : saliendo && !demora ? 'Enviando…' : envio?.estado === 'enviado' ? 'Enviar otra vez' : conAviso(lect) ? 'Enviar igual' : 'Enviar'}
             </button>
           : <button type="button" className="btn-primary" onClick={abrir}>Abrir WhatsApp</button>}
       </div>

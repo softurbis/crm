@@ -5,6 +5,7 @@ import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import Paginador, { usePaginacion } from '../components/Paginador'
+import { useLecturasBoleta, ChipLectura } from '../components/LecturaBoleta'
 import DetallePago, { EstadoChip, DialogoEnviarRecibo } from '../components/DetallePago'
 import BuscarLote from '../components/BuscarLote'
 import LoteLink from '../components/LoteLink'
@@ -233,6 +234,8 @@ export default function Payments() {
   const gruposHistorial = useMemo(() => agruparPagos(pagosFiltrados), [pagosFiltrados])
   const gruposTotales = useMemo(() => agruparPagos(pagos), [pagos])
   const pag = usePaginacion(gruposHistorial, 50)   // 50 depósitos por pagina, sin recargar
+  // la lectura con IA de las boletas subidas (sql/151): ✓ / ⚠ al lado del VER
+  const lecturas = useLecturasBoleta(useMemo(() => gruposHistorial.map(g => g.comprobanteUrl), [gruposHistorial]))
 
   const totalFiltrado = pagosFiltrados.reduce((s, p) => s + Number(p.amount), 0)
   const sinVoucher = gruposTotales.filter(g => !g.voucherUrl && !g.voucherNA).length
@@ -256,6 +259,7 @@ export default function Payments() {
       <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
         onOtro={file => subirOtro(g, file, campo)} />
       {/* la boleta o factura que subió facturación, al cliente por WhatsApp (sql/148) */}
+      {!esVoucher && <ChipLectura l={lecturas.porUrl[url]} puedeRevisar={role === 'admin' || role === 'superuser'} onCambio={lecturas.recargar} />}
       {!esVoucher && !readOnly && role !== 'facturacion' &&
         <button type="button" className="cp-emitir" style={{ display: 'block', marginTop: 3 }}
           title="Enviar esta boleta o factura al cliente por WhatsApp" onClick={() => setEnviarDe(g)}>📲 Enviar</button>}

@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
-import { pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { hoyPe } from '../lib/cobros'
 import { fechaPe } from '../lib/lotes'
 import VisorDoc from '../components/VisorDoc'
 import BuscarLote from '../components/BuscarLote'
 import EstadoCuentaLote from '../components/EstadoCuentaLote'
+import { useLecturasBoleta, ChipLectura } from '../components/LecturaBoleta'
 
 // COMPROBANTES POR SUBIR (sql/133-134, 9 oct 2026): la pantalla del rol FACTURACIÓN,
 // la secretaria de la otra empresa que hace las boletas y facturas en su propio
@@ -77,6 +77,8 @@ export default function Facturacion() {
   const grupos = useMemo(() => agruparDepositos(filas), [filas])
   const proyectos = useMemo(() => [...new Set(grupos.map(g => g.r.proyecto))].sort(), [grupos])
   const vistaGrupos = grupos.filter(g => proy === 'todos' || g.r.proyecto === proy)
+  // al subirla, la IA la lee y la compara con el pago (sql/151)
+  const lecturas = useLecturasBoleta(useMemo(() => grupos.map(g => g.comprobante?.receipt_url), [grupos]))
   const pendPorProy = useMemo(() => {
     const m = {}
     for (const g of grupos) if (g.pendiente) m[g.r.proyecto] = (m[g.r.proyecto] || 0) + 1
@@ -84,14 +86,14 @@ export default function Facturacion() {
   }, [grupos])
 
   async function subir(g, file) {
-    const nota = await pedir('N° de la boleta o factura (opcional, ej: B001-123):', { valor: '' })
-    if (nota === null) return
+    // el N° ya no se pregunta: lo lee la IA y queda como nota del comprobante (sql/151)
+    const nota = ''
     setSubiendo(g.key)
     try {
       const url = await upload('comprobantes/' + g.items[0].id, file)
       const { error } = await supabase.rpc('facturacion_subir', { p_ids: g.items.map(x => x.id), p_url: url, p_nota: nota.trim().toUpperCase() || null })
       if (error) throw error
-      setMsg({ ok: true, t: 'COMPROBANTE SUBIDO: ' + g.r.proyecto + ' · ' + (g.r.mz ? 'MZ ' + g.r.mz + ' LT ' + g.r.lt + ' · ' : '') + soles(g.total) })
+      setMsg({ ok: true, t: 'COMPROBANTE SUBIDO, LA IA LO ESTÁ LEYENDO: ' + g.r.proyecto + ' · ' + (g.r.mz ? 'MZ ' + g.r.mz + ' LT ' + g.r.lt + ' · ' : '') + soles(g.total) })
       savedFx(); cargar()
     } catch (e) { setMsg({ ok: false, t: e.message || String(e) }) }
     setSubiendo(null)
@@ -166,6 +168,7 @@ export default function Facturacion() {
                     {g.comprobante ? (<>
                       <button className="link-btn" onClick={() => setVerDoc({ url: g.comprobante.receipt_url, titulo: 'Comprobante · ' + (g.comprobante.receipt_note || fechaPe(g.r.date)) })}>VER</button>
                       {g.comprobante.receipt_note && <span className="muted small"> {g.comprobante.receipt_note}</span>}
+                      {' '}<ChipLectura l={lecturas.porUrl[g.comprobante.receipt_url]} puedeRevisar onCambio={lecturas.recargar} />
                       {g.esMio && <label className="link-btn small" style={{ marginLeft: 6 }}>cambiar
                         <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subir(g, e.target.files[0])} /></label>}
                     </>) : g.electronico ? (

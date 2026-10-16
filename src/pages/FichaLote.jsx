@@ -9,6 +9,7 @@ import { useProject } from '../context/ProjectContext'
 import EstadoCuentaDownload from '../components/EstadoCuentaDownload'
 import BuscarLote from '../components/BuscarLote'
 import Buscador from '../components/Buscador'
+import { useLecturasBoleta, ChipLectura } from '../components/LecturaBoleta'
 import DetallePago, { DialogoEnviarRecibo } from '../components/DetallePago'
 import CobroModal from '../components/CobroModal'
 import ContratoModal from '../components/ContratoModal'
@@ -1118,6 +1119,8 @@ export default function FichaLote() {
 
   const grupos = useMemo(() => agruparPagos(pagos)
     .sort((a, b) => (b.referencia.date || '').localeCompare(a.referencia.date || '')), [pagos])
+  // la lectura con IA de las boletas subidas (sql/151): ✓ / ⚠ al lado del VER
+  const lecturas = useLecturasBoleta(useMemo(() => grupos.map(g => g.comprobanteUrl), [grupos]))
   const faltaVoucher = grupos.filter(g => !g.voucherUrl && !g.voucherNA).length
   const faltaComprobante = grupos.filter(g => !g.comprobanteUrl && !g.comprobanteNA).length
   const gruposVista = useMemo(() => {
@@ -1173,6 +1176,7 @@ export default function FichaLote() {
       <DocsDeposito g={g} docs={esVoucher ? g.voucherDocs : g.comprobanteDocs} campo={campo} readOnly={readOnly}
         onOtro={file => subirOtro(g, file, campo)} />
       {/* la boleta o factura que subió facturación, al cliente por WhatsApp (sql/148) */}
+      {!esVoucher && <ChipLectura l={lecturas.porUrl[url]} puedeRevisar={role === 'admin' || role === 'superuser'} onCambio={lecturas.recargar} />}
       {!esVoucher && !readOnly && role !== 'facturacion' &&
         <button type="button" className="cp-emitir" style={{ display: 'block', marginTop: 3 }}
           title="Enviar esta boleta o factura al cliente por WhatsApp" onClick={() => setEnviarDe(g)}>📲 Enviar</button>}

@@ -1517,3 +1517,15 @@ span.cp-chip { cursor: default; }
 .sg-texto textarea { width: 100%; text-transform: none; font-family: Georgia, 'Times New Roman', serif; font-size: .86rem; line-height: 1.45; }
 .sg-vars { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin: .4rem 0; font-size: .72rem; color: var(--muted); text-transform: none; }
 .sg-vars code { font-size: .7rem; }
+/* lectura con IA de la boleta subida (sql/151) */
+.cp-lect { display: inline-block; margin: 2px 0 0 4px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.18); background: transparent; color: var(--muted); white-space: nowrap; }
+.cp-lect.ok { color: var(--ok); border-color: rgba(37,211,102,.4); }
+.cp-lect.no { color: #e0b23f; border-color: rgba(224,178,63,.5); }
+.cp-valid { list-style: none; padding: 0; margin: .5rem 0; text-transform: none; font-size: .85rem; }
+.cp-valid li { margin: .25rem 0; }
+.cp-valid li.ok b { color: var(--ok); }
+.cp-valid li.duda b { color: var(--muted); }
+.cp-valid li.mal { color: #e0b23f; }
+.cp-aviso { margin: .3rem 0 .5rem; padding: .4rem .6rem; border-radius: 8px; border: 1px solid rgba(224,178,63,.45); background: rgba(224,178,63,.08); text-transform: none; font-size: .82rem; }
+.cp-aviso p { margin: 0; }
