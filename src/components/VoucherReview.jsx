@@ -43,7 +43,10 @@ export default function VoucherReview({ file, ocr, cuentaSugerida, montoActual, 
   return (
     <div className="vr span2">
       <div className="vr-img">
-        <img ref={imgRef} src={url} alt="voucher" onLoad={e => setRender({ w: e.target.clientWidth, h: e.target.clientHeight })} />
+        {/* un PDF (lo lee la IA, sql/154) se muestra tal cual, sin cuadros */}
+        {/pdf/i.test(file?.type || '') || /\.pdf$/i.test(file?.name || '')
+          ? <iframe src={url} title="voucher" style={{ width: '100%', minHeight: 380, border: 0 }} />
+          : <img ref={imgRef} src={url} alt="voucher" onLoad={e => setRender({ w: e.target.clientWidth, h: e.target.clientHeight })} />}
 
         {/* Todo monto del voucher es clickeable: si el automatico agarro el que
             no era (ej. el total con comision), se elige el correcto con un clic. */}
@@ -89,7 +92,7 @@ export default function VoucherReview({ file, ocr, cuentaSugerida, montoActual, 
       </div>
 
       <div className="vr-datos">
-        <p className="vr-tit">📸 Leído del voucher <span className="muted small">({ocr.confianza}%)</span></p>
+        <p className="vr-tit">📸 Leído del voucher <span className="muted small">({typeof ocr.confianza === 'number' ? ocr.confianza + '%' : 'leído con ' + ocr.confianza})</span></p>
 
         {/* Aviso clave: en vouchers con comision hay varios montos y el automatico
             toma el mas alto, que suele ser el total y NO lo que entra a caja. */}

@@ -29,6 +29,18 @@ const LECTOR = require('./lector_comprobantes')({ supabase, log: (...a) => log(.
 const LECTOR_DNI = require('./lector_dni')({ supabase, log: (...a) => log(...a) })
 // lee con IA la boleta o factura que sube facturación y la compara con el pago (sql/151)
 const LECTOR_BOLETAS = require('./lector_boletas')({ supabase, log: (...a) => log(...a) })
+// lee con IA el voucher del cobro y pide por Telegram aprobar el voucher repetido (sql/154)
+const LECTOR_VOUCHERS = require('./lector_vouchers')({
+  supabase, log: (...a) => log(...a),
+  tg: TG.activo() ? {
+    enviarBotones: async (phone, texto, botones) => {
+      const chat = TGREG ? await TGREG.chatDe(phone) : null
+      const msg = chat ? await TG.tgEnviarBotones(chat, texto, botones) : null
+      return msg ? { chat, msg } : null
+    },
+    editar: (chat, msg, texto) => TG.tgEditar(chat, msg, texto, null),
+  } : null,
+})
 // avisos de firma de gastos: a quien pide y a los socios, cada 4 horas, WhatsApp y Telegram (sql/135)
 const AVISOS_FIRMA = require('./avisos_firma').crearAvisosFirma({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
 // trae el nombre de un DNI o la razón social de un RUC al emitir un comprobante (sql/119)
@@ -3548,6 +3560,9 @@ setInterval(() => { LECTOR.procesar().catch(e => log('lector comprobantes:', Str
 // DNI que el panel pidió leer (la secretaria espera con el formulario abierto: cada 2 s)
 setInterval(() => { LECTOR_DNI.procesar().catch(e => log('lector dni:', String(e.message || e))) }, 2000)
 setInterval(() => { LECTOR_BOLETAS.procesar().catch(e => log('lector boletas:', String(e.message || e))) }, 5000)
+// el voucher se lee mientras la secretaria espera: se mira seguido
+setInterval(() => { LECTOR_VOUCHERS.procesar().catch(e => log('lector vouchers:', String(e.message || e))) }, 1500)
+setInterval(() => { LECTOR_VOUCHERS.enviarAprobaciones().catch(e => log('aprobaciones voucher:', String(e.message || e))) }, 5000)
 // DNI / RUC que el panel pidió consultar (la secretaria espera con el formulario abierto: cada 1,5 s)
 setInterval(() => { CONSULTA_DOC.procesar().catch(e => log('consulta doc:', String(e.message || e))) }, 1500)
 // comprobantes que el panel pidió emitir (la secretaria espera con la ficha abierta: cada 4 s)
@@ -3773,6 +3788,8 @@ async function manejarBotonTg(chatId, dato, msgId) {
   const phone = await TGREG.telDe(chatId).catch(() => null)
   if (!phone) { await TG.tgEnviar(chatId, '🔒 Primero vincúlate: toca *📱 Compartir mi número*.', TG.BOTON_NUMERO); return }
   const esAdmin = ADMIN && phone.slice(-9) === ADMIN.slice(-9)
+  // ✅/❌ del voucher repetido (sql/154): solo el superusuario
+  if (dato.startsWith('vap:')) { await LECTOR_VOUCHERS.boton(chatId, dato, msgId, phone); return }
 
   if (dato === 'sr_check') {
     // re-mira los chats sin respuesta AHORA y edita la alarma con la foto fresca

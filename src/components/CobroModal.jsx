@@ -149,6 +149,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
 
   function validar() {
     const ePago = validarPago(pago, { voucherObligatorio: modo !== 'cuadre' })
+    // voucher repetido (mismo N° de operación y monto) sin aprobar del superusuario (sql/154)
+    if (pago.bloqueo) return 'Este voucher ya está registrado (mismo N° de operación y monto). Pide la aprobación del superusuario con el botón rojo de arriba.'
     if (modo === 'separacion') {
       if (!celularValido(cel)) return 'Escribe un celular válido (9 dígitos).'
       if (clienteSel === 'nuevo' && nombre.trim().length < 5) return 'Escribe el nombre completo de quien separa.'
@@ -321,7 +323,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               {hallado?.lead && (
                 <p className="hint small">&#128227; Es un lead de WhatsApp: <b>{hallado.lead.full_name}</b> ({String(hallado.lead.status).replace('_', ' ')}). Al separar pasa a <b>en negociación</b> y Campañas lo cuenta.</p>
               )}
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} paso={2}>
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={2}>
                 <label>Vence el <input type="date" value={vence} onChange={e => setVence(e.target.value)} /></label>
                 {Vendedor}
                 {secs.length > 0 && (
@@ -376,7 +378,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 </>)}
               </div>
 
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} paso={2}>
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={2}>
                 <label>Precio de venta S/ <input type="number" step="0.01" value={precio} onChange={e => setPrecio(e.target.value)} /></label>
                 <label>N° de cuotas <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(e.target.value)} /></label>
                 <label>Primera cuota vence el <input type="date" value={primeraCuota} onChange={e => setPrimeraCuota(e.target.value)} /></label>
@@ -400,7 +402,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 Cliente: <b>{sale.client?.full_name}</b>
                 {primera ? <> · toca la cuota N° {primera.installment_number}: <b>{soles(debePrimera)}</b>, vence {fechaPe(primera.due_date)}</> : ' · no tiene cuotas pendientes'}
               </p>
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} paso={1}
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={1}
                 esperado={primera ? { monto: debePrimera, n: primera.installment_number } : null} />
               {plan?.parts.length > 0 && (
                 <div className="cobro-resumen">
@@ -431,7 +433,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                   {cuadreTipo === 'separacion' && detail.sepPagado > 0 && <b className="bad"> Ojo: ya tiene separación, no la dupliques.</b>}
                 </p>
               </div>
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} paso={1} voucherObligatorio={false} />
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={1} voucherObligatorio={false} />
             </>)}
 
             {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
