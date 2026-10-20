@@ -83,6 +83,7 @@ export default function Expenses() {
   const [paso, setPaso] = useState(1)                   // la solicitud se llena por pasos (1 a 4)
   const [faltaPaso, setFaltaPaso] = useState('')        // lo que falta para pasar al siguiente
   const [conDetalle, setConDetalle] = useState(false)   // la tabla de detalle, opcional
+  const [filasEd, setFilasEd] = useState(null)          // { detail, filas }: las filas tal cual se editan, vacías incluidas
   const [editTexto, setEditTexto] = useState(false)     // el texto de ESTA constancia, abierto para editar (sql/143)
   const [editId, setEditId] = useState(null)
   const [prt, setPrt] = useState(null)
@@ -203,7 +204,7 @@ export default function Expenses() {
     })
     setEditTexto(false)
     setEditId(g.id); setShow(true); setMsg(null)
-    setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail)
+    setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -568,7 +569,7 @@ export default function Expenses() {
   const elegirQue = a => { setF(x => ({ ...x, ...a.f })); setFaltaPaso('') }
   const atajoActivo = a => a.f.type === f.type && (!a.f.description || String(f.description || '').startsWith(a.f.description.slice(0, 15)))
   const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
-  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setEditTexto(false); setMsg(null) }
+  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setFilasEd(null); setEditTexto(false); setMsg(null) }
 
   // ---- LA SOLICITUD POR PASOS (10 oct 2026, pedido del dueño: "más práctico de
   // entender, con ejemplos") ----
@@ -610,7 +611,7 @@ export default function Expenses() {
       payment_method: g.payment_method, document_type: g.document_type, description: g.description, detail: g.detail,
       plantilla_propia: g.plantilla_propia || '',
     })
-    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setEditTexto(false)
+    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null); setEditTexto(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -635,15 +636,22 @@ export default function Expenses() {
   const esFechaDmy = s => /^\d{2}\/\d{2}\/\d{4}$/.test(s || '')
   const aIso = d => esFechaDmy(d) ? d.slice(6, 10) + '-' + d.slice(3, 5) + '-' + d.slice(0, 2) : ''
   const aDmy = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.slice(8, 10) + '/' + v.slice(5, 7) + '/' + v.slice(0, 4) : v
+  // En el texto guardado solo van las filas con descripción o monto; las vacías
+  // (recién agregadas o con solo la fecha) viven en filasEd mientras se escribe.
+  // Antes la tabla salía SOLO del texto, y "+ Agregar fila" no hacía nada: la
+  // fila vacía se descartaba al guardarse.
   const filas = (f.detail || '').split('\n').map(l => l.split('|').map(x => x.trim()))
     .filter(a => a.some(Boolean)).map(a => ({ fecha: a[0] || '', desc: a[1] || '', monto: a[2] || '' }))
-  const filasVista = filas.length ? filas : [{ fecha: '', desc: '', monto: '' }]
-  const guardarFilas = fs => setF(x => ({
-    ...x,
-    detail: fs.filter(r => r.desc || r.monto).map(r => [r.fecha, r.desc, r.monto].join(' | ')).join('\n'),
-  }))
+  const filasVista = filasEd && filasEd.detail === (f.detail || '') ? filasEd.filas
+    : filas.length ? filas : [{ fecha: '', desc: '', monto: '' }]
+  const guardarFilas = fs => {
+    const detail = fs.filter(r => r.desc || r.monto).map(r => [r.fecha, r.desc, r.monto].join(' | ')).join('\n')
+    setFilasEd({ detail, filas: fs })
+    setF(x => ({ ...x, detail }))
+  }
+  // la barra separa las columnas: escrita a mano partiría la fila
   const setFila = (i, campo, valor) => guardarFilas(filasVista.map((r, j) =>
-    j === i ? { ...r, [campo]: campo === 'fecha' ? aDmy(valor) : valor } : r))
+    j === i ? { ...r, [campo]: campo === 'fecha' ? aDmy(valor) : String(valor).replace(/\|/g, '/') } : r))
   const totalDetalle = filasVista.reduce((s, r) => s + Number(r.monto || 0), 0)
 
   const IN = (k, label, type = 'text', req = false) => (
