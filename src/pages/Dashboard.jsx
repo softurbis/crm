@@ -291,20 +291,23 @@ export default function Dashboard() {
     const porTipo = agrupar(mes, g => g.type).map((x, i) => ({ ...x, color: COL[i % COL.length] }))
     const motivoDe = g => {
       const t = sinTildes([g.description, g.type].join(' ')).toUpperCase()
+      // antes que publicidad: "infraestructura DIGITAL" o "asistente IA" no son anuncios
+      if (/TECNOLOG|SOFTWARE|HOSTING|DOMINIO|SERVIDOR|ASISTENTE IA|IA|SISTEMA URBIS|PROGRAMA/.test(t)) return '💻 Tecnología'
       const m = MOTIVOS.find(mo => mo.re.test(t))
       if (m) return m.t
       // sin palabra clave: el TIPO del gasto decide (los "GASTOS ADMINISTRATIVOS DEL MES" no traen otra pista)
       return g.type === 'GASTOS ADMINISTRATIVOS' ? '🏢 Administrativos' : g.type === 'GASTOS DE DESARROLLO' ? '🚜 Desarrollo del proyecto' : g.type === 'PAGO DE COMISION' ? '🤝 Comisiones' : '📦 Otros'
     }
     const porMotivo = agrupar(mes, motivoDe).slice(0, 8).map((x, i) => ({ ...x, color: COL[i % COL.length] }))
-    const porReceptor = agrupar(mes, g => g.recipient).slice(0, 8).map(x => ({ ...x, color: '#d9754f' }))
+    const masGrandes = [...mes].sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 6)
+      .map(g => ({ label: (g.description || g.type || '').slice(0, 70), valor: Math.round(Number(g.amount || 0)), color: '#d9754f' }))
     const tabla = [...delMes].sort((a, b) => fecha(a) < fecha(b) ? 1 : -1).map(g => ({ ...g, estado: estado(g), fecha: fecha(g) }))
     const dif = suma(mes) - suma(mesAnt)
     return {
       ym, ymAnt, esHoy: ym === ymHoy, total: suma(mes), n: mes.length, totalAnt: suma(mesAnt), nAnt: mesAnt.length, dif,
       pct: suma(mesAnt) ? dif / suma(mesAnt) * 100 : null, anio: suma(anio), nAnio: anio.length, prom6,
       porAprobar: { n: porAprobar.length, total: suma(porAprobar) }, pagoPendiente: { n: pagoPendiente.length, total: suma(pagoPendiente) },
-      porTipo, porMotivo, porReceptor, tabla, cobradoMes: D.meses[ym]?.rec || 0,
+      porTipo, porMotivo, masGrandes, tabla, cobradoMes: D.meses[ym]?.rec || 0,
     }
   }, [raw, D, fmes])
 
@@ -1051,8 +1054,8 @@ export default function Dashboard() {
 
         <div className="graf-2">
           <div className="glass form-card">
-            <h2 className="sub">A QUIÉN SE LE PAGÓ</h2>
-            {gv.porReceptor.length ? <BarrasH filas={gv.porReceptor} /> : <p className="muted small">Sin gastos pagados en este mes.</p>}
+            <h2 className="sub">LOS MÁS GRANDES DEL MES</h2>
+            {gv.masGrandes.length ? <BarrasH filas={gv.masGrandes} /> : <p className="muted small">Sin gastos pagados en este mes.</p>}
           </div>
           <div className="glass form-card">
             <h2 className="sub">POR TIPO</h2>
