@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import { Reloj, BarrasMes, Rosca, BarrasH, Chispa, Lineas, corto } from '../components/Graficos'
 import { hoyPeru, saldoCuota, TOLERANCIA_CUOTA } from '../lib/lotes'
+import { MOTIVOS, sinTildes } from '../lib/buscarGastos'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const MESES_L = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
@@ -72,7 +73,7 @@ export default function Dashboard() {
     async function load() {
       const ids = pid === 'general' ? projects.map(p => p.id) : [pid]
       if (!ids.length) return
-      const COLS_GASTOS = 'id, project_id, amount, issue_date, reception_date, status, type, recipient, description'
+      const COLS_GASTOS = 'id, project_id, amount, issue_date, reception_date, status, type, recipient, description, request_number, requester_id, requester_signed_at, approved_at, rejected_at, voucher_url, receipt_url'
       const hoy = new Date().toISOString().slice(0, 10)
       const ym = hoy.slice(0, 7)
       const en180 = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10)
@@ -253,6 +254,59 @@ export default function Dashboard() {
       ym, lbl: MESES_L[Number(ym.split('-')[1]) - 1].slice(0, 3) + " '" + ym.slice(2, 4), ...D.meses[ym],
     }))
   }, [D])
+
+  // ---- PESTAÑA GASTOS (21 oct 2026): el tablero de gastos de la socia ----
+  // Cuenta solo lo PAGADO (status distinto de 'solicitado'), igual que las
+  // tarjetas de "RESUMEN DE <MES>". Lo que todavía espera firma o voucher sale
+  // aparte, en sus propias tarjetas y en la tabla con su estado; en la pantalla
+  // Gastos el total "Este mes" los suma todos juntos y eso confunde.
+  const gv = useMemo(() => {
+    if (!raw || !D) return null
+    const todos = raw.expenses
+    const ymHoy = raw.hoy.slice(0, 7)
+    const ym = fmes !== 'todos' ? fmes : ymHoy
+    const [y, m] = ym.split('-').map(Number)
+    const ymAnt = (m === 1 ? (y - 1) + '-12' : y + '-' + String(m - 1).padStart(2, '0'))
+    const fecha = g => (g.issue_date || g.reception_date || '').slice(0, 10)
+    const pagado = g => g.status !== 'solicitado'
+    const estado = g => pagado(g) ? 'pagado' : g.rejected_at ? 'rechazado' : g.approved_at ? 'pago_pendiente'
+      : (g.requester_id && !g.requester_signed_at) ? 'por_firmar' : 'por_aprobar'
+    const suma = l => l.reduce((s, g) => s + Number(g.amount || 0), 0)
+    const delMes = todos.filter(g => fecha(g).slice(0, 7) === ym)
+    const mes = delMes.filter(pagado)
+    const mesAnt = todos.filter(g => pagado(g) && fecha(g).slice(0, 7) === ymAnt)
+    const anio = todos.filter(g => pagado(g) && fecha(g).slice(0, 4) === ym.slice(0, 4))
+    // promedio de los 6 meses cerrados anteriores al elegido
+    const ult6 = []
+    for (let i = 1; i <= 6; i++) { const d = new Date(Date.UTC(y, m - 1 - i, 1)); ult6.push(d.toISOString().slice(0, 7)) }
+    const prom6 = Math.round(suma(todos.filter(g => pagado(g) && ult6.includes(fecha(g).slice(0, 7)))) / 6 * 100) / 100
+    const porAprobar = todos.filter(g => estado(g) === 'por_aprobar')
+    const pagoPendiente = todos.filter(g => estado(g) === 'pago_pendiente')
+    const agrupar = (lista, clave) => {
+      const acc = {}
+      for (const g of lista) { const k = clave(g) || 'SIN DATO'; acc[k] = (acc[k] || 0) + Number(g.amount || 0) }
+      return Object.entries(acc).sort((a, b) => b[1] - a[1]).map(([label, valor]) => ({ label, valor: Math.round(valor) }))
+    }
+    const COL = ['#d9754f', '#e0a13f', '#c58ae0', '#7bb6e0', '#6fd1c0', '#9daab6']
+    const porTipo = agrupar(mes, g => g.type).map((x, i) => ({ ...x, color: COL[i % COL.length] }))
+    const motivoDe = g => {
+      const t = sinTildes([g.description, g.type].join(' ')).toUpperCase()
+      const m = MOTIVOS.find(mo => mo.re.test(t))
+      if (m) return m.t
+      // sin palabra clave: el TIPO del gasto decide (los "GASTOS ADMINISTRATIVOS DEL MES" no traen otra pista)
+      return g.type === 'GASTOS ADMINISTRATIVOS' ? '🏢 Administrativos' : g.type === 'GASTOS DE DESARROLLO' ? '🚜 Desarrollo del proyecto' : g.type === 'PAGO DE COMISION' ? '🤝 Comisiones' : '📦 Otros'
+    }
+    const porMotivo = agrupar(mes, motivoDe).slice(0, 8).map((x, i) => ({ ...x, color: COL[i % COL.length] }))
+    const porReceptor = agrupar(mes, g => g.recipient).slice(0, 8).map(x => ({ ...x, color: '#d9754f' }))
+    const tabla = [...delMes].sort((a, b) => fecha(a) < fecha(b) ? 1 : -1).map(g => ({ ...g, estado: estado(g), fecha: fecha(g) }))
+    const dif = suma(mes) - suma(mesAnt)
+    return {
+      ym, ymAnt, esHoy: ym === ymHoy, total: suma(mes), n: mes.length, totalAnt: suma(mesAnt), nAnt: mesAnt.length, dif,
+      pct: suma(mesAnt) ? dif / suma(mesAnt) * 100 : null, anio: suma(anio), nAnio: anio.length, prom6,
+      porAprobar: { n: porAprobar.length, total: suma(porAprobar) }, pagoPendiente: { n: pagoPendiente.length, total: suma(pagoPendiente) },
+      porTipo, porMotivo, porReceptor, tabla, cobradoMes: D.meses[ym]?.rec || 0,
+    }
+  }, [raw, D, fmes])
 
   // ---- composicion de los lotes, para la rosca ----
   const compo = useMemo(() => {
@@ -479,6 +533,7 @@ export default function Dashboard() {
     ['resumen', 'Resumen'],
     ['cobranza', 'Cobranza'],
     ['ventas', 'Ventas'],
+    ['gastos', 'Gastos'],
     hayProyectos && ['proyectos', 'Proyectos'],
     role === 'superuser' && ['sistema', 'Sistema'],
   ].filter(Boolean)
@@ -493,7 +548,8 @@ export default function Dashboard() {
   // a Cobranza, que es donde vive el resumen de ese mes, y lo deja a la vista.
   const verMes = ym => {
     setFmes(ym)
-    if (ym !== 'todos') { irATab('cobranza'); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+    // en la pestaña Gastos el mes se queda ahí: su resumen vive en esa misma pestaña
+    if (ym !== 'todos' && tabActiva !== 'gastos') { irATab('cobranza'); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   }
 
   return (
@@ -941,6 +997,106 @@ export default function Dashboard() {
       </>)}
 
       {/* ================= PESTAÑA: PROYECTOS ================= */}
+      {/* ================= PESTAÑA: GASTOS ================= */}
+      {tabActiva === 'gastos' && gv && (<>
+        <div className="glass form-card mes-box" style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <h2 className="sub" style={{ margin: 0 }}>GASTOS DE {mesLbl(gv.ym)}</h2>
+            <span className="muted small" style={{ textTransform: 'none' }}>
+              {gv.esHoy && fmes === 'todos' ? 'el mes en curso · elige otro mes arriba' : 'elegido arriba'} · solo lo ya pagado
+            </span>
+            <button className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/gastos')}>Abrir la pantalla Gastos →</button>
+          </div>
+          <div className="cards">
+            <div className="glass card"><p className="muted">GASTADO EN EL MES</p><p className="kpi" style={{ color: '#d9754f' }}>{soles(gv.total)}</p><p className="muted small">{gv.n} {gv.n === 1 ? 'gasto pagado' : 'gastos pagados'}</p></div>
+            <div className="glass card"><p className="muted">MES ANTERIOR ({mesLbl(gv.ymAnt).split(' ')[0]})</p><p className="kpi">{soles(gv.totalAnt)}</p>
+              <p className={gv.dif > 0 ? 'bad small' : 'ok small'} style={{ textTransform: 'none' }}>
+                {gv.nAnt ? (gv.dif > 0 ? '▲ ' : '▼ ') + soles(Math.abs(gv.dif)) + (gv.dif > 0 ? ' más' : ' menos') + ' este mes' + (gv.pct != null ? ' (' + (gv.pct >= 0 ? '+' : '') + gv.pct.toFixed(0) + '%)' : '') : 'sin gastos ese mes'}
+              </p></div>
+            <div className="glass card"><p className="muted">PROMEDIO MENSUAL</p><p className="kpi">{soles(gv.prom6)}</p><p className="muted small">6 meses anteriores</p></div>
+            <div className="glass card"><p className="muted">EN EL AÑO {gv.ym.slice(0, 4)}</p><p className="kpi">{soles(gv.anio)}</p><p className="muted small">{gv.nAnio} gastos pagados</p></div>
+            <div className="glass card"><p className="muted">COBRADO EN EL MES</p><p className="kpi">{soles(gv.cobradoMes)}</p>
+              <p className={gv.cobradoMes - gv.total >= 0 ? 'ok small' : 'bad small'} style={{ textTransform: 'none' }}>balance {soles(gv.cobradoMes - gv.total)}</p></div>
+          </div>
+        </div>
+
+        {(gv.porAprobar.n > 0 || gv.pagoPendiente.n > 0) && (
+          <div className="cards" style={{ marginBottom: '1rem' }}>
+            {gv.porAprobar.n > 0 && (
+              <button type="button" className="glass card" style={{ textAlign: 'left', cursor: 'pointer', borderLeft: '4px solid #e0a13f' }} onClick={() => navigate('/gastos')}>
+                <p className="muted">✍ ESPERAN TU FIRMA</p><p className="kpi" style={{ color: '#e0a13f' }}>{soles(gv.porAprobar.total)}</p>
+                <p className="muted small">{gv.porAprobar.n} {gv.porAprobar.n === 1 ? 'solicitud' : 'solicitudes'} · no cuentan todavía como gasto · firmar en Gastos →</p>
+              </button>
+            )}
+            {gv.pagoPendiente.n > 0 && (
+              <button type="button" className="glass card" style={{ textAlign: 'left', cursor: 'pointer', borderLeft: '4px solid #7bb6e0' }} onClick={() => navigate('/gastos')}>
+                <p className="muted">💸 APROBADOS, FALTA EL VOUCHER</p><p className="kpi" style={{ color: '#7bb6e0' }}>{soles(gv.pagoPendiente.total)}</p>
+                <p className="muted small">{gv.pagoPendiente.n} {gv.pagoPendiente.n === 1 ? 'gasto' : 'gastos'} · se suman al pagar · subir el voucher en Gastos →</p>
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="graf-2">
+          <div className="glass form-card">
+            <h2 className="sub">GASTOS CONTRA LO COBRADO — ÚLTIMOS {serie.length} MESES</h2>
+            <BarrasMes meses={serie} alto={280} onMes={ym => setFmes(ym)} />
+            <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Toca una barra para ver ese mes aquí.</p>
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">EN QUÉ SE FUE {mesLbl(gv.ym).split(' ')[0]}</h2>
+            {gv.porMotivo.length ? <BarrasH filas={gv.porMotivo} /> : <p className="muted small">Sin gastos pagados en este mes.</p>}
+          </div>
+        </div>
+
+        <div className="graf-2">
+          <div className="glass form-card">
+            <h2 className="sub">A QUIÉN SE LE PAGÓ</h2>
+            {gv.porReceptor.length ? <BarrasH filas={gv.porReceptor} /> : <p className="muted small">Sin gastos pagados en este mes.</p>}
+          </div>
+          <div className="glass form-card">
+            <h2 className="sub">POR TIPO</h2>
+            {gv.porTipo.length ? <Rosca partes={gv.porTipo} centro={corto(gv.total)} titulo="gastado" formato={soles} /> : <p className="muted small">Sin gastos pagados en este mes.</p>}
+          </div>
+        </div>
+
+        <div className="glass form-card mes-box">
+          <h2 className="sub" style={{ margin: '0 0 .6rem' }}>DETALLE DE {mesLbl(gv.ym)} ({gv.tabla.length})</h2>
+          {gv.tabla.length === 0 ? <p className="muted small">No hay gastos registrados en este mes.</p> : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Fecha</th><th>N°</th><th>Tipo</th><th>Receptor</th><th>Descripción</th><th>Monto</th><th>Estado</th><th>Docs</th></tr></thead>
+                <tbody>
+                  {gv.tabla.map(g => (
+                    <tr key={g.id} style={g.estado !== 'pagado' ? { opacity: .75 } : undefined}>
+                      <td>{g.fecha}</td>
+                      <td>{g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : '—'}</td>
+                      <td>{g.type}</td>
+                      <td>{g.recipient || '-'}</td>
+                      <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.description}>{g.description || '-'}</td>
+                      <td><b>{soles(g.amount)}</b></td>
+                      <td>{g.estado === 'pagado' ? <span className="st-chip st-ok">PAGADO</span>
+                        : g.estado === 'rechazado' ? <span className="st-chip" style={{ background: 'rgba(217,83,79,.18)', color: '#e07a76' }}>RECHAZADO</span>
+                        : g.estado === 'pago_pendiente' ? <span className="st-chip" style={{ background: 'rgba(123,182,224,.18)', color: '#7bb6e0' }}>FALTA VOUCHER</span>
+                        : g.estado === 'por_firmar' ? <span className="st-chip" style={{ background: 'rgba(224,161,63,.18)', color: '#e0a13f' }}>POR FIRMAR (SOLICITANTE)</span>
+                        : <span className="st-chip" style={{ background: 'rgba(224,161,63,.18)', color: '#e0a13f' }}>ESPERA TU FIRMA</span>}</td>
+                      <td className="small">
+                        {g.voucher_url ? <a href={g.voucher_url} target="_blank" rel="noreferrer">voucher</a> : <span className="muted">—</span>}
+                        {' · '}
+                        {g.receipt_url ? <a href={g.receipt_url} target="_blank" rel="noreferrer">RH/factura</a> : <span className="muted">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+            Los gastos que esperan firma o voucher aparecen atenuados y no entran en el total hasta que se pagan. El mes es el de la fecha del gasto.
+          </p>
+        </div>
+      </>)}
+
       {tabActiva === 'proyectos' && (<>
         {/* ---- RITMO Y HORIZONTE, PROYECTO POR PROYECTO ---- */}
         {comp?.ritmos?.length > 0 && (
