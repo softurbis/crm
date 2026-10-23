@@ -3,7 +3,8 @@
 // una hoja con todos los lotes con deuda y una hoja por proyecto con cada cuota
 // vencida y los datos del cliente. exceljs se carga solo cuando se pide el informe.
 const fechaPe = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : ''
-const fechaCelda = f => f ? new Date(String(f).slice(0, 10) + 'T12:00:00') : null
+// la fecha como día puro (UTC): Excel la muestra sin hora, sin correrse por la zona horaria
+const fechaCelda = f => { if (!f) return null; const [y, m, d] = String(f).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)) }
 const num = n => (n === null || n === undefined || n === '') ? null : Number(n)
 const SOLES = '"S/ "#,##0.00'
 const FECHA = 'dd/mm/yyyy'
@@ -115,7 +116,7 @@ export async function descargarExcelDeudores(filas, { usuario = '', titulo = 'Cu
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = 'cuotas-vencidas-' + fechaPe(hoy.toISOString()).replace(/\//g, '-') + '.xlsx'
+  a.download = 'cuotas-vencidas-' + fechaPe(new Date(Date.now() - 5 * 3600 * 1000).toISOString()).replace(/\//g, '-') + '.xlsx'   // fecha Perú
   document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(a.href), 5000)
 }
