@@ -37,6 +37,7 @@ const Comprobantes = lazy(() => import('./pages/Comprobantes'))
 const Planilla = lazy(() => import('./pages/Planilla'))
 const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
+const Deudores = lazy(() => import('./pages/Deudores'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
@@ -128,6 +129,8 @@ export default function App() {
           <Route path="gastos" element={<Expenses />} />
           <Route path="facturacion" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><Facturacion /></Vedada>} />
           <Route path="facturacion/gastos" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><GastosFacturacion /></Vedada>} />
+          {/* lotes con deuda + informe Excel de cuotas vencidas (sql/156) */}
+          <Route path="facturacion/deudores" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><Deudores /></Vedada>} />
           <Route path="planilla" element={<Vedada para={a => !a.esSuper && !(a.profile?.permisos || []).includes('planilla')}><Planilla /></Vedada>} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="comisiones" element={<Commissions />} />

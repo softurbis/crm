@@ -126,6 +126,7 @@ function TarjetasPendientes({ porFirmar, porPagar, esSocia, onIr }) {
 // (sql/145): lo ve todo, imprime y sube el voucher de los pagos de la socia.
 const MENU_FACTURACION = { to: '/facturacion', end: true, label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
 const MENU_FACT_GASTOS = { to: '/facturacion/gastos', label: 'Gastos', icon: '💸', color: '#e0b23f' }
+const MENU_FACT_DEUDORES = { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', color: '#e05252' }
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
 const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
@@ -320,7 +321,7 @@ export default function Layout() {
           {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
           {role === 'asesor'
             ? MENU.filter(m => m.to === '/whatsapp').map(Item)
-            : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}</>
+            : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
                     (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}
