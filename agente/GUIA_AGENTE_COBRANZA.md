@@ -6,6 +6,62 @@
 > ⚠️ **Regla de oro:** el token de Meta, la clave de Claude y los datos de la tarjeta
 > **nunca** van por el chat. Van directo al servidor o a Meta.
 
+## ✅ 27 oct 2026 — EL NÚMERO ÚNICO ES EL 960 DE PRADERAS (coexistencia por C-Soft)
+
+**Decisión del dueño:** el **+51 960 487 000** (Praderas de Cashibo) es el número único
+de cobranza y consultas de **todos** los proyectos. El 986 598 614 quedó marcado por
+Meta (bloqueo del 7 oct) y no entra a la coexistencia: ya no es el de cobranzas.
+
+El 960 quedó conectado en coexistencia el 27 oct por el conector del panel de C-Soft
+(César O'Higgins es proveedor de tecnología aprobado, app `1610624240443608`): Meta
+creó la cuenta (WABA) **`561949730334089`** con el número **`575708528962509`**, y la
+copia del historial llegó. El chip sigue en el celular y en Baileys (bot de ventas).
+
+**Cómo se reparten los dos caminos (regla, nunca contestan los dos):**
+
+| Quién escribe al 960 | Quién contesta | Quién se calla |
+|---|---|---|
+| Teléfono en la ficha de un cliente de cualquier proyecto (celular 1 o 2) | agente de cobranza por la API (`cobranza.js`) | el bot de ventas (Baileys): solo guarda el mensaje en el chat del panel |
+| No está en ninguna ficha (es lead) | bot de ventas por Baileys | el agente: ni guarda ni contesta |
+| La secretaria escribe desde el celular (eco `smb_message_echoes`) | nadie: el agente pasa ese chat a "humano" | — (a un lead el eco se ignora) |
+
+La regla vive en **un solo archivo**, `agente/quien_escribe.js`, y la usan los dos lados.
+El aviso "escríbanos al 986" que mandaba el bot de leads **se eliminó** (pedido del dueño,
+27 oct). Cliente con el celular en la ficha pero **sin validar**: el agente contesta su
+texto fijo (sin datos) y avisa a la secretaria; Baileys igual se calla.
+
+**Lo que falta para que quede en vivo (en este orden):**
+
+1. **César → reenvío.** panel.csoft.men → WhatsApp → conexión "Urbis Group - Praderas de
+   Cashibo (960)" → Ajustes → `reenvio_url` = `https://hook.urbisgroupinmobiliaria.com/webhook`
+   → Guardar. Desde ahí el conector reenvía cada aviso de Meta tal cual, con la misma
+   cabecera `X-Hub-Signature-256` (firmada con el secreto de la app **C-Soft**).
+2. **Actualizar el servidor** (trae `quien_escribe.js`, la validación de firma y el bot sin
+   el aviso del 986): `migracion/07_actualizar_agente.sh`. Hasta poner el secreto, el
+   webhook contesta **401** a todo POST: es a propósito.
+3. **César → token y secreto al servidor** (canal seguro, nunca por chat ni git): el token
+   de la conexión del 960 vive oculto en el PocketBase del panel (csoft-flota-01,
+   `wa_conexiones.token`; lo saca por ssh como superusuario) y el secreto de la app está en
+   developers.facebook.com → app C-Soft → Configuración → Información básica → Clave
+   secreta. Se pegan a ciegas en la terminal del droplet:
+   ```bash
+   scp "C:\Claude\Projects\Sistema CRM\migracion\11_cobranza_token_meta.sh" root@157.245.8.78:/root/ ; ssh -t root@157.245.8.78 'bash /root/11_cobranza_token_meta.sh 575708528962509 561949730334089'
+   ```
+   El script guarda copia del `.env`, reinicia solo `cobranza-agente` y corre `listo`.
+4. **sql/157** (el número informativo del panel pasa al 960).
+5. **Plantillas en la cuenta nueva** (la WABA del 960 nace sin ninguna):
+   `ssh root@157.245.8.78 "cd /root/crm/agente && node cobranza_meta.js crear_plantillas"`
+   y después `plantillas` hasta ver las 5 en ✅ (Meta tarda de minutos a 24 h).
+6. **César → método de pago en la WABA `561949730334089`** (business.facebook.com →
+   Configuración → Cuentas de WhatsApp → Métodos de pago): sin tarjeta no sale ningún
+   aviso iniciado por la empresa. Tope 250 conversaciones/día mientras el negocio Urbis
+   no esté verificado: dejar el tope diario del panel por debajo.
+7. **Probar** con un cliente real (debe contestar el agente y Baileys callar) y con un
+   lead real (al revés), y mandar un mensaje desde el celular de la secretaria a un
+   cliente (el agente debe callarse en ese chat). Recién ahí prender 🤖 Agente y 📨 Avisos.
+
+Lo de abajo (26 sep → 1 oct) queda como historia de cómo se llegó hasta aquí.
+
 ## ⚠ 26 sep 2026 — cambio de plan: COEXISTENCIA (celular + API)
 
 Los clientes van a **llamar** a la secretaria, así que el 986 tiene que estar

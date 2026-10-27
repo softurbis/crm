@@ -27,6 +27,7 @@ const { enviarTexto, enviarMedia, servidorWebhook, bajarMedia } = require('./clo
 const { subirAR2 } = require('./r2')
 const { bloqueOpciones, bloqueNoEntendi, rellenar } = require('./textos')
 const { elegirOpcion } = require('./opciones')
+const { esClienteRegistrado } = require('./quien_escribe')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
@@ -342,24 +343,10 @@ async function manejarEntrante(m) {
     return
   }
 
-  // ¿cliente con lote? este numero es de LEADS: se le pasa el numero de cobranzas
-  // una vez por dia, igual que en index.js (la cobranza la atiende cobranza.js)
+  // ¿cliente con lote? lo atiende el agente de cobranza (cobranza.js), mismo
+  // reparto que en index.js (quien_escribe.js, 27 oct 2026): aqui se calla.
   const p9 = phone.slice(-9)
-  const { data: clientes } = await supabase.from('clients').select('id, full_name').ilike('phone', `%${p9}%`).limit(1)
-  const cliente = (clientes || [])[0]
-  if (cliente) {
-    const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
-    const { data: ya } = await supabase.from('scheduled_messages').select('id')
-      .eq('tipo', 'redirige_cobranza').eq('client_id', cliente.id).gte('sent_at', desde).limit(1)
-    if (!ya || !ya.length) {
-      const { data: cc } = await supabase.from('cobranza_config').select('numero_cobranza').eq('id', 1).maybeSingle()
-      const num = String(cc?.numero_cobranza || '51986598614').replace(/\D/g, '')
-      const primer = (cliente.full_name || '').split(' ')[0]
-      await enviar(phone, `Hola ${primer} 👋 Para pagos, vouchers y consultas sobre sus cuotas, escríbanos a nuestro WhatsApp de *Cobranzas*: +${num} (wa.me/${num}). Ahí le atendemos. 🙌`,
-        { tipo: 'redirige_cobranza', client_id: cliente.id })
-    }
-    return
-  }
+  if (await esClienteRegistrado(supabase, phone)) { log('CLIENTE', phone, ': lo atiende el agente de cobranza; aquí se calla'); return }
 
   // ---- flujo de leads (mismas reglas del bot) ----
   const { data: leadsEx } = await supabase.from('leads').select('id, full_name, status, project_id').ilike('phone', `%${p9}%`).limit(1)

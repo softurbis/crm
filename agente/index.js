@@ -16,6 +16,7 @@ const crypto = require('crypto')
 const TG = require('./telegram')
 const { bloqueOpciones, bloqueNoEntendi, rellenar } = require('./textos')
 const { elegirOpcion } = require('./opciones')
+const { esClienteRegistrado } = require('./quien_escribe')   // el reparto cliente/lead del 960 (27 oct 2026)
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
@@ -2429,29 +2430,15 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     return
   }
 
-  // ¿es cliente?
+  // ¿es cliente? EL REPARTO (quien_escribe.js, 27 oct 2026): si el telefono esta
+  // en la ficha de un cliente de cualquier proyecto, lo atiende el agente de
+  // cobranza por la API oficial EN ESTE MISMO NUMERO (coexistencia): este bot se
+  // calla por completo. Ya no se manda el aviso "escribanos al 986" (ese numero
+  // dejo de ser el de cobranzas). Su mensaje igual queda en el chat del panel.
   const p9 = phone.slice(-9)
-  const { data: clientes } = await supabase.from('clients').select('id, full_name').ilike('phone', `%${p9}%`).limit(1)
-  const cliente = (clientes || [])[0]
+  const cliente = await esClienteRegistrado(supabase, phone)
   if (tnum === 'cliente' && !cliente) return
-  if (cliente) {
-    // Este numero es de LEADS. La cobranza vive en el numero oficial, con el
-    // agente de IA (cobranza.js): al cliente que escribe aca se le pasa ese
-    // numero UNA vez por dia — si manda tres mensajes seguidos no recibe tres
-    // veces lo mismo. Su mensaje igual queda en el chat para quien lo atienda.
-    const primer = (cliente.full_name || '').split(' ')[0]
-    const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
-    const { data: ya } = await supabase.from('scheduled_messages').select('id')
-      .eq('tipo', 'redirige_cobranza').eq('client_id', cliente.id).gte('sent_at', desde).limit(1)
-    if (!ya || !ya.length) {
-      const { data: cc } = await supabase.from('cobranza_config').select('numero_cobranza').eq('id', 1).maybeSingle()
-      const num = String(cc?.numero_cobranza || '51986598614').replace(/\D/g, '')
-      const bonito = num.length === 11 && num.startsWith('51') ? '+51 ' + num.slice(2, 5) + ' ' + num.slice(5, 8) + ' ' + num.slice(8) : '+' + num
-      await enviar(jid, `Hola ${primer} 👋 Para pagos, vouchers y consultas sobre sus cuotas, escríbanos a nuestro WhatsApp de *Cobranzas*: ${bonito} (wa.me/${num}). Ahí le atendemos. 🙌`,
-        { tipo: 'redirige_cobranza', canal: 'whatsapp', client_id: cliente.id, ses })
-    }
-    return // clientes: no aplicar flujo de leads
-  }
+  if (cliente) { log('CLIENTE', phone, ': lo atiende el agente de cobranza (API); este bot se calla'); return }
 
   // ¿lead existente o nuevo? — flujo guiado
   const { data: leadsEx } = await supabase.from('leads').select('id, full_name, status, project_id, campaign_id, followup_step, replied_followup_at').ilike('phone', `%${p9}%`).limit(1)
@@ -2711,6 +2698,10 @@ async function registrarDesdeCelular(S, m) {
   }).then(() => {}).catch(() => {})
   const tnum = await tipoNumero(phone)
   const esInterno = ['secretaria', 'gerencia', 'desactivado', 'silencio'].includes(tnum || '') || (ADMIN && phone.slice(-9) === ADMIN.slice(-9))
+  // A un CLIENTE le contesta el agente de cobranza por la API (mismo numero): sus
+  // respuestas llegan aqui como "desde otro dispositivo". No es una persona
+  // interviniendo: se registra y nada mas (el modo humano de ese chat lo lleva cobranza.js).
+  if (!esInterno && await esClienteRegistrado(supabase, phone)) { log('CELULAR/API -> registrado a', phone, '(cliente: lo lleva el agente de cobranza)'); return }
   if (conv && conv.modo !== 'humano' && !esInterno) {
     await supabase.from('whatsapp_conversations').update({ modo: 'humano', humano_desde: new Date().toISOString() }).eq('id', conv.id)
     log('CHAT EN MODO HUMANO (respuesta desde el celular):', phone)

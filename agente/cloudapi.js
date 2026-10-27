@@ -8,6 +8,10 @@
 //   WA_PHONE_NUMBER_ID = id del numero (Meta > WhatsApp > API Setup)
 //   WA_TOKEN           = token de acceso (temporal para probar; permanente despues)
 //   WA_VERIFY_TOKEN    = palabra secreta que tu eliges para el webhook
+//   WA_APP_SECRET      = secreto de la app de Meta que FIRMA los avisos del webhook
+//                        (desde el 27 oct 2026: la app C-Soft 1610624240443608, que
+//                        reenvia los avisos del 960 tal cual, con la misma firma).
+//                        Sin el, todo POST al webhook se rechaza con 401.
 //   WA_API_VERSION     = opcional, por defecto v23.0
 //
 // Prueba en seco (con el numero de TEST de Meta, gratis):
@@ -16,11 +20,25 @@
 // ============================================================
 require('dotenv').config()
 const http = require('http')
+const crypto = require('crypto')
 
 const VER = process.env.WA_API_VERSION || 'v23.0'
 const PHONE_ID = process.env.WA_PHONE_NUMBER_ID
 const TOKEN = process.env.WA_TOKEN
 const VERIFY = process.env.WA_VERIFY_TOKEN || 'urbis-verifica'
+const APP_SECRET = String(process.env.WA_APP_SECRET || '').trim()
+
+// La firma del webhook: Meta (y el conector de C-Soft, que reenvia con la misma
+// cabecera) manda `X-Hub-Signature-256: sha256=<hex>` = HMAC-SHA256 del cuerpo
+// CRUDO con el secreto de la app. Se compara en tiempo constante. Sin secreto no
+// hay forma de saber si vino de Meta: no se acepta nada.
+function firmaValida(cabecera, cuerpoCrudo, secreto = APP_SECRET) {
+  if (!secreto) return false
+  const recibida = String(cabecera || '').trim().toLowerCase()
+  if (!/^sha256=[0-9a-f]{64}$/.test(recibida)) return false
+  const calculada = 'sha256=' + crypto.createHmac('sha256', secreto).update(cuerpoCrudo).digest('hex')
+  return crypto.timingSafeEqual(Buffer.from(recibida), Buffer.from(calculada))
+}
 const BASE = `https://graph.facebook.com/${VER}`
 
 async function api(ruta, body, metodo = 'POST') {
@@ -127,12 +145,23 @@ function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () =>
       res.writeHead(403); res.end(); return
     }
     if (req.method === 'POST' && url.pathname === '/webhook') {
-      let cuerpo = ''
-      req.on('data', c => { cuerpo += c })
+      const trozos = []
+      let largo = 0
+      req.on('data', c => { largo += c.length; if (largo <= 4 * 1024 * 1024) trozos.push(c) })
       req.on('end', async () => {
+        const crudo = Buffer.concat(trozos)
+        if (largo > 4 * 1024 * 1024) { res.writeHead(413); res.end(); return }
+        // firma primero, con el cuerpo byte por byte como llego (parsear y volver a
+        // armar cambia un espacio y la firma ya no da)
+        if (!firmaValida(req.headers['x-hub-signature-256'], crudo)) {
+          res.writeHead(401); res.end()
+          if (!APP_SECRET) console.error('webhook: POST rechazado — falta WA_APP_SECRET en el .env (el secreto de la app que firma los avisos)')
+          else console.error('webhook: POST rechazado — firma invalida (¿secreto de otra app?)')
+          return
+        }
         res.writeHead(200); res.end()   // responder rapido; procesar despues
         try {
-          const data = JSON.parse(cuerpo)
+          const data = JSON.parse(crudo.toString('utf8'))
           for (const e of data.entry || []) for (const ch of e.changes || []) {
             const v = ch.value || {}
             for (const m of v.messages || []) await alRecibir(m, v)
@@ -148,7 +177,7 @@ function servidorWebhook({ puerto = 8090, alRecibir = () => {}, alEstado = () =>
     }
     res.writeHead(404); res.end()
   })
-  srv.listen(puerto, () => console.log('Webhook Cloud API escuchando en puerto', puerto))
+  srv.listen(puerto, () => console.log('Webhook Cloud API escuchando en puerto', puerto, APP_SECRET ? '(firma validada)' : '— SIN WA_APP_SECRET: todo POST se rechaza hasta ponerlo'))
   return srv
 }
 
@@ -161,7 +190,7 @@ async function bajarMedia(mediaId) {
 }
 
 module.exports = {
-  enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia,
+  enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia, firmaValida,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
   infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }

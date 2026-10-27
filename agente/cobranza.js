@@ -1,9 +1,15 @@
 // ============================================================================
 // AGENTE DE COBRANZA — API oficial de WhatsApp + Claude Haiku       [sep 2026]
 // ----------------------------------------------------------------------------
-// Proceso APARTE del bot de leads (index.js, Baileys): otro numero, otro pm2.
-// Un solo numero oficial para la cobranza de TODOS los proyectos.
+// Proceso APARTE del bot de leads (index.js, Baileys): otro pm2. Desde el 27 oct
+// 2026 es el MISMO numero: el +51 960 487 000 (Praderas de Cashibo) es el numero
+// unico de cobranza y consultas de TODOS los proyectos, en COEXISTENCIA (el chip
+// sigue en el celular + Baileys, y ademas en la API oficial de Meta a traves del
+// conector de C-Soft, que reenvia el webhook tal cual a este proceso).
 //
+//  · REPARTO (quien_escribe.js): si el telefono esta en la ficha de un cliente
+//    de cualquier proyecto, contesta ESTE agente y Baileys se calla; si no, es
+//    lead: lo atiende el bot de ventas y aqui se ignora. Nunca contestan los dos.
 //  · Entra un mensaje por el webhook de Meta → se guarda → el agente contesta.
 //  · El agente solo conoce al cliente cuyo celular VALIDADO es el que escribe.
 //    Las herramientas resuelven al cliente desde el telefono del chat: el modelo
@@ -17,6 +23,7 @@
 //
 // Correr:  pm2 start cobranza.js --name cobranza-agente
 // .env:    SUPABASE_URL, SUPABASE_SERVICE_KEY, WA_PHONE_NUMBER_ID, WA_TOKEN,
+//          WA_APP_SECRET (secreto de la app C-Soft: firma del webhook; sin el no entra nada),
 //          WA_VERIFY_TOKEN, COBRANZA_ANTHROPIC_API_KEY (si falta usa ANTHROPIC_API_KEY),
 //          R2_WORKER / R2_BOT_SECRET / R2_PUBLIC_URL, TELEGRAM_BOT_TOKEN (opcional)
 // Sin WA_TOKEN arranca igual: sirve para probar desde el panel (Cobranza IA → Probar).
@@ -29,6 +36,7 @@ const WA = require('./cloudapi')
 const { PLANTILLAS, comoSeVe } = require('./plantillas_cobranza')
 const { subirAR2 } = require('./r2')
 const TG = require('./telegram')
+const { esClienteRegistrado } = require('./quien_escribe')
 
 const log = (...a) => console.log(new Date().toISOString().slice(0, 19).replace('T', ' '), ...a)
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
@@ -606,13 +614,25 @@ async function guardarMedia(mediaId, mime, nombre) {
   return url
 }
 
+// Solo lo del numero propio: el conector reenvia por conexion, pero si algun dia
+// llegara el aviso de otro numero de la misma app, no se contesta desde aqui.
+function deOtroNumero(v) {
+  const id = dig(v?.metadata?.phone_number_id)
+  return !!(id && process.env.WA_PHONE_NUMBER_ID && id !== dig(process.env.WA_PHONE_NUMBER_ID))
+}
+
 async function entrante(m, v) {
   const phone = dig(m.from)
   if (!phone || m.type === 'reaction') return
+  if (deOtroNumero(v)) return
   if (m.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', m.id).limit(1)
     if (dup && dup.length) return   // Meta reintenta los webhooks
   }
+  // EL REPARTO: no esta en ninguna ficha = lead → lo atiende el bot de ventas por
+  // Baileys en este mismo numero; aqui ni se guarda ni se contesta (nunca los dos).
+  // Un chat que ya existe (prueba o uno abierto antes de ser lead) tampoco cuenta.
+  if (!(await esClienteRegistrado(supabase, phone))) { log('LEAD +' + phone + ': lo atiende el bot de ventas (Baileys); aquí se ignora'); return }
   const nombre = (v.contacts || []).find(c => dig(c.wa_id) === phone)?.profile?.name || null
   const chat = await chatDe(phone, false, nombre)
   let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''
@@ -638,9 +658,13 @@ async function entrante(m, v) {
 
 // Lo que la secretaria escribio desde la app WhatsApp Business (coexistencia):
 // queda en el chat y el agente se calla ahi, igual que si respondiera en el panel.
-async function eco(e) {
+// OJO: lo que el bot de ventas manda por Baileys a los leads tambien llega como
+// eco (es el mismo numero): a un lead no se le abre chat de cobranza, se ignora.
+async function eco(e, v) {
   const phone = dig(e.to)
   if (!phone) return
+  if (deOtroNumero(v)) return
+  if (!(await esClienteRegistrado(supabase, phone))) return
   if (e.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', e.id).limit(1)
     if (dup && dup.length) return
@@ -1016,7 +1040,7 @@ WA.servidorWebhook({
   puerto: PUERTO,
   alRecibir: (m, v) => entrante(m, v).catch(e => log('entrante:', String(e.message || e))),
   alEstado: s => estadoEntrega(s).catch(() => {}),
-  alEco: x => eco(x).catch(e => log('eco:', String(e.message || e))),
+  alEco: (x, v) => eco(x, v).catch(e => log('eco:', String(e.message || e))),
 })
 cadaTanto(salientesPanel, 5000, 'salientes')
 cadaTanto(pruebas, 3000, 'pruebas')

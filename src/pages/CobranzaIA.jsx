@@ -682,7 +682,7 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
         repetir_contrato_dias: Math.min(30, Math.max(1, Number(f.repetir_contrato_dias) || 7)),
         plazo_contrato_dias: Math.min(60, Math.max(1, Number(f.plazo_contrato_dias) || 7)),
       } : {}),
-      ...('numero_cobranza' in cfg ? { numero_cobranza: String(f.numero_cobranza || '').replace(/\D/g, '') || '51986598614' } : {}),   // sql/77
+      ...('numero_cobranza' in cfg ? { numero_cobranza: String(f.numero_cobranza || '').replace(/\D/g, '') || '51960487000' } : {}),   // sql/77 · desde el 27 oct es el 960 (sql/157)
     })
   }
   if (!f) return null
@@ -718,7 +718,7 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <label>Promesa: recordar N días antes<input type="number" min="0" max="15" value={f.promesa_avisar_dias} onChange={campo('promesa_avisar_dias')} disabled={!puede} /></label>
           <label>Promesa: el agente acepta hasta (días)<input type="number" min="1" max="120" value={f.promesa_max_dias} onChange={campo('promesa_max_dias')} disabled={!puede} /></label>
           <label>Idioma de las plantillas<input value={f.plantilla_idioma || ''} onChange={campo('plantilla_idioma')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
-          <label>Número de cobranzas (el bot de leads se lo pasa a los clientes)<input value={f.numero_cobranza || ''} onChange={campo('numero_cobranza')} disabled={!puede} placeholder="51986598614" /></label>
+          <label>Número de cobranzas (el 960 de Praderas, único para todos los proyectos; solo informativo)<input value={f.numero_cobranza || ''} onChange={campo('numero_cobranza')} disabled={!puede} placeholder="51960487000" /></label>
         </div>
         <p className="small muted" style={{ textTransform: 'none' }}>Meta pone un tope de 250 conversaciones iniciadas por día mientras el negocio no esté verificado: deja el tope por debajo.</p>
 
