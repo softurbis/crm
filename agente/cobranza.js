@@ -614,6 +614,20 @@ async function guardarMedia(mediaId, mime, nombre) {
   return url
 }
 
+// Los leads (y los ecos a leads) se le pasan al bot de ventas (index.js en modo
+// API, pm2 agente-urbis), que escucha solo en 127.0.0.1:LEADS_PUERTO. Si el bot
+// esta apagado, el mensaje queda en el log y nada mas: nunca lo contesta este agente.
+const LEADS_PUERTO = Number(process.env.LEADS_PUERTO || 8091)
+async function pasarAlBot(ruta, cuerpo, phone) {
+  if (String(process.env.LEADS_REENVIO || '1') === '0') { log('LEAD +' + phone + ': lo atiende el bot de ventas (Baileys); aquí se ignora'); return }
+  try {
+    const r = await fetch('http://127.0.0.1:' + LEADS_PUERTO + ruta, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(5000),
+    })
+    log('LEAD +' + phone + ': pasado al bot de ventas (' + ruta + ') → HTTP ' + r.status)
+  } catch (e) { log('LEAD +' + phone + ': el bot de ventas no respondió en :' + LEADS_PUERTO + ' (' + String(e.message || e).slice(0, 80) + '); ¿agente-urbis en modo API?') }
+}
+
 // Solo lo del numero propio: el conector reenvia por conexion, pero si algun dia
 // llegara el aviso de otro numero de la misma app, no se contesta desde aqui.
 function deOtroNumero(v) {
@@ -629,10 +643,11 @@ async function entrante(m, v) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', m.id).limit(1)
     if (dup && dup.length) return   // Meta reintenta los webhooks
   }
-  // EL REPARTO: no esta en ninguna ficha = lead → lo atiende el bot de ventas por
-  // Baileys en este mismo numero; aqui ni se guarda ni se contesta (nunca los dos).
-  // Un chat que ya existe (prueba o uno abierto antes de ser lead) tampoco cuenta.
-  if (!(await esClienteRegistrado(supabase, phone))) { log('LEAD +' + phone + ': lo atiende el bot de ventas (Baileys); aquí se ignora'); return }
+  // EL REPARTO: no esta en ninguna ficha = lead → lo atiende el bot de ventas
+  // (index.js) en este mismo numero; aqui ni se guarda ni se contesta (nunca los
+  // dos). Desde que Baileys esta apagado (27 oct), el bot de ventas recibe el
+  // mensaje por un puerto local: este proceso es el unico que recibe el webhook.
+  if (!(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/entrante', { m, v }, phone); return }
   const nombre = (v.contacts || []).find(c => dig(c.wa_id) === phone)?.profile?.name || null
   const chat = await chatDe(phone, false, nombre)
   let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''
@@ -664,7 +679,7 @@ async function eco(e, v) {
   const phone = dig(e.to)
   if (!phone) return
   if (deOtroNumero(v)) return
-  if (!(await esClienteRegistrado(supabase, phone))) return
+  if (!(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/eco', { e }, phone); return }
   if (e.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', e.id).limit(1)
     if (dup && dup.length) return

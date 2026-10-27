@@ -17,6 +17,13 @@ const TG = require('./telegram')
 const { bloqueOpciones, bloqueNoEntendi, rellenar } = require('./textos')
 const { elegirOpcion } = require('./opciones')
 const { esClienteRegistrado } = require('./quien_escribe')   // el reparto cliente/lead del 960 (27 oct 2026)
+// MODO API (WA_TRANSPORTE=api, 27 oct 2026): Baileys apagado en todos los numeros;
+// este mismo bot sale por la Cloud API del 960 con un "sock" de mentira
+// (transporte_api.js) y recibe los leads que cobranza.js le pasa por un puerto local.
+const MODO_API = String(process.env.WA_TRANSPORTE || '').toLowerCase() === 'api'
+const WAAPI = MODO_API ? require('./cloudapi') : null
+const crearSockAPI = MODO_API ? require('./transporte_api') : null
+const LEADS_PUERTO = Number(process.env.LEADS_PUERTO || 8091)
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 let ADMIN = (process.env.ADMIN_PHONE || '').replace(/\D/g, '')
@@ -103,6 +110,7 @@ async function chequearRelink() {
   try {
     if ((await ajuste('wa_relink', '0')) !== '1') return
     await setAjuste('wa_relink', '0')
+    if (MODO_API) { log('RELINK pedido desde el panel: en modo API no hay QR (el 960 vive en el panel de C-Soft)'); return }
     const S = [...SESSIONS.values()].find(s => s.row.is_corporate)
     if (S && sesId(S)) { await supabase.from('wa_sessions').update({ relink: true }).eq('id', S.row.id); return }
     // modo compat (sin wa_sessions): comportamiento original
@@ -2878,6 +2886,7 @@ async function aplicarLabelChat(S, conv, etiqueta) {
 
 // levanta UNA sesión Baileys (una por número/fila de wa_sessions)
 async function iniciarSesion(row) {
+  if (MODO_API) { log('MODO API: no se levanta Baileys para', row.label || row.id); return }
   const prev = SESSIONS.get(row.id)
   if (prev && (prev.sock || prev.iniciando)) return
   const S = prev || { row, sock: null, enviados: 0 }
@@ -3039,6 +3048,7 @@ async function iniciarSesion(row) {
 
 // vigila wa_sessions: levanta sesiones nuevas, apaga desactivadas y atiende relink/restart por sesión
 async function supervisarSesiones() {
+  if (MODO_API) return   // una sola sesion por la API; relink/restart no aplican
   let rows = []
   try {
     const { data, error } = await supabase.from('wa_sessions').select('*').eq('activo', true)
@@ -4085,8 +4095,96 @@ function arrancarTelegram() {
   }, 60000)
 }
 
+// ============================================================================
+// MODO API: la unica "sesion" es el 960 por la Cloud API
+// ----------------------------------------------------------------------------
+// Se toma la fila de wa_sessions cuyo numero es el 960 (WA_NUMERO), para que las
+// conversaciones, el proyecto por defecto (Praderas) y el panel sigan iguales.
+// Lo que entra lo manda cobranza.js (que es quien recibe el webhook firmado):
+// POST /entrante (mensaje de un lead) y POST /eco (lo que la secretaria escribio
+// desde el celular), solo desde 127.0.0.1.
+// ============================================================================
+const _entrantesVistos = new Map()   // wamid -> ts (Meta reintenta los webhooks)
+async function iniciarSesionAPI() {
+  const numero = String(process.env.WA_NUMERO || '51960487000').replace(/\D/g, '')
+  let row = null
+  try {
+    const { data } = await supabase.from('wa_sessions').select('*')
+    row = (data || []).find(r => String(r.phone || '').replace(/\D/g, '').endsWith(numero.slice(-9))) || (data || []).find(r => r.is_corporate) || null
+  } catch {}
+  if (!row) row = { id: 'legacy', is_corporate: true, label: 'API ' + numero.slice(-9), project_id: null, activo: true }
+  const S = { row: { ...row, is_corporate: true, activo: true }, sock: crearSockAPI({ WA: WAAPI, log: (...a) => log(...a), numero }), enviados: 0 }
+  SESSIONS.set(row.id, S)
+  await setSes(S.row, { estado: 'conectado', qr: '', latido: new Date().toISOString(), phone: numero }).catch(() => {})
+  // las demas filas (Brisas, etc.) quedan sin levantar: Baileys esta apagado a proposito
+  log('MODO API: sesion unica', S.row.label || row.id, 'por la Cloud API (+' + numero + '); Baileys apagado en todos los numeros')
+
+  const http = require('http')
+  const srv = http.createServer((req, res) => {
+    const ip = String(req.socket.remoteAddress || '')
+    if (!/^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(ip) || req.method !== 'POST') { res.writeHead(403); res.end(); return }
+    const trozos = []
+    req.on('data', c => trozos.push(c))
+    req.on('end', async () => {
+      res.writeHead(200); res.end()
+      let cuerpo = null
+      try { cuerpo = JSON.parse(Buffer.concat(trozos).toString('utf8')) } catch { return }
+      try {
+        if (req.url === '/entrante') await entranteAPI(S, cuerpo.m || {}, cuerpo.v || {})
+        else if (req.url === '/eco') await ecoAPI(S, cuerpo.e || {})
+      } catch (e) { log('API entrante:', String(e.message || e)) }
+    })
+  })
+  srv.listen(LEADS_PUERTO, '127.0.0.1', () => log('MODO API: escuchando los leads de cobranza.js en 127.0.0.1:' + LEADS_PUERTO))
+}
+
+// mensaje de WhatsApp (formato de la Cloud API) → manejarEntrante, igual que con Baileys
+async function entranteAPI(S, m, v) {
+  const phone = String(m.from || '').replace(/\D/g, '')
+  if (!phone || m.type === 'reaction') return
+  if (m.id) {
+    if (_entrantesVistos.has(m.id)) return
+    _entrantesVistos.set(m.id, Date.now())
+    if (_entrantesVistos.size > 2000) for (const [k, t] of _entrantesVistos) { if (Date.now() - t > 3600e3) _entrantesVistos.delete(k) }
+    S.sock.recordarEntrante(phone, m.id)
+  }
+  const pushName = (v.contacts || []).find(c => String(c.wa_id || '').replace(/\D/g, '') === phone)?.profile?.name || ''
+  let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''
+  const mm = m.image || m.document || m.video || m.audio || m.sticker
+  let media = null
+  if (mm) {
+    const mtipo = m.image ? 'image' : m.document ? 'document' : m.video ? 'video' : m.audio ? 'audio' : 'sticker'
+    media = { tipo: mtipo, name: m.document?.filename || null, caption: mm.caption || '' }
+    try {
+      const { buffer, mime } = await WAAPI.bajarMedia(mm.id)
+      if (buffer.length <= 16 * 1024 * 1024) {
+        const huella = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 32)
+        media.url = await guardarArchivo('wa-chat/_unicos/' + huella + '.' + extDe(mtipo, mm.mime_type || mime, media.name), buffer, mm.mime_type || mime)
+      } else log('media muy pesada, no se descarga (', buffer.length, 'bytes )')
+    } catch (e) { log('media (API):', String(e.message || e)) }
+    if (!media.url && !media.caption) media.caption = '[' + (mtipo === 'video' ? '🎬 Video' : mtipo === 'image' ? '🖼️ Imagen' : mtipo === 'audio' ? '🎙️ Audio' : '📄 Archivo') + ' recibido — no se pudo guardar; revisar en el panel de C-Soft]'
+  }
+  if (!texto && !media) texto = '[' + (m.type || 'mensaje') + ' no soportado]'
+  const jid = jidDe(phone)
+  try { await manejarEntrante(S, jid, jid, texto, pushName, media, m.id, null) }
+  catch (e) { log('ERROR FLUJO (API):', e.message); log(e.stack || '') }
+}
+
+// eco: la secretaria escribio desde el celular a un lead → se registra y el bot se calla ahi
+async function ecoAPI(S, e) {
+  const to = String(e.to || '').replace(/\D/g, '')
+  if (!to) return
+  const texto = e.text?.body || e.image?.caption || e.document?.caption || ''
+  const m = { key: { remoteJid: jidDe(to), id: e.id || null, fromMe: true }, message: { conversation: texto || '[' + (e.type || 'mensaje') + ' enviado desde el celular]' } }
+  await registrarDesdeCelular(S, m)
+}
+
 async function arrancar() {
   let rows = []
+  if (MODO_API) {
+    await iniciarSesionAPI()
+    rows = [...SESSIONS.values()].map(s => s.row)
+  } else {
   try {
     const { data, error } = await supabase.from('wa_sessions').select('*').eq('activo', true)
     if (!error) rows = data || []
@@ -4098,12 +4196,14 @@ async function arrancar() {
   }
   for (const r of rows) iniciarSesion(r).catch(e => log('init', r.label || r.id, ':', String(e.message || e)))
   setInterval(() => { supervisarSesiones().catch(() => {}) }, 60000)
+  }
 
   // VIGIA DE SESIONES CAIDAS: cada 30 min, lo que este caido se vuelve a
   // intentar (salvo 401/403, que solo se arreglan con QR o quitando el bloqueo)
   // y, si sigue caido, el aviso fuerte se REPITE cada 6 h como mensaje nuevo —
   // que suene. Un solo aviso editado en silencio ya costo un dia y medio sordo.
   setInterval(async () => {
+    if (MODO_API) return
     const insistir = await reintentosOn().catch(() => true)
     for (const S of SESSIONS.values()) {
       if (S.sock || S.iniciando || S.row?.activo === false) continue

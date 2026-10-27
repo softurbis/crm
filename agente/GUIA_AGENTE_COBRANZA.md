@@ -17,18 +17,29 @@ El 960 quedó conectado en coexistencia el 27 oct por el conector del panel de C
 creó la cuenta (WABA) **`561949730334089`** con el número **`575708528962509`**, y la
 copia del historial llegó. El chip sigue en el celular y en Baileys (bot de ventas).
 
-**Cómo se reparten los dos caminos (regla, nunca contestan los dos):**
+**27 oct, más tarde — BAILEYS SE APAGA EN TODOS LOS NÚMEROS (decisión del dueño).**
+Solo queda el 960 oficial. El webhook lo recibe `cobranza.js` (único proceso que valida
+la firma) y reparte; el bot de ventas (`index.js`, pm2 `agente-urbis`) corre en **modo
+API** (`WA_TRANSPORTE=api`): sale por la Cloud API con `agente/transporte_api.js` (un
+"sock" con la cara de Baileys) y recibe de `cobranza.js` los mensajes de los leads por
+`127.0.0.1:8091`. Brisas y los demás chips ya no se levantan.
 
-| Quién escribe al 960 | Quién contesta | Quién se calla |
+| Quién escribe al 960 | Quién contesta | Cómo le llega |
 |---|---|---|
-| Teléfono en la ficha de un cliente de cualquier proyecto (celular 1 o 2) | agente de cobranza por la API (`cobranza.js`) | el bot de ventas (Baileys): solo guarda el mensaje en el chat del panel |
-| No está en ninguna ficha (es lead) | bot de ventas por Baileys | el agente: ni guarda ni contesta |
-| La secretaria escribe desde el celular (eco `smb_message_echoes`) | nadie: el agente pasa ese chat a "humano" | — (a un lead el eco se ignora) |
+| Teléfono en la ficha de un cliente de cualquier proyecto (celular 1 o 2) | agente de cobranza (`cobranza.js`) | webhook directo |
+| No está en ninguna ficha (es lead) | bot de ventas IA (`index.js`), proyecto por defecto Praderas; ofrece los otros en el mismo chat | `cobranza.js` → POST local `/entrante` |
+| La secretaria escribe desde el celular (eco) | nadie: ese chat pasa a "humano" (en cobranza si es cliente, en el panel si es lead) | eco → `/eco` si es lead |
 
-La regla vive en **un solo archivo**, `agente/quien_escribe.js`, y la usan los dos lados.
-El aviso "escríbanos al 986" que mandaba el bot de leads **se eliminó** (pedido del dueño,
-27 oct). Cliente con el celular en la ficha pero **sin validar**: el agente contesta su
-texto fijo (sin datos) y avisa a la secretaria; Baileys igual se calla.
+La regla vive en **un solo archivo**, `agente/quien_escribe.js`. El aviso "escríbanos al
+986" **se eliminó** (pedido del dueño). Cliente con el celular en la ficha pero **sin
+validar**: el agente contesta su texto fijo (sin datos) y avisa a la secretaria.
+
+**Lo que cambia al no haber celular:** texto libre solo dentro de las **24 h** desde el
+último mensaje de la persona (fuera, Meta rechaza y queda "fallido" en el panel: los
+avisos que inicia la empresa van por plantilla); los avisos internos por WhatsApp
+(códigos de firma, pases de lista) a quien no tenga Telegram vinculado **no salen**: el
+canal interno es Telegram; etiquetas, editar mensajes y la vCard al chip no existen en
+la API (el bot las omite y lo deja en el log); no hay QR ni "re-vincular".
 
 **Lo que falta para que quede en vivo (en este orden):**
 
@@ -56,9 +67,15 @@ texto fijo (sin datos) y avisa a la secretaria; Baileys igual se calla.
    Configuración → Cuentas de WhatsApp → Métodos de pago): sin tarjeta no sale ningún
    aviso iniciado por la empresa. Tope 250 conversaciones/día mientras el negocio Urbis
    no esté verificado: dejar el tope diario del panel por debajo.
-7. **Probar** con un cliente real (debe contestar el agente y Baileys callar) y con un
-   lead real (al revés), y mandar un mensaje desde el celular de la secretaria a un
-   cliente (el agente debe callarse en ese chat). Recién ahí prender 🤖 Agente y 📨 Avisos.
+7. **Apagar Baileys y pasar el bot a la API** (después del 11, nunca antes):
+   ```bash
+   scp "C:\Claude\Projects\Sistema CRM\migracion\14_solo_api_960.sh" root@157.245.8.78:/root/ ; ssh root@157.245.8.78 'bash /root/14_solo_api_960.sh'
+   ```
+   Pone `WA_TRANSPORTE=api` y reinicia los dos procesos. Volver atrás:
+   `bash /root/14_solo_api_960.sh baileys` (las credenciales de los chips no se borran).
+8. **Probar** con un cliente real (contesta el agente de cobranza), con un lead real
+   (contesta el bot de ventas) y con un mensaje desde el celular de la secretaria (ese
+   chat pasa a humano). Recién ahí prender 🤖 Agente y 📨 Avisos.
 
 Lo de abajo (26 sep → 1 oct) queda como historia de cómo se llegó hasta aquí.
 

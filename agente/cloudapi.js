@@ -73,11 +73,36 @@ async function enviarTexto(to, body) {
   })
 }
 
-// media por URL publica (imagen/documento) dentro de ventana
-async function enviarMedia(to, url, tipo = 'image', caption = '') {
+// media por URL publica (imagen/documento/video/audio) dentro de ventana
+async function enviarMedia(to, url, tipo = 'image', caption = '', filename = '') {
   return api(`${PHONE_ID}/messages`, {
     messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
-    type: tipo, [tipo]: { link: url, ...(caption ? { caption } : {}) },
+    type: tipo, [tipo]: { link: url, ...(caption && tipo !== 'audio' ? { caption } : {}), ...(filename && tipo === 'document' ? { filename } : {}) },
+  })
+}
+// media que esta en memoria (un buffer): primero se sube a Meta, despues se manda por id
+async function subirMedia(buffer, mime, nombre = 'archivo') {
+  const fd = new FormData()
+  fd.append('messaging_product', 'whatsapp')
+  fd.append('type', mime || 'application/octet-stream')
+  fd.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), nombre)
+  const r = await fetch(`${BASE}/${PHONE_ID}/media`, { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN }, body: fd })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j.id) throw new Error(`CloudAPI media ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`)
+  return j.id
+}
+async function enviarMediaId(to, mediaId, tipo = 'image', caption = '', filename = '') {
+  return api(`${PHONE_ID}/messages`, {
+    messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
+    type: tipo, [tipo]: { id: mediaId, ...(caption && tipo !== 'audio' ? { caption } : {}), ...(filename && tipo === 'document' ? { filename } : {}) },
+  })
+}
+// "visto" + "escribiendo…" sobre el ultimo mensaje del cliente (Meta lo apaga
+// solo a los ~25 s o al contestar). Es lo que reemplaza al sendPresenceUpdate de Baileys.
+async function marcarLeido(messageId, escribiendo = false) {
+  return api(`${PHONE_ID}/messages`, {
+    messaging_product: 'whatsapp', status: 'read', message_id: messageId,
+    ...(escribiendo ? { typing_indicator: { type: 'text' } } : {}),
   })
 }
 
@@ -190,7 +215,7 @@ async function bajarMedia(mediaId) {
 }
 
 module.exports = {
-  enviarPlantilla, enviarTexto, enviarMedia, servidorWebhook, bajarMedia, firmaValida,
+  enviarPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
   infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }
