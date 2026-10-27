@@ -26,6 +26,7 @@ const Campanas = lazy(() => import('./pages/Campanas'))
 const Whatsapp = lazy(() => import('./pages/Whatsapp'))
 const TestBot = lazy(() => import('./pages/TestBot'))
 const CobranzaIA = lazy(() => import('./pages/CobranzaIA'))
+const AvisosClientes = lazy(() => import('./pages/AvisosClientes'))
 const VentasIA = lazy(() => import('./pages/VentasIA'))
 const Secretarias = lazy(() => import('./pages/Secretarias'))
 const Visitas = lazy(() => import('./pages/Visitas'))
@@ -114,6 +115,8 @@ export default function App() {
           <Route path="whatsapp" element={<Whatsapp />} />
           <Route path="probar-bot" element={<Vedada para={operador}><TestBot /></Vedada>} />
           <Route path="cobranza-ia" element={<Vedada para={operadorSinCobranza}><CobranzaIA /></Vedada>} />
+          {/* quién recibe avisos de cobranza y qué le toca (sql/159): mismo permiso que Cobranza IA */}
+          <Route path="avisos-clientes" element={<Vedada para={operadorSinCobranza}><AvisosClientes /></Vedada>} />
           <Route path="ventas-ia" element={<Vedada para={operador}><VentasIA /></Vedada>} />
           <Route path="corretaje" element={<Vedada para={operador}><Corretaje /></Vedada>} />
           <Route path="campanas" element={<Vedada para={operador}><Campanas /></Vedada>} />

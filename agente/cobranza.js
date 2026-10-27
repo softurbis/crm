@@ -906,11 +906,15 @@ async function registrarEnvio(tel, d, extra, cfg) {
   return fila.estado === 'enviado'
 }
 
-async function todasLasVentas() {
+// soloActivas = false trae tambien las pausadas (auto_cobranza = false): la
+// proyeccion de la pantalla Avisos por cliente las muestra como "no recibe".
+async function todasLasVentas(soloActivas = true) {
   const cols = 'id, client_id, status, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)'
   const out = []
   for (let desde = 0; ; desde += 500) {   // paginado: Supabase corta en silencio a las 1000 filas
-    const { data, error } = await supabase.from('sales').select(cols).eq('status', 'en_proceso').eq('auto_cobranza', true).order('id').range(desde, desde + 499)
+    let q = supabase.from('sales').select(cols).eq('status', 'en_proceso').order('id').range(desde, desde + 499)
+    if (soloActivas) q = q.eq('auto_cobranza', true)
+    const { data, error } = await q
     if (error) throw new Error(error.message)
     out.push(...(data || []))
     if (!data || data.length < 500) break
@@ -1035,6 +1039,82 @@ async function barridoAvisos() {
     if (partes.length) await avisarResponsables('*COBRANZA — resumen de avisos ' + fechaCorta(hoy) + '*\nEnviados: ' + enviados + '\n\n' + partes.join('\n\n'))
   } catch (e) { log('barridoAvisos:', String(e.message || e)) }
   finally { barriendo = false }
+  proyectarAvisos('después del barrido').catch(() => {})   // Avisos por cliente (sql/159)
+}
+
+// ============================================================================
+// PROYECCION: que aviso le toca a cada venta y cuando (sql/159)
+// ============================================================================
+// Para la pantalla "Avisos por cliente" del panel. La escalera NO se repite en
+// el panel ni en SQL: aca se corre decidirAviso dia por dia hacia adelante hasta
+// el primer dia habil en que sale algo, y el resultado queda en
+// cobranza_proximo_aviso (una fila por venta vigente). Corre cada 30 min,
+// despues de cada barrido y cuando el panel lo pide (cobranza_config.proyectar_ahora).
+const HORIZONTE_DIAS = 400
+function proximoAviso(v, cfg, hoy, envios) {
+  for (let i = 0; i <= HORIZONTE_DIAS; i++) {
+    const d = sumarDias(hoy, i)
+    if (diaDeCobranza(cfg, d)) continue
+    const r = decidirAviso(v, cfg, d, envios)
+    if (r) return { ...r, fecha: d }
+  }
+  return null
+}
+
+let proyectando = false
+async function proyectarAvisos(porQue = 'programada') {
+  if (proyectando) return
+  proyectando = true
+  const inicio = new Date().toISOString()
+  try {
+    const cfg = await config()
+    const hoy = hoyLima()
+    const [ventas, prom, rep, envios] = await Promise.all([
+      todasLasVentas(false),
+      supabase.from('cobranza_promesas').select('sale_id, fecha_promesa').eq('estado', 'vigente').eq('es_prueba', false),
+      supabase.from('cobranza_pagos_reportados').select('sale_id').eq('estado', 'pendiente').eq('es_prueba', false),
+      enviosPorVenta(null),
+    ])
+    const conPromesa = new Map((prom.data || []).map(p => [p.sale_id, p.fecha_promesa]))
+    const enRevision = new Set((rep.data || []).map(p => p.sale_id))
+    const filas = []
+    for (const v of ventas) {
+      const pend = cuotasPendientes(v, hoy)
+      const vencidas = pend.filter(q => q.vencida)
+      const fila = {
+        sale_id: v.id, estado: 'programado', detalle: null, motivo: null, fecha: null, plantilla: null, texto: null, cuota: null, monto: null,
+        n_pendientes: pend.length, n_vencidas: vencidas.length,
+        deuda_vencida: Math.round(vencidas.reduce((s, q) => s + q.pendiente, 0) * 100) / 100,
+        calculado_at: inicio,
+      }
+      const d = pend.length ? proximoAviso(v, cfg, hoy, envios.get(v.id) || []) : null
+      if (d) Object.assign(fila, { motivo: d.motivo, fecha: d.fecha, plantilla: d.plantilla || null, texto: textoDelAviso(d), cuota: d.q?.installment_number ?? null, monto: d.q ? d.q.pendiente : null })
+      // por que NO recibe (en este orden, el mismo que usa el barrido)
+      if (!pend.length) { fila.estado = 'al_dia'; fila.detalle = 'No tiene cuotas pendientes.' }
+      else if (v.auto_cobranza === false) { fila.estado = 'pausado'; fila.detalle = 'La cobranza automática está pausada (casilla "recibe avisos").' }
+      else if (!telefonosBot(v.client).length) { fila.estado = 'sin_celular'; fila.detalle = 'Ningún celular de la ficha está validado y habilitado para el bot.' }
+      else if (conPromesa.has(v.id)) { fila.estado = 'promesa'; fila.detalle = 'Tiene una promesa de pago vigente para el ' + fechaCorta(conPromesa.get(v.id)) + ': recibe solo el recordatorio de la promesa.' }
+      else if (enRevision.has(v.id)) { fila.estado = 'voucher'; fila.detalle = 'Tiene un voucher esperando validación: no se le cobra hasta que se revise.' }
+      else if (!d) { fila.estado = 'nada'; fila.detalle = 'Con la configuración actual no le toca ningún aviso en los próximos ' + HORIZONTE_DIAS + ' días.' }
+      else if (!d.plantilla) { fila.estado = 'sin_plantilla'; fila.detalle = 'Le toca "' + d.motivo + '" pero falta el nombre de la plantilla en Configuración.' }
+      filas.push(fila)
+    }
+    for (let i = 0; i < filas.length; i += 200) {
+      const { error } = await supabase.from('cobranza_proximo_aviso').upsert(filas.slice(i, i + 200), { onConflict: 'sale_id' })
+      if (error) throw new Error(error.message + (/cobranza_proximo_aviso/.test(error.message) ? ' (¿falta correr sql/159?)' : ''))
+    }
+    // ventas que dejaron de estar vigentes: fuera
+    await supabase.from('cobranza_proximo_aviso').delete().lt('calculado_at', inicio)
+    await supabase.from('cobranza_config').update({ proyeccion_at: new Date().toISOString(), proyectar_ahora: false }).eq('id', 1)
+    const prog = filas.filter(f => f.estado === 'programado').length
+    log('PROYECCION (' + porQue + '):', filas.length, 'ventas ·', prog, 'con aviso programado ·', filas.length - prog, 'no reciben')
+  } catch (e) { log('proyectarAvisos:', String(e.message || e)) }
+  finally { proyectando = false }
+}
+// el panel pidio recalcular (boton o cambio de casillas)
+async function proyeccionPedida() {
+  const { data } = await supabase.from('cobranza_config').select('proyectar_ahora').eq('id', 1).maybeSingle()
+  if (data?.proyectar_ahora) await proyectarAvisos('pedida desde el panel')
 }
 
 // ============================================================================
@@ -1067,6 +1147,9 @@ cadaTanto(salientesPanel, 5000, 'salientes')
 cadaTanto(pruebas, 3000, 'pruebas')
 cadaTanto(barridoAvisos, 5 * 60000, 'avisos')
 cadaTanto(latido, 60000, 'latido')
+cadaTanto(proyectarAvisos, 30 * 60000, 'proyeccion')        // Avisos por cliente (sql/159)
+cadaTanto(proyeccionPedida, 20000, 'proyeccion pedida')
+setTimeout(() => proyectarAvisos('al arrancar').catch(() => {}), 15000)
 latido()
 config().then(c => log('AGENTE DE COBRANZA corriendo · webhook :' + PUERTO
   + ' · WhatsApp ' + (WA_LISTO ? 'listo' : 'SIN TOKEN (solo pruebas)')

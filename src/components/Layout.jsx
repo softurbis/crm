@@ -62,6 +62,8 @@ const MENU = [
   // hay dos pestañas (components/PagosTabs). Un comprobante siempre es de un pago.
   { to: '/pagos', label: 'Pagos y comprobantes', icon: '💵', color: '#4fc3a1', proy: true, grupo: 'Cobranza', tambien: ['/comprobantes'] },
   { to: '/cobranza-ia', label: 'Cobranza IA', icon: '🤝', cobranza: true, color: '#5fd38d', grupo: 'Cobranza' },
+  // quién recibe avisos de cobranza (clientes y leads) y qué aviso le toca (sql/159)
+  { to: '/avisos-clientes', label: 'Avisos por cliente', icon: '📋', cobranza: true, color: '#6cc4a8', grupo: 'Cobranza' },
   // lotes con deuda + Excel de cuotas vencidas (sql/156): la pantalla del facturador, también para el superusuario
   { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', admin: true, color: '#e05252', grupo: 'Cobranza' },
 
