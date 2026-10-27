@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
@@ -45,14 +44,24 @@ const rgbaDe = (hex, a) => {
   const n = parseInt(h, 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
 }
-// etiquetas de estado del chat: lista por defecto + paleta para las que se creen en el panel
-const TAGS_DEF = [{ n: 'CALIFICADO', c: '#7fbf7f' }, { n: 'TIBIO', c: '#e0b34c' }, { n: 'FRIO', c: '#7ec8e3' }, { n: 'CLIENTE', c: '#b8a1d9' }]
+// Etiquetas del chat: PROPIAS del CRM (tabla wa_etiquetas, sql/158). No se sincronizan con
+// WhatsApp: la Cloud API no tiene etiquetas. Paleta para las que se creen desde el panel.
 const TAG_PALETA = ['#e8975a', '#6fd0c9', '#e07b7b', '#9ccb86', '#c58ae0', '#7ba7f7', '#e6a4d0', '#e7c15a']
 // color por número: se usa el color de su proyecto; si no tiene, uno de esta paleta por orden
 const SES_PALETA = ['#6fdd9b', '#7ba7f7', '#e6a4d0', '#e8975a', '#6fd0c9', '#c58ae0', '#e7c15a', '#e07b7b']
 const cap = s => s ? s[0] + s.slice(1).toLowerCase() : ''
+// El número oficial (Cloud API de Meta, 27 oct 2026): por aquí sale TODO lo que se escribe desde el panel.
+const NUM_OFICIAL = '51960487000'
+// VENTANA DE 24 H de Meta: texto libre y adjuntos solo mientras no pasen 24 h del último
+// mensaje de la persona (whatsapp_conversations.ultimo_entrante_at, sql/158). Después, solo plantilla.
+const VENTANA_MS = 24 * 3600e3
+const ventanaDe = c => { const t = c?.ultimo_entrante_at ? new Date(c.ultimo_entrante_at).getTime() : 0; const resta = t ? t + VENTANA_MS - Date.now() : -1; return { abierta: resta > 0, resta, desde: t } }
+const durCorta = ms => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); if (h < 48) return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); return Math.floor(h / 24) + ' días' }
+// Estado de entrega que avisa Meta por el webhook (statuses) → palomitas, como en el celular
+const TICKS = { enviado: ['✓', '#9daab6', 'Enviado (una palomita)'], entregado: ['✓✓', '#9daab6', 'Entregado al celular'], leido: ['✓✓', '#53bdeb', 'Leído'], fallido: ['⚠️', '#e07b7b', 'No se entregó'] }
 
-function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQuicks }) {
+function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQuicks, ventana }) {
+  const cerrada = !!ventana && !ventana.abierta
   const [txt, setTxt] = useState('')
   const [mandando, setMandando] = useState(false)
   const [adj, setAdj] = useState(null)          // { file, tipo } pendiente de enviar
@@ -77,6 +86,7 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
   const enviarMsg = async () => {
     const body = txt.trim()
     if (!body && !adj) return
+    if (cerrada) { await avisar('Pasaron más de 24 h desde el último mensaje de esta persona.\n\nMeta solo deja escribirle con una PLANTILLA aprobada: el texto libre no sale. Cuando la persona vuelva a escribir, la ventana se abre otra vez por 24 h.', { tono: 'error' }); return }
     setMandando(true)
     let media = {}
     if (adj) {
@@ -121,13 +131,21 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
           <button className="btn-ghost" onClick={() => setAdj(null)}>✕</button>
         </div>
       )}
-      <div className="wa-reply">
-        <label className="wa-btn" title="Adjuntar imagen, video, audio o documento" style={{ cursor: 'pointer' }}>
-          📎<input type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={elegirArchivo} style={{ display: 'none' }} />
+      {cerrada && (
+        <div style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: '1px solid #e8975a', color: '#e8975a', marginBottom: 4, textTransform: 'none' }}>
+          🔒 <b>Ventana de 24 h cerrada</b>{ventana.desde ? ' (su último mensaje fue hace ' + durCorta(-ventana.resta + VENTANA_MS) + ')' : ' (esta persona nunca escribió al número oficial)'}.
+          Meta solo deja escribirle con una <b>plantilla aprobada</b>; el texto libre y los archivos no salen.
+          Si vuelve a escribir, la ventana se abre otra vez. Si es cliente, el agente de cobranza puede mandarle una plantilla desde <b>Cobranza IA</b>.
+        </div>
+      )}
+      <div className="wa-reply" style={cerrada ? { opacity: .5 } : undefined}>
+        <label className="wa-btn" title={cerrada ? 'Ventana de 24 h cerrada: no se pueden mandar archivos' : 'Adjuntar imagen, video, audio o documento'} style={{ cursor: cerrada ? 'not-allowed' : 'pointer' }}>
+          📎<input type="file" disabled={cerrada} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={elegirArchivo} style={{ display: 'none' }} />
         </label>
-        <input value={txt} onChange={e => setTxt(e.target.value)} placeholder={adj ? 'Texto que acompaña al archivo (opcional)…' : 'Escribe y sale por el número de este chat… (el bot se calla al responder tú)'}
+        <input value={txt} disabled={cerrada} onChange={e => setTxt(e.target.value)}
+          placeholder={cerrada ? 'Ventana de 24 h cerrada: solo plantilla' : adj ? 'Texto que acompaña al archivo (opcional)…' : 'Escribe y sale por el +51 960 487 000 (número oficial)… el bot se calla al responder tú'}
           onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
-        <button className="wa-btn wa-solid" disabled={mandando} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
+        <button className="wa-btn wa-solid" disabled={mandando || cerrada} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
       </div>
     </div>
   )
@@ -157,7 +175,16 @@ export default function Whatsapp() {
   const [verSes, setVerSes] = useState(false)                 // gestor de números por proyecto
   const [usuarios, setUsuarios] = useState([])                // para asignar chats
   const [reenvio, setReenvio] = useState(null)                // mensaje elegido para reenviar
-  const [tags, setTags] = useState(TAGS_DEF)                  // etiquetas de estado (configurables)
+  const [tags, setTags] = useState([])                        // etiquetas propias del CRM (wa_etiquetas, sql/158)
+  // teléfonos (9 dígitos finales) que están en alguna FICHA de cliente: la regla de
+  // agente/quien_escribe.js. Teléfono en una ficha = cliente; si no, lead.
+  const [telsClientes, setTelsClientes] = useState(() => new Set())
+  const cargarTelsClientes = async () => {
+    const { data, error } = await supabase.rpc('wa_telefonos_clientes')
+    if (!error && Array.isArray(data)) setTelsClientes(new Set(data))
+  }
+  const esClienteTel = phone => telsClientes.has(String(phone || '').replace(/\D/g, '').slice(-9))
+  const esClienteDe = c => !!c?.clients || esClienteTel(c?.phone)
   const [quicks, setQuicks] = useState([])                    // respuestas rápidas (burbujas)
   // 📊 conteo de chats por etiqueta / proyecto / asesor (clic = filtrar)
   const [verConteo, setVerConteo] = useState(false)
@@ -166,12 +193,13 @@ export default function Whatsapp() {
   const [filtroAsig, setFiltroAsig] = useState('')            // '' = todos los asesores
   const cargarConteo = async () => {
     // query aparte (la bandeja corta en 300): cuenta TODO lo visible para este usuario
-    const { data } = await supabase.from('whatsapp_conversations').select('tag, project_id, assigned_to').limit(5000)
+    const { data } = await supabase.from('whatsapp_conversations').select('etiquetas, project_id, assigned_to').limit(5000)
     setConteoRaw(data || [])
   }
+  // (un chat con varias etiquetas cuenta en cada una; sin etiquetas cuenta en "SIN ETIQUETA")
   const agrupar = (rows, key) => {
     const m = new Map()
-    rows.forEach(r => { const k = r[key] || ''; m.set(k, (m.get(k) || 0) + 1) })
+    rows.forEach(r => { const v = r[key]; const ks = Array.isArray(v) ? (v.length ? v : ['']) : [v || '']; ks.forEach(k => m.set(k, (m.get(k) || 0) + 1)) })
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   }
   // --- fluidez: no-leídos (localStorage por usuario), sonido, optimista, búsqueda global ---
@@ -209,29 +237,45 @@ export default function Whatsapp() {
       }
     } catch {}
   }
-  // etiquetas y respuestas rápidas viven en bot_brains (chat_tags / quick_replies)
+  // Etiquetas: catálogo propio del CRM (wa_etiquetas). Respuestas rápidas: bot_brains.quick_replies.
   const cargarExtras = async () => {
-    const { data } = await supabase.from('bot_brains').select('key, content').in('key', ['chat_tags', 'quick_replies'])
-    for (const r of (data || [])) {
-      if (r.key === 'chat_tags') { const o = parseArr(r.content).filter(t => t && t.n); if (o.length) setTags(o) }
-      if (r.key === 'quick_replies') setQuicks(parseArr(r.content).filter(x => typeof x === 'string' && x.trim()))
-    }
+    const [{ data: et }, { data: qr }] = await Promise.all([
+      supabase.from('wa_etiquetas').select('nombre, color, orden').order('orden').order('nombre'),
+      supabase.from('bot_brains').select('content').eq('key', 'quick_replies').maybeSingle(),
+    ])
+    setTags((et || []).map(t => ({ n: t.nombre, c: t.color })))
+    setQuicks(parseArr(qr?.content).filter(x => typeof x === 'string' && x.trim()))
   }
-  const guardarTags = async next => { setTags(next); await supabase.from('bot_brains').upsert({ key: 'chat_tags', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
   const guardarQuicks = async next => { setQuicks(next); await supabase.from('bot_brains').upsert({ key: 'quick_replies', content: JSON.stringify(next), updated_at: new Date().toISOString() }) }
   const crearTag = async () => {
     const n = await pedir('Nombre de la etiqueta nueva (ej. SEPARÓ, NO CONTESTA, VISITÓ):')
     if (!n || !n.trim()) return null
     const nombre = n.trim().toUpperCase()
-    if (!tags.some(t => t.n === nombre)) await guardarTags([...tags, { n: nombre, c: TAG_PALETA[tags.length % TAG_PALETA.length] }])
+    if (!tags.some(t => t.n === nombre)) {
+      const { error } = await supabase.from('wa_etiquetas').insert({ nombre, color: TAG_PALETA[tags.length % TAG_PALETA.length], orden: 10 + tags.length })
+      if (error) { await avisar('No se pudo crear la etiqueta: ' + error.message); return null }
+      await cargarExtras()
+    }
     return nombre
   }
-  const setTagChat = async (c, tag) => {
-    await supabase.from('whatsapp_conversations').update({ tag: tag || null }).eq('id', c.id)
-    // reflejar la etiqueta como label de WhatsApp Business en el celular (best-effort en el agente)
-    await supabase.from('scheduled_messages').insert({ recipient_phone: c.phone, body: tag || null, tipo: 'label_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: c.id, session_id: c.session_id || null, sender_id: profile?.id || null }).then(() => {}, () => {})
-    cargarConvs(); setSel(x => x && x.id === c.id ? { ...x, tag: tag || null } : x)
+  const colorearTag = async (nombre, color) => { await supabase.from('wa_etiquetas').update({ color }).eq('nombre', nombre); savedFx(); cargarExtras() }
+  const borrarTag = async nombre => {
+    if (!await confirmar(`¿ELIMINAR la etiqueta "${nombre}"?\n\nSe quita del catálogo y de TODOS los chats que la tengan.`, { peligro: true, aceptar: 'Sí, eliminar' })) return
+    const { error } = await supabase.rpc('wa_etiqueta_borrar', { p_nombre: nombre })
+    if (error) { await avisar('No se pudo: ' + error.message); return }
+    cargarExtras(); cargarConvs(); setSel(x => x ? { ...x, etiquetas: (x.etiquetas || []).filter(e => e !== nombre) } : x)
   }
+  // Poner/quitar una etiqueta al chat. Es PROPIA del CRM (sql/158): se guarda en el chat y
+  // listo; nada viaja a WhatsApp (la Cloud API no tiene etiquetas). tag queda = la primera.
+  const toggleEtiqueta = async (c, nombre) => {
+    const actual = c.etiquetas || []
+    const next = actual.includes(nombre) ? actual.filter(e => e !== nombre) : [...actual, nombre]
+    const { error } = await supabase.from('whatsapp_conversations').update({ etiquetas: next }).eq('id', c.id)
+    if (error) { await avisar('No se pudo guardar la etiqueta: ' + error.message); return }
+    savedFx()
+    cargarConvs(); setSel(x => x && x.id === c.id ? { ...x, etiquetas: next, tag: next[0] || null } : x)
+  }
+  const [verEtiq, setVerEtiq] = useState(false)            // gestor del catálogo de etiquetas
   const colorTag = n => tags.find(t => t.n === n)?.c || '#9daab6'
   // color de un número: el de su proyecto, o uno de la paleta según su orden
   const colorSesion = id => {
@@ -253,8 +297,6 @@ export default function Whatsapp() {
   const [avisoNuevo, setAvisoNuevo] = useState('')
   const [clavesSi, setClavesSi] = useState('')
   const [clavesNo, setClavesNo] = useState('')
-  const [waEstado, setWaEstado] = useState('')
-  const [qrImg, setQrImg] = useState('')
   const [waLatido, setWaLatido] = useState('')
   const [verBrains, setVerBrains] = useState(false)
   const [brains, setBrains] = useState([])
@@ -280,11 +322,9 @@ export default function Whatsapp() {
     const { data } = await supabase.from('bot_settings').select('key, value')
     if (data) {
       const f = { ...flags }
-      let qr = ''
       data.forEach(r => {
         if (r.key === 'admin_phone') setAdminPhone(r.value || '')
-        else if (r.key === 'wa_estado') setWaEstado(r.value || '')
-        else if (r.key === 'wa_qr') qr = r.value || ''
+        else if (r.key === 'wa_estado' || r.key === 'wa_qr') { /* del chip (Baileys): ya no se usa */ }
         else if (r.key === 'wa_latido') setWaLatido(r.value || '')
         else if (r.key.startsWith('sec_') || ['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha'].includes(r.key)) { /* config, no es flag */ }
         else f[r.key] = r.value !== '0'
@@ -305,20 +345,12 @@ export default function Whatsapp() {
         saludoActivo: kv.sec_saludo_activo !== '0',
         saludoHora: (kv.sec_saludo_hora || '07:30').slice(0, 5),
       })
-      if (qr) QRCode.toDataURL(qr, { width: 260, margin: 1 }).then(setQrImg).catch(() => setQrImg(''))
-      else setQrImg('')
     }
   }
-  const pedirRelink = async () => {
-    if (!await confirmar('¿VINCULAR OTRO NÚMERO?\n\nEsto desconecta el WhatsApp actual del bot y en ~30 segundos aparecerá aquí un código QR para escanear con el celular nuevo.\n\nEl bot dejará de responder hasta que escanees el QR.')) return
-    await supabase.from('bot_settings').upsert({ key: 'wa_relink', value: '1', updated_at: new Date().toISOString() })
-    setWaEstado('esperando_qr')
-    await avisar('Pedido enviado. El QR aparecerá aquí en ~30 segundos (la sección se refresca sola).')
-  }
   const reiniciarBot = async () => {
-    if (!await confirmar('¿REINICIAR EL BOT?\n\nUsalo si dejo de responder. Tarda ~30-60 segundos en volver a EN LINEA y la sesion de WhatsApp NO se pierde (no hay que escanear QR).')) return
+    if (!await confirmar('¿REINICIAR EL AGENTE?\n\nÚsalo si dejó de responder. Tarda ~30-60 segundos en volver a EN LÍNEA. El número oficial no se desconecta (vive en la Cloud API de Meta, no en un celular).')) return
     await supabase.from('bot_settings').upsert({ key: 'wa_restart', value: '1', updated_at: new Date().toISOString() })
-    await avisar('Reinicio solicitado. El bot lo detecta en maximo 15 segundos. Observa el chip de estado: pasara a SIN RESPONDER un momento y luego a EN LINEA.')
+    await avisar('Reinicio solicitado. El agente lo detecta en máximo 15 segundos. Observa el chip de estado: pasará a SIN LATIDO un momento y luego a EN LÍNEA.')
   }
   const cambiarAdmin = async () => {
     const v = await pedir('NÚMERO ADMINISTRADOR (recibe avisos de leads, reportes de cobranza y resumen de secretarias).\n\nFormato: 51 + número (ej. 51924947651):', { tipo: 'numero', valor: adminPhone || '51' })
@@ -590,26 +622,20 @@ export default function Whatsapp() {
 
   const convsRef = useRef([])
   // solo las columnas que el panel usa (no `*`): baja el EGRESS de cada refresco
-  const CONV_COLS = 'id, phone, wa_jid, last_message_at, flow_state, modo, tag, project_id, assigned_to, session_id, humano_desde, wa_label_id, lead_id, client_id, is_test, leads(full_name, status), clients(full_name), projects(name, color)'
+  const CONV_COLS = 'id, phone, wa_jid, last_message_at, flow_state, modo, tag, etiquetas, ultimo_entrante_at, project_id, assigned_to, session_id, humano_desde, lead_id, client_id, is_test, leads(full_name, status), clients(full_name), projects(name, color)'
   const cargarConvs = async () => {
     const { data } = await supabase.from('whatsapp_conversations')
       .select(CONV_COLS)
       .order('last_message_at', { ascending: false, nullsFirst: false }).limit(300)
     setConvs(data || []); convsRef.current = data || []
   }
-  // sesiones (números vinculados). Si la tabla aún no existe (sql/30 sin correr), queda vacío
-  // y el estado del bot se muestra con bot_settings como antes.
+  // wa_sessions: desde el 27 oct 2026 solo late la fila del 960 (Cloud API); las demás
+  // (Brisas, etc.) quedan apagadas y sirven solo para filtrar sus chats viejos.
   const cargarSesiones = async () => {
     const { data, error } = await supabase.from('wa_sessions').select('*').order('is_corporate', { ascending: false }).order('created_at')
     if (error) return
     setSesiones(data || [])
-    const qrs = {}
-    for (const s of (data || [])) {
-      if (s.estado === 'esperando_qr' && s.qr) { try { qrs[s.id] = await QRCode.toDataURL(s.qr, { width: 240, margin: 1 }) } catch {} }
-    }
-    setQrsSes(qrs)
   }
-  const [qrsSes, setQrsSes] = useState({})
   const [proysAll, setProysAll] = useState([])
   const cargarProysAll = async () => {
     const { data } = await supabase.from('projects').select('id, name, color').order('name')
@@ -634,11 +660,6 @@ export default function Whatsapp() {
     await supabase.from('wa_sessions').update({ is_corporate: false }).neq('id', id)
     await setSesCampo(id, { is_corporate: true })
   }
-  const relinkSesion = async s => {
-    if (!await confirmar(`¿VINCULAR OTRO CELULAR al número "${s.label}"?\n\nSe cierra su WhatsApp actual y en ~30 segundos aparece un QR nuevo para escanear.`)) return
-    await setSesCampo(s.id, { relink: true })
-  }
-  const restartSesion = async s => { await setSesCampo(s.id, { restart: true }); await avisar('Reinicio de "' + s.label + '" solicitado (tarda ~30-60 seg; no pide QR).') }
   const borrarSesion = async s => {
     // El corporativo ya no lleva el seguimiento (eso vive en Telegram), así que
     // también se puede eliminar; solo se avisa por si aún se usa como respaldo.
@@ -664,32 +685,27 @@ export default function Whatsapp() {
     // el orden DESC + limit baja el EGRESS muchísimo; el sort final los deja cronológicos.
     const [ins, outs, voz] = await Promise.all([
       supabase.from('whatsapp_messages').select('id, body, created_at, direction, media_url, media_type, media_name, delivery_status').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(150),
-      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).order('scheduled_for', { ascending: false }).limit(150),
+      supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id, wa_msg_id, edited_at, entrega, entrega_error, last_error').or(orSched).in('status', ['enviado', 'fallido', 'pendiente']).order('scheduled_for', { ascending: false }).limit(150),
       // notas de voz transcritas (sql/93). Consulta aparte: si la columna no existe, falla sola y la bandeja sigue
       supabase.from('whatsapp_messages').select('id, transcripcion').eq('conversation_id', c.id).eq('media_type', 'audio').not('transcripcion', 'is', null).limit(150),
     ])
     const transcritas = new Map((voz.data || []).map(v => [v.id, v.transcripcion]))
-    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial', transcripcion: transcritas.get(m.id) }))
+    const a = (ins.data || []).map(m => ({ body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, cel: m.delivery_status === 'celular', hist: m.delivery_status === 'historial', entrega: TICKS[m.delivery_status] ? m.delivery_status : null, transcripcion: transcritas.get(m.id) }))
     const b = (outs.data || [])
       .filter(m => m.tipo !== 'edit_panel')   // las ediciones no son burbujas (actualizan el original)
       .map(m => m.tipo === 'vcard_panel'
-        ? ({ body: '📇 Contacto "' + (m.body || '') + '" enviado al celular del chip (chat "Tú") para guardarlo en la agenda.', at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, info: true, fallo: m.status === 'fallido', pend: m.status === 'pendiente' })
-        : ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id, wa_msg_id: m.wa_msg_id, editado: !!m.edited_at }))
+        ? ({ body: '📇 Contacto "' + (m.body || '') + '" (tarjeta al celular del chip: función de Baileys, ya no existe).', at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, info: true, fallo: m.status === 'fallido', pend: m.status === 'pendiente' })
+        : ({ body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, fallo: m.status === 'fallido', pend: m.status === 'pendiente', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id, wa_msg_id: m.wa_msg_id, editado: !!m.edited_at, entrega: m.entrega || null, err: m.entrega_error || m.last_error || null }))
     setMsgs([...a, ...b].filter(x => x.body || x.media_url).sort((x, y) => new Date(x.at) - new Date(y.at)))
-  }
-  // 📇 cómo está guardado este número en la agenda del celular del chip
-  const [contacto, setContacto] = useState(null)
-  const cargarContacto = async c => {
-    if (!c) { setContacto(null); return }
-    const { data } = await supabase.from('wa_contacts').select('*').ilike('phone', '%' + String(c.phone).slice(-9)).limit(1)
-    setContacto((data || [])[0] || null)
   }
 
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
   // (el operador carga el directorio y los usuarios para LEER la bandeja completa; los ajustes del bot no)
-  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); if (esAdminW) cargarFlags(); if (jefeBandeja) { cargarNums(); cargarUsuarios() } }, [role])
-  useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); cargarContacto(sel); marcarLeido(sel) }, [sel])
+  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); cargarTelsClientes(); if (esAdminW) cargarFlags(); if (jefeBandeja) { cargarNums(); cargarUsuarios() } }, [role])
+  // la lista de teléfonos de clientes cambia poco: cada 5 min alcanza
+  useEffect(() => { const t = setInterval(() => { if (!pausadoRef.current) cargarTelsClientes() }, 5 * 60000); return () => clearInterval(t) }, [])
+  useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); marcarLeido(sel) }, [sel])
   useEffect(() => {
     setIaExperimento(true)
     if (sel?.flow_state !== 'ia' || !sel?.lead_id) return
@@ -725,6 +741,10 @@ export default function Whatsapp() {
         if (!pausadoRef.current) { cargarConvs(); if (selRef.current && msg.conversation_id === selRef.current.id) cargarMsgs(selRef.current) }
         if ((msg.direction || 'in') === 'in') { const conv = convsRef.current.find(c => c.id === msg.conversation_id); notificarEntrante(msg, conv) }   // avisa aun en pausa
       })
+      // estado de entrega de los salientes del bot (wa_marcar_entrega, sql/158)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'whatsapp_messages' }, ({ new: msg }) => {
+        if (!pausadoRef.current && selRef.current && msg.conversation_id === selRef.current.id) cargarMsgs(selRef.current)
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, () => { if (!pausadoRef.current) { cargarConvs(); if (verConteoRef.current) cargarConteo() } })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scheduled_messages' }, ({ new: m }) => {
         if (!pausadoRef.current && selRef.current && (m.conversation_id === selRef.current.id || m.recipient_phone === selRef.current.phone)) cargarMsgs(selRef.current)
@@ -734,7 +754,7 @@ export default function Whatsapp() {
   }, [role, profile?.id])
   useEffect(() => {
     // con realtime activo el poll es solo respaldo: cada 60s y solo si el panel está activo
-    const t = setInterval(() => { if (pausadoRef.current) return; cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) { cargarMsgs(selRef.current); cargarContacto(selRef.current) } }, 60000)
+    const t = setInterval(() => { if (pausadoRef.current) return; cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) cargarMsgs(selRef.current) }, 60000)
     return () => clearInterval(t)
   }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, optimistas.length])
@@ -749,7 +769,7 @@ export default function Whatsapp() {
 
   const lista = convs.filter(c => {
     if (filtroProy && c.project_id !== filtroProy) return false
-    if (filtroTag && c.tag !== filtroTag) return false
+    if (filtroTag && !(c.etiquetas || []).includes(filtroTag)) return false
     if (filtroAsig && c.assigned_to !== filtroAsig) return false
     if (filtroSes && c.session_id !== filtroSes) return false
     if (busca) {
@@ -758,7 +778,9 @@ export default function Whatsapp() {
     }
     if (filtro === 'calificados') return c.flow_state === 'completado'
     if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto', 'flow'].includes(c.flow_state)
-    if (filtro === 'clientes') return !!c.clients
+    if (filtro === 'clientes') return esClienteDe(c)          // teléfono en una ficha = cliente (regla de quien_escribe.js)
+    if (filtro === 'leads') return !esClienteDe(c)
+    if (filtro === 'ventana') return ventanaDe(c).abierta     // se le puede escribir texto libre ahora
     if (filtro === 'humanos') return c.flow_state === 'humano' || c.modo === 'humano'
     if (filtro === 'mios') return c.assigned_to === profile?.id
     if (filtro === 'silenciados') return !!nums.find(n => c.phone && ['desactivado', 'silencio'].includes(n.tipo) && (c.phone.endsWith(n.phone.slice(-9)) || n.phone.endsWith(String(c.phone).slice(-9))))
@@ -805,6 +827,7 @@ export default function Whatsapp() {
           <b style={{ fontSize: 13 }}>{nombreDe(c)}</b>
           <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
             {nsinleer > 0 && <span style={{ background: '#25d366', color: '#04210f', fontSize: 10, fontWeight: 800, borderRadius: 20, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{nsinleer}</span>}
+            {c.ultimo_entrante_at && !ventanaDe(c).abierta && <span title="Ventana de 24 h cerrada: solo se le puede escribir con plantilla" style={{ fontSize: 10 }}>🔒</span>}
             <span className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fh(c.last_message_at)}</span>
           </span>
         </div>
@@ -813,12 +836,12 @@ export default function Whatsapp() {
           <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); const col = colorSesion(c.session_id) || '#8b95a1'; return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid ' + col, color: col }}>📱 {sn.label}</span> : null })()}
             {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
-            {c.tag && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(c.tag)}`, color: colorTag(c.tag) }}>🏷️ {c.tag}</span>}
+            {(c.etiquetas || []).map(t => <span key={t} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(t)}`, color: colorTag(t) }}>🏷️ {t}</span>)}
             {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
             {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
             {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
             {f && c.modo !== 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
-            {c.clients && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
+            {esClienteDe(c) && <span title="Su teléfono está en una ficha de cliente" style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
           </span>
         </div>
       </div>
@@ -850,25 +873,21 @@ export default function Whatsapp() {
             <Toggle on={flags.seguimiento_activo !== false} onClick={() => setFlag('seguimiento_activo', flags.seguimiento_activo === false)} icon="🗓️" label="SEGUIMIENTO" />
           </span>
           </>)}
-          {sesiones.length > 0 ? sesiones.map(s => {
-            const [txt, col] = s.estado === 'esperando_qr' ? ['📱 QR…', '#e0b34c']
-              : sesionViva(s) ? ['🟢', '#6fdd9b']
-              : s.latido ? ['🔴', '#e07b7b'] : ['📱', '#e0b34c']
-            return <span key={s.id} onClick={() => esAdminW && setVerSes(true)}
-              title={(s.is_corporate ? 'CORPORATIVO · ' : '') + (s.phone ? '+' + s.phone + ' · ' : '') + (s.latido ? 'último latido ' + new Date(s.latido).toLocaleTimeString('es-PE') : 'sin latido aún')}
+          {(() => {
+            // Un solo chip: el número oficial por la Cloud API. Late la fila del 960 en
+            // wa_sessions (modo API del agente) o, si no existe, bot_settings.wa_latido.
+            const ses = sesiones.find(s => String(s.phone || '').endsWith(NUM_OFICIAL.slice(-9))) || sesiones.find(s => sesionViva(s))
+            const lat = ses ? ses.latido : waLatido
+            const vivo = lat && (Date.now() - new Date(lat).getTime()) < 120000
+            const [txt, col] = vivo ? ['🟢 EN LÍNEA', '#6fdd9b'] : lat ? ['🔴 SIN LATIDO', '#e07b7b'] : ['⚪ SIN DATOS', '#8b95a1']
+            return <span onClick={() => esAdminW && setVerSes(true)}
+              title={'Número oficial +' + NUM_OFICIAL + ' por la API de Meta (Cloud API). ' + (lat ? 'Último latido del agente: ' + new Date(lat).toLocaleTimeString('es-PE') : 'El agente aún no reporta latido.') + (vivo ? '' : ' Si sigue rojo, revisa el droplet (pm2) o reinicia.')}
               style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col, cursor: esAdminW ? 'pointer' : 'default' }}>
-              {txt} {s.label || 'PRINCIPAL'}{s.is_corporate ? ' ★' : ''}</span>
-          }) : (() => {
-            const fresco = waLatido && (Date.now() - new Date(waLatido).getTime()) < 120000
-            const [txt, col] = waEstado === 'esperando_qr' ? ['📱 ESPERANDO QR...', '#e0b34c']
-              : fresco ? ['🟢 BOT EN LÍNEA', '#6fdd9b']
-              : waLatido ? ['🔴 BOT SIN RESPONDER', '#e07b7b']
-              : waEstado === 'conectado' ? ['📱 CONECTADO', '#6fdd9b'] : ['📱 —', '#e0b34c']
-            return <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: `1px solid ${col}99`, color: col }}>{txt}</span>
+              {txt} · ☁️ API OFICIAL +51 960 487 000</span>
           })()}
-          {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp por proyecto: vincular, reiniciar, asignar proyecto">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
-          {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el bot dejó de responder, reinícialo desde aquí (no pide QR)">🔁 REINICIAR</button>}
-          {role === 'superuser' && sesiones.length === 0 && <button className="btn-ghost" onClick={pedirRelink} title="Desvincular y escanear QR con otro celular">🔄 VINCULAR NÚMERO</button>}
+          {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp: el oficial (API) y los apagados">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
+          {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el agente dejó de responder, reinícialo desde aquí (el número no se desconecta)">🔁 REINICIAR</button>}
+          <a className="btn-ghost" href="https://github.com/softurbis/crm/blob/main/docs/MANUAL-BANDEJA-WHATSAPP.md" target="_blank" rel="noreferrer" title="Manual de la bandeja: etiquetas, ventana de 24 h, estado de entrega, cliente o lead">📖 MANUAL</a>
           {role === 'superuser' && <button className="btn-ghost" onClick={() => setVerAvisos(v => !v)}
             title="Números que reciben copia de cada lead y pedido de asesor">📢 COPIA AVISOS{listaAvisos.length ? ' (' + listaAvisos.length + ')' : ''}</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}
@@ -909,13 +928,6 @@ export default function Whatsapp() {
         </div>
       )}
 
-      {/* Los QR de vinculación se muestran en la ficha de cada proyecto (menú Proyectos) */}
-      {sesiones.some(s => s.estado === 'esperando_qr') && (
-        <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, border: '1px solid rgba(224,179,76,.5)', color: '#e0b34c', fontSize: 13 }}>
-          📱 Hay {sesiones.filter(s => s.estado === 'esperando_qr').length} número(s) esperando vinculación.
-          El QR sale en <b>Proyectos → la ficha del proyecto</b>.
-        </div>
-      )}
 
       {/* Gestor de números por proyecto (wa_sessions) */}
       {verSes && esAdminW && (
@@ -924,14 +936,14 @@ export default function Whatsapp() {
             <b>📱 NÚMEROS DE WHATSAPP (uno por proyecto)</b>
           </div>
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
-            Los números se crean y se vinculan <b>desde la ficha de cada proyecto</b> (menú <b>Proyectos</b>): ahí sale su QR
-            y el interruptor del bot. Aquí solo ves el estado y los controles de operación.
-            El <b>★ CORPORATIVO</b> lleva además el seguimiento de secretarias, gerencia y avisos internos.
+            Desde el <b>27 oct 2026</b> todo sale por el <b>+51 960 487 000</b> (API oficial de Meta, conectada por C-Soft):
+            leads, clientes y lo que escribes desde el panel. Los demás números quedaron <b>apagados</b> (ya no hay QR ni
+            celular que vincular); sus chats siguen aquí como historial. El interruptor LEADS y el flujo se editan en la ficha del proyecto.
           </p>
           {sesiones.length === 0 && <p className="muted">Aún no hay números registrados (¿ya se corrió sql/30 y se redesplegó el agente?).</p>}
           {sesiones.map(s => (
-            <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.06)', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 14 }}>{s.estado === 'esperando_qr' ? '📱' : sesionViva(s) ? '🟢' : '🔴'}</span>
+            <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.06)', flexWrap: 'wrap', opacity: sesionViva(s) ? 1 : .6 }}>
+              <span style={{ fontSize: 14 }} title={sesionViva(s) ? 'En línea por la Cloud API' : 'Apagado (Baileys se apagó el 27 oct 2026)'}>{sesionViva(s) ? '☁️' : '⏸'}</span>
               <input value={s.label || ''} onChange={e => setSesiones(a => a.map(x => x.id === s.id ? { ...x, label: e.target.value } : x))}
                 onBlur={e => setSesCampo(s.id, { label: e.target.value.trim().toUpperCase() })} style={{ width: 130, fontWeight: 700 }} />
               <span className="muted" style={{ fontSize: 12, width: 110 }}>{s.phone ? '+' + s.phone : '(sin vincular)'}</span>
@@ -948,9 +960,8 @@ export default function Whatsapp() {
               {s.is_corporate
                 ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: '1px solid #e7c15a', color: '#e7c15a' }}>★ CORPORATIVO</span>
                 : <button className="btn-ghost" style={{ fontSize: 10 }} onClick={() => marcarCorporativa(s.id)} title="Hacer de este el número de seguimiento/gerencia/avisos">☆ hacer corporativo</button>}
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button className="btn-ghost" onClick={() => relinkSesion(s)} title="Escanear QR con otro celular">🔄 VINCULAR</button>
-                <button className="btn-ghost" onClick={() => restartSesion(s)} title="Reiniciar solo este número (no pide QR)">🔁</button>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                {!sesionViva(s) && <span className="muted" style={{ fontSize: 10 }}>APAGADO · solo historial</span>}
                 <button className="btn-ghost" onClick={() => borrarSesion(s)} title="Eliminar este número">✕</button>
               </span>
             </div>
@@ -1313,8 +1324,8 @@ export default function Whatsapp() {
                 return (
                   <button key={s.id} className="btn-ghost" onClick={() => setFiltroSes(filtroSes === s.id ? '' : s.id)}
                     style={{ fontSize: 10, padding: '3px 8px', borderColor: filtroSes === s.id ? colorSesion(s.id) : 'rgba(255,255,255,.15)', color: sesionViva(s) ? colorSesion(s.id) : '#e07b7b' }}
-                    title={sesionViva(s) ? 'Número conectado' : 'Número SIN conexión — revisa el droplet / re-vincula'}>
-                    {sesionViva(s) ? '🟢' : '🔴'} {s.label} <b>{n}</b></button>
+                    title={sesionViva(s) ? 'Número oficial, en línea por la Cloud API' : 'Número apagado desde el 27 oct 2026 (todo sale por el 960): sus chats quedan de historial'}>
+                    {sesionViva(s) ? '☁️' : '⏸'} {s.label} <b>{n}</b></button>
                 )
               })}
             </div>
@@ -1331,26 +1342,42 @@ export default function Whatsapp() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-            {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['clientes', 'CLIENTES'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
+            {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['clientes', '💵 CLIENTES'], ['leads', '🆕 LEADS'], ['ventana', '🕒 VENTANA ABIERTA'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
               <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
             ))}
-            <select value={filtroTag} onChange={e => setFiltroTag(e.target.value)} title="Filtrar por etiqueta de estado"
+            <select value={filtroTag} onChange={e => setFiltroTag(e.target.value)} title="Filtrar por etiqueta (propias del CRM)"
               style={{ fontSize: 10, padding: '2px 6px', color: filtroTag ? colorTag(filtroTag) : undefined }}>
               <option value="">🏷️ TODAS</option>
               {tags.map(t => <option key={t.n} value={t.n}>{t.n}</option>)}
             </select>
+            {jefeBandeja && <button className="btn-ghost" title="Crear, colorear o eliminar etiquetas" onClick={() => setVerEtiq(v => !v)}
+              style={{ fontSize: 10, padding: '3px 8px', borderColor: verEtiq ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>🏷️ EDITAR</button>}
             <button className="btn-ghost" title="Conteo de chats por etiqueta, proyecto y asesor (clic en un número = filtrar)"
               onClick={() => { const v = !verConteo; setVerConteo(v); verConteoRef.current = v; if (v) cargarConteo() }}
               style={{ fontSize: 10, padding: '3px 8px', borderColor: verConteo ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>📊 CONTEO</button>
             <button className="btn-ghost" title="Cambiar vista" onClick={() => setVista(vista === 'lista' ? 'cuadros' : 'lista')}
               style={{ fontSize: 10, padding: '3px 8px', marginLeft: 'auto' }}>{vista === 'lista' ? '⊞ CUADROS' : '☰ LISTA'}</button>
           </div>
+          {verEtiq && jefeBandeja && (
+            <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: 8, marginBottom: 8 }}>
+              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>🏷️ ETIQUETAS DEL PANEL (propias del CRM: no se sincronizan con WhatsApp)</p>
+              {tags.length === 0 && <p className="muted" style={{ fontSize: 11, margin: '0 0 4px' }}>Sin etiquetas todavía (¿se corrió sql/158?).</p>}
+              {tags.map(t => (
+                <div key={t.n} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
+                  <input type="color" value={t.c} title="Color" onChange={e => colorearTag(t.n, e.target.value)} style={{ width: 26, height: 20, padding: 0, border: 'none', background: 'transparent' }} />
+                  <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, border: `1px solid ${t.c}`, color: t.c, flex: 1 }}>🏷️ {t.n}</span>
+                  <button className="btn-ghost" style={{ fontSize: 10, padding: '0 6px' }} title="Eliminar de todos los chats" onClick={() => borrarTag(t.n)}>✕</button>
+                </div>
+              ))}
+              <button className="btn-ghost" style={{ fontSize: 10, marginTop: 4 }} onClick={crearTag}>➕ Nueva etiqueta</button>
+            </div>
+          )}
           {verConteo && conteoRaw && (
             <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: 8, marginBottom: 8 }}>
               <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>🏷️ POR ETIQUETA · {conteoRaw.length} chats</p>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-                {agrupar(conteoRaw, 'tag').map(([k, n]) => (
+                {agrupar(conteoRaw, 'etiquetas').map(([k, n]) => (
                   <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroTag(filtroTag === k ? '' : k)}
                     style={{ fontSize: 10, padding: '2px 8px', color: k ? colorTag(k) : undefined, borderColor: filtroTag === k && k ? colorTag(k) : 'rgba(255,255,255,.15)' }}>
                     {k || 'SIN ETIQUETA'} <b>{n}</b></button>
@@ -1399,7 +1426,8 @@ export default function Whatsapp() {
             <>
               {(() => {
                 const tnSel = tipoDe(sel.phone)
-                const esCliente = tnSel?.tipo === 'cliente' || !!sel.clients
+                const esCliente = tnSel?.tipo === 'cliente' || esClienteDe(sel)
+                const ven = ventanaDe(sel)
                 const esRegistrado = !!tnSel && tnSel.tipo !== 'bot'   // cliente/secretaria/gerencia/admin/silencio
                 const mostrarLead = !!sel.lead_id && !esRegistrado
                 const avColor = esCliente ? '#b8a1d9' : tnSel?.tipo === 'secretaria' || tnSel?.tipo === 'gerencia' ? '#7ec8e3' : '#9ccb86'
@@ -1425,20 +1453,25 @@ export default function Whatsapp() {
                               {proysAll.map(p => <option key={p.id} value={p.id}>📁 {p.name}</option>)}
                             </select>
                           )}
-                          <select className="wa-sel" value={sel.tag && tags.some(t => t.n === sel.tag) ? sel.tag : (sel.tag || '')} title="Etiqueta de estado del chat"
-                            style={{ fontSize: 11, color: sel.tag ? colorTag(sel.tag) : undefined }}
-                            onChange={async e => {
-                              let v = e.target.value
-                              if (v === '__nueva') { v = await crearTag(); if (!v) return }
-                              if (v === '__quitar') { const n = await pedir('Nombre EXACTO de la etiqueta a eliminar de la lista:', { peligro: true, aceptar: 'Eliminar' }); if (n && n.trim()) await guardarTags(tags.filter(t => t.n !== n.trim().toUpperCase())); return }
-                              await setTagChat(sel, v)
-                            }}>
-                            <option value="">🏷️ SIN ETIQUETA</option>
-                            {tags.map(t => <option key={t.n} value={t.n}>🏷️ {t.n}</option>)}
-                            {sel.tag && !tags.some(t => t.n === sel.tag) && <option value={sel.tag}>🏷️ {sel.tag}</option>}
-                            {jefeBandeja && <option value="__nueva">➕ CREAR ETIQUETA…</option>}
-                            {jefeBandeja && tags.length > 0 && <option value="__quitar">🗑 ELIMINAR DE LA LISTA…</option>}
-                          </select>
+                          {/* etiquetas PROPIAS del CRM: varias por chat, clic en ✕ para quitar; el selector agrega */}
+                          {(sel.etiquetas || []).map(t => (
+                            <span key={t} className="wa-badge" style={{ color: colorTag(t), borderColor: colorTag(t), display: 'inline-flex', gap: 4, alignItems: 'center' }}>🏷️ {t}
+                              {puedeEscribir && <button className="btn-ghost" style={{ padding: '0 3px', fontSize: 10, lineHeight: 1 }} title="Quitar esta etiqueta" onClick={() => toggleEtiqueta(sel, t)}>✕</button>}
+                            </span>
+                          ))}
+                          {puedeEscribir && (
+                            <select className="wa-sel" value="" title="Agregar una etiqueta a este chat (propia del CRM; no se sincroniza con WhatsApp)" style={{ fontSize: 11 }}
+                              onChange={async e => {
+                                let v = e.target.value
+                                if (!v) return
+                                if (v === '__nueva') { v = await crearTag(); if (!v) return }
+                                if (!(sel.etiquetas || []).includes(v)) await toggleEtiqueta(sel, v)
+                              }}>
+                              <option value="">🏷️ + ETIQUETA</option>
+                              {tags.filter(t => !(sel.etiquetas || []).includes(t.n)).map(t => <option key={t.n} value={t.n}>🏷️ {t.n}</option>)}
+                              {jefeBandeja && <option value="__nueva">➕ CREAR ETIQUETA…</option>}
+                            </select>
+                          )}
                           {sel.lead_id && ['admin', 'superuser', 'operador', 'secretary'].includes(role) && (
                             <button className="btn-ghost" title="Editar nombre" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.4 }} onClick={async () => {
                               const nuevo = await pedir('Nombre del lead:', { valor: nombreDe(sel) })
@@ -1451,22 +1484,10 @@ export default function Whatsapp() {
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
                           <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
-                          {contacto?.nombre
-                            ? <span className="wa-badge" style={{ color: '#9ccb86', borderColor: '#9ccb86' }}
-                                title={'Guardado en la agenda del celular del chip' + (contacto.push_name ? ' · la persona se pone: ' + contacto.push_name : '')}>📇 {contacto.nombre}</span>
-                            : puedeEscribir && (
-                              <button className="btn-ghost" style={{ fontSize: 10, padding: '2px 8px' }}
-                                title="Manda la tarjeta al chat «Tú» del celular del chip; ahí la abres y tocas AGREGAR. Al guardarse, el nombre aparece aquí solo."
-                                onClick={async () => {
-                                  const def = nombreDe(sel) === 'SIN NOMBRE' ? (contacto?.push_name || '') : nombreDe(sel)
-                                  const n = await pedir('¿Con qué nombre guardar este número en el celular del chip?', { valor: def })
-                                  if (!n || !n.trim()) return
-                                  const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim().toUpperCase(), tipo: 'vcard_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null })
-                                  if (error) await avisar('No se pudo: ' + error.message)
-                                  else { await avisar('📇 Tarjeta enviada al celular del chip.\n\nEn ESE celular: WhatsApp → chat «Tú» (mensaje a ti mismo) → tocar la tarjeta → AGREGAR.\n\nCuando la guarden, el nombre aparecerá aquí automáticamente.'); cargarMsgs(selRef.current) }
-                                }}>📇 GUARDAR EN EL CELULAR</button>
-                            )}
-                          {!contacto?.nombre && contacto?.push_name && <span className="muted" style={{ fontSize: 10, textTransform: 'none' }} title="Nombre que la persona usa en su WhatsApp">se pone: «{contacto.push_name}»</span>}
+                          {/* VENTANA DE 24 H de Meta: abierta = texto libre; cerrada = solo plantilla */}
+                          {ven.abierta
+                            ? <span className="wa-badge" style={{ color: '#6fdd9b', borderColor: '#6fdd9b' }} title={'La persona escribió el ' + fh(sel.ultimo_entrante_at) + '. Hasta 24 h después se le puede escribir texto libre y mandar archivos.'}>🕒 VENTANA ABIERTA · quedan {durCorta(ven.resta)}</span>
+                            : <span className="wa-badge" style={{ color: '#e8975a', borderColor: '#e8975a' }} title={ven.desde ? 'Su último mensaje fue el ' + fh(sel.ultimo_entrante_at) + '. Pasadas 24 h, Meta solo deja escribirle con una plantilla aprobada.' : 'Esta persona todavía no escribió al número oficial: Meta solo deja iniciar con una plantilla aprobada.'}>🔒 VENTANA CERRADA · solo plantilla{ven.desde ? ' · escribió hace ' + durCorta(-ven.resta + VENTANA_MS) : ''}</span>}
                           {mostrarLead && ['admin', 'superuser', 'operador', 'secretary'].includes(role) && (
                             <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
                               <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
@@ -1543,25 +1564,21 @@ export default function Whatsapp() {
                             : <a href={m.media_url} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#7ec8e3', marginBottom: m.body ? 6 : 0, textTransform: 'none' }}>📄 {m.media_name || 'DOCUMENTO'}</a>
                     )}
                     {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}
+                    {m.fallo && m.err && <div style={{ fontSize: 11, color: '#e07b7b', textTransform: 'none', marginTop: 4 }}>⚠️ {m.err}</div>}
                     <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                      {puedeEscribir && m.dir === 'out' && m.tipo === 'manual_panel' && m.wa_msg_id && !m.media_url && !m.fallo && !m.pend && (Date.now() - new Date(m.at).getTime()) < 15 * 60000 && (
-                        <button className="btn-ghost" title="Editar este mensaje (WhatsApp lo permite hasta 15 min después de enviado)" style={{ fontSize: 10, padding: '0 5px' }}
-                          onClick={async () => {
-                            const n = await pedir('Nuevo texto del mensaje:', { tipo: 'largo', valor: m.body || '' })
-                            if (n === null || !n.trim() || n.trim() === m.body) return
-                            const { error } = await supabase.from('scheduled_messages').insert({ recipient_phone: sel.phone, body: n.trim(), tipo: 'edit_panel', status: 'pendiente', scheduled_for: new Date().toISOString(), conversation_id: sel.id, session_id: sel.session_id || null, sender_id: profile?.id || null, wa_msg_id: m.wa_msg_id })
-                            if (error) await avisar('No se pudo editar: ' + error.message)
-                            else setTimeout(() => cargarMsgs(selRef.current), 7000)
-                          }}>✎</button>
-                      )}
                       {puedeEscribir && !m.info && (m.body || m.media_url) && (
                         <button className="btn-ghost" title="Reenviar a otro chat" style={{ fontSize: 10, padding: '0 5px' }}
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
                       )}
-                      <span>
+                      <span title={m.fallo && m.err ? 'Motivo: ' + m.err : undefined}>
                         {m.hist ? '🗄️ ' : m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
                         {m.tipo && m.dir === 'out' && !m.hist && !['manual_panel', 'vcard_panel'].includes(m.tipo) ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}{m.editado ? ' · ✎ editado' : ''}
                       </span>
+                      {/* palomitas: lo que Meta avisa por el webhook (statuses) para este envío */}
+                      {m.dir === 'out' && !m.pend && !m.fallo && m.entrega && TICKS[m.entrega] && (
+                        <span title={TICKS[m.entrega][2]} style={{ color: TICKS[m.entrega][1], fontWeight: 700, letterSpacing: -1 }}>{TICKS[m.entrega][0]}</span>
+                      )}
+                      {m.dir === 'out' && !m.pend && !m.fallo && !m.entrega && m.wa_msg_id && !m.cel && <span title="Enviado a Meta; todavía no avisa si llegó" style={{ opacity: .6 }}>✓</span>}
                     </div>
                   </div>
                 ))}
@@ -1603,7 +1620,7 @@ export default function Whatsapp() {
               )}
               {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
-                    quicks={quicks} esAdmin={jefeBandeja} onQuicks={guardarQuicks}
+                    quicks={quicks} esAdmin={jefeBandeja} onQuicks={guardarQuicks} ventana={ventanaDe(sel)}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
                 : !puedeEscribir && <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
             </>

@@ -702,6 +702,12 @@ async function estadoEntrega(s) {
     if (!fila || (RANGO[fila.estado] || 0) >= RANGO[est]) continue   // 'leido' no vuelve a 'entregado'
     await supabase.from(tabla).update({ estado: est, ...(error ? { error } : {}) }).eq('id', fila.id)
   }
+  // Lo que salió desde la BANDEJA del panel (scheduled_messages.wa_msg_id) y los
+  // salientes del bot con meta_message_id: la función de sql/158 decide (no
+  // retrocede, y un 'failed' deja el envío en 'fallido' con el motivo, p.ej.
+  // 131047 = pasaron más de 24 h desde el último mensaje de la persona).
+  try { await supabase.rpc('wa_marcar_entrega', { p_wamid: s.id, p_estado: est, p_error: error }) }
+  catch (e) { log('entrega panel:', String(e.message || e)) }
 }
 
 // ============================================================================

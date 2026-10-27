@@ -86,3 +86,25 @@ Si te llega el "hello_world" al WhatsApp → **la API oficial ya funciona**. Av�
 |---|---|
 | A | El `Phone number ID` y un "ya puse el token en el droplet" + resultado del --test |
 | B | El nuevo `Phone number ID` del chip real y los nombres de las plantillas aprobadas |
+
+## La bandeja del panel sobre la Cloud API (27 oct 2026)
+
+Con Baileys apagado, la bandeja (menú WhatsApp, `src/pages/Whatsapp.jsx`) quedó
+adaptada al número oficial; manual de uso en `docs/MANUAL-BANDEJA-WHATSAPP.md`.
+Lo que sostiene cada pieza (todo en `sql/158_bandeja_cloud_api.sql`):
+
+- **Etiquetas propias del CRM**: `wa_etiquetas` (nombre, color) +
+  `whatsapp_conversations.etiquetas text[]`. No se sincronizan con WhatsApp.
+  `tag` (sql/31) sigue = la primera etiqueta por trigger, porque el agente la
+  escribe (CALIFICADO) y el conteo viejo la lee.
+- **Ventana de 24 h**: `whatsapp_conversations.ultimo_entrante_at`, mantenido por
+  trigger en `whatsapp_messages` (direction = in). El panel bloquea el texto libre
+  pasadas 24 h; si Meta igual rechaza (131047), llega como status `failed`.
+- **Estado de entrega**: `cobranza.js` (que recibe el webhook) llama
+  `wa_marcar_entrega(wamid, estado, error)` con cada status → `scheduled_messages.entrega`
+  (por `wa_msg_id`) y `whatsapp_messages.delivery_status` (por `meta_message_id`).
+  Un `failed` deja la fila en `status = 'fallido'` con `last_error`.
+- **Cliente o lead**: `wa_telefonos_clientes()` = la regla de `quien_escribe.js`.
+- Lo que ya no existe y se quitó del panel: QR / vincular / reiniciar por número,
+  etiquetas del chip (`label_panel`, `wa_label_id`), editar mensaje (`edit_panel`),
+  vCard al celular (`vcard_panel`). Lo pendiente de esas colas queda `fallido`.
