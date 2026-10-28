@@ -980,6 +980,20 @@ function diaDeCobranza(cfg, hoy) {
   return null
 }
 
+// 28 oct: SOLO se manda una plantilla que Meta ya APROBÓ. Un envío fallido cuenta
+// como "ya salió" en la escalera (no se repetiría), así que con una plantilla en
+// revisión ni se intenta. Sin WA_WABA_ID no se puede preguntar: se manda como antes.
+// Si Meta no contesta, null = no se sabe → no se manda nada (mejor tarde que quemado).
+async function plantillasAprobadas() {
+  const waba = String(process.env.WA_WABA_ID || '').replace(/\D/g, '')
+  if (!waba) return undefined
+  try {
+    const r = await WA.listarPlantillas(waba)
+    return new Set((r.data || []).filter(t => t.status === 'APPROVED').map(t => t.name))
+  } catch (e) { log('AVISOS: no pude leer las plantillas de Meta:', String(e.message || e).slice(0, 160)); return null }
+}
+
+let _avisoSinAprobar = 0
 let barriendo = false
 async function barridoAvisos() {
   if (barriendo) return
@@ -992,6 +1006,13 @@ async function barridoAvisos() {
   const noHoy = diaDeCobranza(cfg, hoy)
   if (noHoy) { log('AVISOS: hoy no se cobra (' + noHoy + '). Salen el siguiente día hábil.'); return }
   if (!WA_LISTO) { log('AVISOS: falta WA_TOKEN, no se envía nada'); return }
+  const aprobadas = await plantillasAprobadas()
+  if (aprobadas === null || (aprobadas && !aprobadas.size)) {
+    // sin marcar el día: se vuelve a mirar en 5 minutos y sale apenas Meta apruebe
+    if (!_avisoSinAprobar || Date.now() - _avisoSinAprobar > 3 * 3600e3) { _avisoSinAprobar = Date.now(); log('AVISOS: ninguna plantilla aprobada por Meta todavía: no sale nada (se revisa cada 5 min)') }
+    return
+  }
+  const sirve = nombre => !!nombre && (aprobadas === undefined || aprobadas.has(nombre))
   barriendo = true
   try {
     log('=== AVISOS DE COBRANZA', hoy, '===')
@@ -1038,6 +1059,7 @@ async function barridoAvisos() {
         if (await registrarTextoPropio(telVentana, d, propio, { client_id: v.client_id, sale_id: v.id, installment_id: d.q.id })) { enviados++; cupo--; continue }
       }
       if (!d.plantilla) { sinPlantilla++; continue }
+      if (!sirve(d.plantilla)) { sinPlantilla++; continue }   // en revisión en Meta: hoy no
       for (const tel of tels) {
         if (cupo <= 0) { topeAlcanzado = true; break }
         if (await registrarEnvio(tel, d, { client_id: v.client_id, sale_id: v.id, installment_id: d.q.id }, cfg)) enviados++
@@ -1053,7 +1075,7 @@ async function barridoAvisos() {
       .select('id, client_id, sale_id, fecha_promesa, monto, avisar_dias_antes, client:clients(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), sale:sales(id, lot:lots(mz, lt, project:projects(name)), installments(id, amount, amount_paid, status, installment_number, due_date))')
       .eq('estado', 'vigente').eq('es_prueba', false).is('aviso_enviado_at', null)
     for (const p of (proms || [])) {
-      if (topeAlcanzado || !cfg.plantilla_promesa || !p.sale) continue
+      if (topeAlcanzado || !sirve(cfg.plantilla_promesa) || !p.sale) continue
       const dias = p.avisar_dias_antes ?? cfg.promesa_avisar_dias ?? 1
       if (!(hoy >= habilHasta(cfg, sumarDias(p.fecha_promesa, -dias)) && hoy <= p.fecha_promesa)) continue
       const pend = cuotasPendientes(p.sale, hoy)
