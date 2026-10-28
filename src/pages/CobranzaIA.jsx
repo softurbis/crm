@@ -441,7 +441,27 @@ function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
   const [res, setRes] = useState([])
   const [busy, setBusy] = useState(false)
   const [cambiar, setCambiar] = useState(false)
+  const [proys, setProys] = useState([])
+  const [proy, setProy] = useState('')
   const vinculado = !!chat.telefono_vinculado
+  const esLead = !!chat.es_lead
+  useEffect(() => {
+    supabase.from('projects').select('id, name').order('name').then(({ data }) => {
+      setProys(data || [])
+      // el 960 es de Praderas: se propone ese proyecto
+      const pr = (data || []).find(x => /praderas/i.test(x.name || ''))
+      if (pr) setProy(p => p || pr.id)
+    })
+  }, [])
+  async function pasarAVentas() {
+    if (!proy) { setMsg({ ok: false, t: 'ELIGE EL PROYECTO POR EL QUE PREGUNTA.' }); return }
+    if (!await confirmar('¿Es un interesado (lead), no un cliente?\n\nSale de cobranza y se le avisa por Telegram al asesor del proyecto, con lo que escribió. Como no dejó su celular, el asesor le contesta desde el WhatsApp Business del celular del 960.', { titulo: 'Pasar a ventas' })) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('cobranza_chat_es_lead', { p_chat: chat.id, p_project: proy })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_chat_es_lead/.test(error.message) ? 'Falta correr sql/164 en el servidor.' : 'ERROR: ' + error.message }); return }
+    savedFx(); setMsg({ ok: true, t: '🆕 PASADO A VENTAS: ' + (data || '') }); setCambiar(false); alTerminar()
+  }
 
   useEffect(() => {
     const t = q.trim()
@@ -472,7 +492,12 @@ function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
 
   return (
     <div style={{ margin: '6px 0', padding: '8px 10px', borderRadius: 8, border: '1px solid ' + (vinculado ? 'rgba(95,211,141,.5)' : 'rgba(224,179,76,.6)'), textTransform: 'none' }}>
-      {vinculado && !cambiar ? (
+      {esLead && !cambiar ? (
+        <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1 }}>🆕 <b>Lead pasado a ventas</b> ({proys.find(p => p.id === chat.lead_project_id)?.name || 'proyecto'}): se le avisó al asesor por Telegram. Sin número, se le contesta desde el <b>celular del 960</b>.</span>
+          {puede && <button className="btn-ghost" onClick={() => setCambiar(true)}>Era cliente: vincular</button>}
+        </div>
+      ) : vinculado && !cambiar ? (
         <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: 1 }}>👤 Usa <b>nombre de usuario</b> en WhatsApp. Vinculado a <b>{nombre}</b>: se le contesta al <b>+{chat.telefono_vinculado}</b> de su ficha.</span>
           {puede && <button className="btn-ghost" onClick={() => setCambiar(true)}>Cambiar</button>}
@@ -495,6 +520,16 @@ function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
                 </div>
               ))}
               {q.trim().length >= 3 && !res.length && <p className="muted small" style={{ margin: '4px 0 0' }}>Ningún cliente con eso.</p>}
+              {!esLead && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8, paddingTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)' }}>
+                  <span className="small">¿No es cliente sino un interesado?</span>
+                  <select value={proy} onChange={e => setProy(e.target.value)} style={{ fontSize: 12 }}>
+                    <option value="">— proyecto —</option>
+                    {proys.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <button className="btn-ghost" disabled={busy} onClick={pasarAVentas} title="Sale de cobranza y se le avisa al asesor del proyecto por Telegram">🆕 Es un lead → pasar a ventas</button>
+                </div>
+              )}
             </>
           ) : <p className="muted small">La secretaria de cobranza puede vincularlo a la ficha.</p>}
         </>
@@ -537,7 +572,7 @@ function Conversaciones({ puede, profile, setMsg }) {
   const chat = chats.find(c => c.id === sel)
   const titulo = c => (c.client_ids || []).map(id => nombres[id]).filter(Boolean).join(' / ') || c.nombre_whatsapp || (sinNumero(c) ? 'Nombre de usuario sin vincular' : 'Número no registrado')
   // sql/164: chat de alguien con nombre de usuario de WhatsApp (sin celular)
-  const telVisible = c => sinNumero(c) ? (c.telefono_vinculado ? '👤 sin número · contesta al +' + c.telefono_vinculado : '👤 sin número') : '+' + c.phone
+  const telVisible = c => sinNumero(c) ? (c.es_lead ? '👤 sin número · 🆕 lead → ventas' : c.telefono_vinculado ? '👤 sin número · contesta al +' + c.telefono_vinculado : '👤 sin número') : '+' + c.phone
 
   async function cambiarModo(modo) {
     const campos = modo === 'humano'
@@ -557,8 +592,8 @@ function Conversaciones({ puede, profile, setMsg }) {
     cargarMsgs(sel)
   }
 
-  const visibles = chats.filter(c => filtro === 'todos' || (filtro === 'sin_numero' ? sinNumero(c) && !c.telefono_vinculado : c.modo === filtro))
-  const sinVincular = chats.filter(c => sinNumero(c) && !c.telefono_vinculado).length
+  const visibles = chats.filter(c => filtro === 'todos' || (filtro === 'sin_numero' ? sinNumero(c) && !c.telefono_vinculado && !c.es_lead : c.modo === filtro))
+  const sinVincular = chats.filter(c => sinNumero(c) && !c.telefono_vinculado && !c.es_lead).length
   const paraSecretaria = chats.filter(c => c.modo === 'humano').length
   return (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'stretch' }}>
@@ -595,7 +630,7 @@ function Conversaciones({ puede, profile, setMsg }) {
             {sinNumero(chat) && <VincularChat chat={chat} puede={puede} nombre={titulo(chat)} setMsg={setMsg} alTerminar={cargarChats} />}
             <Burbujas msgs={msgs} />
             {puede && sinNumero(chat) && !chat.telefono_vinculado
-              ? <p className="muted small" style={{ marginTop: 6 }}>Para contestarle desde aquí, primero vincúlalo a la ficha del cliente (arriba). Mientras tanto, se le puede responder desde el celular del 960.</p>
+              ? <p className="muted small" style={{ marginTop: 6 }}>{chat.es_lead ? 'Es un lead sin número: se le contesta desde el celular del 960.' : 'Para contestarle desde aquí, primero vincúlalo a la ficha del cliente (arriba). Mientras tanto, se le puede responder desde el celular del 960.'}</p>
               : puede && (ventanaAbierta(chat)
               ? (
                 <form onSubmit={enviar} style={{ display: 'flex', gap: 6, marginTop: 6 }}>

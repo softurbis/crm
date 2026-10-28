@@ -148,4 +148,9 @@ código propio y **sin su celular**: el sistema no puede saber de qué ficha es.
 - Desde ahí el sistema lo reconoce siempre: le contesta el **agente de cobranza** (si ese cliente tiene 🤖 ON)
   y lo que se le escribe sale al **celular de su ficha**. La ficha tiene que tener celular.
 - **Cambiar** o **Desvincular** corrigen un vínculo equivocado.
+- **Si no es cliente sino un interesado (lead)**: en el mismo recuadro, elige el proyecto y toca
+  **🆕 Es un lead → pasar a ventas**. Sale de cobranza y al **asesor del proyecto** le llega por Telegram el
+  nombre y lo que escribió (si el proyecto no tiene asesor, al responsable de cobranza). Como no dejó su
+  celular, el asesor le contesta desde el **WhatsApp Business del celular del 960** y le pide su número.
+  Si al final era cliente: **Era cliente: vincular**.
 - Los **avisos automáticos** no cambian: siempre salen al celular de la ficha, use o no nombre de usuario.

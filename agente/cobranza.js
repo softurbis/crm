@@ -236,6 +236,42 @@ async function avisarResponsables(texto) {
   } catch (e) { log('aviso a responsables:', String(e.message || e)) }
 }
 
+// Telegram a UNA persona por su celular (telegram_links). true = se mandó.
+async function avisarTelefono(phone, texto) {
+  try {
+    const p9 = nueve(phone)
+    if (!TG.activo() || p9.length < 9) return false
+    const { data: tl } = await supabase.from('telegram_links').select('chat_id').ilike('phone', '%' + p9).limit(1)
+    if (!(tl && tl[0] && tl[0].chat_id)) return false
+    await TG.tgEnviar(tl[0].chat_id, texto)
+    return true
+  } catch (e) { log('aviso por telegram:', String(e.message || e)); return false }
+}
+
+// sql/164: la secretaria marcó un chat sin número como LEAD ("Pasar a ventas").
+// Se le avisa al asesor del proyecto (lead_notify_phone); si no tiene asesor o no
+// está en Telegram, a los responsables de cobranza. Sin número no se le puede
+// escribir desde el sistema: se le contesta desde el celular del 960.
+async function avisosLeadsSinNumero() {
+  const { data, error } = await supabase.from('cobranza_chats')
+    .select('id, phone, nombre_whatsapp, project:projects(name, lead_notify_phone)').eq('lead_avisar', true).limit(10)
+  if (error) return                        // sin sql/164 todavía
+  for (const ch of (data || [])) {
+    const { data: ult } = await supabase.from('cobranza_mensajes').select('texto').eq('chat_id', ch.id).eq('direccion', 'in')
+      .order('created_at', { ascending: false }).limit(3)
+    const escribio = (ult || []).map(x => String(x.texto || '').trim()).filter(Boolean).reverse().join(' / ').slice(0, 400) || '(sin texto)'
+    const texto = '🆕 *LEAD sin número (nombre de usuario de WhatsApp)*\n'
+      + (ch.nombre_whatsapp || 'sin nombre') + ' · ' + (ch.project?.name || 'proyecto sin elegir') + '\n'
+      + 'Escribió: ' + escribio + '\n\n'
+      + 'No llegó su celular: contéstale desde el WhatsApp Business del celular del 960 (ahí aparece con su nombre de usuario) y pídele su número para registrarlo.'
+    const asesor = dig(ch.project?.lead_notify_phone)
+    const ok = asesor ? await avisarTelefono(asesor, texto) : false
+    if (!ok) await avisarResponsables(texto + (asesor ? '\n\n(El asesor del proyecto no está en Telegram.)' : '\n\n(El proyecto no tiene asesor asignado.)'))
+    await supabase.from('cobranza_chats').update({ lead_avisar: false }).eq('id', ch.id)
+    log('LEAD SIN NÚMERO pasado a ventas:', ch.phone, ch.project?.name || '')
+  }
+}
+
 async function pasarAHumano(chat, motivo) {
   if (chat.modo === 'humano') return
   await supabase.from('cobranza_chats').update({ modo: 'humano', motivo_humano: String(motivo || '').slice(0, 300), humano_desde: new Date().toISOString(), humano_por: null }).eq('id', chat.id)
@@ -1281,6 +1317,7 @@ WA.servidorWebhook({
   alEco: (x, v) => eco(x, v).catch(e => log('eco:', String(e.message || e))),
 })
 cadaTanto(salientesPanel, 5000, 'salientes')
+cadaTanto(avisosLeadsSinNumero, 10000, 'leads sin número')
 cadaTanto(pruebas, 3000, 'pruebas')
 cadaTanto(barridoAvisos, 5 * 60000, 'avisos')
 cadaTanto(latido, 60000, 'latido')
