@@ -1,6 +1,10 @@
-# Manual · Avisos por cliente
+# Manual · Clientes y avisos (Cobranza IA)
 
-> Pantalla del panel: menú **Cobranza → Avisos por cliente** (`/avisos-clientes`).
+> **Desde el 28 oct 2026** esta pantalla es la **primera pestaña de Cobranza IA** ("👥 Clientes y avisos").
+> El enlace viejo `/avisos-clientes` lleva ahí. Lo nuevo (sql/161) está en la sección **"28 oct: seguimiento,
+> agente por cliente y mensaje propio"**, al final.
+>
+> Pantalla del panel: menú **Cobranza → Cobranza IA → Clientes y avisos** (antes `/avisos-clientes`).
 > La ve el superusuario, el administrador (solo mirar) y quien tenga el permiso
 > **cobranza** en Usuarios. Base: `sql/159_avisos_por_cliente.sql` (27 oct 2026).
 
@@ -89,3 +93,46 @@ El cambio se ve al instante; el "próximo aviso" se vuelve a calcular en menos d
 - No envía mensajes ni cambia la hora o los textos de los avisos (eso es Cobranza IA → Configuración).
 - No valida celulares (ficha del cliente) ni cambia el estado de un lead en el kanban.
 - No apaga el agente: si los avisos están APAGADOS en Cobranza IA, lo programado no sale y la pantalla lo avisa.
+
+## 28 oct: seguimiento, agente por cliente y mensaje propio (sql/161)
+
+Pedido del dueño: unir esta lista con Cobranza IA, ver si cada cliente **respondió o no** al aviso,
+llevar **notas de seguimiento**, que la secretaria **suba y apruebe comprobantes**, **cambiar el mensaje**
+solo para algunos clientes y **prender el agente** para algunos clientes.
+
+### Columnas nuevas
+
+| Columna | Qué dice |
+|---|---|
+| Último aviso · ¿respondió? | **✅ respondió** si el cliente escribió al 960 después del último aviso; **⏳ sin respuesta** si no. ✍️ = salió con texto propio. |
+| Seguimiento | El último resultado anotado, la nota, quién y cuándo. El botón **📝 Seguimiento** abre la ficha de cobranza del cliente. |
+| Agente | **🤖 ON**: el agente de cobranza le contesta. **⏸ OFF**: lo atiende la secretaria. |
+| ¿Avisos? | La casilla de siempre: si recibe avisos automáticos. |
+
+Filtros nuevos: **🤖 Con agente**, **✅ Respondió**, **⏳ Sin respuesta** (la lista para llamar).
+Con varias filas marcadas: **🤖 Agente ON / ⏸ Agente OFF** en bloque.
+
+### El agente, solo para los clientes marcados
+
+- El agente general quedó **prendido** (sql/161), pero cada cliente arranca en **⏸ OFF**: no le contesta a nadie hasta que se le prenda.
+- Un cliente en OFF que escribe: su mensaje queda en **Conversaciones** para la secretaria y llega el aviso por Telegram ("el agente está apagado para este cliente").
+- Al prenderlo, ese chat vuelve solo al agente.
+- Los **avisos automáticos** siguen apagados: las 5 plantillas están en revisión de Meta. Cuando Meta las apruebe se prenden en **Configuración**.
+
+### Ficha de seguimiento (📝)
+
+- **Historial** de todo lo anotado, con quién y cuándo.
+- **Anotar**: elegir el resultado y escribir la nota.
+  - **📝 Nota**: lo que se habló.
+  - **📅 Prometió pagar**: fecha (y monto si lo dijo). Crea la promesa en **Promesas**; desde ahí ese cliente recibe solo el recordatorio de la promesa.
+  - **📵 No contesta** y **❌ Número equivocado**: quedan anotados para la próxima llamada o para corregir la ficha del cliente.
+  - **💵 Pagó / mandó voucher**: con fecha y monto se puede **subir el voucher** (foto o PDF). Queda en **Por validar**, igual que si lo hubiera mandado el cliente: se aprueba ahí y recién suma en Cuotas.
+- **✍️ Mensaje propio**:
+  - **Instrucciones para el agente**: las lee antes de contestarle a ese cliente ("tiene acuerdo de pagar los 30", "no mencionar el contrato"). No se las muestra al cliente.
+  - **Texto del próximo aviso**: sale tal cual **solo si el cliente escribió en las últimas 24 h** (Meta no deja texto libre fuera de esa ventana). Si no, sale la plantilla. Se usa una sola vez.
+  - Para que **no reciba ningún aviso automático**: ¿Avisos? en 🚫 No.
+
+Técnico: `cobranza_clientes_cfg` (agente, instrucciones, aviso_texto por cliente), `cobranza_seguimiento`
++ `cobranza_seguimiento_agregar()` / `cobranza_seguimiento_de()`, y `avisos_por_cliente()` devuelve además
+`agente`, `instrucciones`, `aviso_texto`, `respondio_at` y el último `seguimiento`. El agente
+(`agente/cobranza.js`) mira `cobranza_clientes_cfg` antes de contestar y antes de cada aviso.

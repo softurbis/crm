@@ -497,7 +497,10 @@ async function responder(chat, cfg) {
   const dia = new Date().toLocaleDateString('es-PE', { timeZone: TZ, weekday: 'long' })
   const system = [
     { type: 'text', text: PROMPT_BASE + (cfg.notas_agente ? '\n\nIndicaciones del negocio:\n' + cfg.notas_agente : ''), cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: `Hoy es ${dia} ${fechaCorta(hoy)} (${hoy}), hora de Lima ${horaLima()}.\nTitular(es) de este número: ${(chat.clientes || []).map(c => c.full_name).join(' / ')}.` },
+    { type: 'text', text: `Hoy es ${dia} ${fechaCorta(hoy)} (${hoy}), hora de Lima ${horaLima()}.\nTitular(es) de este número: ${(chat.clientes || []).map(c => c.full_name).join(' / ')}.` + (chat.instrucciones ? `
+
+Indicaciones de la secretaria para ESTE cliente (respétalas siempre, sin contárselas al cliente):
+${chat.instrucciones}` : '') },
   ]
   const modelo = cfg.modelo || MODELO_POR_DEFECTO
   const textos = []
@@ -561,6 +564,20 @@ async function responder(chat, cfg) {
 
 const NO_REGISTRADO = 'Hola, le saluda Urbis Group - Cobranzas. No encontramos este número registrado como titular de un lote. Por seguridad no podemos compartir información por aquí; en breve una asesora le escribirá para ayudarle.'
 
+// sql/161: agente, instrucciones y texto propio del próximo aviso, POR CLIENTE
+const AGENTE_APAGADO = 'el agente está apagado para este cliente: lo atiende la secretaria'
+async function cfgClientes(ids) {
+  if (!ids || !ids.length) return []
+  const { data, error } = await supabase.from('cobranza_clientes_cfg').select('client_id, agente, instrucciones, aviso_texto').in('client_id', ids)
+  if (error) throw new Error('cobranza_clientes_cfg: ' + error.message)
+  return data || []
+}
+async function textosPropios() {
+  const { data, error } = await supabase.from('cobranza_clientes_cfg').select('client_id, aviso_texto').not('aviso_texto', 'is', null)
+  if (error) return new Map()
+  return new Map((data || []).filter(x => String(x.aviso_texto || '').trim()).map(x => [x.client_id, String(x.aviso_texto).trim()]))
+}
+
 const timers = new Map()
 const enCurso = new Set()
 // Espera unos segundos antes de contestar: la gente manda la foto y despues el
@@ -588,6 +605,18 @@ async function turno(chatId) {
       await pasarAHumano(chat, 'número no registrado como titular (o celular sin validar en su ficha)')
       return
     }
+    // sql/161: el agente contesta SOLO a los clientes con su interruptor prendido
+    // (Cobranza IA → Clientes y avisos). Sin la tabla, o si falla la consulta, no
+    // contesta: mejor callado que hablarle a quien no debe.
+    let porCliente = []
+    try { porCliente = await cfgClientes(chat.client_ids) }
+    catch (e) { log('agente por cliente:', String(e.message || e)); if (!chat.es_prueba) return }
+    if (!chat.es_prueba && !porCliente.some(c => c.agente)) {
+      await pasarAHumano(chat, AGENTE_APAGADO)
+      return
+    }
+    chat.instrucciones = porCliente.filter(c => String(c.instrucciones || '').trim())
+      .map(c => ((chat.clientes || []).find(x => x.id === c.client_id)?.full_name || 'Cliente') + ': ' + String(c.instrucciones).trim()).join('\n')
     if (!ia) { await pasarAHumano(chat, 'el agente no tiene clave de IA configurada'); return }
     try {
       await responder(chat, cfg)
@@ -906,6 +935,18 @@ async function registrarEnvio(tel, d, extra, cfg) {
   return fila.estado === 'enviado'
 }
 
+// sql/161: el texto propio que escribió la secretaria para ESTE cliente, como texto
+// libre (la ventana de 24 h está abierta). Queda en cobranza_envios con plantilla
+// 'texto_propio' para que la escalera lo cuente igual que un aviso, y se borra
+// de la ficha del cliente: es para UN aviso.
+async function registrarTextoPropio(tel, d, texto, extra) {
+  const chat = await chatDe(tel, false)
+  const ok = await enviarAlCliente(chat, texto, 'plantilla')
+  await supabase.from('cobranza_envios').insert({ phone: tel, motivo: d.motivo, plantilla: 'texto_propio', parametros: [texto], estado: ok ? 'enviado' : 'fallido', ...extra })
+  if (ok) await supabase.from('cobranza_clientes_cfg').update({ aviso_texto: null, updated_at: new Date().toISOString() }).eq('client_id', extra.client_id)
+  return ok
+}
+
 // soloActivas = false trae tambien las pausadas (auto_cobranza = false): la
 // proyeccion de la pantalla Avisos por cliente las muestra como "no recibe".
 async function todasLasVentas(soloActivas = true) {
@@ -962,6 +1003,7 @@ async function barridoAvisos() {
     const conPromesa = new Set((prom.data || []).map(p => p.sale_id))
     const enRevision = new Set((rep.data || []).map(p => p.sale_id))
     const escribio = new Map((chats.data || []).map(c => [nueve(c.phone), c.ultimo_entrante_at]))
+    const propios = await textosPropios()
     const plazo = Math.max(1, Number(cfg.plazo_contrato_dias || 7))
     let enviados = 0, sinPlantilla = 0, topeAlcanzado = false
     const sinRespuesta = []
@@ -982,6 +1024,13 @@ async function barridoAvisos() {
       }
       const d = decidirAviso(v, cfg, hoy, env)
       if (!d) continue
+      // sql/161: texto propio del próximo aviso, solo con la ventana de 24 h abierta
+      // (regla de Meta); si no, sale la plantilla de siempre
+      const propio = propios.get(v.client_id)
+      const telVentana = propio && tels.find(t => escribio.has(nueve(t)) && Date.now() - new Date(escribio.get(nueve(t))).getTime() < 23.5 * 3600e3)
+      if (telVentana && cupo > 0) {
+        if (await registrarTextoPropio(telVentana, d, propio, { client_id: v.client_id, sale_id: v.id, installment_id: d.q.id })) { enviados++; cupo--; continue }
+      }
       if (!d.plantilla) { sinPlantilla++; continue }
       for (const tel of tels) {
         if (cupo <= 0) { topeAlcanzado = true; break }
@@ -1077,6 +1126,7 @@ async function proyectarAvisos(porQue = 'programada') {
     ])
     const conPromesa = new Map((prom.data || []).map(p => [p.sale_id, p.fecha_promesa]))
     const enRevision = new Set((rep.data || []).map(p => p.sale_id))
+    const propios = await textosPropios()
     const filas = []
     for (const v of ventas) {
       const pend = cuotasPendientes(v, hoy)
@@ -1089,6 +1139,8 @@ async function proyectarAvisos(porQue = 'programada') {
       }
       const d = pend.length ? proximoAviso(v, cfg, hoy, envios.get(v.id) || []) : null
       if (d) Object.assign(fila, { motivo: d.motivo, fecha: d.fecha, plantilla: d.plantilla || null, texto: textoDelAviso(d), cuota: d.q?.installment_number ?? null, monto: d.q ? d.q.pendiente : null })
+      // texto propio (sql/161): se muestra el que escribió la secretaria y, debajo, la plantilla de respaldo
+      if (d && propios.has(v.client_id)) fila.texto = '✍️ TEXTO PROPIO (sale así si el cliente escribió en las últimas 24 h):\n' + propios.get(v.client_id) + '\n\n— Si no, sale la plantilla:\n' + fila.texto
       // por que NO recibe (en este orden, el mismo que usa el barrido)
       if (!pend.length) { fila.estado = 'al_dia'; fila.detalle = 'No tiene cuotas pendientes.' }
       else if (v.auto_cobranza === false) { fila.estado = 'pausado'; fila.detalle = 'La cobranza automática está pausada (casilla "recibe avisos").' }

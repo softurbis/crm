@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { useMsg } from '../lib/saveFx'
+import { upload } from '../lib/archivos'
+import { useMsg, savedFx } from '../lib/saveFx'
 import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
@@ -22,7 +24,25 @@ import LoteLink from '../components/LoteLink'
 // Desde aquí NO se manda nada: solo se decide quién recibe. Qué aviso le toca lo
 // calcula el agente (agente/cobranza.js, la misma escalera de siempre) y lo deja
 // en cobranza_proximo_aviso; el panel lo lee por avisos_por_cliente().
+//
+// 28 oct (sql/161): vive como la PRIMERA pestaña de Cobranza IA ("Clientes y
+// avisos"); /avisos-clientes redirige ahí. Se sumó, por cliente: el interruptor
+// del AGENTE (contesta solo a los marcados), si RESPONDIÓ al último aviso, el
+// SEGUIMIENTO (notas y resultados: prometió pagar, no contesta, número
+// equivocado, pagó con voucher que queda en "Por validar") y el mensaje propio
+// (instrucciones para el agente y texto del próximo aviso).
 // ============================================================================
+
+// el motivo con el que el agente deja el chat a la secretaria cuando está apagado
+// para ese cliente (agente/cobranza.js, AGENTE_APAGADO)
+const AGENTE_APAGADO = 'el agente está apagado para este cliente: lo atiende la secretaria'
+const RESULTADOS = {
+  nota: ['📝', 'Nota'],
+  promesa: ['📅', 'Prometió pagar'],
+  no_contesta: ['📵', 'No contesta'],
+  numero_equivocado: ['❌', 'Número equivocado'],
+  pago: ['💵', 'Pagó / mandó voucher'],
+}
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const hoyLima = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
@@ -67,7 +87,12 @@ const ESTADO = {
 }
 const LEAD_STATUS = { nuevo: 'Nuevo', contactado: 'Contactado', interesado: 'Interesado', visita_agendada: 'Visita agendada', negociacion: 'Negociación', perdido: 'Perdido' }
 
+// la ruta vieja lleva a la pestaña nueva
 export default function AvisosClientes() {
+  return <Navigate to="/cobranza-ia?tab=clientes" replace />
+}
+
+export function ClientesYAvisos() {
   const { profile, role } = useAuth()
   const { pid } = useProject()
   const puede = role === 'superuser' || (profile?.permisos || []).includes('cobranza')
@@ -81,6 +106,8 @@ export default function AvisosClientes() {
   const [sel, setSel] = useState(() => new Set())
   const [busy, setBusy] = useState(false)
   const [verTexto, setVerTexto] = useState(null)
+  const [resp, setResp] = useState('todos')          // todos | respondio | sin_respuesta | agente
+  const [ficha, setFicha] = useState(null)           // fila abierta en el panel de seguimiento
 
   async function cargar(silencioso = false) {
     const { data, error } = await supabase.rpc('avisos_por_cliente')
@@ -110,6 +137,10 @@ export default function AvisosClientes() {
       telefono: c.telefono, telefono_ok: c.telefono_ok, telefono2: c.telefono2, telefono2_ok: c.telefono2_ok,
       recibe: c.recibe !== false, estado: c.proximo?.estado || (c.recibe === false ? 'pausado' : null),
       proximo: c.proximo, ultimo: c.ultimo, n_vencidas: c.n_vencidas, deuda: c.deuda_vencida, n_pendientes: c.n_pendientes, proxima_cuota: c.proxima_cuota,
+      client_id: c.client_id, agente: !!c.agente, instrucciones: c.instrucciones || '', aviso_texto: c.aviso_texto || '',
+      respondio_at: c.respondio_at, seguimiento: c.seguimiento,
+      // respondió = escribió DESPUÉS del último aviso que se le mandó
+      respondio: c.ultimo?.at ? !!(c.respondio_at && new Date(c.respondio_at) > new Date(c.ultimo.at)) : null,
       orden: c.proximo?.fecha || '9999',
     }))
     const leads = (datos.leads || []).map(l => ({
@@ -134,15 +165,18 @@ export default function AvisosClientes() {
     return filas.filter(f => (proy === 'todos' || f.project_id === proy)
       && (tipo === 'todos' || (tipo === 'clientes' ? f.tipo === 'cliente' : f.tipo === 'lead'))
       && (recibe === 'todos' || (recibe === 'si' ? f.recibe : !f.recibe))
+      && (resp === 'todos' || (resp === 'agente' ? f.agente : resp === 'respondio' ? f.respondio === true : f.respondio === false))
       && (!t || sinTildes([f.nombre, f.extra, f.lote, f.lote?.replace(/MZ | LT /g, ''), f.telefono, f.telefono2, f.proyecto].join(' ')).includes(t)))
       .sort((a, b) => a.proyecto.localeCompare(b.proyecto) || (a.tipo === b.tipo ? 0 : a.tipo === 'cliente' ? -1 : 1) || a.orden.localeCompare(b.orden) || a.nombre.localeCompare(b.nombre))
-  }, [filas, proy, tipo, recibe, q])
+  }, [filas, proy, tipo, recibe, resp, q])
 
   const tot = useMemo(() => ({
     clientes: vista.filter(f => f.tipo === 'cliente').length,
     leads: vista.filter(f => f.tipo === 'lead').length,
     reciben: vista.filter(f => f.recibe).length,
     hoy: vista.filter(f => f.proximo?.estado === 'programado' && f.proximo?.fecha === hoyLima()).length,
+    agente: vista.filter(f => f.agente).length,
+    sinResp: vista.filter(f => f.respondio === false).length,
   }), [vista])
 
   const cfg = datos?.cfg || {}
@@ -189,6 +223,26 @@ export default function AvisosClientes() {
     setBusy(false)
   }
 
+  // ---- el agente por cliente (sql/161) ----
+  async function marcarAgente(lista, on) {
+    const cli = [...new Map(lista.filter(f => f.tipo === 'cliente' && f.client_id).map(f => [f.client_id, f])).values()]
+    if (!puede || !cli.length) return
+    if (cli.length > 1 && !await confirmar((on ? 'El agente le CONTESTARÁ a ' : 'El agente DEJA de contestarle a ') + cli.length + ' clientes' + (on ? '' : ': sus mensajes los atiende la secretaria') + '. ¿Seguimos?', { titulo: on ? 'Prender el agente' : 'Apagar el agente' })) return
+    setBusy(true)
+    const { error } = await supabase.from('cobranza_clientes_cfg').upsert(cli.map(f => ({ client_id: f.client_id, agente: on, updated_at: new Date().toISOString() })), { onConflict: 'client_id' })
+    if (error) { setBusy(false); setMsg({ ok: false, t: /cobranza_clientes_cfg/.test(error.message) ? 'Falta correr sql/161 en el servidor.' : 'No se pudo: ' + error.message }); return }
+    // los chats que el agente dejó a la secretaria SOLO porque estaba apagado vuelven al agente
+    if (on) {
+      const tels = cli.flatMap(f => [f.telefono, f.telefono2]).map(t => String(t || '').replace(/\D/g, '').slice(-9)).filter(t => t.length === 9)
+      if (tels.length) await supabase.from('cobranza_chats').update({ modo: 'agente', motivo_humano: null, humano_desde: null })
+        .eq('motivo_humano', AGENTE_APAGADO).or(tels.map(t => 'phone.ilike.%' + t).join(',')).then(() => {}, () => {})
+    }
+    const ids = new Set(cli.map(f => f.client_id))
+    setDatos(d => d && { ...d, clientes: d.clientes.map(c => ids.has(c.client_id) ? { ...c, agente: on } : c) })
+    setSel(new Set()); setBusy(false); savedFx()
+    setMsg({ ok: true, t: (on ? '🤖 El agente ya le contesta a ' : '⏸ El agente dejó de contestarle a ') + cli.length + (cli.length === 1 ? ' cliente' : ' clientes') })
+  }
+
   async function recalcular() {
     setBusy(true)
     const { error } = await supabase.rpc('avisos_recalcular')
@@ -203,7 +257,7 @@ export default function AvisosClientes() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Avisos por cliente</h1>
+        <h2 style={{ margin: 0, flex: 1, fontSize: '1.05rem' }}>👥 Clientes y avisos</h2>
         {datos && (
           <span className="small" title={cfg.latido ? 'Último latido del agente: ' + fHora(cfg.latido) : 'El agente nunca reportó'}>
             {vivo ? '🟢 agente corriendo' : '🔴 el agente no responde'}
@@ -214,7 +268,7 @@ export default function AvisosClientes() {
         {puede && <button className="btn-ghost" disabled={busy} onClick={recalcular} title="Le pide al agente que vuelva a calcular qué aviso le toca a cada venta">↻ Recalcular</button>}
       </div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
-        Todos los clientes con venta vigente y los leads del kanban, por proyecto, con el aviso de cobranza que le toca a cada uno y cuándo. Marca a quién se le escribe y a quién no. <b>Desde aquí no se manda nada</b>: los avisos los envía el agente a su hora.
+        Todos los clientes con venta vigente y los leads del kanban, por proyecto: el aviso que le toca a cada uno y cuándo, si respondió al último, su seguimiento y si el agente le contesta. <b>Desde aquí no se manda nada</b>: los avisos los envía el agente a su hora.
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       {!puede && <p className="hint muted">Modo consulta: cambiar quién recibe es de la responsable de cobranza.</p>}
@@ -231,6 +285,8 @@ export default function AvisosClientes() {
             {proyectos.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
           </select>
         )}
+        <span className="muted small" style={{ alignSelf: 'center' }}>|</span>
+        {[['todos', 'Todo'], ['agente', '🤖 Con agente'], ['respondio', '✅ Respondió'], ['sin_respuesta', '⏳ Sin respuesta']].map(([v, t]) => <button key={v} className={`chip ${resp === v ? 'on' : ''}`} onClick={() => setResp(v)}>{t}</button>)}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Nombre, lote (A1, G-7), celular…" style={{ flex: '1 1 220px', maxWidth: 360 }} />
       </div>
 
@@ -239,6 +295,7 @@ export default function AvisosClientes() {
         <p className="hint">
           <b>{tot.clientes}</b> cliente{tot.clientes === 1 ? '' : 's'} · <b>{tot.leads}</b> lead{tot.leads === 1 ? '' : 's'} · reciben mensajes <b>{tot.reciben}</b> de {vista.length}
           {tot.hoy > 0 && <> · <b className="warn">{tot.hoy}</b> con aviso programado para HOY</>}
+          {' · '}🤖 agente con <b>{tot.agente}</b>{tot.sinResp > 0 && <> · <b className="warn">{tot.sinResp}</b> sin responder el último aviso</>}
         </p>
       )}
       {datos && !!filas.length && !vista.length && <p className="muted">Nada con ese filtro.</p>}
@@ -249,6 +306,9 @@ export default function AvisosClientes() {
           <b>{sel.size} seleccionado{sel.size === 1 ? '' : 's'}</b>
           <button className="btn-primary" disabled={busy} onClick={() => marcar(seleccionadas, true)}>✅ Sí escribirles</button>
           <button className="btn-ghost" disabled={busy} onClick={() => marcar(seleccionadas, false)} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>🚫 No escribirles</button>
+          <span className="muted small">|</span>
+          <button className="btn-ghost" disabled={busy} onClick={() => marcarAgente(seleccionadas, true)} title="El agente de cobranza les contesta cuando escriben">🤖 Agente ON</button>
+          <button className="btn-ghost" disabled={busy} onClick={() => marcarAgente(seleccionadas, false)} title="Sus mensajes los atiende la secretaria">⏸ Agente OFF</button>
           <button className="link-btn" onClick={() => setSel(new Set())}>quitar selección</button>
         </div>
       )}
@@ -259,14 +319,15 @@ export default function AvisosClientes() {
             <thead><tr>
               {puede && <th style={{ width: 28 }}><input type="checkbox" checked={todasVisibles} onChange={toggleTodas} title="Seleccionar todo lo que se ve" /></th>}
               <th>Tipo</th><th>Proyecto · lote</th><th>Nombre</th><th>Celular</th>
-              <th>Próximo aviso</th><th>Último aviso</th><th>¿Se le escribe?</th>
+              <th>Próximo aviso</th><th>Último aviso · ¿respondió?</th><th>Seguimiento</th><th>Agente</th><th>¿Avisos?</th>
             </tr></thead>
             <tbody>
               {vista.map((f, i) => {
                 const nuevoProy = i === 0 || vista[i - 1].proyecto !== f.proyecto
                 return (
-                  <FilaConGrupo key={f.key} f={f} grupo={nuevoProy && proy === 'todos' ? f.proyecto : null} puede={puede} busy={busy} cols={puede ? 8 : 7}
-                    marcado={sel.has(f.key)} onSel={() => toggleSel(f.key)} onMarcar={on => marcar([f], on)} onTexto={() => setVerTexto(f)} />
+                  <FilaConGrupo key={f.key} f={f} grupo={nuevoProy && proy === 'todos' ? f.proyecto : null} puede={puede} busy={busy} cols={puede ? 10 : 9}
+                    marcado={sel.has(f.key)} onSel={() => toggleSel(f.key)} onMarcar={on => marcar([f], on)} onTexto={() => setVerTexto(f)}
+                    onAgente={on => marcarAgente([f], on)} onFicha={() => setFicha(f)} abierta={ficha?.key === f.key} />
                 )
               })}
             </tbody>
@@ -287,6 +348,11 @@ export default function AvisosClientes() {
         </div>
       )}
 
+      {ficha && (
+        <PanelSeguimiento key={ficha.key} f={filas.find(x => x.key === ficha.key) || ficha} puede={puede} setMsg={setMsg}
+          cerrar={() => setFicha(null)} alGuardar={() => cargar(true)} onAgente={on => marcarAgente([ficha], on)} />
+      )}
+
       <details style={{ marginTop: '1.2rem' }}>
         <summary className="small">📖 Cómo se usa esta pantalla</summary>
         <div className="muted small" style={{ textTransform: 'none', lineHeight: 1.55 }}>
@@ -294,6 +360,10 @@ export default function AvisosClientes() {
           <p><b>Próximo aviso.</b> Lo calcula el agente de cobranza con la misma escalera de siempre (recordatorio 3 días antes, vence hoy, pago vencido a los 2 y 5 días y luego cada 7, aviso por contrato desde 4 cuotas vencidas), respetando sábados, domingos y feriados. Toca el aviso para leer el mensaje tal cual le llegaría. Si no recibe, dice por qué: pausado, con promesa de pago, voucher en revisión, sin celular validado o falta la plantilla. Los leads no reciben avisos de cobranza: a ellos les escribe el bot de ventas.</p>
           <p><b>¿Se le escribe?</b> La casilla de un cliente es la misma que "pausar/reactivar" en la ficha del lote (<i>auto_cobranza</i>). La de un lead es el <b>silencio total</b> del directorio del bot: el bot ni le responde ni le escribe. Marca varias filas y usa "Sí escribirles" / "No escribirles" para cambiarlas en bloque.</p>
           <p><b>Desde aquí no se manda nada.</b> Los avisos salen a la hora configurada en Cobranza IA → Configuración, solo si los avisos están prendidos. "Recalcular" le pide al agente que vuelva a calcular qué le toca a cada uno (también lo hace solo cada 30 minutos y después de cada envío).</p>
+          <p><b>¿Respondió?</b> Debajo del último aviso dice <b>✅ respondió</b> si el cliente escribió al 960 después de ese aviso, o <b>⏳ sin respuesta</b> si no. Los filtros "Respondió" y "Sin respuesta" sirven para armar la lista de llamadas.</p>
+          <p><b>Agente.</b> El agente de cobranza le contesta <b>solo</b> a los clientes con <b>🤖 ON</b>. A los demás, el mensaje queda en Conversaciones para la secretaria (y le llega el aviso por Telegram). Al prenderlo, el chat que esperaba a la secretaria por eso vuelve al agente.</p>
+          <p><b>Seguimiento (📝).</b> Abre la ficha de cobranza del cliente: historial de notas y resultados, y el formulario para anotar uno nuevo. <b>Prometió pagar</b> crea la promesa (pestaña Promesas) y desde ahí ese cliente recibe solo el recordatorio de la promesa. <b>Pagó</b> con voucher lo deja en <b>Por validar</b>, igual que si lo hubiera mandado el cliente: nada suma en Cuotas hasta validarlo. <b>No contesta</b> y <b>Número equivocado</b> quedan anotados para la siguiente llamada o para corregir la ficha.</p>
+          <p><b>Mensaje propio.</b> En la misma ficha: <b>instrucciones para el agente</b> (las lee antes de contestarle a ese cliente, por ejemplo "tiene acuerdo de pagar los 30" o "no mencionar el contrato") y <b>texto del próximo aviso</b>. El texto propio sale tal cual solo si el cliente escribió en las últimas 24 horas, porque Meta no deja mandar texto libre fuera de esa ventana; si no, sale la plantilla de siempre. Se usa una sola vez. Para que no reciba ningún aviso automático, pon <b>¿Avisos?</b> en 🚫 No.</p>
           <p><b>Quién la ve.</b> El superusuario y quien tenga el permiso de cobranza (Usuarios). El administrador solo mira.</p>
         </div>
       </details>
@@ -301,7 +371,7 @@ export default function AvisosClientes() {
   )
 }
 
-function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, onTexto }) {
+function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, onTexto, onAgente, onFicha, abierta }) {
   const est = ESTADO[f.estado] || null
   const px = f.proximo
   return (
@@ -352,8 +422,34 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
           {f.tipo === 'lead'
             ? <span className="muted">{f.conv_ultimo ? 'último mensaje ' + fHora(f.conv_ultimo) : 'lead creado ' + fCorta(String(f.creado || '').slice(0, 10))}</span>
             : f.ultimo
-              ? <><div>{motivoLegible(f.ultimo.motivo)}</div><div className="muted">{fHora(f.ultimo.at)} · {f.ultimo.estado}{f.ultimo.error ? ' ⚠' : ''}</div></>
-              : <span className="muted">ninguno</span>}
+              ? <>
+                  <div>{motivoLegible(f.ultimo.motivo)}{f.ultimo.plantilla === 'texto_propio' ? ' ✍️' : ''}</div>
+                  <div className="muted">{fHora(f.ultimo.at)} · {f.ultimo.estado}{f.ultimo.error ? ' ⚠' : ''}</div>
+                  {f.respondio === true && <div className="ok" style={{ fontSize: 11 }}>✅ respondió {fHora(f.respondio_at)}</div>}
+                  {f.respondio === false && <div className="warn" style={{ fontSize: 11 }}>⏳ sin respuesta {hace(f.ultimo.at)}</div>}
+                </>
+              : <><span className="muted">ninguno</span>{f.respondio_at && <div className="muted" style={{ fontSize: 11 }}>escribió {fHora(f.respondio_at)}</div>}</>}
+        </td>
+        <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 150 }}>
+          {f.tipo === 'cliente' ? (
+            <>
+              {f.seguimiento
+                ? <div title={f.seguimiento.nota || ''}>{(RESULTADOS[f.seguimiento.resultado] || ['📝'])[0]} {(RESULTADOS[f.seguimiento.resultado] || [0, f.seguimiento.resultado])[1]}
+                    {f.seguimiento.fecha_promesa ? ' · ' + fCorta(f.seguimiento.fecha_promesa) : ''}
+                    <div className="muted" style={{ fontSize: 11 }}>{f.seguimiento.nota ? '“' + String(f.seguimiento.nota).slice(0, 60) + (String(f.seguimiento.nota).length > 60 ? '…' : '') + '” · ' : ''}{String(f.seguimiento.por || '').split(' ')[0]} {hace(f.seguimiento.at)}{f.seguimiento.n > 1 ? ' · ' + f.seguimiento.n + ' notas' : ''}</div>
+                  </div>
+                : <span className="muted">—</span>}
+              <button className={abierta ? 'btn-primary' : 'btn-ghost'} onClick={onFicha} style={{ padding: '.15rem .55rem', fontSize: '.75rem', marginTop: 3 }}
+                title="Notas, resultados, voucher y mensaje propio de este cliente">📝 {puede ? 'Seguimiento' : 'Ver'}{(f.instrucciones || f.aviso_texto) ? ' ✍️' : ''}</button>
+            </>
+          ) : <span className="muted">—</span>}
+        </td>
+        <td style={{ whiteSpace: 'nowrap' }}>
+          {f.tipo === 'cliente'
+            ? <button className={f.agente ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onAgente(!f.agente)}
+                title={f.agente ? 'El agente le contesta. Clic para que lo atienda solo la secretaria.' : 'El agente NO le contesta: lo atiende la secretaria. Clic para prenderlo.'}
+                style={{ padding: '.25rem .6rem', fontSize: '.8rem' }}>{f.agente ? '🤖 ON' : '⏸ OFF'}</button>
+            : <span className="muted small">bot de ventas</span>}
         </td>
         <td style={{ whiteSpace: 'nowrap' }}>
           <button className={f.recibe ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onMarcar(!f.recibe)}
@@ -364,5 +460,152 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
         </td>
       </tr>
     </>
+  )
+}
+
+// ============================================================================
+// SEGUIMIENTO de un cliente (sql/161): historial, nueva entrada (con promesa o
+// voucher) y el mensaje propio (agente, instrucciones y texto del próximo aviso)
+// ============================================================================
+function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
+  const [hist, setHist] = useState(null)
+  const [n, setN] = useState({ resultado: 'nota', nota: '', fecha: '', monto: '', op: '', banco: '' })
+  const [archivo, setArchivo] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [instr, setInstr] = useState(f.instrucciones || '')
+  const [texto, setTexto] = useState(f.aviso_texto || '')
+  const hoy = hoyLima()
+
+  async function cargarHist() {
+    const { data, error } = await supabase.rpc('cobranza_seguimiento_de', { p_sale: f.id })
+    setHist(error ? [] : (data || []))
+  }
+  useEffect(() => { cargarHist() }, [f.id])
+
+  async function guardar() {
+    if (n.resultado === 'nota' && !n.nota.trim()) { setMsg({ ok: false, t: 'ESCRIBE LA NOTA.' }); return }
+    if (n.resultado === 'promesa' && !n.fecha) { setMsg({ ok: false, t: 'PON LA FECHA EN QUE PROMETIÓ PAGAR.' }); return }
+    if (n.resultado === 'pago' && archivo && (!(Number(n.monto) > 0) || !n.fecha)) { setMsg({ ok: false, t: 'CON VOUCHER: PON EL MONTO Y LA FECHA DEL PAGO.' }); return }
+    setBusy(true)
+    let url = null
+    try { if (n.resultado === 'pago' && archivo) url = await upload('cobranza/vouchers-secretaria/' + f.id, archivo) }
+    catch (e) { setBusy(false); setMsg({ ok: false, t: 'No se pudo subir el voucher: ' + (e.message || e) }); return }
+    const { error } = await supabase.rpc('cobranza_seguimiento_agregar', {
+      p_sale: f.id, p_resultado: n.resultado, p_nota: n.nota.trim() || null,
+      p_fecha: (n.resultado === 'promesa' || n.resultado === 'pago') && n.fecha ? n.fecha : null,
+      p_monto: Number(n.monto) > 0 ? Number(n.monto) : null,
+      p_voucher_url: url, p_operacion: n.op.trim() || null, p_banco: n.banco.trim() || null,
+    })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_seguimiento/.test(error.message) ? 'Falta correr sql/161 en el servidor.' : 'ERROR: ' + error.message }); return }
+    savedFx()
+    setMsg({ ok: true, t: n.resultado === 'promesa' ? '📅 PROMESA ANOTADA (queda en Promesas)' : url ? '💵 VOUCHER SUBIDO: QUEDA EN "POR VALIDAR"' : 'SEGUIMIENTO GUARDADO' })
+    setN({ resultado: 'nota', nota: '', fecha: '', monto: '', op: '', banco: '' }); setArchivo(null)
+    cargarHist(); alGuardar()
+  }
+
+  async function guardarMensaje() {
+    setBusy(true)
+    const { error } = await supabase.from('cobranza_clientes_cfg').upsert({
+      client_id: f.client_id, agente: f.agente, instrucciones: instr.trim() || null, aviso_texto: texto.trim() || null, updated_at: new Date().toISOString(),
+    }, { onConflict: 'client_id' })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_clientes_cfg/.test(error.message) ? 'Falta correr sql/161 en el servidor.' : 'ERROR: ' + error.message }); return }
+    await supabase.rpc('avisos_recalcular').then(() => {}, () => {})
+    savedFx(); setMsg({ ok: true, t: 'MENSAJE PROPIO GUARDADO' }); alGuardar()
+  }
+
+  const conFecha = n.resultado === 'promesa' || n.resultado === 'pago'
+  return (
+    <div className="glass" style={{ padding: '1rem', marginTop: '1rem', textTransform: 'none' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b style={{ flex: 1 }}>📝 Seguimiento · {f.nombre} · {f.lote} · {f.proyecto}</b>
+        <button className={f.agente ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onAgente(!f.agente)}>{f.agente ? '🤖 Agente ON' : '⏸ Agente OFF'}</button>
+        <button className="btn-ghost" onClick={cerrar}>Cerrar</button>
+      </div>
+      <p className="muted small" style={{ margin: '.3rem 0 .8rem' }}>
+        {f.n_vencidas > 0 ? <>{f.n_vencidas} cuota(s) vencida(s) · {soles(f.deuda)}</> : 'Sin cuotas vencidas'}
+        {f.ultimo && <> · último aviso {fHora(f.ultimo.at)} · {f.respondio ? '✅ respondió' : '⏳ sin respuesta'}</>}
+        {f.telefono && <> · 📱 {f.telefono}</>}
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, alignItems: 'start' }}>
+        <div>
+          {puede && (
+            <div className="form-card" style={{ marginBottom: 10 }}>
+              <b className="small">Anotar</b>
+              <div className="chips" style={{ margin: '.4rem 0' }}>
+                {Object.entries(RESULTADOS).map(([k, [ic, t]]) => <button key={k} className={`chip ${n.resultado === k ? 'on' : ''}`} onClick={() => setN(x => ({ ...x, resultado: k }))}>{ic} {t}</button>)}
+              </div>
+              <textarea value={n.nota} onChange={e => setN(x => ({ ...x, nota: e.target.value }))} rows={2} style={{ width: '100%', textTransform: 'none' }}
+                placeholder={n.resultado === 'no_contesta' ? 'Ej. llamé 2 veces, no contesta (opcional)' : n.resultado === 'numero_equivocado' ? 'Quién contestó / qué número es el correcto (opcional)' : 'Qué se habló'} />
+              {conFecha && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                  <label className="small">{n.resultado === 'promesa' ? 'Pagará el' : 'Pagó el'}{' '}
+                    <input type="date" value={n.fecha} min={n.resultado === 'promesa' ? hoy : undefined} max={n.resultado === 'pago' ? hoy : undefined} onChange={e => setN(x => ({ ...x, fecha: e.target.value }))} />
+                  </label>
+                  <label className="small">Monto S/{' '}
+                    <input type="number" min="0" step="0.01" value={n.monto} onChange={e => setN(x => ({ ...x, monto: e.target.value }))} style={{ width: 110 }} />
+                  </label>
+                </div>
+              )}
+              {n.resultado === 'pago' && (
+                <div style={{ marginTop: 6 }}>
+                  <label className="btn-ghost" style={{ cursor: 'pointer', display: 'inline-block' }}>
+                    📎 {archivo ? archivo.name : 'Subir voucher (foto o PDF)'}
+                    <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => { setArchivo(e.target.files?.[0] || null); e.target.value = '' }} />
+                  </label>
+                  {archivo && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                      <input value={n.op} onChange={e => setN(x => ({ ...x, op: e.target.value }))} placeholder="N° de operación" style={{ flex: '1 1 140px' }} />
+                      <input value={n.banco} onChange={e => setN(x => ({ ...x, banco: e.target.value }))} placeholder="Banco / billetera" style={{ flex: '1 1 140px' }} />
+                    </div>
+                  )}
+                  <p className="muted small" style={{ margin: '.3rem 0 0' }}>Con voucher queda en <b>Por validar</b>: se aprueba ahí y recién suma en Cuotas.</p>
+                </div>
+              )}
+              <button className="btn-primary" disabled={busy} onClick={guardar} style={{ marginTop: 8 }}>{busy ? '…' : 'Guardar'}</button>
+            </div>
+          )}
+          <b className="small">Historial</b>
+          {hist === null && <p className="muted small">Cargando…</p>}
+          {hist && !hist.length && <p className="muted small">Todavía no hay seguimiento de este cliente.</p>}
+          {(hist || []).map(h => {
+            const r = RESULTADOS[h.resultado] || ['📝', h.resultado]
+            return (
+              <div key={h.id} style={{ borderLeft: '2px solid rgba(255,255,255,.15)', padding: '.2rem .6rem', margin: '.4rem 0' }}>
+                <div className="small"><b>{r[0]} {r[1]}</b>
+                  {h.fecha_promesa && <> · para el {fCorta(h.fecha_promesa)}</>}
+                  {h.monto && <> · {soles(h.monto)}</>}
+                  {h.pago_estado && <> · voucher {h.pago_estado === 'pendiente' ? '⏳ por validar' : h.pago_estado === 'validado' ? '✅ validado' : '❌ rechazado'}</>}
+                  {h.promesa_estado && h.promesa_estado !== 'vigente' && <> · promesa {h.promesa_estado}</>}
+                </div>
+                {h.nota && <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{h.nota}</div>}
+                <div className="muted" style={{ fontSize: 11 }}>{h.por || '?'} · {fHora(h.at)}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="form-card">
+          <b className="small">✍️ Mensaje propio de este cliente</b>
+          <label className="small" style={{ display: 'block', marginTop: 6 }}>Instrucciones para el agente
+            <textarea value={instr} disabled={!puede} onChange={e => setInstr(e.target.value)} rows={3} style={{ width: '100%', textTransform: 'none' }}
+              placeholder='Ej. "Tiene acuerdo de pagar los días 30, no insistir antes." · "No mencionar el contrato." · "Tratarlo de usted."' />
+          </label>
+          <p className="muted small" style={{ margin: '.2rem 0 .6rem' }}>El agente las lee antes de contestarle a este cliente. No se las muestra al cliente.</p>
+          <label className="small" style={{ display: 'block' }}>Texto del próximo aviso
+            <textarea value={texto} disabled={!puede} onChange={e => setTexto(e.target.value)} rows={3} style={{ width: '100%', textTransform: 'none' }}
+              placeholder="Vacío = sale la plantilla de siempre." />
+          </label>
+          <p className="muted small" style={{ margin: '.2rem 0 .6rem' }}>
+            Sale tal cual <b>solo si el cliente escribió en las últimas 24 h</b> (regla de Meta). Si no, sale la plantilla aprobada. Se usa una sola vez.
+            {f.proximo?.estado === 'programado' && f.proximo?.fecha && <> Próximo aviso: <b>{fCorta(f.proximo.fecha)}</b> ({motivoLegible(f.proximo.motivo)}).</>}
+          </p>
+          {puede && <button className="btn-primary" disabled={busy} onClick={guardarMensaje}>Guardar mensaje propio</button>}
+          {!f.recibe && <p className="warn small" style={{ marginTop: 6 }}>Este cliente tiene los avisos automáticos en 🚫 No: no le sale ningún aviso.</p>}
+        </div>
+      </div>
+    </div>
   )
 }

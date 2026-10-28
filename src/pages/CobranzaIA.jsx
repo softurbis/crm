@@ -5,6 +5,8 @@ import { useMsg } from '../lib/saveFx'
 import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import VisorDoc from '../components/VisorDoc'
+import { useSearchParams } from 'react-router-dom'
+import { ClientesYAvisos } from './AvisosClientes'
 
 // ============================================================================
 // COBRANZA IA — la pantalla de la responsable de cobranza (sql/76)
@@ -17,6 +19,9 @@ import VisorDoc from '../components/VisorDoc'
 //   · lee las conversaciones, toma un chat o se lo devuelve al agente,
 //   · prueba el agente con datos reales sin mandarle nada al cliente,
 //   · prende/apaga el agente y los avisos y ajusta los dias.
+//   · (28 oct, sql/161) en "Clientes y avisos": a quién le contesta el agente,
+//     qué aviso le toca, si respondió, el seguimiento y el mensaje propio.
+//     Es la pestaña de entrada; /avisos-clientes redirige aquí.
 // La ve el superusuario, el administrador (solo mirar) y quien tenga el permiso
 // especial 'cobranza' (Usuarios).
 // ============================================================================
@@ -38,7 +43,9 @@ export default function CobranzaIA() {
   const { profile, role } = useAuth()
   const puede = role === 'superuser' || (profile?.permisos || []).includes('cobranza')
   const ve = puede || role === 'admin'
-  const [tab, setTab] = useState('validar')
+  const [params, setParams] = useSearchParams()
+  const [tab, setTabState] = useState(() => params.get('tab') || 'clientes')
+  const setTab = k => { setTabState(k); setParams(k === 'clientes' ? {} : { tab: k }, { replace: true }) }
   const [cfg, setCfg] = useState(null)
   const [falta, setFalta] = useState('')
   const [msg, setMsg] = useMsg(null)
@@ -57,7 +64,7 @@ export default function CobranzaIA() {
 
   if (!ve) return <p className="error">Esta pantalla es de la responsable de cobranza. El superusuario da el permiso desde Usuarios.</p>
   const vivo = !!cfg?.latido && Date.now() - new Date(cfg.latido).getTime() < 3 * 60000
-  const TABS = [['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
+  const TABS = [['clientes', '👥 Clientes y avisos'], ['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
 
   return (
     <>
@@ -66,7 +73,7 @@ export default function CobranzaIA() {
         {cfg && (
           <span className="small" title={cfg.latido ? 'Último latido del proceso: ' + fHora(cfg.latido) : 'El proceso nunca reportó'}>
             {vivo ? '🟢 agente corriendo' : '🔴 el proceso no responde'}
-            {' · '}{cfg.agente_activo ? '🤖 contesta a clientes' : '⏸ no contesta'}
+            {' · '}{cfg.agente_activo ? '🤖 contesta a los clientes marcados' : '⏸ no contesta'}
             {' · '}{cfg.avisos_activos ? '📨 avisos ON' : '📨 avisos off'}
             {vivo && cfg.latido_info && !cfg.latido_info.whatsapp ? ' · ⚠ sin token de WhatsApp: solo pruebas' : ''}
           </span>
@@ -78,6 +85,7 @@ export default function CobranzaIA() {
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'btn-primary' : 'btn-ghost'} onClick={() => setTab(k)}>{l}</button>)}
       </div>
+      {!falta && cfg && tab === 'clientes' && <ClientesYAvisos />}
       {!falta && cfg && tab === 'validar' && <PorValidar puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'promesas' && <Promesas puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'chats' && <Conversaciones puede={puede} profile={profile} setMsg={setMsg} />}
