@@ -4114,6 +4114,23 @@ async function iniciarSesionAPI() {
   } catch {}
   if (!row) row = { id: 'legacy', is_corporate: true, label: 'API ' + numero.slice(-9), project_id: null, activo: true }
   const S = { row: { ...row, is_corporate: true, activo: true }, sock: crearSockAPI({ WA: WAAPI, log: (...a) => log(...a), numero }), enviados: 0 }
+  // 28 oct: whatsapp_conversations.wa_jid guarda el LID que dejó Baileys
+  // (ej. 200575677366465@lid). La Cloud API no conoce los LID: los tomaba como
+  // número y Meta contestaba 131026 "Message undeliverable" a todo lo que salía
+  // del panel. Aquí, en UN solo lugar, un LID se cambia por el teléfono real del
+  // chat antes de enviar (respuestas del panel, comprobantes, avisos, etc.).
+  const _sendOriginal = S.sock.sendMessage.bind(S.sock)
+  S.sock.sendMessage = async (jid, c, ...resto) => {
+    let destino = String(jid || '')
+    if (destino.endsWith('@lid')) {
+      const { data } = await supabase.from('whatsapp_conversations').select('phone')
+        .eq('wa_jid', destino).not('phone', 'is', null).order('last_message_at', { ascending: false, nullsFirst: false }).limit(1)
+      const tel = String(data?.[0]?.phone || '').replace(/\D/g, '')
+      if (!/^\d{9,15}$/.test(tel)) throw new Error('chat sin teléfono: el LID ' + destino + ' no se puede usar por la API oficial')
+      destino = jidDe(tel)
+    }
+    return _sendOriginal(destino, c, ...resto)
+  }
   SESSIONS.set(row.id, S)
   await setSes(S.row, { estado: 'conectado', qr: '', latido: new Date().toISOString(), phone: numero }).catch(() => {})
   // las demas filas (Brisas, etc.) quedan sin levantar: Baileys esta apagado a proposito
