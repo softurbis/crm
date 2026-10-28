@@ -4414,7 +4414,26 @@ async function procesarSalientesPanel() {
 }
 // cada 20 s, no cada 5: un mensaje mandado desde el panel sale igual, y son
 // 13.000 consultas menos al dia (ver el comentario de refrescarAjustes)
-setInterval(() => { procesarSalientesPanel().catch(() => {}) }, 20000)
+// 28 oct: además, AL INSTANTE. El panel avisa por realtime cuando guarda un mensaje
+// en la cola y el agente lo manda en ese momento (antes esperaba hasta 20 s). Un
+// candado evita que la vuelta por aviso y la de cada 20 s manden el mismo mensaje
+// dos veces; si llega un aviso mientras se procesa, se da otra vuelta al terminar.
+let _salientesCorriendo = false, _salientesOtraVez = false
+async function salientesYa() {
+  if (_salientesCorriendo) { _salientesOtraVez = true; return }
+  _salientesCorriendo = true
+  try {
+    do { _salientesOtraVez = false; await procesarSalientesPanel().catch(() => {}) } while (_salientesOtraVez)
+  } finally { _salientesCorriendo = false }
+}
+setInterval(() => { salientesYa() }, 20000)
+try {
+  supabase.channel('agente-salientes-panel')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'scheduled_messages' }, ({ new: m }) => {
+      if (m && m.status === 'pendiente' && ['manual_panel', 'comprobante_panel'].includes(m.tipo)) salientesYa()
+    })
+    .subscribe(estado => { if (estado === 'SUBSCRIBED') log('PANEL: salientes al instante (realtime)'); else if (estado !== 'CLOSED') log('PANEL realtime:', estado, '— sigue la vuelta de cada 20 s') })
+} catch (e) { log('PANEL realtime no disponible (queda la vuelta de cada 20 s):', String(e.message || e)) }
 
 // ---------- AUTO-AVANZAR dentro del flujo: si el lead no responde en N seg/min, pasa al siguiente paso ----------
 // (No hay re-insistencia; solo se espera el tiempo del paso y se ejecuta su acción: siguiente / mensaje / asesor.)
