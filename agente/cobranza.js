@@ -1017,7 +1017,7 @@ async function vistaPreviaAviso(chat) {
 // agente sabe que se le dijo. Plantilla que no esta en plantillas_cobranza.js:
 // su nombre y sus datos.
 function textoDelAviso(d) {
-  const p = PLANTILLAS.find(x => x.nombre === d.plantilla)
+  const p = PLANTILLAS.find(x => x.nombre === d.plantilla || x.nombre + '_v2' === d.plantilla)
   return p ? comoSeVe(p, d.params.map(String)) : `Aviso "${d.plantilla}" (${d.motivo}): ${d.params.join(' · ')}`
 }
 
@@ -1105,7 +1105,17 @@ async function barridoAvisos() {
     if (!_avisoSinAprobar || Date.now() - _avisoSinAprobar > 3 * 3600e3) { _avisoSinAprobar = Date.now(); log('AVISOS: ninguna plantilla aprobada por Meta todavía: no sale nada (se revisa cada 5 min)') }
     return
   }
-  const sirve = nombre => !!nombre && (aprobadas === undefined || aprobadas.has(nombre))
+  // 28 oct: las plantillas se recrearon con sufijo _v2 (las primeras se trabaron en
+  // revisión). Mismo texto y mismas variables: sale la que Meta haya aprobado, la
+  // nueva o la original, la que llegue primero.
+  const usable = nombre => {
+    if (!nombre) return null
+    if (aprobadas === undefined) return nombre
+    const base = String(nombre).replace(/_v2$/, '')
+    for (const n of [nombre, base + '_v2', base]) if (aprobadas.has(n)) return n
+    return null
+  }
+  const sirve = nombre => !!usable(nombre)
   barriendo = true
   try {
     log('=== AVISOS DE COBRANZA', hoy, '===')
@@ -1153,6 +1163,7 @@ async function barridoAvisos() {
       }
       if (!d.plantilla) { sinPlantilla++; continue }
       if (!sirve(d.plantilla)) { sinPlantilla++; continue }   // en revisión en Meta: hoy no
+      d.plantilla = usable(d.plantilla)
       for (const tel of tels) {
         if (cupo <= 0) { topeAlcanzado = true; break }
         if (await registrarEnvio(tel, d, { client_id: v.client_id, sale_id: v.id, installment_id: d.q.id }, cfg)) enviados++
@@ -1173,7 +1184,7 @@ async function barridoAvisos() {
       if (!(hoy >= habilHasta(cfg, sumarDias(p.fecha_promesa, -dias)) && hoy <= p.fecha_promesa)) continue
       const pend = cuotasPendientes(p.sale, hoy)
       const monto = p.monto || (pend[0] ? pend[0].pendiente : 0)
-      const d = { motivo: 'promesa', plantilla: cfg.plantilla_promesa, params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }
+      const d = { motivo: 'promesa', plantilla: usable(cfg.plantilla_promesa), params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }
       let ok = false
       for (const tel of telefonosBot(p.client)) {
         if (cupo <= 0) { topeAlcanzado = true; break }
