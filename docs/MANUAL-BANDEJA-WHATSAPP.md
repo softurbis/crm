@@ -38,6 +38,11 @@ asesor ⭐, el proyecto del chat 📁, el directorio 📇 y los interruptores de
 
 No hay botón de vincular ni QR: no hacen falta.
 
+**En la ficha de cada proyecto** (menú Proyectos) tampoco hay ya QR, "vincular otro celular", reiniciar ni
+quitar número. Cada proyecto dice que sale por el **+51 960 487 000**. En el proyecto del 960 (Praderas) queda
+el interruptor **🤖 LEADS ON/OFF** del bot de ventas; los números anteriores de los demás proyectos figuran
+como **apagados**, con sus chats como historial.
+
 ---
 
 ## Cliente o lead
