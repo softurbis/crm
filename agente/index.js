@@ -4181,7 +4181,13 @@ async function entranteAPI(S, m, v) {
     } catch (e) { log('media (API):', String(e.message || e)) }
     if (!media.url && !media.caption) media.caption = '[' + (mtipo === 'video' ? '🎬 Video' : mtipo === 'image' ? '🖼️ Imagen' : mtipo === 'audio' ? '🎙️ Audio' : '📄 Archivo') + ' recibido — no se pudo guardar; revisar en el panel de C-Soft]'
   }
-  if (!texto && !media) texto = '[' + (m.type || 'mensaje') + ' no soportado]'
+  // 28 oct: Meta manda type 'unsupported' sin el archivo cuando la persona usa algo
+  // que la API no entrega (lo típico: una foto de "ver una sola vez", también
+  // encuestas o mensajes editados). El archivo SOLO se ve en el celular del 960.
+  // El texto queda claro para la secretaria y para el agente (que le pide reenviarlo).
+  if (!texto && !media) texto = m.type === 'unsupported' || m.type === 'unknown'
+    ? '[📎 Mandó un archivo que WhatsApp no deja ver por el sistema (por ejemplo una foto de "ver una sola vez"). Solo se ve en el celular del 960: hay que pedirle que lo reenvíe como foto normal.]'
+    : '[' + (m.type || 'mensaje') + ' no soportado]'
   const jid = jidDe(phone)
   try { await manejarEntrante(S, jid, jid, texto, pushName, media, m.id, null) }
   catch (e) { log('ERROR FLUJO (API):', e.message); log(e.stack || '') }

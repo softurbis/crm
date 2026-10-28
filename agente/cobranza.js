@@ -688,7 +688,13 @@ async function entrante(m, v) {
     try { media.url = await guardarMedia(mm.id, mm.mime_type, media.name) }
     catch (e) { log('adjunto de', phone, ':', String(e.message || e)); if (!texto) texto = '[adjunto recibido — no se pudo guardar]' }
   }
-  if (!texto && !media) texto = '[' + (m.type || 'mensaje') + ' no soportado]'
+  // 28 oct: Meta manda type 'unsupported' sin el archivo cuando la persona usa algo
+  // que la API no entrega (lo típico: una foto de "ver una sola vez", también
+  // encuestas o mensajes editados). El archivo SOLO se ve en el celular del 960.
+  // El texto queda claro para la secretaria y para el agente (que le pide reenviarlo).
+  if (!texto && !media) texto = m.type === 'unsupported' || m.type === 'unknown'
+    ? '[📎 Mandó un archivo que WhatsApp no deja ver por el sistema (por ejemplo una foto de "ver una sola vez"). Solo se ve en el celular del 960: hay que pedirle que lo reenvíe como foto normal.]'
+    : '[' + (m.type || 'mensaje') + ' no soportado]'
   const ahora = new Date().toISOString()
   const { error } = await supabase.from('cobranza_mensajes').insert({
     chat_id: chat.id, direccion: 'in', autor: 'cliente', texto: texto || null, estado: 'recibido', wa_id: m.id || null,
