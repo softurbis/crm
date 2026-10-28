@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
-import { useMsg } from '../lib/saveFx'
+import { useMsg, savedFx } from '../lib/saveFx'
 import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import VisorDoc from '../components/VisorDoc'
@@ -431,6 +431,78 @@ function Burbujas({ msgs }) {
   )
 }
 
+// ============================================================================
+// sql/164: VINCULAR un chat sin número (nombre de usuario) a la ficha del cliente
+// ============================================================================
+const sinNumero = c => String(c?.phone || '').startsWith('u:')
+
+function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
+  const [q, setQ] = useState('')
+  const [res, setRes] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [cambiar, setCambiar] = useState(false)
+  const vinculado = !!chat.telefono_vinculado
+
+  useEffect(() => {
+    const t = q.trim()
+    if (t.length < 3) { setRes([]); return }
+    const id = setTimeout(async () => {
+      const dig = t.replace(/\D/g, '')
+      const filtro = dig.length >= 6 ? `doc_number.ilike.%${dig}%,phone.ilike.%${dig.slice(-9)}%,phone2.ilike.%${dig.slice(-9)}%` : `full_name.ilike.%${t.replace(/[%,()]/g, ' ')}%`
+      const { data } = await supabase.from('clients').select('id, full_name, doc_number, phone, phone2').or(filtro).order('full_name').limit(8)
+      setRes(data || [])
+    }, 300)
+    return () => clearTimeout(id)
+  }, [q])
+
+  async function vincular(c) {
+    if (!await confirmar(`¿Este chat es de ${c.full_name}?\n\nDesde ahora el sistema lo reconoce como ese cliente: le contesta el agente de cobranza (si el cliente tiene 🤖 ON) y las respuestas salen al celular de su ficha.`, { titulo: 'Vincular a la ficha' })) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('cobranza_vincular_chat', { p_chat: chat.id, p_client: c.id })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_vincular_chat/.test(error.message) ? 'Falta correr sql/164 en el servidor.' : 'ERROR: ' + error.message }); return }
+    savedFx(); setMsg({ ok: true, t: 'CHAT VINCULADO A ' + (data || c.full_name) }); setQ(''); setRes([]); setCambiar(false); alTerminar()
+  }
+  async function desvincular() {
+    if (!await confirmar('¿Quitar el vínculo? El chat vuelve a quedar "sin número" y lo atiende la secretaria.', { peligro: true, aceptar: 'Desvincular' })) return
+    const { error } = await supabase.rpc('cobranza_desvincular_chat', { p_chat: chat.id })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    savedFx(); setMsg({ ok: true, t: 'VÍNCULO QUITADO' }); alTerminar()
+  }
+
+  return (
+    <div style={{ margin: '6px 0', padding: '8px 10px', borderRadius: 8, border: '1px solid ' + (vinculado ? 'rgba(95,211,141,.5)' : 'rgba(224,179,76,.6)'), textTransform: 'none' }}>
+      {vinculado && !cambiar ? (
+        <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1 }}>👤 Usa <b>nombre de usuario</b> en WhatsApp. Vinculado a <b>{nombre}</b>: se le contesta al <b>+{chat.telefono_vinculado}</b> de su ficha.</span>
+          {puede && <button className="btn-ghost" onClick={() => setCambiar(true)}>Cambiar</button>}
+          {puede && <button className="btn-ghost" onClick={desvincular}>Desvincular</button>}
+        </div>
+      ) : (
+        <>
+          <div className="small warn">👤 Esta persona usa <b>nombre de usuario</b> en WhatsApp: no llegó su celular y el sistema no sabe de qué cliente es.</div>
+          {puede ? (
+            <>
+              <p className="muted small" style={{ margin: '4px 0' }}>Pregúntale su nombre o DNI y vincúlalo a su ficha. Desde ahí el sistema lo reconoce siempre.</p>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente por nombre, DNI o celular…" style={{ flex: 1 }} />
+                {cambiar && <button className="btn-ghost" onClick={() => setCambiar(false)}>Cancelar</button>}
+              </div>
+              {res.map(c => (
+                <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                  <span className="small" style={{ flex: 1 }}><b>{c.full_name}</b> <span className="muted">{c.doc_number ? 'DNI ' + c.doc_number : ''}{c.phone ? ' · ' + c.phone : ' · sin celular en la ficha'}</span></span>
+                  <button className="btn-primary" disabled={busy || !(c.phone || c.phone2)} onClick={() => vincular(c)} title={c.phone || c.phone2 ? 'Vincular este chat a la ficha' : 'Ponle un celular en su ficha primero'}>Vincular</button>
+                </div>
+              ))}
+              {q.trim().length >= 3 && !res.length && <p className="muted small" style={{ margin: '4px 0 0' }}>Ningún cliente con eso.</p>}
+            </>
+          ) : <p className="muted small">La secretaria de cobranza puede vincularlo a la ficha.</p>}
+        </>
+      )}
+    </div>
+  )
+}
+
 function Conversaciones({ puede, profile, setMsg }) {
   const [chats, setChats] = useState([])
   const [nombres, setNombres] = useState({})
@@ -463,7 +535,9 @@ function Conversaciones({ puede, profile, setMsg }) {
   }, [sel])
 
   const chat = chats.find(c => c.id === sel)
-  const titulo = c => (c.client_ids || []).map(id => nombres[id]).filter(Boolean).join(' / ') || c.nombre_whatsapp || 'Número no registrado'
+  const titulo = c => (c.client_ids || []).map(id => nombres[id]).filter(Boolean).join(' / ') || c.nombre_whatsapp || (sinNumero(c) ? 'Nombre de usuario sin vincular' : 'Número no registrado')
+  // sql/164: chat de alguien con nombre de usuario de WhatsApp (sin celular)
+  const telVisible = c => sinNumero(c) ? (c.telefono_vinculado ? '👤 sin número · contesta al +' + c.telefono_vinculado : '👤 sin número') : '+' + c.phone
 
   async function cambiarModo(modo) {
     const campos = modo === 'humano'
@@ -483,7 +557,8 @@ function Conversaciones({ puede, profile, setMsg }) {
     cargarMsgs(sel)
   }
 
-  const visibles = chats.filter(c => filtro === 'todos' || c.modo === filtro)
+  const visibles = chats.filter(c => filtro === 'todos' || (filtro === 'sin_numero' ? sinNumero(c) && !c.telefono_vinculado : c.modo === filtro))
+  const sinVincular = chats.filter(c => sinNumero(c) && !c.telefono_vinculado).length
   const paraSecretaria = chats.filter(c => c.modo === 'humano').length
   return (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'stretch' }}>
@@ -492,12 +567,13 @@ function Conversaciones({ puede, profile, setMsg }) {
           <option value="todos">Todas ({chats.length})</option>
           <option value="humano">👩 Para la secretaria ({paraSecretaria})</option>
           <option value="agente">🤖 Con el agente</option>
+          {sinVincular > 0 && <option value="sin_numero">👤 Sin número, por vincular ({sinVincular})</option>}
         </select>
         {visibles.map(c => (
           <div key={c.id} onClick={() => setSel(c.id)}
             style={{ padding: '8px 6px', cursor: 'pointer', borderRadius: 6, background: sel === c.id ? 'rgba(255,255,255,.08)' : 'transparent' }}>
             <b>{titulo(c)}</b>{c.no_leidos > 0 && <span className="warn"> ({c.no_leidos})</span>}
-            <div className="muted small">+{c.phone} · {c.modo === 'humano' ? '👩 secretaria' : '🤖 agente'} · {fHora(c.ultimo_mensaje_at)}</div>
+            <div className="muted small">{telVisible(c)} · {c.modo === 'humano' ? '👩 secretaria' : '🤖 agente'} · {fHora(c.ultimo_mensaje_at)}</div>
             {c.modo === 'humano' && c.motivo_humano && <div className="small warn" style={{ textTransform: 'none' }}>{c.motivo_humano}</div>}
           </div>
         ))}
@@ -509,15 +585,18 @@ function Conversaciones({ puede, profile, setMsg }) {
           <>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 6 }}>
               <div style={{ flex: 1 }}>
-                <b>{titulo(chat)}</b> <span className="muted small">+{chat.phone}</span>
+                <b>{titulo(chat)}</b> <span className="muted small">{telVisible(chat)}</span>
                 <div className="small">{chat.modo === 'humano' ? '👩 La atiende la secretaria' + (chat.motivo_humano ? ' — ' + chat.motivo_humano : '') : '🤖 La atiende el agente'}</div>
               </div>
               {puede && (chat.modo === 'humano'
                 ? <button className="btn-ghost" onClick={() => cambiarModo('agente')}>Devolver al agente</button>
                 : <button className="btn-ghost" onClick={() => cambiarModo('humano')}>Tomar yo</button>)}
             </div>
+            {sinNumero(chat) && <VincularChat chat={chat} puede={puede} nombre={titulo(chat)} setMsg={setMsg} alTerminar={cargarChats} />}
             <Burbujas msgs={msgs} />
-            {puede && (ventanaAbierta(chat)
+            {puede && sinNumero(chat) && !chat.telefono_vinculado
+              ? <p className="muted small" style={{ marginTop: 6 }}>Para contestarle desde aquí, primero vincúlalo a la ficha del cliente (arriba). Mientras tanto, se le puede responder desde el celular del 960.</p>
+              : puede && (ventanaAbierta(chat)
               ? (
                 <form onSubmit={enviar} style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                   <input value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribir al cliente (el agente se calla en este chat)" style={{ flex: 1, textTransform: 'none' }} />

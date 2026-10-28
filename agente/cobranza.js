@@ -159,6 +159,47 @@ async function chatDe(phone, esPrueba, nombreWhatsapp) {
   return { ...nuevo, clientes }
 }
 
+// ---------------------------------------------------------------------------
+// sql/164 (28 oct): quien usa NOMBRE DE USUARIO de WhatsApp puede llegar sin
+// celular; Meta lo identifica con un código propio. Ese chat se guarda con
+// phone = 'u:<código>' y queda para la secretaria hasta que lo VINCULE a la ficha
+// del cliente (Cobranza IA → Conversaciones). Vinculado, se le contesta al
+// celular de la ficha (telefono_vinculado) y lo atiende el agente como a todos.
+// ---------------------------------------------------------------------------
+const esTel = t => /^\+?\d{8,15}$/.test(String(t || '').trim())
+const SIN_NUMERO = 'sin número: falta vincularlo a la ficha del cliente'
+const esUsuario = chat => String(chat?.phone || '').startsWith('u:')
+function remitente(m, v) {
+  const contactos = v?.contacts || []
+  for (const x of [m.from, ...contactos.map(c => c.wa_id)]) if (esTel(x)) return { phone: dig(x) }
+  const u = String(m.from || m.from_user_id || (contactos.find(c => c.user_id) || {}).user_id || '').trim()
+  return u ? { usuario: 'u:' + u } : {}
+}
+const telDeChat = chat => esUsuario(chat) ? (chat.telefono_vinculado || null) : chat.phone
+async function clientesDeChat(fila) {
+  if (!esUsuario(fila)) return clientesDelTelefono(fila.phone)
+  if (!fila.telefono_vinculado || !(fila.client_ids || []).length) return []
+  const { data, error } = await supabase.from('clients')
+    .select('id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot').in('id', fila.client_ids)
+  if (error) { log('clientes del chat:', error.message); return [] }
+  return data || []          // los vinculó la secretaria a mano: esa es la validación
+}
+async function chatDeUsuario(clave, nombreWhatsapp) {
+  const { data: ya } = await supabase.from('cobranza_chats').select('*').eq('phone', clave).eq('es_prueba', false).maybeSingle()
+  if (ya) {
+    if (nombreWhatsapp && nombreWhatsapp !== ya.nombre_whatsapp) await supabase.from('cobranza_chats').update({ nombre_whatsapp: nombreWhatsapp }).eq('id', ya.id)
+    return { ...ya, nombre_whatsapp: nombreWhatsapp || ya.nombre_whatsapp, clientes: await clientesDeChat(ya) }
+  }
+  const { data: nuevo, error } = await supabase.from('cobranza_chats')
+    .insert({ phone: clave, es_prueba: false, client_ids: [], nombre_whatsapp: nombreWhatsapp || null }).select('*').single()
+  if (error) {
+    const { data: otra } = await supabase.from('cobranza_chats').select('*').eq('phone', clave).eq('es_prueba', false).maybeSingle()
+    if (otra) return { ...otra, clientes: [] }
+    throw new Error('no se pudo crear el chat sin número: ' + error.message)
+  }
+  return { ...nuevo, clientes: [] }
+}
+
 const ventanaAbierta = chat => !!chat.ultimo_entrante_at && (Date.now() - new Date(chat.ultimo_entrante_at).getTime()) < 23.5 * 3600e3
 
 // Manda texto libre (solo dentro de la ventana de 24 h) y lo deja en el chat.
@@ -167,9 +208,10 @@ async function enviarAlCliente(chat, texto, autor, extra = {}) {
   if (chat.es_prueba) fila.estado = 'prueba'
   else if (!WA_LISTO) { fila.estado = 'fallido'; fila.error = 'Falta WA_TOKEN en el servidor: todavía no se puede enviar' }
   else if (!ventanaAbierta(chat)) { fila.estado = 'fallido'; fila.error = 'Pasaron más de 24 h desde el último mensaje del cliente: Meta solo deja escribirle con plantilla' }
+  else if (!telDeChat(chat)) { fila.estado = 'fallido'; fila.error = 'Chat sin número: vincúlalo a la ficha del cliente para poder contestarle' }
   else {
     try {
-      const r = await WA.enviarTexto(chat.phone, texto)
+      const r = await WA.enviarTexto(telDeChat(chat), texto)
       fila.wa_id = r.messages?.[0]?.id || null
     } catch (e) { fila.estado = 'fallido'; fila.error = String(e.message || e).slice(0, 300) }
   }
@@ -594,9 +636,10 @@ async function turno(chatId) {
     if (!fila || fila.modo !== 'agente') return
     const cfg = await config()
     if (!fila.es_prueba && !cfg.agente_activo) return
-    const chat = { ...fila, clientes: await clientesDelTelefono(fila.phone) }
+    const chat = { ...fila, clientes: await clientesDeChat(fila) }
     chat.client_ids = chat.clientes.map(c => c.id)
 
+    if (!chat.client_ids.length && esUsuario(chat)) { await pasarAHumano(chat, SIN_NUMERO); return }   // sql/164
     if (!chat.client_ids.length) {
       // sin IA y sin datos: respuesta fija una vez y a la secretaria
       const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
@@ -665,8 +708,10 @@ function deOtroNumero(v) {
 }
 
 async function entrante(m, v) {
-  const phone = dig(m.from)
-  if (!phone || m.type === 'reaction') return
+  if (m.type === 'reaction') return
+  const quien = remitente(m, v)                       // sql/164: con celular o con nombre de usuario
+  if (!quien.phone && !quien.usuario) return
+  const phone = quien.phone || null
   if (deOtroNumero(v)) return
   if (m.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', m.id).limit(1)
@@ -676,9 +721,10 @@ async function entrante(m, v) {
   // (index.js) en este mismo numero; aqui ni se guarda ni se contesta (nunca los
   // dos). Desde que Baileys esta apagado (27 oct), el bot de ventas recibe el
   // mensaje por un puerto local: este proceso es el unico que recibe el webhook.
-  if (!(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/entrante', { m, v }, phone); return }
-  const nombre = (v.contacts || []).find(c => dig(c.wa_id) === phone)?.profile?.name || null
-  const chat = await chatDe(phone, false, nombre)
+  // (sin celular no hay ficha que mirar: se queda aquí para que la secretaria lo vincule)
+  if (phone && !(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/entrante', { m, v }, phone); return }
+  const nombre = (phone ? (v.contacts || []).find(c => dig(c.wa_id) === phone) : (v.contacts || [])[0])?.profile?.name || null
+  const chat = phone ? await chatDe(phone, false, nombre) : await chatDeUsuario(quien.usuario, nombre)
   let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''
   const mm = m.image || m.document || m.video || m.audio || m.sticker
   let media = null
@@ -702,7 +748,8 @@ async function entrante(m, v) {
   })
   if (error) { if (!/duplicate/i.test(error.message)) log('mensaje in:', error.message); return }
   await supabase.from('cobranza_chats').update({ ultimo_entrante_at: ahora, ultimo_mensaje_at: ahora, no_leidos: (chat.no_leidos || 0) + 1 }).eq('id', chat.id)
-  log('ENTRA de +' + phone, (texto || '[' + (media?.tipo || 'adjunto') + ']').replace(/\s+/g, ' ').slice(0, 70))
+  log('ENTRA de ' + (phone ? '+' + phone : quien.usuario + ' (sin número)'), (texto || '[' + (media?.tipo || 'adjunto') + ']').replace(/\s+/g, ' ').slice(0, 70))
+  if (esUsuario(chat) && !chat.telefono_vinculado) { await pasarAHumano({ ...chat, clientes: [] }, SIN_NUMERO); return }
   programarTurno(chat.id)
 }
 
@@ -711,6 +758,15 @@ async function entrante(m, v) {
 // OJO: lo que el bot de ventas manda por Baileys a los leads tambien llega como
 // eco (es el mismo numero): a un lead no se le abre chat de cobranza, se ignora.
 async function eco(e, v) {
+  if (e.to && !esTel(e.to)) {                          // sql/164: la secretaria le escribió desde el celular a alguien sin número
+    const { data: ch } = await supabase.from('cobranza_chats').select('*').eq('phone', 'u:' + String(e.to).trim()).eq('es_prueba', false).maybeSingle()
+    if (!ch) return
+    const texto = e.text?.body || e.image?.caption || e.document?.caption || '[' + (e.type || 'mensaje') + ' enviado desde el celular]'
+    await supabase.from('cobranza_mensajes').insert({ chat_id: ch.id, direccion: 'out', autor: 'celular', texto, estado: 'enviado', wa_id: e.id || null })
+    await supabase.from('cobranza_chats').update({ ultimo_mensaje_at: new Date().toISOString() }).eq('id', ch.id)
+    await pasarAHumano(ch, 'la secretaria respondió desde el celular')
+    return
+  }
   const phone = dig(e.to)
   if (!phone) return
   if (deOtroNumero(v)) return
@@ -758,8 +814,9 @@ async function salientesPanel() {
     if (chat.es_prueba) upd = { estado: 'prueba' }
     else if (!WA_LISTO) upd = { estado: 'fallido', error: 'Falta el token de WhatsApp en el servidor' }
     else if (!ventanaAbierta(chat)) upd = { estado: 'fallido', error: 'Pasaron más de 24 h desde el último mensaje del cliente: Meta solo deja escribirle con plantilla' }
+    else if (!telDeChat(chat)) upd = { estado: 'fallido', error: 'Chat sin número: vincúlalo a la ficha del cliente para poder contestarle' }
     else {
-      try { const r = await WA.enviarTexto(chat.phone, m.texto || ''); upd = { estado: 'enviado', wa_id: r.messages?.[0]?.id || null } }
+      try { const r = await WA.enviarTexto(telDeChat(chat), m.texto || ''); upd = { estado: 'enviado', wa_id: r.messages?.[0]?.id || null } }
       catch (e) { upd = { estado: 'fallido', error: String(e.message || e).slice(0, 300) } }
     }
     await supabase.from('cobranza_mensajes').update(upd).eq('id', m.id)

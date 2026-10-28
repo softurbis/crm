@@ -136,3 +136,16 @@ Técnico: `cobranza_clientes_cfg` (agente, instrucciones, aviso_texto por client
 + `cobranza_seguimiento_agregar()` / `cobranza_seguimiento_de()`, y `avisos_por_cliente()` devuelve además
 `agente`, `instrucciones`, `aviso_texto`, `respondio_at` y el último `seguimiento`. El agente
 (`agente/cobranza.js`) mira `cobranza_clientes_cfg` antes de contestar y antes de cada aviso.
+
+## 28 oct: clientes con nombre de usuario (sin número) · sql/164
+
+WhatsApp deja usar un **nombre de usuario** y ocultar el número. A quien escribe así, Meta lo manda con un
+código propio y **sin su celular**: el sistema no puede saber de qué ficha es.
+
+- Ese chat entra a **Cobranza IA → Conversaciones** marcado **👤 sin número**, para la secretaria (le llega
+  el aviso por Telegram). El filtro **"Sin número, por vincular"** los junta.
+- La secretaria le pregunta su nombre o DNI, lo busca en el recuadro del chat y toca **Vincular**.
+- Desde ahí el sistema lo reconoce siempre: le contesta el **agente de cobranza** (si ese cliente tiene 🤖 ON)
+  y lo que se le escribe sale al **celular de su ficha**. La ficha tiene que tener celular.
+- **Cambiar** o **Desvincular** corrigen un vínculo equivocado.
+- Los **avisos automáticos** no cambian: siempre salen al celular de la ficha, use o no nombre de usuario.
