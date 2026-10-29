@@ -3356,6 +3356,27 @@ async function resumenDelDia() {
   L.push('   • Pagos sin boleta (30 días): ' + sinBoleta)
   L.push('   • Cartas por firmar: ' + (cartasFirma || 0))
   L.push('   • Mañana vencen ' + vn.length + ' cuotas (' + S_(vn.reduce((s, c) => s + Number(c.amount || 0) - Number(c.amount_paid || 0), 0)) + ')')
+  // ---- CONSUMO DE META (29 oct): lo que se paga son las plantillas fuera de las
+  // 24 h (REGULAR). El límite del número es de clientes DISTINTOS por 24 h.
+  if (WAAPI && WAAPI.consumo) {
+    try {
+      const ini = Math.floor(Date.parse(dia.slice(0, 8) + '01T00:00:00-05:00') / 1000)
+      const { tier, dias } = await WAAPI.consumo(ini, Math.floor(Date.now() / 1000))
+      const pagadas = x => x.filter(d => d.tipo === 'REGULAR').reduce((s, d) => s + d.n, 0)
+      const gratis = x => x.filter(d => d.tipo !== 'REGULAR').reduce((s, d) => s + d.n, 0)
+      const deHoy = dias.filter(d => d.dia === dia)
+      const { data: cfgC } = await q(supabase.from('cobranza_config').select('costo_plantilla_usd').eq('id', 1).maybeSingle())
+      const usd = Number(cfgC?.costo_plantilla_usd || 0.02), tc = Number(process.env.TIPO_CAMBIO || 3.75)
+      const { data: envHoy } = await q(supabase.from('cobranza_envios').select('phone').gte('created_at', desde).neq('estado', 'fallido'))
+      const limite = Number(String(tier || '').replace(/\D/g, '')) || null
+      const mes = pagadas(dias)
+      L.push('', '📲 *CONSUMO DE WHATSAPP (Meta)*')
+      L.push('   • Hoy: ' + pagadas(deHoy) + ' plantillas pagadas · ' + gratis(deHoy) + ' gratis')
+      L.push('   • Clientes con aviso hoy: ' + new Set((envHoy || []).map(e => String(e.phone).slice(-9))).size + (limite ? ' de ' + limite + ' (límite del número)' : ''))
+      L.push('   • En el mes: ' + mes + ' pagadas ≈ US$ ' + (mes * usd).toFixed(2) + ' (S/ ' + (mes * usd * tc).toFixed(2) + ')')
+      L.push('   _Meta publica las cifras con unas horas de atraso._')
+    } catch (e) { L.push('', '📲 Consumo de Meta: no pude leerlo (' + String(e.message || e).slice(0, 80) + ')') }
+  }
   L.push('', '✅ Sistema en pie')
   const texto = L.join('\n')
   return texto.length > 4000 ? texto.slice(0, 3990) + '\n…' : texto
@@ -4518,9 +4539,23 @@ async function procesarSalientesPanel() {
         // plantilla comprobante_de_pago (cobranza_meta.js crear_comprobante), que llega
         // siempre; dentro de la ventana Meta tampoco la cobra. Si la plantilla aún no
         // está aprobada, sale como antes. El nombre del archivo trae "CLIENTE - CUOTA N".
+        // Pedido del dueño (29 oct): plantilla SOLO si hace falta. Si el cliente escribió
+        // en las últimas 23,5 h (bandeja o chat de cobranza), va como mensaje normal con
+        // la nota de la secretaria; la plantilla queda para fuera de la ventana.
+        let ventana = false
+        if (S.sock.sendTemplateDoc) {
+          const desdeV = new Date(Date.now() - 23.5 * 3600e3).toISOString()
+          const n9 = num.slice(-9)
+          const [{ data: cc }, { data: wc }] = await Promise.all([
+            supabase.from('cobranza_chats').select('id').ilike('phone', '%' + n9).gte('ultimo_entrante_at', desdeV).limit(1),
+            supabase.from('whatsapp_messages').select('id, conv:whatsapp_conversations!inner(phone)').eq('direction', 'in')
+              .ilike('conv.phone', '%' + n9).gte('created_at', desdeV).limit(1),
+          ])
+          ventana = !!((cc && cc.length) || (wc && wc.length))
+        }
         let sentPl = null
         // (la foto de una boleta también va, como documento: el encabezado no admite imagen)
-        if (S.sock.sendTemplateDoc) {
+        if (S.sock.sendTemplateDoc && !ventana) {
           const base = nombre.replace(/\.[a-z0-9]+$/i, '')
           const [cli, ...resto] = base.split(' - ')
           const titulo = s => String(s || '').toLowerCase().replace(/(^|\s)\S/g, x => x.toUpperCase())
@@ -4540,7 +4575,7 @@ async function procesarSalientesPanel() {
         guardarMsg(sent)
         await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), wa_msg_id: sent?.key?.id || null }).eq('id', m.id)
         await supabase.from('comprobantes').update({ wsp_estado: 'enviado', wsp_error: null }).eq('wsp_msg_id', m.id).then(() => {}, () => {})
-        log('PANEL -> COMPROBANTE', m.media_name || '', 'enviado a', num, 'por', S.row.label || 'PRINCIPAL')
+        log('PANEL -> COMPROBANTE', m.media_name || '', 'enviado a', num, 'por', S.row.label || 'PRINCIPAL', sentPl ? '(plantilla: fuera de las 24 h)' : ventana ? '(mensaje normal: escribió en las 24 h)' : '')
         continue
       }
 

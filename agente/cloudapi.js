@@ -27,6 +27,7 @@ const PHONE_ID = process.env.WA_PHONE_NUMBER_ID
 const TOKEN = process.env.WA_TOKEN
 const VERIFY = process.env.WA_VERIFY_TOKEN || 'urbis-verifica'
 const APP_SECRET = String(process.env.WA_APP_SECRET || '').trim()
+const WABA_ID_ENV = process.env.WA_WABA_ID
 
 // La firma del webhook: Meta (y el conector de C-Soft, que reenvia con la misma
 // cabecera) manda `X-Hub-Signature-256: sha256=<hex>` = HMAC-SHA256 del cuerpo
@@ -96,6 +97,21 @@ async function subirEjemploPlantilla(buffer, mime = 'application/pdf', nombre = 
   const j = await r.json().catch(() => ({}))
   if (!r.ok || !j.h) throw new Error(`CloudAPI subida de ejemplo ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`)
   return j.h
+}
+
+// 29 oct 2026: CONSUMO para el resumen del día. Meta cuenta por mensaje entregado;
+// lo que se paga son las plantillas fuera de la ventana (PRICING_TYPE 'REGULAR').
+// desde/hasta en segundos. Devuelve { tier, dias: [{ dia, cat, tipo, n }] }.
+async function consumo(desde, hasta) {
+  const [num, pa] = await Promise.all([
+    api(`${PHONE_ID}?fields=messaging_limit_tier`, null, 'GET').catch(() => ({})),
+    api(`${WABA_ID_ENV}?fields=pricing_analytics.start(${desde}).end(${hasta}).granularity(DAILY).dimensions(["PRICING_CATEGORY","PRICING_TYPE"])`, null, 'GET'),
+  ])
+  const dias = (pa.pricing_analytics?.data || []).flatMap(d => d.data_points || []).map(p => ({
+    dia: new Date(p.start * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Lima' }),
+    cat: p.pricing_category, tipo: p.pricing_type, n: Number(p.volume || 0),
+  }))
+  return { tier: num.messaging_limit_tier || null, dias }
 }
 
 // texto libre (solo valido dentro de la ventana de 24h tras un mensaje del cliente)
@@ -248,7 +264,7 @@ async function bajarMedia(mediaId) {
 }
 
 module.exports = {
-  enviarPlantilla, enviarPlantillaDoc, subirEjemploPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida, esNumeroPropio,
+  enviarPlantilla, enviarPlantillaDoc, subirEjemploPlantilla, consumo, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida, esNumeroPropio,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
   infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }
