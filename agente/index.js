@@ -3223,6 +3223,144 @@ async function latido(titulo, opts = {}) {
 }
 const horaLima_ = () => new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' })
 
+// ---------- RESUMEN DEL DÍA (23:30, solo al admin) ----------
+// Pedido del dueño (29 oct 2026): cobros (secretaria y agente), leads y agente
+// de ventas, horas ACTIVAS del equipo (sql/168: uso_diario, no la pestaña
+// abierta) y lo que quedó pendiente. Solo lee; /resumen lo manda a cualquier hora.
+const S_ = n => 'S/ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const hm_ = min => Math.floor(min / 60) + ' h ' + String(Math.round(min % 60)).padStart(2, '0')
+const horaDe_ = iso => iso ? new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' }) : '—'
+async function resumenDelDia() {
+  const dia = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  const desde = dia + 'T00:00:00-05:00'
+  const manana = new Date(Date.parse(desde) + 36 * 3600000).toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  const hace30 = new Date(Date.now() - 30 * 86400000).toISOString()
+  const q = p => p.then(r => r, () => ({ data: null }))
+  const [
+    { data: pagos }, { data: reportados }, { data: perfiles }, { data: proys },
+    { data: leads }, { data: campanas }, { data: citas }, { data: pases }, { data: pasesPend },
+    { data: envios }, { data: msjsIn }, { count: msjsAgente }, { data: repHoy }, { count: repPend }, { count: promesas },
+    { data: uso }, { data: acts },
+    { data: gastos }, { count: gastosFirma }, { count: vouchersPend }, { count: cartasFirma }, { data: vencen },
+  ] = await Promise.all([
+    q(supabase.from('daily_income').select('id, amount, project_id, registered_by, cuenta:financial_accounts(name)').eq('origin', 'sistema').gte('created_at', desde)),
+    q(supabase.from('cobranza_pagos_reportados').select('daily_income_ids').eq('es_prueba', false).not('daily_income_ids', 'is', null).gte('validado_at', new Date(Date.now() - 3 * 86400000).toISOString())),
+    q(supabase.from('profiles').select('id, full_name, email, role')),
+    q(supabase.from('projects').select('id, name, fact_activo')),
+    q(supabase.from('leads').select('project_id, campaign_id').gte('created_at', desde).or('is_test.is.null,is_test.eq.false')),
+    q(supabase.from('campaigns').select('id, name')),
+    q(supabase.from('ventas_ia_citas').select('id').eq('es_prueba', false).gte('created_at', desde)),
+    q(supabase.from('ventas_ia_pases').select('id').eq('es_prueba', false).gte('created_at', desde)),
+    q(supabase.from('ventas_ia_pases').select('id').eq('es_prueba', false).eq('estado', 'pendiente')),
+    q(supabase.from('cobranza_envios').select('estado').gte('created_at', desde)),
+    q(supabase.from('cobranza_mensajes').select('chat_id').eq('direccion', 'in').gte('created_at', desde)),
+    q(supabase.from('cobranza_mensajes').select('id', { count: 'exact', head: true }).eq('autor', 'agente').gte('created_at', desde)),
+    q(supabase.from('cobranza_pagos_reportados').select('alerta').eq('es_prueba', false).gte('created_at', desde)),
+    q(supabase.from('cobranza_pagos_reportados').select('id', { count: 'exact', head: true }).eq('es_prueba', false).eq('estado', 'pendiente')),
+    q(supabase.from('cobranza_promesas').select('id', { count: 'exact', head: true }).eq('es_prueba', false).gte('created_at', desde)),
+    q(supabase.from('uso_diario').select('user_id, minutos, primera, ultima, cierres').eq('dia', dia)),
+    q(supabase.from('activity_log').select('user_id, action').gte('created_at', desde).limit(5000)),
+    q(supabase.from('expenses').select('amount').gte('created_at', desde)),
+    q(supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('status', 'solicitado')),
+    q(supabase.from('voucher_aprobaciones').select('id', { count: 'exact', head: true }).eq('estado', 'pendiente')),
+    q(supabase.from('cartas').select('id', { count: 'exact', head: true }).is('firmado_at', null).is('anulada_at', null)),
+    q(supabase.from('installments').select('amount, amount_paid').eq('due_date', manana)),
+  ])
+  const nombreP = Object.fromEntries((proys || []).map(p => [p.id, p.name]))
+  const persona = Object.fromEntries((perfiles || []).map(p => [p.id, p.full_name || p.email || 'sin nombre']))
+  const L = []
+  const fechaBonita = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Lima' })
+  L.push('📊 *RESUMEN DEL DÍA* — ' + fechaBonita, '_hasta las ' + horaLima_() + '_', '')
+
+  // ---- COBROS
+  const delAgente = new Set((reportados || []).flatMap(r => r.daily_income_ids || []))
+  const total = (pagos || []).reduce((s, p) => s + Number(p.amount || 0), 0)
+  const sumar = (filas, clave) => {
+    const m = new Map()
+    for (const p of filas) { const k = clave(p); const x = m.get(k) || { s: 0, n: 0 }; x.s += Number(p.amount || 0); x.n++; m.set(k, x) }
+    return [...m.entries()].sort((a, b) => b[1].s - a[1].s)
+  }
+  L.push('💰 *COBRADO HOY: ' + S_(total) + '* (' + (pagos || []).length + ' pagos)')
+  if ((pagos || []).length) {
+    L.push('   _Por proyecto_')
+    for (const [k, x] of sumar(pagos, p => nombreP[p.project_id] || 'sin proyecto')) L.push('   • ' + k + '  ' + S_(x.s) + ' (' + x.n + ')')
+    L.push('   _Quién lo registró_')
+    for (const [k, x] of sumar(pagos, p => delAgente.has(p.id) ? '🤖 Agente IA (voucher validado)' : (persona[p.registered_by] || 'sin registrar'))) L.push('   • ' + k + '  ' + S_(x.s) + ' (' + x.n + ')')
+    L.push('   _Por medio:_ ' + sumar(pagos, p => p.cuenta?.name || 'sin cuenta').map(([k, x]) => k + ' ' + S_(x.s)).join(' · '))
+  }
+  const env = envios || []
+  const respondieron = new Set((msjsIn || []).map(m => m.chat_id)).size
+  L.push('   🤖 *Agente de cobranza:* ' + env.length + ' avisos enviados'
+    + (env.filter(e => e.estado === 'fallido').length ? ' (' + env.filter(e => e.estado === 'fallido').length + ' fallidos)' : '')
+    + ' · ' + respondieron + ' respondieron · ' + (msjsAgente || 0) + ' respuestas del agente')
+  L.push('      ' + (repHoy || []).length + ' vouchers recibidos'
+    + ((repHoy || []).filter(r => r.alerta).length ? ' (' + (repHoy || []).filter(r => r.alerta).length + ' con alerta)' : '')
+    + ' · ' + (promesas || 0) + ' promesas de pago', '')
+
+  // ---- LEADS
+  const ld = leads || []
+  L.push('🔥 *LEADS: ' + ld.length + ' nuevos*')
+  if (ld.length) {
+    const porP = sumar(ld.map(l => ({ ...l, amount: 1 })), l => nombreP[l.project_id] || 'sin proyecto')
+    L.push('   • ' + porP.map(([k, x]) => k + ' ' + x.n).join(' · '))
+    const camp = Object.fromEntries((campanas || []).map(c => [c.id, c.name]))
+    const conCamp = ld.filter(l => l.campaign_id)
+    if (conCamp.length) L.push('   • Por campaña: ' + sumar(conCamp.map(l => ({ ...l, amount: 1 })), l => camp[l.campaign_id] || 'campaña').map(([k, x]) => '"' + k + '" ' + x.n).join(' · ') + ' · sin campaña ' + (ld.length - conCamp.length))
+  }
+  L.push('   🤖 *Agente de ventas:* ' + (citas || []).length + ' visitas agendadas · ' + (pases || []).length + ' pases a asesor')
+  if ((pasesPend || []).length) L.push('   ⏳ *' + pasesPend.length + ' pase(s) a asesor sin resolver*')
+  L.push('')
+
+  // ---- EQUIPO: horas activas (sql/168) + acciones del registro
+  const accion = new Map(), cierresLog = new Map()
+  for (const a of (acts || [])) {
+    if (!a.user_id) continue
+    if (a.action === 'CIERRE_INACTIVIDAD') { cierresLog.set(a.user_id, (cierresLog.get(a.user_id) || 0) + 1); continue }
+    accion.set(a.user_id, (accion.get(a.user_id) || 0) + 1)
+  }
+  const ids = new Set([...(uso || []).map(u => u.user_id), ...accion.keys()])
+  const usoDe = Object.fromEntries((uso || []).map(u => [u.user_id, u]))
+  const filas = [...ids].map(id => ({ id, u: usoDe[id] || {}, n: accion.get(id) || 0 }))
+    .sort((a, b) => (b.u.minutos || 0) - (a.u.minutos || 0))
+  L.push('👥 *EQUIPO* (horas activas, no con la pestaña abierta)')
+  if (!filas.length) L.push('   Nadie usó el panel hoy.')
+  for (const f of filas) {
+    const m = f.u.minutos || 0
+    const tramo = f.u.primera && f.u.ultima ? Math.round((Date.parse(f.u.ultima) - Date.parse(f.u.primera)) / 60000) : 0
+    L.push('   • *' + (persona[f.id] || 'sin nombre') + '*  '
+      + (f.u.primera ? horaDe_(f.u.primera) + ' → ' + horaDe_(f.u.ultima) + ' · ' : '')
+      + hm_(m) + ' activa'
+      + (tramo > m + 15 ? ' · ' + hm_(tramo - m) + ' sin uso' : '')
+      + ' · ' + f.n + ' acciones'
+      + ((f.u.cierres || cierresLog.get(f.id)) ? ' · 🔒 ' + (f.u.cierres || cierresLog.get(f.id)) + ' cierre(s) por inactividad' : ''))
+  }
+  L.push('')
+
+  // ---- GASTOS Y PENDIENTES
+  const g = gastos || []
+  const vn = (vencen || []).filter(c => Number(c.amount_paid || 0) < Number(c.amount || 0))
+  // pagos sin boleta: solo proyectos con facturador, últimos 30 días
+  const conFact = (proys || []).filter(p => p.fact_activo).map(p => p.id)
+  let sinBoleta = 0
+  if (conFact.length) {
+    const { count } = await q(supabase.from('daily_income').select('id', { count: 'exact', head: true })
+      .eq('origin', 'sistema').in('project_id', conFact).gte('created_at', hace30)
+      .is('receipt_url', null).is('comprobante_id', null).or('receipt_na.is.null,receipt_na.eq.false'))
+    sinBoleta = count || 0
+  }
+  L.push('🧾 *GASTOS Y PENDIENTES*')
+  L.push('   • Gastos del día: ' + g.length + (g.length ? ' · ' + S_(g.reduce((s, x) => s + Number(x.amount || 0), 0)) : ''))
+  L.push('   • Gastos esperando firma: ' + (gastosFirma || 0))
+  L.push('   • Vouchers repetidos por aprobar: ' + (vouchersPend || 0))
+  L.push('   • Vouchers del agente por validar: ' + (repPend || 0))
+  L.push('   • Pagos sin boleta (30 días): ' + sinBoleta)
+  L.push('   • Cartas por firmar: ' + (cartasFirma || 0))
+  L.push('   • Mañana vencen ' + vn.length + ' cuotas (' + S_(vn.reduce((s, c) => s + Number(c.amount || 0) - Number(c.amount_paid || 0), 0)) + ')')
+  L.push('', '✅ Sistema en pie')
+  const texto = L.join('\n')
+  return texto.length > 4000 ? texto.slice(0, 3990) + '\n…' : texto
+}
+
 // ---------- VIGIA: cada minuto, y avisa EN EL ACTO ----------
 // El latido de 30 minutos informa; no vigila. El 19 de agosto el numero se cayo
 // a las 10:26 de la manana y el silencio duro dos dias. Esto comprueba el estado
@@ -4022,12 +4160,14 @@ async function manejarTelegram(chatId, texto, info) {
   // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
   // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y
   // reinicio los hace pm2, que vuelve a levantar el proceso solo.
-  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar|unificar|control|bot|pausa)$/i.test(t)) {
+  if (/^\/?(actualizar|reiniciar|estado|vivo|apagar|unificar|control|bot|pausa|resumen)$/i.test(t)) {
     const esAdmin = ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
     if (!esAdmin) { await TG.tgEnviar(chatId, '🔒 Ese comando es solo para el administrador.'); return }
     const cual = t.replace(/^\//, '').toLowerCase()
 
     if (cual === 'estado') { await latido(undefined, { directo: true }); return }
+    // el resumen del día hasta este momento (el de las 23:30 sale solo)
+    if (cual === 'resumen') { await TG.tgEnviar(chatId, await resumenDelDia().catch(e => '⚠️ No pude armar el resumen: ' + String(e.message || e))); return }
     // /control (o /bot, /pausa): los interruptores con botones
     if (cual === 'control' || cual === 'bot' || cual === 'pausa') { await panelControl(chatId); return }
 
@@ -4081,6 +4221,7 @@ async function manejarTelegram(chatId, texto, info) {
       + (ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
         ? '\n\n🔧 *Mantenimiento (solo admin)*'
           + '\n*/estado* — cómo está el bot ahora'
+          + '\n*/resumen* — el resumen del día hasta ahora'
           + '\n*/vivo* — ver toda la actividad en vivo, 15 min'
           + '\n*/unificar* — juntar los chats partidos en dos'
           + '\n*/apagar* — cortar la sesión en vivo'
@@ -4305,6 +4446,11 @@ async function arrancar() {
       if (await avisosOn()) await latido('🔄 *REINICIADO Y EN SERVICIO*')
     } catch (e) { log('aviso de arranque:', String(e.message || e)) }
   }, 25000)
+  // RESUMEN DEL DÍA a las 23:30, solo al admin (pedido del dueño, 29 oct 2026)
+  cron.schedule('30 23 * * *', async () => {
+    try { if (ADMIN) await enviar(ADMIN, await resumenDelDia(), { tipo: 'reporte' }) }
+    catch (e) { log('resumen del dia:', String(e.message || e)) }
+  }, { timezone: 'America/Lima' })
   // vigilancia del sintoma: cada minuto revisa si alguien quedo sin respuesta
   cron.schedule('* * * * *', () => vigilarSinRespuesta().catch(e => log('vigilancia:', String(e.message || e))), { timezone: 'America/Lima' })
   // VIGIA del canal: cada minuto, y avisa en el acto si algo se cayo o volvio

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import UsoActivo from '../components/UsoActivo'
 
 const AuthContext = createContext(null)
 
@@ -64,6 +65,8 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{ session, profile, role, esSuper, esOperador, puedeCorregir, esJefe, loading, login, logout }}>
       {children}
+      {/* minutos activos y cierre a los 30 min sin uso (sql/168) */}
+      <UsoActivo activo={!!profile?.id} />
     </AuthContext.Provider>
   )
 }

@@ -29,7 +29,14 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [aviso, setAviso] = useState('')
+  // si la sesión se cerró por 30 min sin uso (UsoActivo.jsx), se dice por qué
+  const [aviso, setAviso] = useState(() => {
+    try {
+      if (!localStorage.getItem('uso_cerrada')) return ''
+      localStorage.removeItem('uso_cerrada')
+      return 'Tu sesión se cerró porque pasaron 30 minutos sin usar el panel. Vuelve a ingresar.'
+    } catch { return '' }
+  })
   const [busy, setBusy] = useState(false)
   const [recordados, setRecordados] = useState(usuariosRecordados())
 
