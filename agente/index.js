@@ -4513,12 +4513,30 @@ async function procesarSalientesPanel() {
         const buf = Buffer.from(await resp.arrayBuffer())
         const caption = (m.body || '').trim() || undefined
         const nombre = m.media_name || 'COMPROBANTE.pdf'
-        const sent = m.media_type === 'image'
+        // 29 oct 2026: por la API el documento suelto solo llega si el cliente escribió
+        // en las últimas 24 h (si no: "Re-engagement message"). Un PDF va por la
+        // plantilla comprobante_de_pago (cobranza_meta.js crear_comprobante), que llega
+        // siempre; dentro de la ventana Meta tampoco la cobra. Si la plantilla aún no
+        // está aprobada, sale como antes. El nombre del archivo trae "CLIENTE - CUOTA N".
+        let sentPl = null
+        // (la foto de una boleta también va, como documento: el encabezado no admite imagen)
+        if (S.sock.sendTemplateDoc) {
+          const base = nombre.replace(/\.[a-z0-9]+$/i, '')
+          const [cli, ...resto] = base.split(' - ')
+          const titulo = s => String(s || '').toLowerCase().replace(/(^|\s)\S/g, x => x.toUpperCase())
+          const mime = /\.pdf$/i.test(nombre) ? 'application/pdf' : (resp.headers.get('content-type') || 'application/pdf').split(';')[0]
+          const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
+          try {
+            sentPl = await S.sock.sendTemplateDoc(destJid, 'comprobante_de_pago',
+              [titulo(cli) || 'cliente', resto.join(' - ').toLowerCase() || 'su pago'], buf, base + '.' + ext, mime)
+          } catch (e) { log('COMPROBANTE: la plantilla no salió (' + String(e.message || e).slice(0, 140) + '); va como documento suelto') }
+        }
+        const sent = sentPl || (m.media_type === 'image'
           ? await S.sock.sendMessage(destJid, { image: buf, caption })
           : await S.sock.sendMessage(destJid, {
               document: buf, fileName: nombre, caption,
               mimetype: /\.pdf$/i.test(nombre) ? 'application/pdf' : (resp.headers.get('content-type') || 'application/octet-stream'),
-            })
+            }))
         guardarMsg(sent)
         await supabase.from('scheduled_messages').update({ status: 'enviado', sent_at: new Date().toISOString(), session_id: sesId(S), wa_msg_id: sent?.key?.id || null }).eq('id', m.id)
         await supabase.from('comprobantes').update({ wsp_estado: 'enviado', wsp_error: null }).eq('wsp_msg_id', m.id).then(() => {}, () => {})

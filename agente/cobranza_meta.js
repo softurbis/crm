@@ -14,7 +14,7 @@
 // ============================================================================
 require('dotenv').config()
 const WA = require('./cloudapi')
-const { PLANTILLAS, MARCAS, comoSeVe, paraMeta, plantillasDe } = require('./plantillas_cobranza')
+const { PLANTILLAS, PLANTILLA_COMPROBANTE, paraMetaComprobante, MARCAS, comoSeVe, paraMeta, plantillasDe } = require('./plantillas_cobranza')
 
 const [, , cmd, arg] = process.argv
 const ok = t => console.log('✅ ' + t)
@@ -162,6 +162,43 @@ async function crearPlantillas() {
   nota('node cobranza_meta.js plantillas')
 }
 
+// 29 oct 2026: la plantilla de la boleta al cliente (con el PDF de encabezado).
+// Meta exige un archivo de ejemplo: se arma aquí un PDF mínimo de una página.
+function pdfEjemplo() {
+  const txt = 'BT /F1 18 Tf 72 720 Td (COMPROBANTE DE PAGO - EJEMPLO) Tj ET'
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ' + txt.length + ' >>\nstream\n' + txt + '\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  let out = '%PDF-1.4\n'
+  const pos = []
+  objs.forEach((o, i) => { pos.push(out.length); out += (i + 1) + ' 0 obj\n' + o + '\nendobj\n' })
+  const xref = out.length
+  out += 'xref\n0 ' + (objs.length + 1) + '\n0000000000 65535 f \n' + pos.map(p => String(p).padStart(10, '0') + ' 00000 n \n').join('')
+  out += 'trailer\n<< /Size ' + (objs.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n'
+  return Buffer.from(out, 'latin1')
+}
+async function crearComprobante() {
+  if (!hayToken()) return
+  const id = await cuenta()
+  if (!id) return
+  const p = PLANTILLA_COMPROBANTE
+  try {
+    const ya = ((await WA.listarPlantillas(id)).data || []).find(x => x.name === p.nombre && x.language === IDIOMA)
+    if (ya) { nota(icono(ya.status) + ' ' + p.nombre + ' ya existe (' + ya.status + '): no se toca'); return }
+  } catch (e) { nota('(no pude leer las existentes: ' + e.message.slice(0, 90) + ')') }
+  try {
+    const h = await WA.subirEjemploPlantilla(pdfEjemplo(), 'application/pdf', 'comprobante_ejemplo.pdf')
+    const r = await WA.crearPlantilla(id, paraMetaComprobante(h, IDIOMA))
+    ok(p.nombre + ' creada · ' + (r.status || 'PENDING') + (r.category ? ' · ' + r.category : ''))
+    if (r.category && r.category !== 'UTILITY') nota('   ⚠ Meta la puso en ' + r.category + ' y no en Utilidad: avisale a Claude.')
+    nota('Así le llega al cliente (con el PDF arriba):\n' + comoSeVe(p))
+  } catch (e) { mal(p.nombre + ': ' + e.message.slice(0, 300)) }
+}
+
 function textos() {
   for (const p of PLANTILLAS) {
     titulo(p.nombre)
@@ -210,7 +247,7 @@ async function listo() {
   nota('Copia todo esto y pegaselo a Claude.')
 }
 
-const cmds = { listo, verificar, waba, suscribir, sincronizar, plantillas, crear_plantillas: crearPlantillas, textos, ia: probarIA }
+const cmds = { listo, verificar, waba, suscribir, sincronizar, plantillas, crear_plantillas: crearPlantillas, crear_comprobante: crearComprobante, textos, ia: probarIA }
 if (!cmds[cmd]) {
   console.log('Uso: node cobranza_meta.js listo | verificar | waba | crear_plantillas | plantillas [WABA] | suscribir [WABA] | sincronizar | textos | ia')
   process.exit(1)

@@ -71,6 +71,33 @@ async function enviarPlantilla(to, nombre, params = [], idioma = 'es', desde = n
   })
 }
 
+// 29 oct 2026: plantilla con un DOCUMENTO de encabezado (la boleta/factura al
+// cliente). Sale aunque el cliente no haya escrito en 24 h. mediaId = subirMedia().
+async function enviarPlantillaDoc(to, nombre, params = [], mediaId, filename = 'COMPROBANTE.pdf', idioma = 'es', desde = null) {
+  return api(`${idDe(desde)}/messages`, {
+    messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
+    type: 'template',
+    template: {
+      name: nombre, language: { code: idioma },
+      components: [
+        { type: 'header', parameters: [{ type: 'document', document: { id: mediaId, filename } }] },
+        ...(params.length ? [{ type: 'body', parameters: params.map(t => ({ type: 'text', text: String(t) })) }] : []),
+      ],
+    },
+  })
+}
+
+// Para CREAR una plantilla con documento, Meta pide un archivo de ejemplo subido
+// por la "Resumable Upload API" de la app (no por /media). Devuelve el handle.
+async function subirEjemploPlantilla(buffer, mime = 'application/pdf', nombre = 'ejemplo.pdf') {
+  const app = await api('app', null, 'GET')
+  const s = await api(`${app.id}/uploads?file_name=${encodeURIComponent(nombre)}&file_length=${buffer.length}&file_type=${encodeURIComponent(mime)}`, {})
+  const r = await fetch(`${BASE}/${s.id}`, { method: 'POST', headers: { Authorization: 'OAuth ' + TOKEN, file_offset: '0' }, body: buffer })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j.h) throw new Error(`CloudAPI subida de ejemplo ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`)
+  return j.h
+}
+
 // texto libre (solo valido dentro de la ventana de 24h tras un mensaje del cliente)
 async function enviarTexto(to, body, desde = null) {
   return api(`${idDe(desde)}/messages`, {
@@ -221,7 +248,7 @@ async function bajarMedia(mediaId) {
 }
 
 module.exports = {
-  enviarPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida, esNumeroPropio,
+  enviarPlantilla, enviarPlantillaDoc, subirEjemploPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida, esNumeroPropio,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
   infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }

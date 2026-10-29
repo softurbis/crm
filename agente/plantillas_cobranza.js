@@ -78,6 +78,30 @@ const PLANTILLAS = [
   },
 ]
 
+// 29 oct 2026: BOLETA/FACTURA AL CLIENTE. Fuera de las 24 h Meta rechaza el
+// documento suelto ("Re-engagement message"), así que la boleta va como ENCABEZADO
+// de esta plantilla. Sin marca en el texto: sirve igual para Urbis y Century (el
+// comprobante adjunto ya dice de quién es). Va aparte de PLANTILLAS: no es un
+// aviso de cobranza ni se copia por marca.
+//   node cobranza_meta.js crear_comprobante   → la crea en Meta (sube un PDF de ejemplo)
+const PLANTILLA_COMPROBANTE = {
+  nombre: 'comprobante_de_pago',
+  cuando: 'Cuando facturación o la secretaria envía la boleta/factura desde el panel.',
+  variables: ['nombre', 'detalle del pago'],
+  cuerpo: '_Comprobante de pago_\nEstimado(a) {{1}}: le enviamos adjunto el comprobante electrónico de su pago ({{2}}). Guárdelo para su control. Muchas gracias.',
+  ejemplo: ['Juan Pérez', 'cuota 4'],
+}
+function paraMetaComprobante(handle, idioma = 'es') {
+  const p = PLANTILLA_COMPROBANTE
+  return {
+    name: p.nombre, language: idioma, category: 'UTILITY',
+    components: [
+      { type: 'HEADER', format: 'DOCUMENT', example: { header_handle: [handle] } },
+      { type: 'BODY', text: p.cuerpo, example: { body_text: [p.ejemplo.map(String)] } },
+    ],
+  }
+}
+
 // 29 oct 2026: MARCAS. Un proyecto puede salir por su propio número y con su
 // propio nombre (pedido del dueño: Las Praderas de Pucallpa es "Century Proyectos
 // Inmobiliarios", ya no Urbis, porque hubo confusiones). Las plantillas son las
@@ -124,4 +148,4 @@ function paraMeta(p, idioma = 'es') {
   }
 }
 
-module.exports = { PLANTILLAS, MARCAS, PREFIJO_BASE, comoSeVe, paraMeta, plantillasDe, marcarPlantilla, nombreBase, cuerpoConMarca }
+module.exports = { PLANTILLAS, PLANTILLA_COMPROBANTE, paraMetaComprobante, MARCAS, PREFIJO_BASE, comoSeVe, paraMeta, plantillasDe, marcarPlantilla, nombreBase, cuerpoConMarca }

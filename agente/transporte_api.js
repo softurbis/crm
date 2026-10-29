@@ -59,6 +59,15 @@ module.exports = function crearSockAPI({ WA, log = console.log, numero = '' }) {
       return noop('ese tipo de mensaje')
     },
 
+    // 29 oct 2026: la boleta/factura al cliente como PLANTILLA con el documento de
+    // encabezado: llega aunque no haya escrito en 24 h (el documento suelto no).
+    async sendTemplateDoc(jid, nombre, params, buf, fileName, mime = 'application/pdf') {
+      const to = telDeJid(jid)
+      const desde = desdeDe(to)
+      const id = await WA.subirMedia(buf, mime, fileName, desde)
+      return resp(await WA.enviarPlantillaDoc(to, nombre, params, id, fileName, 'es', desde))
+    },
+
     // 'composing' → visto + escribiendo sobre el ultimo mensaje de esa persona.
     // 'paused' / 'recording' → nada (la API lo apaga sola).
     async sendPresenceUpdate(estado, jid) {
