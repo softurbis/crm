@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
 import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import VisorDoc from '../components/VisorDoc'
-import { useSearchParams } from 'react-router-dom'
-import { ClientesYAvisos } from './AvisosClientes'
+import { useSearchParams, Link } from 'react-router-dom'
+import { ClientesYAvisos, motivoLegible } from './AvisosClientes'
 
 // ============================================================================
 // COBRANZA IA — la pantalla de la responsable de cobranza (sql/76)
@@ -64,7 +64,7 @@ export default function CobranzaIA() {
 
   if (!ve) return <p className="error">Esta pantalla es de la responsable de cobranza. El superusuario da el permiso desde Usuarios.</p>
   const vivo = !!cfg?.latido && Date.now() - new Date(cfg.latido).getTime() < 3 * 60000
-  const TABS = [['clientes', '👥 Clientes y avisos'], ['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
+  const TABS = [['clientes', '👥 Clientes y avisos'], ['envios', '📨 Envíos del día'], ['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
 
   return (
     <>
@@ -86,6 +86,7 @@ export default function CobranzaIA() {
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'btn-primary' : 'btn-ghost'} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!falta && cfg && tab === 'clientes' && <ClientesYAvisos />}
+      {!falta && cfg && tab === 'envios' && <EnviosDelDia setMsg={setMsg} />}
       {!falta && cfg && tab === 'validar' && <PorValidar puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'promesas' && <Promesas puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'chats' && <Conversaciones puede={puede} profile={profile} setMsg={setMsg} />}
@@ -96,9 +97,157 @@ export default function CobranzaIA() {
 }
 
 // ============================================================================
+// ENVÍOS DEL DÍA (sql/165, 29 oct 2026) — qué salió, a quién, cómo llegó, quién contestó
+// ----------------------------------------------------------------------------
+// Pedido del dueño el día del primer envío masivo: "quiero ver el total, qué le
+// mandé, cómo le mandé y cómo me respondió". Una fila por aviso (cobranza_envios)
+// con el estado que avisó Meta (palomitas) y si el cliente escribió después.
+// ============================================================================
+const ENTREGA = { leido: ['✓✓', '#53bdeb', 'Leído'], entregado: ['✓✓', '#9daab6', 'Entregado al celular'], enviado: ['✓', '#9daab6', 'Enviado (Meta aún no avisa si llegó)'], fallido: ['⚠️', '#e07b7b', 'No se entregó'] }
+
+function EnviosDelDia({ setMsg }) {
+  const [dia, setDia] = useState(hoyLima())
+  const [dias, setDias] = useState([])
+  const [filas, setFilas] = useState(null)
+  const [proy, setProy] = useState('todos')
+  const [solo, setSolo] = useState('todos')        // todos | respondieron | sin_respuesta | fallidos
+  const [abierto, setAbierto] = useState(null)      // fila con el texto desplegado
+
+  async function cargar(silencioso = false) {
+    const [{ data, error }, d] = await Promise.all([supabase.rpc('cobranza_envios_dia', { p_dia: dia }), supabase.rpc('cobranza_envios_dias')])
+    if (!d.error) setDias(d.data || [])
+    if (error) { if (!silencioso) setMsg({ ok: false, t: /cobranza_envios_dia/.test(error.message) ? 'Falta correr sql/165 en el servidor.' : error.message }); setFilas(f => f || []); return }
+    setFilas(data || [])
+  }
+  useEffect(() => { setFilas(null); cargar() }, [dia])
+  useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar(true) }, 30000); return () => clearInterval(t) }, [dia])
+
+  const llego = f => f.entrega === 'entregado' || f.entrega === 'leido'
+  const proyectos = useMemo(() => [...new Map((filas || []).map(f => [f.project_id || '', f.proyecto || 'Sin proyecto'])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [filas])
+  const vista = useMemo(() => (filas || []).filter(f => (proy === 'todos' || (f.project_id || '') === proy)
+    && (solo === 'todos' || (solo === 'respondieron' ? !!f.respondio_at : solo === 'fallidos' ? f.estado === 'fallido' : !f.respondio_at && f.estado !== 'fallido'))), [filas, proy, solo])
+  // resumen por proyecto (sobre TODO el día, no sobre el filtro)
+  const resumen = useMemo(() => {
+    const m = new Map()
+    for (const f of (filas || [])) {
+      const k = f.project_id || ''
+      const r = m.get(k) || { proyecto: f.proyecto || 'Sin proyecto', enviados: 0, llegaron: 0, leidos: 0, fallidos: 0, respondieron: 0, clientes: new Set() }
+      r.enviados++; if (llego(f)) r.llegaron++; if (f.entrega === 'leido') r.leidos++; if (f.estado === 'fallido') r.fallidos++; if (f.respondio_at) r.respondieron++
+      if (f.client_id) r.clientes.add(f.client_id)
+      m.set(k, r)
+    }
+    const filasR = [...m.values()].sort((a, b) => a.proyecto.localeCompare(b.proyecto))
+    const tot = filasR.reduce((t, r) => ({ enviados: t.enviados + r.enviados, llegaron: t.llegaron + r.llegaron, leidos: t.leidos + r.leidos, fallidos: t.fallidos + r.fallidos, respondieron: t.respondieron + r.respondieron, clientes: t.clientes + r.clientes.size }), { enviados: 0, llegaron: 0, leidos: 0, fallidos: 0, respondieron: 0, clientes: 0 })
+    return { filas: filasR, tot }
+  }, [filas])
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—'
+
+  return (
+    <>
+      <div className="toolbar">
+        <h2 style={{ margin: 0, flex: 1, fontSize: '1.05rem' }}>📨 Envíos del día</h2>
+        <label className="small">Día <input type="date" value={dia} onChange={e => setDia(e.target.value)} max={hoyLima()} /></label>
+        {dias.length > 0 && (
+          <select value={dias.some(d => d.dia === dia) ? dia : ''} onChange={e => e.target.value && setDia(e.target.value)} title="Días con envíos (últimos 60)">
+            <option value="">días con envíos…</option>
+            {dias.map(d => <option key={d.dia} value={d.dia}>{fCorta(d.dia)} · {d.n}</option>)}
+          </select>
+        )}
+        <button className="btn-ghost" onClick={() => cargar()}>↻</button>
+      </div>
+      <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
+        Cada aviso que salió ese día por el 960: a quién, con qué plantilla, si llegó (palomitas de Meta) y si el cliente contestó después. Toca una fila para leer el mensaje tal cual le llegó; "💬 chat" abre la conversación completa en la bandeja.
+      </p>
+      {filas === null && <p className="muted">Cargando…</p>}
+      {filas && !filas.length && <p className="muted">Ese día no salió ningún aviso.</p>}
+      {filas && filas.length > 0 && (
+        <div className="glass table-wrap" style={{ marginBottom: '1rem' }}>
+          <table>
+            <thead><tr><th>Proyecto</th><th>Clientes</th><th>Enviados</th><th>Llegaron</th><th>Leídos</th><th>Fallidos</th><th>Respondieron</th></tr></thead>
+            <tbody>
+              {resumen.filas.map(r => (
+                <tr key={r.proyecto} style={{ cursor: 'pointer' }} onClick={() => setProy(proyectos.find(([, n]) => n === r.proyecto)?.[0] ?? 'todos')} title="Clic: filtrar la lista a este proyecto">
+                  <td><b>{r.proyecto}</b></td><td>{r.clientes.size}</td><td>{r.enviados}</td>
+                  <td>{r.llegaron} <span className="muted small">({pct(r.llegaron, r.enviados)})</span></td>
+                  <td>{r.leidos} <span className="muted small">({pct(r.leidos, r.enviados)})</span></td>
+                  <td className={r.fallidos ? 'bad' : ''}>{r.fallidos}</td>
+                  <td className={r.respondieron ? 'ok' : ''}><b>{r.respondieron}</b> <span className="muted small">({pct(r.respondieron, r.enviados)})</span></td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 700, background: 'rgba(255,255,255,.04)' }}>
+                <td>TOTAL</td><td>{resumen.tot.clientes}</td><td>{resumen.tot.enviados}</td>
+                <td>{resumen.tot.llegaron} <span className="muted small">({pct(resumen.tot.llegaron, resumen.tot.enviados)})</span></td>
+                <td>{resumen.tot.leidos} <span className="muted small">({pct(resumen.tot.leidos, resumen.tot.enviados)})</span></td>
+                <td className={resumen.tot.fallidos ? 'bad' : ''}>{resumen.tot.fallidos}</td>
+                <td className="ok">{resumen.tot.respondieron} <span className="muted small">({pct(resumen.tot.respondieron, resumen.tot.enviados)})</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {filas && filas.length > 0 && (
+        <div className="chips">
+          <select value={proy} onChange={e => setProy(e.target.value)}>
+            <option value="todos">Todos los proyectos</option>
+            {proyectos.map(([id, n]) => <option key={id || 'sin'} value={id}>{n}</option>)}
+          </select>
+          {[['todos', 'Todos'], ['respondieron', '✅ Respondieron'], ['sin_respuesta', '⏳ Sin respuesta'], ['fallidos', '⚠ Fallidos']].map(([v, t]) => <button key={v} className={`chip ${solo === v ? 'on' : ''}`} onClick={() => setSolo(v)}>{t}</button>)}
+          <span className="muted small" style={{ alignSelf: 'center' }}>{vista.length} de {filas.length}</span>
+        </div>
+      )}
+      {filas && vista.length > 0 && (
+        <div className="glass table-wrap">
+          <table>
+            <thead><tr><th>Hora</th><th>Proyecto · lote</th><th>Cliente</th><th>Celular</th><th>Aviso</th><th>Llegó</th><th>¿Respondió?</th><th></th></tr></thead>
+            <tbody>
+              {vista.map(f => {
+                const en = ENTREGA[f.entrega] || null
+                return (
+                  <Fragment key={f.id}>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => setAbierto(abierto === f.id ? null : f.id)}>
+                      <td className="small" style={{ whiteSpace: 'nowrap' }}>{fHora(f.created_at).slice(-5)}</td>
+                      <td className="small" style={{ whiteSpace: 'normal', minWidth: 120 }}><b>{f.mz ? 'MZ ' + f.mz + ' LT ' + f.lt : '—'}</b><div className="muted">{f.proyecto || ''}</div></td>
+                      <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}><b>{f.cliente || '—'}</b></td>
+                      <td className="small" style={{ whiteSpace: 'nowrap' }}>+{f.phone}</td>
+                      <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 150 }}>
+                        {motivoLegible(f.motivo)}{f.plantilla === 'texto_propio' ? ' ✍️' : ''}
+                        <div className="muted" style={{ fontSize: 11 }}>{f.plantilla}</div>
+                      </td>
+                      <td className="small" style={{ whiteSpace: 'nowrap' }}>
+                        {f.estado === 'fallido'
+                          ? <span className="bad" title={f.error || ''}>⚠️ falló</span>
+                          : en ? <span style={{ color: en[1], fontWeight: 700 }} title={en[2]}>{en[0]} <span className="muted" style={{ fontWeight: 400 }}>{f.entrega}</span></span>
+                          : <span className="muted" title="Enviado a Meta; todavía no avisa si llegó">✓ enviado</span>}
+                        {f.estado === 'fallido' && f.error && <div className="bad" style={{ fontSize: 11, whiteSpace: 'normal', maxWidth: 220 }}>{String(f.error).slice(0, 120)}</div>}
+                      </td>
+                      <td className="small" style={{ whiteSpace: 'nowrap' }}>
+                        {f.respondio_at ? <span className="ok">✅ {fHora(f.respondio_at)}</span> : f.estado === 'fallido' ? <span className="muted">—</span> : <span className="warn">⏳ todavía no</span>}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                        {f.chat_id && <Link className="btn-ghost" to={'/whatsapp?chat=cob:' + f.chat_id} style={{ padding: '.2rem .55rem', fontSize: '.75rem', textDecoration: 'none' }} title="Ver la conversación completa en la bandeja">💬 chat</Link>}
+                      </td>
+                    </tr>
+                    {abierto === f.id && (
+                      <tr><td colSpan={8} style={{ textTransform: 'none', background: 'rgba(224,179,76,.06)' }}>
+                        <div className="muted small" style={{ marginBottom: 4 }}>📨 Así le llegó{f.respondio_at ? ' · respondió ' + fHora(f.respondio_at) : ''}:</div>
+                        <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{f.texto || '(el texto del aviso no quedó guardado; plantilla ' + f.plantilla + ')'}</pre>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ============================================================================
 // POR VALIDAR
 // ============================================================================
-const COLS_PAGO = 'id, created_at, monto, fecha, numero_operacion, banco, titular, alerta, estado, voucher_url, client_id, sale_id, chat_id, motivo_rechazo, validado_at, client:clients(full_name, doc_number), sale:sales(id, lot:lots(mz, lt, project:projects(name))), chat:cobranza_chats(phone)'
+const COLS_PAGO ='id, created_at, monto, fecha, numero_operacion, banco, titular, alerta, estado, voucher_url, client_id, sale_id, chat_id, motivo_rechazo, validado_at, client:clients(full_name, doc_number), sale:sales(id, lot:lots(mz, lt, project:projects(name))), chat:cobranza_chats(phone)'
 
 function PorValidar({ puede, setMsg }) {
   const [lista, setLista] = useState([])
@@ -227,13 +376,35 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
   }
 
   const esPdf = /\.pdf(\?|$)/i.test(r.voucher_url || '')
+  // 29 oct: el voucher va chico (miniatura) y se agranda con la lupa, sin salir de la pantalla
+  const [grande, setGrande] = useState(false)
+  useEffect(() => {
+    if (!grande) return
+    const esc = e => { if (e.key === 'Escape') setGrande(false) }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [grande])
   return (
     <div className="glass form-card" style={{ maxWidth: 'none', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-      <div style={{ flex: '0 1 300px', minWidth: 200 }}>
+      <div style={{ flex: '0 0 auto', width: 150, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
         {!r.voucher_url ? <span className="muted">sin imagen</span>
-          : esPdf ? <VisorDoc url={r.voucher_url} titulo="Voucher" alto={360} />
-            : <a href={r.voucher_url} target="_blank" rel="noreferrer"><img src={r.voucher_url} alt="Voucher del cliente" style={{ width: '100%', borderRadius: 8, background: '#fff' }} /></a>}
+          : esPdf
+            ? <><VisorDoc url={r.voucher_url} titulo="Voucher" alto={150} /><a className="btn-ghost" href={r.voucher_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, textDecoration: 'none' }}>🔍 Ver grande</a></>
+            : <>
+                <img src={r.voucher_url} alt="Voucher del cliente" onClick={() => setGrande(true)} title="Clic para agrandar"
+                  style={{ width: 150, height: 150, objectFit: 'cover', objectPosition: 'top', borderRadius: 8, background: '#fff', cursor: 'zoom-in' }} />
+                <button className="btn-ghost" onClick={() => setGrande(true)} style={{ fontSize: 12, padding: '.2rem .6rem' }}>🔍 Ver grande</button>
+              </>}
       </div>
+      {grande && r.voucher_url && !esPdf && (
+        <div onClick={() => setGrande(false)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>
+          <img src={r.voucher_url} alt="Voucher del cliente" style={{ maxWidth: '96vw', maxHeight: '92vh', borderRadius: 10, background: '#fff', boxShadow: '0 10px 40px rgba(0,0,0,.6)' }} />
+          <div style={{ position: 'absolute', top: 14, right: 18, display: 'flex', gap: 8 }}>
+            <a className="btn-ghost" href={r.voucher_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ textDecoration: 'none' }}>↗ Abrir original</a>
+            <button className="btn-ghost" onClick={() => setGrande(false)}>✕ Cerrar</button>
+          </div>
+        </div>
+      )}
       <div style={{ flex: '1 1 380px' }}>
         <p style={{ margin: 0 }}><b>{r.client?.full_name || 'Cliente sin identificar'}</b> <span className="muted small">+{r.chat?.phone || '—'} · {fHora(r.created_at)}</span></p>
         <p className="small" style={{ margin: '6px 0', textTransform: 'none' }}>

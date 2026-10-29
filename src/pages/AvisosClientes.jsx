@@ -64,7 +64,7 @@ const enDias = iso => {
 }
 
 // el motivo del aviso en palabras (los nombres son los de decidirAviso)
-function motivoLegible(m) {
+export function motivoLegible(m) {
   if (!m) return '—'
   let x
   if ((x = m.match(/^antes_(\d+)$/))) return 'Recordatorio (' + x[1] + ' días antes)'
@@ -78,6 +78,7 @@ function motivoLegible(m) {
 const ESTADO = {
   programado: ['📨', 'Recibe', 'ok'],
   pausado: ['⏸', 'Pausado', 'bad'],
+  proyecto_pausado: ['🏗️', 'Proyecto apagado', 'bad'],   // sql/165
   promesa: ['📅', 'Con promesa', 'warn'],
   voucher: ['🧾', 'Voucher en revisión', 'warn'],
   sin_celular: ['📵', 'Sin celular validado', 'bad'],
@@ -108,15 +109,39 @@ export function ClientesYAvisos() {
   const [verTexto, setVerTexto] = useState(null)
   const [resp, setResp] = useState('todos')          // todos | respondio | sin_respuesta | agente
   const [ficha, setFicha] = useState(null)           // fila abierta en el panel de seguimiento
+  // sql/165: interruptores POR PROYECTO (avisos / agente). Sin fila = los dos prendidos.
+  const [proyCfg, setProyCfg] = useState(() => new Map())
+  const cfgDe = id => proyCfg.get(id) || { avisos: true, agente: true }
 
   async function cargar(silencioso = false) {
-    const { data, error } = await supabase.rpc('avisos_por_cliente')
+    const [{ data, error }, pc] = await Promise.all([
+      supabase.rpc('avisos_por_cliente'),
+      supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente'),
+    ])
+    if (!pc.error) setProyCfg(new Map((pc.data || []).map(p => [p.project_id, { avisos: p.avisos !== false, agente: p.agente !== false }])))
     if (error) {
       if (!silencioso) setMsg({ ok: false, t: /avisos_por_cliente/.test(error.message) ? 'Falta correr sql/159 en el servidor.' : error.message })
       setDatos(d => d || { clientes: [], leads: [], cfg: {} })
       return
     }
     setDatos(data)
+  }
+  // prender/apagar un proyecto entero: manda sobre las casillas de sus clientes
+  async function setProyecto(id, campo, on) {
+    if (!puede || !id) return
+    const nombre = proyectos.find(([pid]) => pid === id)?.[1] || 'este proyecto'
+    if (!on && !await confirmar(campo === 'avisos'
+      ? 'APAGAR los avisos de TODO ' + nombre + ': ningún cliente de ese proyecto recibe avisos automáticos, aunque tenga ✅ Sí. ¿Seguimos?'
+      : 'APAGAR el agente de TODO ' + nombre + ': a sus clientes les contesta solo la secretaria, aunque tengan 🤖 ON. ¿Seguimos?',
+      { titulo: campo === 'avisos' ? 'Apagar avisos del proyecto' : 'Apagar el agente del proyecto', peligro: true })) return
+    setBusy(true)
+    const { error } = await supabase.rpc('cobranza_proyecto_set', { p_project: id, p_avisos: campo === 'avisos' ? on : null, p_agente: campo === 'agente' ? on : null })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_proyecto_set/.test(error.message) ? 'Falta correr sql/165 en el servidor.' : 'No se pudo: ' + error.message }); return }
+    setProyCfg(m => { const n = new Map(m); n.set(id, { ...cfgDe(id), [campo]: on }); return n })
+    savedFx()
+    setMsg({ ok: true, t: (campo === 'avisos' ? '📨 Avisos de ' : '🤖 Agente de ') + nombre + (on ? ': PRENDIDO' : ': APAGADO') })
+    setTimeout(() => cargar(true), 25000)
   }
   useEffect(() => {
     if (!ve) return
@@ -274,6 +299,9 @@ export function ClientesYAvisos() {
       {!puede && <p className="hint muted">Modo consulta: cambiar quién recibe es de la responsable de cobranza.</p>}
       {sinProyeccion && <p className="error" style={{ textTransform: 'none' }}>⚠ El agente todavía no calculó ningún "próximo aviso": falta actualizar el agente en el servidor (migracion/07) después de correr sql/159. Las casillas igual funcionan.</p>}
       {datos && !cfg.avisos_activos && <p className="hint" style={{ textTransform: 'none' }}>Los avisos automáticos están APAGADOS en Cobranza IA → Configuración: lo programado no sale hasta prenderlos.</p>}
+      {datos && proy === 'todos' && [...proyCfg.entries()].some(([, c]) => !c.avisos || !c.agente) && (
+        <p className="hint" style={{ textTransform: 'none' }}>⏸ Proyectos apagados: {[...proyCfg.entries()].filter(([, c]) => !c.avisos || !c.agente).map(([id, c]) => (proyectos.find(([pid]) => pid === id)?.[1] || id) + ' (' + [!c.avisos && 'sin avisos', !c.agente && 'sin agente'].filter(Boolean).join(', ') + ')').join(' · ')}. Elige el proyecto en el selector para prenderlo.</p>
+      )}
 
       <div className="chips">
         {[['todos', 'Todos'], ['clientes', '🏠 Clientes'], ['leads', '🆕 Leads']].map(([v, t]) => <button key={v} className={`chip ${tipo === v ? 'on' : ''}`} onClick={() => setTipo(v)}>{t}</button>)}
@@ -282,9 +310,25 @@ export function ClientesYAvisos() {
         {proyectos.length > 1 && (
           <select value={proy} onChange={e => setProy(e.target.value)}>
             <option value="todos">Todos los proyectos</option>
-            {proyectos.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
+            {proyectos.map(([id, n]) => <option key={id} value={id}>{n}{cfgDe(id).avisos && cfgDe(id).agente ? '' : ' ⏸'}</option>)}
           </select>
         )}
+        {proy !== 'todos' && (() => {
+          // sql/165: los dos interruptores del proyecto elegido
+          const c = cfgDe(proy)
+          return (
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }} title="Interruptores de TODO el proyecto: mandan sobre las casillas de cada cliente">
+              <button className={c.avisos ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => setProyecto(proy, 'avisos', !c.avisos)}
+                style={{ padding: '.25rem .6rem', fontSize: '.8rem', ...(c.avisos ? {} : { borderColor: 'var(--error)', color: 'var(--error)' }) }}
+                title={c.avisos ? 'Los avisos automáticos del proyecto están prendidos. Clic para apagarlos a todos sus clientes.' : 'AVISOS APAGADOS para todo el proyecto. Clic para prenderlos.'}>
+                📨 avisos del proyecto {c.avisos ? 'ON' : 'OFF'}</button>
+              <button className={c.agente ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => setProyecto(proy, 'agente', !c.agente)}
+                style={{ padding: '.25rem .6rem', fontSize: '.8rem', ...(c.agente ? {} : { borderColor: 'var(--error)', color: 'var(--error)' }) }}
+                title={c.agente ? 'El agente contesta a los clientes del proyecto que tengan 🤖 ON. Clic para apagarlo a todos.' : 'AGENTE APAGADO para todo el proyecto: contesta solo la secretaria. Clic para prenderlo.'}>
+                🤖 agente del proyecto {c.agente ? 'ON' : 'OFF'}</button>
+            </span>
+          )
+        })()}
         <span className="muted small" style={{ alignSelf: 'center' }}>|</span>
         {[['todos', 'Todo'], ['agente', '🤖 Con agente'], ['respondio', '✅ Respondió'], ['sin_respuesta', '⏳ Sin respuesta']].map(([v, t]) => <button key={v} className={`chip ${resp === v ? 'on' : ''}`} onClick={() => setResp(v)}>{t}</button>)}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Nombre, lote (A1, G-7), celular…" style={{ flex: '1 1 220px', maxWidth: 360 }} />
@@ -364,6 +408,7 @@ export function ClientesYAvisos() {
           <p><b>Agente.</b> El agente de cobranza le contesta <b>solo</b> a los clientes con <b>🤖 ON</b>. A los demás, el mensaje queda en Conversaciones para la secretaria (y le llega el aviso por Telegram). Al prenderlo, el chat que esperaba a la secretaria por eso vuelve al agente.</p>
           <p><b>Seguimiento (📝).</b> Abre la ficha de cobranza del cliente: historial de notas y resultados, y el formulario para anotar uno nuevo. <b>Prometió pagar</b> crea la promesa (pestaña Promesas) y desde ahí ese cliente recibe solo el recordatorio de la promesa. <b>Pagó</b> con voucher lo deja en <b>Por validar</b>, igual que si lo hubiera mandado el cliente: nada suma en Cuotas hasta validarlo. <b>No contesta</b> y <b>Número equivocado</b> quedan anotados para la siguiente llamada o para corregir la ficha.</p>
           <p><b>Mensaje propio.</b> En la misma ficha: <b>instrucciones para el agente</b> (las lee antes de contestarle a ese cliente, por ejemplo "tiene acuerdo de pagar los 30" o "no mencionar el contrato") y <b>texto del próximo aviso</b>. El texto propio sale tal cual solo si el cliente escribió en las últimas 24 horas, porque Meta no deja mandar texto libre fuera de esa ventana; si no, sale la plantilla de siempre. Se usa una sola vez. Para que no reciba ningún aviso automático, pon <b>¿Avisos?</b> en 🚫 No.</p>
+          <p><b>Por proyecto (29 oct).</b> Al elegir un proyecto en el selector aparecen sus dos interruptores: <b>📨 avisos del proyecto</b> y <b>🤖 agente del proyecto</b>. Apagar uno manda sobre las casillas de cada cliente: con los avisos del proyecto en OFF nadie de ese proyecto recibe avisos (en la tabla sale "🏗️ Proyecto apagado"); con el agente en OFF, a sus clientes les contesta solo la secretaria. Un cliente con lotes en dos proyectos recibe del que esté prendido.</p>
           <p><b>Quién la ve.</b> El superusuario y quien tenga el permiso de cobranza (Usuarios). El administrador solo mira.</p>
         </div>
       </details>

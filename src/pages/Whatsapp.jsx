@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg, savedFx } from '../lib/saveFx'
@@ -59,6 +60,45 @@ const ventanaDe = c => { const t = c?.ultimo_entrante_at ? new Date(c.ultimo_ent
 const durCorta = ms => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); if (h < 48) return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); return Math.floor(h / 24) + ' días' }
 // Estado de entrega que avisa Meta por el webhook (statuses) → palomitas, como en el celular
 const TICKS = { enviado: ['✓', '#9daab6', 'Enviado (una palomita)'], entregado: ['✓✓', '#9daab6', 'Entregado al celular'], leido: ['✓✓', '#53bdeb', 'Leído'], fallido: ['⚠️', '#e07b7b', 'No se entregó'] }
+// BANDEJA ÚNICA (sql/165, 29 oct 2026): los chats de COBRANZA (cobranza_chats, los atiende el
+// agente de Cobranza IA por el mismo 960) entran a la lista como un chat más, id 'cob:<uuid>'.
+// Quién escribió cada burbuja de un chat de cobranza (cobranza_mensajes.autor):
+const AUTOR_COB = { plantilla: '📨 AVISO (PLANTILLA)', agente: '🤖 AGENTE IA', secretaria: '👩 PANEL', celular: '📲 CELULAR', sistema: '⚙️ SISTEMA', cliente: '' }
+const nueveDe = p => String(p || '').replace(/\D/g, '').slice(-9)
+
+// Responder en un chat de COBRANZA: va a cobranza_mensajes (el agente lo manda por la API en
+// segundos y se calla en ese chat). Solo texto, dentro de la ventana de 24 h.
+function CobReplyBox({ chat, userId, onSent, ventana }) {
+  const cerrada = !!ventana && !ventana.abierta
+  const [txt, setTxt] = useState('')
+  const [mandando, setMandando] = useState(false)
+  const enviarMsg = async () => {
+    const t = txt.trim()
+    if (!t) return
+    if (cerrada) { await avisar('Pasaron más de 24 h desde el último mensaje del cliente.\n\nMeta solo deja escribirle con una PLANTILLA: el texto libre no sale. Los avisos con plantilla los manda el agente desde Cobranza IA.', { tono: 'error' }); return }
+    setMandando(true)
+    const { error } = await supabase.from('cobranza_mensajes').insert({ chat_id: chat.cob_id, direccion: 'out', autor: 'secretaria', texto: t, estado: 'pendiente', enviado_por: userId || null })
+    setMandando(false)
+    if (error) { await avisar('No se pudo enviar: ' + (/row-level security|permission/i.test(error.message) ? 'solo la responsable de cobranza (permiso en Usuarios) puede escribirle a un cliente de cobranza.' : error.message)); return }
+    setTxt(''); onSent && onSent({ body: t })
+  }
+  return (
+    <div>
+      {cerrada && (
+        <div style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: '1px solid #e8975a', color: '#e8975a', marginBottom: 4, textTransform: 'none' }}>
+          🔒 <b>Ventana de 24 h cerrada</b>{ventana.desde ? ' (su último mensaje fue hace ' + durCorta(-ventana.resta + VENTANA_MS) + ')' : ' (este cliente todavía no escribió al 960)'}.
+          Meta solo deja escribirle con una <b>plantilla</b>: el agente se la manda a su hora desde <b>Cobranza IA</b>. Cuando el cliente conteste, se abre otra vez.
+        </div>
+      )}
+      <div className="wa-reply" style={cerrada ? { opacity: .5 } : undefined}>
+        <input value={txt} disabled={cerrada} onChange={e => setTxt(e.target.value)}
+          placeholder={cerrada ? 'Ventana de 24 h cerrada: solo plantilla' : 'Escribir al cliente (sale por el 960; el agente de cobranza se calla en este chat)…'}
+          onKeyDown={e => { if (e.key === 'Enter') enviarMsg() }} />
+        <button className="wa-btn wa-solid" disabled={mandando || cerrada} onClick={enviarMsg}>{mandando ? '…' : '➤ ENVIAR'}</button>
+      </div>
+    </div>
+  )
+}
 
 function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQuicks, ventana }) {
   const cerrada = !!ventana && !ventana.abierta
@@ -184,7 +224,58 @@ export default function Whatsapp() {
     if (!error && Array.isArray(data)) setTelsClientes(new Set(data))
   }
   const esClienteTel = phone => telsClientes.has(String(phone || '').replace(/\D/g, '').slice(-9))
-  const esClienteDe = c => !!c?.clients || esClienteTel(c?.phone)
+  const esClienteDe = c => !!c?.cob || !!c?.clients || esClienteTel(c?.phone)
+  // ---- BANDEJA ÚNICA (sql/165): los chats de cobranza, con la cara de un chat más ----
+  const [cobChats, setCobChats] = useState([])
+  const cobRef = useRef([])
+  const abrirDeUrl = useRef(new URLSearchParams(window.location.search).get('chat') || '')
+  const cargarCob = async () => {
+    const { data, error } = await supabase.rpc('wa_chats_cobranza', { p_limit: 400 })
+    if (error) return                      // sin sql/165, o sin permiso de cobranza: la bandeja sigue con los del bot
+    const lista = (data || []).map(c => ({
+      id: 'cob:' + c.id, cob: true, cob_id: c.id, phone: c.phone, conv_id: c.conv_id,
+      last_message_at: c.ultimo_mensaje_at, ultimo_entrante_at: c.ultimo_entrante_at,
+      project_id: c.project_id, projects: c.project_id ? { name: c.project_name, color: c.project_color } : null,
+      clients: c.nombre || c.nombre_whatsapp ? { full_name: c.nombre || c.nombre_whatsapp } : null, client_ids: c.client_ids || [],
+      modo: c.modo, motivo_humano: c.motivo_humano, humano_desde: c.humano_desde, no_leidos: c.no_leidos || 0,
+      es_lead: c.es_lead, telefono_vinculado: c.telefono_vinculado, ultimo_texto: c.ultimo_texto, ultimo_autor: c.ultimo_autor,
+      etiquetas: [], tag: null, flow_state: null, session_id: null, assigned_to: null,
+    }))
+    setCobChats(lista); cobRef.current = lista
+    // llegado desde "Envíos del día" (Cobranza IA): ?chat=cob:<id> abre ese chat
+    if (abrirDeUrl.current) { const c = lista.find(x => x.id === abrirDeUrl.current); if (c) { abrirDeUrl.current = ''; setSel(c) } }
+  }
+  const notificarEntranteCob = m => {
+    const abierto = selRef.current?.cob && selRef.current.cob_id === m.chat_id && document.hasFocus()
+    if (abierto) return
+    beep()
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const conv = cobRef.current.find(c => c.cob_id === m.chat_id)
+        new Notification('📩 ' + (conv?.clients?.full_name || '+' + (conv?.phone || '')), { body: (m.texto || '📎 Adjunto').slice(0, 90), tag: 'cob-' + m.chat_id })
+      }
+    } catch {}
+  }
+  // los mensajes de un chat de cobranza + el historial del chat viejo (Baileys) del mismo celular
+  const cargarMsgsCob = async c => {
+    const [cm, ins, outs] = await Promise.all([
+      supabase.from('cobranza_mensajes').select('id, direccion, autor, texto, media_url, media_type, media_name, estado, error, created_at, wa_id, enviado_por').eq('chat_id', c.cob_id).order('created_at', { ascending: false }).limit(200),
+      c.conv_id ? supabase.from('whatsapp_messages').select('id, body, created_at, direction, media_url, media_type, media_name').eq('conversation_id', c.conv_id).order('created_at', { ascending: false }).limit(100) : Promise.resolve({ data: [] }),
+      c.conv_id ? supabase.from('scheduled_messages').select('body, sent_at, scheduled_for, status, tipo, media_url, media_type, media_name, sender_id').or(`conversation_id.eq.${c.conv_id},and(conversation_id.is.null,recipient_phone.eq.${c.phone})`).in('status', ['enviado', 'fallido']).order('scheduled_for', { ascending: false }).limit(100) : Promise.resolve({ data: [] }),
+    ])
+    const a = (cm.data || []).map(m => ({ cob: true, body: m.texto, at: m.created_at, dir: m.direccion, autor: m.autor, media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, pend: m.estado === 'pendiente', fallo: m.estado === 'fallido', err: m.error, entrega: TICKS[m.estado] ? m.estado : null, wa_msg_id: m.wa_id, sender_id: m.enviado_por, cel: m.autor === 'celular' }))
+    const b = (ins.data || []).map(m => ({ hist: true, body: m.body, at: m.created_at, dir: m.direction || 'in', media_url: m.media_url, media_type: m.media_type, media_name: m.media_name }))
+    const d = (outs.data || []).filter(m => !['edit_panel', 'vcard_panel'].includes(m.tipo)).map(m => ({ hist: true, body: m.body, at: m.sent_at || m.scheduled_for, dir: 'out', tipo: m.tipo, media_url: m.media_url, media_type: m.media_type, media_name: m.media_name, sender_id: m.sender_id }))
+    setMsgs([...a, ...b, ...d].filter(x => x.body || x.media_url || (x.fallo && x.err)).sort((x, y) => new Date(x.at) - new Date(y.at)))
+  }
+  const cobModo = async (c, modo) => {
+    const campos = modo === 'humano'
+      ? { modo: 'humano', motivo_humano: 'la tomó la secretaria desde la bandeja', humano_desde: new Date().toISOString(), humano_por: profile?.id || null }
+      : { modo: 'agente', motivo_humano: null, humano_desde: null, humano_por: null }
+    const { error } = await supabase.from('cobranza_chats').update(campos).eq('id', c.cob_id)
+    if (error) { await avisar('No se pudo: ' + error.message); return }
+    savedFx(); cargarCob(); setSel(x => x && x.id === c.id ? { ...x, ...campos } : x)
+  }
   const [quicks, setQuicks] = useState([])                    // respuestas rápidas (burbujas)
   // 📊 conteo de chats por etiqueta / proyecto / asesor (clic = filtrar)
   const [verConteo, setVerConteo] = useState(false)
@@ -677,6 +768,7 @@ export default function Whatsapp() {
   }
   const cargarMsgs = async c => {
     if (!c) return
+    if (c.cob) return cargarMsgsCob(c)
     const lid = String(c.wa_jid || '').split('@')[0].replace(/\D/g, '')
     const dests = lid && lid !== c.phone ? [c.phone, lid] : [c.phone]
     // salientes: los de ESTA conversación + los históricos sin conversación (por teléfono)
@@ -702,10 +794,14 @@ export default function Whatsapp() {
   // deps [role]: el perfil llega asíncrono; cuando el rol aparece se recargan las
   // partes de admin (flags/números/usuarios) y se recrea el intervalo sin capturas viejas.
   // (el operador carga el directorio y los usuarios para LEER la bandeja completa; los ajustes del bot no)
-  useEffect(() => { cargarConvs(); cargarSesiones(); cargarProysAll(); cargarExtras(); cargarTelsClientes(); if (esAdminW) cargarFlags(); if (jefeBandeja) { cargarNums(); cargarUsuarios() } }, [role])
+  useEffect(() => { cargarConvs(); cargarCob(); cargarSesiones(); cargarProysAll(); cargarExtras(); cargarTelsClientes(); if (esAdminW) cargarFlags(); if (jefeBandeja) { cargarNums(); cargarUsuarios() } }, [role])
   // la lista de teléfonos de clientes cambia poco: cada 5 min alcanza
   useEffect(() => { const t = setInterval(() => { if (!pausadoRef.current) cargarTelsClientes() }, 5 * 60000); return () => clearInterval(t) }, [])
-  useEffect(() => { selRef.current = sel; setOptimistas([]); cargarMsgs(sel); marcarLeido(sel) }, [sel])
+  useEffect(() => {
+    selRef.current = sel; setOptimistas([]); cargarMsgs(sel); marcarLeido(sel)
+    // chat de cobranza: los no leídos viven en la base (cobranza_chats.no_leidos)
+    if (sel?.cob && sel.no_leidos) supabase.from('cobranza_chats').update({ no_leidos: 0 }).eq('id', sel.cob_id).then(() => { setCobChats(l => l.map(c => c.id === sel.id ? { ...c, no_leidos: 0 } : c)) }, () => {})
+  }, [sel])
   useEffect(() => {
     setIaExperimento(true)
     if (sel?.flow_state !== 'ia' || !sel?.lead_id) return
@@ -724,7 +820,7 @@ export default function Whatsapp() {
   const ultAccion = useRef(Date.now())
   const setPausa = v => { pausadoRef.current = v; setPausado(v) }
   useEffect(() => {
-    const reanudar = () => { ultAccion.current = Date.now(); if (pausadoRef.current) { setPausa(false); cargarConvs(); cargarSesiones(); if (selRef.current) cargarMsgs(selRef.current) } }
+    const reanudar = () => { ultAccion.current = Date.now(); if (pausadoRef.current) { setPausa(false); cargarConvs(); cargarCob(); cargarSesiones(); if (selRef.current) cargarMsgs(selRef.current) } }
     const tocar = () => { ultAccion.current = Date.now(); if (pausadoRef.current) reanudar() }
     const evs = ['mousemove', 'keydown', 'click', 'touchstart', 'wheel']
     evs.forEach(e => window.addEventListener(e, tocar, { passive: true }))
@@ -749,12 +845,21 @@ export default function Whatsapp() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scheduled_messages' }, ({ new: m }) => {
         if (!pausadoRef.current && selRef.current && (m.conversation_id === selRef.current.id || m.recipient_phone === selRef.current.phone)) cargarMsgs(selRef.current)
       })
+      // chats de COBRANZA (sql/165): avisos, respuestas del agente, ecos del celular y estados
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cobranza_mensajes' }, ({ new: m }) => {
+        if (!pausadoRef.current) { cargarCob(); if (selRef.current?.cob && m.chat_id === selRef.current.cob_id) cargarMsgsCob(selRef.current) }
+        if (m.direccion === 'in') notificarEntranteCob(m)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cobranza_mensajes' }, ({ new: m }) => {
+        if (!pausadoRef.current && selRef.current?.cob && m.chat_id === selRef.current.cob_id) cargarMsgsCob(selRef.current)
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cobranza_chats' }, () => { if (!pausadoRef.current) cargarCob() })
       .subscribe()
     return () => { try { supabase.removeChannel(ch) } catch {} }
   }, [role, profile?.id])
   useEffect(() => {
     // con realtime activo el poll es solo respaldo: cada 60s y solo si el panel está activo
-    const t = setInterval(() => { if (pausadoRef.current) return; cargarConvs(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) cargarMsgs(selRef.current) }, 60000)
+    const t = setInterval(() => { if (pausadoRef.current) return; cargarConvs(); cargarCob(); cargarSesiones(); if (esAdminW) cargarFlags(); if (verConteoRef.current) cargarConteo(); if (selRef.current) cargarMsgs(selRef.current) }, 60000)
     return () => clearInterval(t)
   }, [role])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, optimistas.length])
@@ -767,7 +872,12 @@ export default function Whatsapp() {
 
   if (!['admin', 'superuser', 'operador', 'secretary', 'manager', 'asesor'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso al chat de WhatsApp.</div>
 
-  const lista = convs.filter(c => {
+  // BANDEJA ÚNICA: los chats de cobranza + los del bot. Si un cliente tiene chat de cobranza,
+  // su chat viejo (Baileys) no se repite: se ve como historial 🗄️ dentro del de cobranza.
+  const cobPhones = new Set(cobChats.map(c => nueveDe(c.phone)).filter(p => p.length === 9))
+  const todas = [...cobChats, ...convs.filter(c => !cobPhones.has(nueveDe(c.phone)))]
+    .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0))
+  const lista = todas.filter(c => {
     if (filtroProy && c.project_id !== filtroProy) return false
     if (filtroTag && !(c.etiquetas || []).includes(filtroTag)) return false
     if (filtroAsig && c.assigned_to !== filtroAsig) return false
@@ -778,8 +888,9 @@ export default function Whatsapp() {
     }
     if (filtro === 'calificados') return c.flow_state === 'completado'
     if (filtro === 'flujo') return ['espera_nombre', 'espera_proyecto', 'flow'].includes(c.flow_state)
-    if (filtro === 'clientes') return esClienteDe(c)          // teléfono en una ficha = cliente (regla de quien_escribe.js)
+    if (filtro === 'clientes') return esClienteDe(c)          // teléfono en una ficha = cliente (regla de quien_escribe.js); los de cobranza siempre
     if (filtro === 'leads') return !esClienteDe(c)
+    if (filtro === 'cobranza') return !!c.cob                 // solo los que atiende el agente de cobranza
     if (filtro === 'ventana') return ventanaDe(c).abierta     // se le puede escribir texto libre ahora
     if (filtro === 'humanos') return c.flow_state === 'humano' || c.modo === 'humano'
     if (filtro === 'mios') return c.assigned_to === profile?.id
@@ -789,7 +900,7 @@ export default function Whatsapp() {
   // proyectos presentes en la bandeja (para el filtro por color, con conteo)
   const proysBandeja = (() => {
     const m = new Map()
-    convs.forEach(c => { if (c.project_id && c.projects) { const e = m.get(c.project_id) || { p: c.projects, n: 0 }; e.n++; m.set(c.project_id, e) } })
+    todas.forEach(c => { if (c.project_id && c.projects) { const e = m.get(c.project_id) || { p: c.projects, n: 0 }; e.n++; m.set(c.project_id, e) } })
     return [...m.entries()]
   })()
   const nombreUsuario = id => usuarios.find(u => u.id === id)?.full_name?.split(' ')[0] || '¿?'
@@ -819,7 +930,7 @@ export default function Whatsapp() {
     const f = FLOW[c.flow_state]
     const tn = tipoDe(c.phone)
     const colProy = c.projects?.color || null
-    const nsinleer = noLeidos[c.id] || 0
+    const nsinleer = c.cob ? (c.no_leidos || 0) : (noLeidos[c.id] || 0)
     return (
       <div key={c.id} onClick={() => setSel(c)}
         style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, borderLeft: colProy ? `3px solid ${colProy}` : undefined, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : nsinleer ? 'rgba(37,211,102,.07)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
@@ -837,13 +948,19 @@ export default function Whatsapp() {
             {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); const col = colorSesion(c.session_id) || '#8b95a1'; return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid ' + col, color: col }}>📱 {sn.label}</span> : null })()}
             {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
             {(c.etiquetas || []).map(t => <span key={t} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(t)}`, color: colorTag(t) }}>🏷️ {t}</span>)}
-            {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>👤 EN HUMANO</span>}
+            {c.cob && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e0b34c', color: '#e0b34c' }} title="Lo atiende el agente de cobranza (Cobranza IA) por el mismo 960">💵 COBRANZA</span>}
+            {c.modo === 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #e8975a', color: '#e8975a' }}>{c.cob ? '👩 SECRETARIA' : '👤 EN HUMANO'}</span>}
             {c.assigned_to && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #7ec8e3', color: '#7ec8e3' }} title="Chat asignado">⭐ {c.assigned_to === profile?.id ? 'MÍO' : nombreUsuario(c.assigned_to)}</span>}
             {tn && tn.tipo !== 'bot' && (() => { const tt = TIPOS.find(x => x.v === tn.tipo); return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${tt?.c || '#888'}`, color: tt?.c || '#888' }}>{tt?.s || tn.tipo.toUpperCase()}</span> })()}
             {f && c.modo !== 'humano' && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${f.c}`, color: f.c }}>{f.t}</span>}
             {esClienteDe(c) && <span title="Su teléfono está en una ficha de cliente" style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid #b8a1d9', color: '#b8a1d9' }}>CLIENTE</span>}
           </span>
         </div>
+        {c.cob && c.ultimo_texto && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 3, textTransform: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.ultimo_texto}>
+            {AUTOR_COB[c.ultimo_autor] ? AUTOR_COB[c.ultimo_autor].split(' ')[0] + ' ' : ''}{c.ultimo_texto}
+          </div>
+        )}
       </div>
     )
   }
@@ -887,6 +1004,7 @@ export default function Whatsapp() {
           })()}
           {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp: el oficial (API) y los apagados">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
           {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el agente dejó de responder, reinícialo desde aquí (el número no se desconecta)">🔁 REINICIAR</button>}
+          {cobChats.length > 0 && <Link className="btn-ghost" to="/cobranza-ia?tab=envios" title="Resumen del envío de avisos: cuántos salieron, llegaron, se leyeron y quién respondió, por día y proyecto">📨 ENVÍOS DEL DÍA</Link>}
           <a className="btn-ghost" href="https://github.com/softurbis/crm/blob/main/docs/MANUAL-BANDEJA-WHATSAPP.md" target="_blank" rel="noreferrer" title="Manual de la bandeja: etiquetas, ventana de 24 h, estado de entrega, cliente o lead">📖 MANUAL</a>
           {role === 'superuser' && <button className="btn-ghost" onClick={() => setVerAvisos(v => !v)}
             title="Números que reciben copia de cada lead y pedido de asesor">📢 COPIA AVISOS{listaAvisos.length ? ' (' + listaAvisos.length + ')' : ''}</button>}
@@ -1342,7 +1460,7 @@ export default function Whatsapp() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-            {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['clientes', '💵 CLIENTES'], ['leads', '🆕 LEADS'], ['ventana', '🕒 VENTANA ABIERTA'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
+            {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['clientes', '💵 CLIENTES'], ...(cobChats.length ? [['cobranza', '📨 COBRANZA (' + cobChats.length + ')']] : []), ['leads', '🆕 LEADS'], ['ventana', '🕒 VENTANA ABIERTA'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
               <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
             ))}
@@ -1439,8 +1557,8 @@ export default function Whatsapp() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
-                          {!jefeBandeja && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }}>📁 {sel.projects.name}</span>}
-                          {jefeBandeja && (
+                          {(!jefeBandeja || sel.cob) && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }} title={sel.cob ? 'Proyecto de su lote (viene de la ficha; no se cambia aquí)' : undefined}>📁 {sel.projects.name}</span>}
+                          {jefeBandeja && !sel.cob && (
                             <select className="wa-sel" value={sel.project_id || ''} title="Proyecto del chat: etiqueta, color y por qué número sale la atención"
                               style={{ fontSize: 11, color: sel.projects?.color || undefined }}
                               onChange={async e => {
@@ -1454,12 +1572,12 @@ export default function Whatsapp() {
                             </select>
                           )}
                           {/* etiquetas PROPIAS del CRM: varias por chat, clic en ✕ para quitar; el selector agrega */}
-                          {(sel.etiquetas || []).map(t => (
+                          {!sel.cob && (sel.etiquetas || []).map(t => (
                             <span key={t} className="wa-badge" style={{ color: colorTag(t), borderColor: colorTag(t), display: 'inline-flex', gap: 4, alignItems: 'center' }}>🏷️ {t}
                               {puedeEscribir && <button className="btn-ghost" style={{ padding: '0 3px', fontSize: 10, lineHeight: 1 }} title="Quitar esta etiqueta" onClick={() => toggleEtiqueta(sel, t)}>✕</button>}
                             </span>
                           ))}
-                          {puedeEscribir && (
+                          {puedeEscribir && !sel.cob && (
                             <select className="wa-sel" value="" title="Agregar una etiqueta a este chat (propia del CRM; no se sincroniza con WhatsApp)" style={{ fontSize: 11 }}
                               onChange={async e => {
                                 let v = e.target.value
@@ -1481,6 +1599,7 @@ export default function Whatsapp() {
                             }}>✎</button>
                           )}
                           {esCliente && <span className="wa-badge" style={{ color: '#b8a1d9', borderColor: '#b8a1d9' }}>💵 CLIENTE · COBRANZA</span>}
+                          {sel.cob && <Link className="wa-badge" to="/cobranza-ia?tab=chats" style={{ color: '#e0b34c', borderColor: '#e0b34c', textDecoration: 'none' }} title="Abrir en Cobranza IA (validar vouchers, promesas, seguimiento)">↗ COBRANZA IA</Link>}
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
                           <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
@@ -1503,7 +1622,15 @@ export default function Whatsapp() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {sel.modo === 'humano' ? (
+                      {sel.cob ? (
+                        sel.modo === 'humano'
+                          ? <button className="wa-btn" style={{ borderColor: '#e8975a', color: '#e8975a' }} disabled={!puedeEscribir}
+                              title={'La atiende la secretaria' + (sel.motivo_humano ? ' — ' + sel.motivo_humano : '') + '. Clic para devolver el chat al agente de cobranza.'}
+                              onClick={async () => { if (await confirmar('¿DEVOLVER ESTE CHAT AL AGENTE DE COBRANZA?\n\nEl agente volverá a contestarle (si está prendido para este cliente y su proyecto).')) cobModo(sel, 'agente') }}>👩 SECRETARIA · 🤖 devolver al agente</button>
+                          : <button className="wa-btn" style={{ borderColor: '#e0b34c', color: '#e0b34c' }} disabled={!puedeEscribir}
+                              title="El agente de cobranza atiende este chat. Clic para tomarlo tú: el agente se calla aquí."
+                              onClick={() => cobModo(sel, 'humano')}>🤖 AGENTE DE COBRANZA ATIENDE · tomar yo</button>
+                      ) : sel.modo === 'humano' ? (
                         <button className="wa-btn" style={{ borderColor: '#e8975a', color: '#e8975a' }}
                           title={'Lo atiende una persona' + (sel.humano_desde ? ' desde ' + fh(sel.humano_desde) : '') + '. Clic para que el bot retome este chat.'}
                           onClick={async () => {
@@ -1518,7 +1645,7 @@ export default function Whatsapp() {
                       ) : (
                         <span className="wa-badge" title="El bot atiende este chat. Se calla solo cuando alguien responde desde el panel." style={{ color: '#9ccb86', borderColor: '#9ccb86' }}>🤖 BOT ATIENDE</span>
                       )}
-                      {jefeBandeja && (
+                      {jefeBandeja && !sel.cob && (
                         <select className="wa-sel" value={sel.assigned_to || ''} title="Asignar este chat a un usuario (le aparece en su bandeja)"
                           onChange={async e => {
                             const v = e.target.value || null
@@ -1531,7 +1658,7 @@ export default function Whatsapp() {
                       )}
                       {/* clasificar el número escribe en el DIRECTORIO (y decide a quién le contesta
                           el bot, o quién le da órdenes como gerencia): es configuración, no del operador */}
-                      {esAdminW && (
+                      {esAdminW && !sel.cob && (
                         <select className="wa-sel" value={tnSel?.tipo || 'bot'}
                           onChange={e => { const v = e.target.value; if (v === 'bot') { const n = tipoDe(sel.phone); if (n) borrarNum(n.phone) } else guardarNum(sel.phone, v, 'CLASIFICADO DESDE EL CHAT') }}>
                           <option value="bot">🟢 NUEVO LEAD (BOT)</option>
@@ -1571,7 +1698,7 @@ export default function Whatsapp() {
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
                       )}
                       <span title={m.fallo && m.err ? 'Motivo: ' + m.err : undefined}>
-                        {m.hist ? '🗄️ ' : m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
+                        {m.hist ? '🗄️ ' : m.dir === 'out' ? (m.fallo ? '⚠️ FALLÓ · ' : m.pend ? '⏳ ENVIANDO · ' : m.cob ? (m.autor === 'secretaria' ? '👩 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') : (AUTOR_COB[m.autor] || String(m.autor || '').toUpperCase())) + ' · ' : m.cel ? '📲 CELULAR · ' : m.info ? '' : (m.tipo === 'manual_panel' ? '👤 ' + (m.sender_id ? nombreUsuario(m.sender_id) : 'PANEL') + ' · ' : '🤖 BOT · ')) : ''}
                         {m.tipo && m.dir === 'out' && !m.hist && !['manual_panel', 'vcard_panel'].includes(m.tipo) ? m.tipo.toUpperCase() + ' · ' : ''}{fh(m.at)}{m.editado ? ' · ✎ editado' : ''}
                       </span>
                       {/* palomitas: lo que Meta avisa por el webhook (statuses) para este envío */}
@@ -1618,7 +1745,14 @@ export default function Whatsapp() {
                     : '. Cuando el cliente está listo, el agente te pasa el aviso. Si escribes aquí, el agente se calla en este chat y el cliente queda contigo.'}
                 </p>
               )}
-              {puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
+              {sel.cob && sel.modo !== 'humano' && (
+                <p style={{ fontSize: 12, margin: '6px 0', padding: '6px 10px', borderRadius: 8, border: '1px solid #e0b34c', color: '#e0b34c', textTransform: 'none' }}>
+                  💵 <b>Este cliente lo atiende el agente de cobranza</b> (si está prendido para él y su proyecto en Cobranza IA → Clientes y avisos). Si escribes aquí, el agente se calla en este chat y el cliente queda con la secretaria.
+                </p>
+              )}
+              {sel.cob
+                ? (puedeEscribir ? <CobReplyBox chat={sel} userId={profile?.id} ventana={ventanaDe(sel)} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }} /> : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Solo lectura.</p>)
+                : puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
                     quicks={quicks} esAdmin={jefeBandeja} onQuicks={guardarQuicks} ventana={ventanaDe(sel)}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />

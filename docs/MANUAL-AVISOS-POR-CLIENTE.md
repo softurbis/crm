@@ -154,3 +154,27 @@ código propio y **sin su celular**: el sistema no puede saber de qué ficha es.
   celular, el asesor le contesta desde el **WhatsApp Business del celular del 960** y le pide su número.
   Si al final era cliente: **Era cliente: vincular**.
 - Los **avisos automáticos** no cambian: siempre salen al celular de la ficha, use o no nombre de usuario.
+
+## 29 oct: apagar por PROYECTO y el resumen de envíos · sql/165
+
+**Dos interruptores por proyecto.** Elige un proyecto en el selector de la pantalla y aparecen:
+
+- **📨 avisos del proyecto ON/OFF**: en OFF, ningún cliente de ese proyecto recibe avisos automáticos
+  (ni el recordatorio de promesa), aunque su casilla diga ✅ Sí. En la tabla salen como **🏗️ Proyecto apagado**.
+- **🤖 agente del proyecto ON/OFF**: en OFF, a los clientes de ese proyecto les contesta solo la secretaria,
+  aunque tengan 🤖 ON. Si uno escribe, el chat pasa a la secretaria con el motivo "el agente está apagado para
+  su proyecto" y le llega el aviso por Telegram.
+
+Mandan sobre las casillas de cada cliente (sirven para "no mandar nada a Praderas de Pucallpa" de un golpe)
+y no las borran: al prender el proyecto, cada cliente vuelve a quedar como estaba. Un cliente con lotes en dos
+proyectos recibe del que esté prendido. Con "Todos los proyectos" elegido, arriba se listan los que están apagados.
+
+**📨 Envíos del día** (pestaña nueva de Cobranza IA): qué salió un día, por proyecto: cuántos avisos, a cuántos
+clientes, cuántos **llegaron** y se **leyeron** (palomitas de Meta), cuántos **fallaron** y cuántos
+**respondieron** después del aviso. Debajo, la lista aviso por aviso (hora, lote, cliente, plantilla, estado,
+hora de la respuesta); tocar una fila muestra el mensaje tal cual le llegó, y **💬 chat** abre la conversación
+completa en la bandeja de WhatsApp (que desde el 29 oct también muestra los chats de cobranza).
+
+_Técnico: `cobranza_proyectos_cfg` (sin fila = todo prendido), `cobranza_proyecto_set()`, `cobranza_envios_dia(p_dia)`,
+`cobranza_envios_dias()`, `wa_chats_cobranza()`; el agente lo aplica en `barridoAvisos`, `proyectarAvisos`
+(estado `proyecto_pausado`) y `turno` (motivo `PROYECTO_APAGADO`)._

@@ -644,6 +644,8 @@ const NO_REGISTRADO = 'Hola, le saluda Urbis Group - Cobranzas. No encontramos e
 
 // sql/161: agente, instrucciones y texto propio del próximo aviso, POR CLIENTE
 const AGENTE_APAGADO = 'el agente está apagado para este cliente: lo atiende la secretaria'
+// sql/165: el proyecto entero tiene el agente apagado (Cobranza IA → Clientes y avisos)
+const PROYECTO_APAGADO = 'el agente está apagado para su proyecto: lo atiende la secretaria'
 async function cfgClientes(ids) {
   if (!ids || !ids.length) return []
   const { data, error } = await supabase.from('cobranza_clientes_cfg').select('client_id, agente, instrucciones, aviso_texto').in('client_id', ids)
@@ -655,6 +657,21 @@ async function textosPropios() {
   if (error) return new Map()
   return new Map((data || []).filter(x => String(x.aviso_texto || '').trim()).map(x => [x.client_id, String(x.aviso_texto).trim()]))
 }
+// sql/165: interruptores POR PROYECTO (avisos / agente). Sin fila = los dos
+// prendidos. Mandan sobre el interruptor por cliente: proyecto apagado = nadie.
+// Si la tabla no existe (165 sin correr) se avisa una vez y todo sigue prendido.
+let _sinTablaProy = false
+async function cfgProyectos() {
+  const { data, error } = await supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente')
+  if (error) {
+    if (!_sinTablaProy) { _sinTablaProy = true; log('cobranza_proyectos_cfg:', error.message, '(¿falta correr sql/165?) — se sigue con todos los proyectos prendidos') }
+    return new Map()
+  }
+  _sinTablaProy = false
+  return new Map((data || []).map(p => [p.project_id, { avisos: p.avisos !== false, agente: p.agente !== false }]))
+}
+const proyectoRecibeAvisos = (porProy, projectId) => !projectId || (porProy.get(projectId)?.avisos !== false)
+const proyectoConAgente = (porProy, projectId) => !projectId || (porProy.get(projectId)?.agente !== false)
 
 const timers = new Map()
 const enCurso = new Set()
@@ -693,6 +710,15 @@ async function turno(chatId) {
     if (!chat.es_prueba && !porCliente.some(c => c.agente)) {
       await pasarAHumano(chat, AGENTE_APAGADO)
       return
+    }
+    // sql/165: si TODOS los proyectos donde este cliente tiene lote están con el
+    // agente apagado, no contesta (basta uno prendido para que atienda)
+    if (!chat.es_prueba) {
+      const porProy = await cfgProyectos()
+      if (porProy.size) {
+        const proys = [...new Set((await ventasDe(chat.client_ids)).map(v => v.lot?.project?.id).filter(Boolean))]
+        if (proys.length && !proys.some(p => proyectoConAgente(porProy, p))) { await pasarAHumano(chat, PROYECTO_APAGADO); return }
+      }
     }
     chat.instrucciones = porCliente.filter(c => String(c.instrucciones || '').trim())
       .map(c => ((chat.clientes || []).find(x => x.id === c.client_id)?.full_name || 'Cliente') + ': ' + String(c.instrucciones).trim()).join('\n')
@@ -1134,12 +1160,14 @@ async function barridoAvisos() {
     const enRevision = new Set((rep.data || []).map(p => p.sale_id))
     const escribio = new Map((chats.data || []).map(c => [nueve(c.phone), c.ultimo_entrante_at]))
     const propios = await textosPropios()
+    const porProy = await cfgProyectos()   // sql/165: proyectos con los avisos apagados
     const plazo = Math.max(1, Number(cfg.plazo_contrato_dias || 7))
-    let enviados = 0, sinPlantilla = 0, topeAlcanzado = false
+    let enviados = 0, sinPlantilla = 0, topeAlcanzado = false, proyApagado = 0
     const sinRespuesta = []
     for (const v of ventas) {
       const tels = telefonosBot(v.client)
       if (!tels.length || conPromesa.has(v.id) || enRevision.has(v.id)) continue
+      if (!proyectoRecibeAvisos(porProy, v.lot.project?.id)) { proyApagado++; continue }
       const env = envios.get(v.id) || []
       // Plazo para comunicarse: recibió el aviso por contrato hace `plazo` días o más
       // y no escribió desde entonces → a la secretaria (se revisa antes de mandar el
@@ -1176,10 +1204,11 @@ async function barridoAvisos() {
     // promesas: recordatorio N dias antes de la fecha prometida (si ese dia no se
     // puede cobrar, el dia habil anterior)
     const { data: proms } = await supabase.from('cobranza_promesas')
-      .select('id, client_id, sale_id, fecha_promesa, monto, avisar_dias_antes, client:clients(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), sale:sales(id, lot:lots(mz, lt, project:projects(name)), installments(id, amount, amount_paid, status, installment_number, due_date))')
+      .select('id, client_id, sale_id, fecha_promesa, monto, avisar_dias_antes, client:clients(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), sale:sales(id, lot:lots(mz, lt, project:projects(id, name)), installments(id, amount, amount_paid, status, installment_number, due_date))')
       .eq('estado', 'vigente').eq('es_prueba', false).is('aviso_enviado_at', null)
     for (const p of (proms || [])) {
       if (topeAlcanzado || !sirve(cfg.plantilla_promesa) || !p.sale) continue
+      if (!proyectoRecibeAvisos(porProy, p.sale.lot?.project?.id)) continue   // sql/165
       const dias = p.avisar_dias_antes ?? cfg.promesa_avisar_dias ?? 1
       if (!(hoy >= habilHasta(cfg, sumarDias(p.fecha_promesa, -dias)) && hoy <= p.fecha_promesa)) continue
       const pend = cuotasPendientes(p.sale, hoy)
@@ -1211,7 +1240,7 @@ async function barridoAvisos() {
     }
 
     await supabase.from('cobranza_config').update({ ultimo_barrido: hoy }).eq('id', 1)
-    log('AVISOS:', enviados, 'enviados', sinPlantilla ? '· ' + sinPlantilla + ' sin plantilla configurada' : '', topeAlcanzado ? '· TOPE DIARIO ALCANZADO' : '')
+    log('AVISOS:', enviados, 'enviados', sinPlantilla ? '· ' + sinPlantilla + ' sin plantilla configurada' : '', proyApagado ? '· ' + proyApagado + ' de proyectos con avisos apagados' : '', topeAlcanzado ? '· TOPE DIARIO ALCANZADO' : '')
     const partes = []
     if (topeAlcanzado) partes.push('🛑 Se llegó al tope diario de ' + cfg.tope_diario + ' avisos: el resto sale mañana.')
     if (sinPlantilla) partes.push('⚠ ' + sinPlantilla + ' aviso(s) no salieron porque falta el nombre de la plantilla en la configuración.')
@@ -1259,6 +1288,7 @@ async function proyectarAvisos(porQue = 'programada') {
     const conPromesa = new Map((prom.data || []).map(p => [p.sale_id, p.fecha_promesa]))
     const enRevision = new Set((rep.data || []).map(p => p.sale_id))
     const propios = await textosPropios()
+    const porProy = await cfgProyectos()   // sql/165
     const filas = []
     for (const v of ventas) {
       const pend = cuotasPendientes(v, hoy)
@@ -1275,6 +1305,7 @@ async function proyectarAvisos(porQue = 'programada') {
       if (d && propios.has(v.client_id)) fila.texto = '✍️ TEXTO PROPIO (sale así si el cliente escribió en las últimas 24 h):\n' + propios.get(v.client_id) + '\n\n— Si no, sale la plantilla:\n' + fila.texto
       // por que NO recibe (en este orden, el mismo que usa el barrido)
       if (!pend.length) { fila.estado = 'al_dia'; fila.detalle = 'No tiene cuotas pendientes.' }
+      else if (!proyectoRecibeAvisos(porProy, v.lot.project?.id)) { fila.estado = 'proyecto_pausado'; fila.detalle = 'Los avisos están apagados para todo el proyecto ' + (v.lot.project?.name || '') + ' (Cobranza IA → Clientes y avisos → interruptor del proyecto).' }
       else if (v.auto_cobranza === false) { fila.estado = 'pausado'; fila.detalle = 'La cobranza automática está pausada (casilla "recibe avisos").' }
       else if (!telefonosBot(v.client).length) { fila.estado = 'sin_celular'; fila.detalle = 'Ningún celular de la ficha está validado y habilitado para el bot.' }
       else if (conPromesa.has(v.id)) { fila.estado = 'promesa'; fila.detalle = 'Tiene una promesa de pago vigente para el ' + fechaCorta(conPromesa.get(v.id)) + ': recibe solo el recordatorio de la promesa.' }

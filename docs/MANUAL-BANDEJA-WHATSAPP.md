@@ -114,6 +114,34 @@ Los que la secretaria escribe **desde la app del celular** (coexistencia) aparec
 
 ---
 
+## 29 oct: una sola bandeja — también los chats de COBRANZA (sql/165)
+
+Hasta el 28 de octubre la bandeja mostraba solo los chats del **bot de ventas** (leads e historial).
+Los chats de los **clientes** (los que atiende el agente de cobranza por el mismo 960) vivían aparte, en
+Cobranza IA → Conversaciones. Por eso el día del primer envío masivo "no se veía el chat".
+
+Ahora entran a la misma lista, con el distintivo **💵 COBRANZA**:
+
+- **Lo que se ve en el hilo**: el aviso que salió (**📨 AVISO (PLANTILLA)**, con el texto tal cual le llegó
+  y sus palomitas), lo que contestó el cliente, lo que respondió el **🤖 AGENTE IA**, lo que escribió la
+  secretaria desde el panel (**👩**) o desde la app del celular (**📲 CELULAR**). Si ese celular ya tenía un
+  chat viejo con el bot (antes del 27 oct), ese historial aparece debajo marcado con 🗄️.
+- **Filtro 📨 COBRANZA** (arriba de la lista): solo los chats de clientes de cobranza. El filtro
+  **💵 CLIENTES** los incluye; **🆕 LEADS** los excluye.
+- **No leídos**: el número verde viene de la base (lo que el cliente escribió y nadie abrió). Se limpia al
+  abrir el chat.
+- **Quién atiende**: el botón **🤖 AGENTE DE COBRANZA ATIENDE · tomar yo** deja el chat con la secretaria
+  (el agente se calla ahí); **👩 SECRETARIA · devolver al agente** lo regresa. Si el agente está apagado para
+  ese cliente o para su proyecto (Cobranza IA → Clientes y avisos), el chat ya viene con la secretaria y dice por qué.
+- **Escribirle**: solo texto, y solo con la **ventana de 24 h abierta**. Sale por el 960 en segundos y el
+  agente se calla en ese chat. Con la ventana cerrada, el aviso con plantilla lo manda el agente a su hora.
+  Escribir a un cliente de cobranza requiere el permiso **cobranza** (Usuarios); los demás solo leen.
+- Un chat de cobranza **no** lleva etiquetas, asignación ni clasificación del directorio: su proyecto es el
+  del lote de la ficha. El enlace **↗ COBRANZA IA** abre la pantalla de cobranza (vouchers, promesas, seguimiento).
+- **📨 ENVÍOS DEL DÍA** (arriba): el resumen de lo que salió ese día, por proyecto; desde ahí "💬 chat" vuelve aquí.
+
+---
+
 ## Preguntas frecuentes
 
 **¿Por qué veo chats de "BRISAS" u otro número apagado?** Son historial. Con el filtro de números
