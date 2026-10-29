@@ -716,17 +716,25 @@ function Conversaciones({ puede, profile, setMsg }) {
   const [msgs, setMsgs] = useState([])
   const [txt, setTxt] = useState('')
   const [filtro, setFiltro] = useState('todos')
+  const [proy, setProy] = useState('todos')          // sql/165: filtro por proyecto del lote
+  const [proyDe, setProyDe] = useState({})           // chat_id → { id, name, color }
 
   async function cargarChats() {
-    const { data } = await supabase.from('cobranza_chats').select('*').eq('es_prueba', false)
-      .order('ultimo_mensaje_at', { ascending: false, nullsFirst: false }).limit(200)
+    const [{ data }, px] = await Promise.all([
+      supabase.from('cobranza_chats').select('*').eq('es_prueba', false).order('ultimo_mensaje_at', { ascending: false, nullsFirst: false }).limit(200),
+      supabase.rpc('wa_chats_cobranza', { p_limit: 400 }),   // el proyecto de cada chat (sql/165)
+    ])
     setChats(data || [])
+    if (!px.error) setProyDe(Object.fromEntries((px.data || []).filter(c => c.project_id).map(c => [c.id, { id: c.project_id, name: c.project_name, color: c.project_color }])))
     const ids = [...new Set((data || []).flatMap(c => c.client_ids || []))]
     if (ids.length) {
       const { data: cl } = await supabase.from('clients').select('id, full_name').in('id', ids)
       setNombres(Object.fromEntries((cl || []).map(c => [c.id, c.full_name])))
     }
   }
+  const proyectos = [...new Map(Object.values(proyDe).map(p => [p.id, p])).values()].sort((a, b) => String(a.name).localeCompare(String(b.name)))
+  const corto = n => String(n || '').split(' ').slice(-1)[0].toUpperCase()
+  const BadgeProy = ({ p, grande }) => p ? <span title={p.name} style={{ fontSize: grande ? 11 : 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${p.color || '#6fd0c9'}`, color: p.color || '#6fd0c9', whiteSpace: 'nowrap' }}>📁 {grande ? p.name : corto(p.name)}</span> : null
   async function cargarMsgs(id) {
     const { data } = await supabase.from('cobranza_mensajes').select('*').eq('chat_id', id).order('created_at', { ascending: false }).limit(200)
     setMsgs((data || []).reverse())
@@ -763,7 +771,9 @@ function Conversaciones({ puede, profile, setMsg }) {
     cargarMsgs(sel)
   }
 
-  const visibles = chats.filter(c => filtro === 'todos' || (filtro === 'sin_numero' ? sinNumero(c) && !c.telefono_vinculado && !c.es_lead : c.modo === filtro))
+  const visibles = chats.filter(c => (filtro === 'todos' || (filtro === 'sin_numero' ? sinNumero(c) && !c.telefono_vinculado && !c.es_lead : c.modo === filtro))
+    && (proy === 'todos' || (proy === 'sin' ? !proyDe[c.id] : proyDe[c.id]?.id === proy)))
+  const cuentaProy = id => chats.filter(c => id === 'sin' ? !proyDe[c.id] : proyDe[c.id]?.id === id).length
   const sinVincular = chats.filter(c => sinNumero(c) && !c.telefono_vinculado && !c.es_lead).length
   const paraSecretaria = chats.filter(c => c.modo === 'humano').length
   return (
@@ -775,10 +785,21 @@ function Conversaciones({ puede, profile, setMsg }) {
           <option value="agente">🤖 Con el agente</option>
           {sinVincular > 0 && <option value="sin_numero">👤 Sin número, por vincular ({sinVincular})</option>}
         </select>
+        {proyectos.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+            <button className="btn-ghost" onClick={() => setProy('todos')} style={{ fontSize: 10, padding: '3px 8px', borderColor: proy === 'todos' ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>TODOS</button>
+            {proyectos.map(p => (
+              <button key={p.id} className="btn-ghost" onClick={() => setProy(proy === p.id ? 'todos' : p.id)} title={p.name}
+                style={{ fontSize: 10, padding: '3px 8px', color: p.color || undefined, borderColor: proy === p.id ? (p.color || '#8c9b7a') : 'rgba(255,255,255,.15)' }}>
+                ● {corto(p.name)} <b>{cuentaProy(p.id)}</b></button>
+            ))}
+            {cuentaProy('sin') > 0 && <button className="btn-ghost" onClick={() => setProy(proy === 'sin' ? 'todos' : 'sin')} style={{ fontSize: 10, padding: '3px 8px', borderColor: proy === 'sin' ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>SIN PROYECTO <b>{cuentaProy('sin')}</b></button>}
+          </div>
+        )}
         {visibles.map(c => (
           <div key={c.id} onClick={() => setSel(c.id)}
-            style={{ padding: '8px 6px', cursor: 'pointer', borderRadius: 6, background: sel === c.id ? 'rgba(255,255,255,.08)' : 'transparent' }}>
-            <b>{titulo(c)}</b>{c.no_leidos > 0 && <span className="warn"> ({c.no_leidos})</span>}
+            style={{ padding: '8px 6px', cursor: 'pointer', borderRadius: 6, background: sel === c.id ? 'rgba(255,255,255,.08)' : 'transparent', borderLeft: proyDe[c.id]?.color ? `3px solid ${proyDe[c.id].color}` : '3px solid transparent' }}>
+            <b>{titulo(c)}</b>{c.no_leidos > 0 && <span className="warn"> ({c.no_leidos})</span>} <BadgeProy p={proyDe[c.id]} />
             <div className="muted small">{telVisible(c)} · {c.modo === 'humano' ? '👩 secretaria' : '🤖 agente'} · {fHora(c.ultimo_mensaje_at)}</div>
             {c.modo === 'humano' && c.motivo_humano && <div className="small warn" style={{ textTransform: 'none' }}>{c.motivo_humano}</div>}
           </div>
@@ -791,7 +812,7 @@ function Conversaciones({ puede, profile, setMsg }) {
           <>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 6 }}>
               <div style={{ flex: 1 }}>
-                <b>{titulo(chat)}</b> <span className="muted small">{telVisible(chat)}</span>
+                <b>{titulo(chat)}</b> <span className="muted small">{telVisible(chat)}</span> <BadgeProy p={proyDe[chat.id]} grande />
                 <div className="small">{chat.modo === 'humano' ? '👩 La atiende la secretaria' + (chat.motivo_humano ? ' — ' + chat.motivo_humano : '') : '🤖 La atiende el agente'}</div>
               </div>
               {puede && (chat.modo === 'humano'
