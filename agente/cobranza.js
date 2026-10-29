@@ -33,7 +33,7 @@ const crypto = require('crypto')
 const { createClient } = require('@supabase/supabase-js')
 const { Anthropic } = require('@anthropic-ai/sdk')
 const WA = require('./cloudapi')
-const { PLANTILLAS, comoSeVe } = require('./plantillas_cobranza')
+const { PLANTILLAS, MARCAS, comoSeVe, marcarPlantilla, nombreBase } = require('./plantillas_cobranza')
 const { subirAR2 } = require('./r2')
 const TG = require('./telegram')
 const { esClienteRegistrado } = require('./quien_escribe')
@@ -136,19 +136,24 @@ function ventaPorTexto(ventas, texto) {
 // ============================================================================
 // CHATS Y MENSAJES
 // ============================================================================
-async function chatDe(phone, esPrueba, nombreWhatsapp) {
+// sql/166: `numeroId` = por qué número de Meta entró el cliente (o por cuál se le
+// manda el aviso). El chat lo recuerda y se le contesta siempre por ese mismo.
+// Vacío = el principal. Si escribe por otro número, el chat se pasa a ese.
+async function chatDe(phone, esPrueba, nombreWhatsapp, numeroId = null) {
   const p = dig(phone)
   const clientes = await clientesDelTelefono(p)
   const ids = clientes.map(c => c.id)
+  const nid = numeroId && !WA.esNumeroPropio(numeroId) ? dig(numeroId) : (numeroId ? null : undefined)
   const { data: ya } = await supabase.from('cobranza_chats').select('*').eq('phone', p).eq('es_prueba', !!esPrueba).maybeSingle()
   if (ya) {
     const campos = { client_ids: ids }
     if (nombreWhatsapp && nombreWhatsapp !== ya.nombre_whatsapp) campos.nombre_whatsapp = nombreWhatsapp
+    if (nid !== undefined && (nid || null) !== (ya.numero_id || null)) campos.numero_id = nid
     await supabase.from('cobranza_chats').update(campos).eq('id', ya.id)
     return { ...ya, ...campos, clientes }
   }
   const { data: nuevo, error } = await supabase.from('cobranza_chats')
-    .insert({ phone: p, es_prueba: !!esPrueba, client_ids: ids, nombre_whatsapp: nombreWhatsapp || null })
+    .insert({ phone: p, es_prueba: !!esPrueba, client_ids: ids, nombre_whatsapp: nombreWhatsapp || null, ...(nid ? { numero_id: nid } : {}) })
     .select('*').single()
   if (error) {
     // otro mensaje del mismo numero lo creo un instante antes
@@ -184,14 +189,18 @@ async function clientesDeChat(fila) {
   if (error) { log('clientes del chat:', error.message); return [] }
   return data || []          // los vinculó la secretaria a mano: esa es la validación
 }
-async function chatDeUsuario(clave, nombreWhatsapp) {
+async function chatDeUsuario(clave, nombreWhatsapp, numeroId = null) {
+  const nid = numeroId && !WA.esNumeroPropio(numeroId) ? dig(numeroId) : null
   const { data: ya } = await supabase.from('cobranza_chats').select('*').eq('phone', clave).eq('es_prueba', false).maybeSingle()
   if (ya) {
-    if (nombreWhatsapp && nombreWhatsapp !== ya.nombre_whatsapp) await supabase.from('cobranza_chats').update({ nombre_whatsapp: nombreWhatsapp }).eq('id', ya.id)
-    return { ...ya, nombre_whatsapp: nombreWhatsapp || ya.nombre_whatsapp, clientes: await clientesDeChat(ya) }
+    const campos = {}
+    if (nombreWhatsapp && nombreWhatsapp !== ya.nombre_whatsapp) campos.nombre_whatsapp = nombreWhatsapp
+    if (numeroId && (nid || null) !== (ya.numero_id || null)) campos.numero_id = nid
+    if (Object.keys(campos).length) await supabase.from('cobranza_chats').update(campos).eq('id', ya.id)
+    return { ...ya, ...campos, nombre_whatsapp: nombreWhatsapp || ya.nombre_whatsapp, clientes: await clientesDeChat(ya) }
   }
   const { data: nuevo, error } = await supabase.from('cobranza_chats')
-    .insert({ phone: clave, es_prueba: false, client_ids: [], nombre_whatsapp: nombreWhatsapp || null }).select('*').single()
+    .insert({ phone: clave, es_prueba: false, client_ids: [], nombre_whatsapp: nombreWhatsapp || null, ...(nid ? { numero_id: nid } : {}) }).select('*').single()
   if (error) {
     const { data: otra } = await supabase.from('cobranza_chats').select('*').eq('phone', clave).eq('es_prueba', false).maybeSingle()
     if (otra) return { ...otra, clientes: [] }
@@ -211,7 +220,7 @@ async function enviarAlCliente(chat, texto, autor, extra = {}) {
   else if (!telDeChat(chat)) { fila.estado = 'fallido'; fila.error = 'Chat sin número: vincúlalo a la ficha del cliente para poder contestarle' }
   else {
     try {
-      const r = await WA.enviarTexto(telDeChat(chat), texto)
+      const r = await WA.enviarTexto(telDeChat(chat), texto, chat.numero_id || null)   // sql/166: por el número del chat
       fila.wa_id = r.messages?.[0]?.id || null
     } catch (e) { fila.estado = 'fallido'; fila.error = String(e.message || e).slice(0, 300) }
   }
@@ -639,8 +648,9 @@ async function responder(chat, cfg) {
   if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') return
   const hoy = hoyLima()
   const dia = new Date().toLocaleDateString('es-PE', { timeZone: TZ, weekday: 'long' })
+  const marca = marcaDelChat(chat, await cfgProyectos())   // sql/166: Urbis Group o la del proyecto (Century…)
   const system = [
-    { type: 'text', text: PROMPT_BASE + (cfg.notas_agente ? '\n\nIndicaciones del negocio:\n' + cfg.notas_agente : ''), cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: promptBase(marca) + (cfg.notas_agente ? '\n\nIndicaciones del negocio:\n' + cfg.notas_agente : ''), cache_control: { type: 'ephemeral' } },
     { type: 'text', text: `Hoy es ${dia} ${fechaCorta(hoy)} (${hoy}), hora de Lima ${horaLima()}.\nTitular(es) de este número: ${(chat.clientes || []).map(c => c.full_name).join(' / ')}.` + (chat.instrucciones ? `
 
 Indicaciones de la secretaria para ESTE cliente (respétalas siempre, sin contárselas al cliente):
@@ -706,7 +716,11 @@ ${chat.instrucciones}` : '') },
   if (nuevos && nuevos.length) programarTurno(chat.id, 2000)
 }
 
-const NO_REGISTRADO = 'Hola, le saluda Urbis Group - Cobranzas. No encontramos este número registrado como titular de un lote. Por seguridad no podemos compartir información por aquí; en breve una asesora le escribirá para ayudarle.'
+// sql/166: con la marca del proyecto por cuyo número escribió (Urbis Group, Century…)
+const noRegistrado = marca => 'Hola, le saluda ' + (marca || MARCAS.urbis.marca) + ' - Cobranzas. No encontramos este número registrado como titular de un lote. Por seguridad no podemos compartir información por aquí; en breve una asesora le escribirá para ayudarle.'
+const promptBase = marca => !marca || marca === MARCAS.urbis.marca ? PROMPT_BASE
+  : PROMPT_BASE.replace('el asistente de cobranzas de Urbis Group, una empresa', 'el asistente de cobranzas de ' + marca + ', una empresa')
+    + '\n\nMarca: en este chat te presentas SIEMPRE como ' + marca + '. No menciones a Urbis Group ni a otros proyectos.'
 
 // sql/161: agente, instrucciones y texto propio del próximo aviso, POR CLIENTE
 const AGENTE_APAGADO = 'el agente está apagado para este cliente: lo atiende la secretaria'
@@ -727,17 +741,44 @@ async function textosPropios() {
 // prendidos. Mandan sobre el interruptor por cliente: proyecto apagado = nadie.
 // Si la tabla no existe (165 sin correr) se avisa una vez y todo sigue prendido.
 let _sinTablaProy = false
+let _sinColsNumero = false
+let _numerosExtra = new Set()          // sql/166: ids de los números propios de proyectos (además del principal)
 async function cfgProyectos() {
-  const { data, error } = await supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente')
+  let { data, error } = await supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente, phone_number_id, numero, marca, plantilla_prefijo')
+  if (error && /phone_number_id|marca|plantilla_prefijo/.test(error.message)) {      // 165 corrido, 166 todavía no
+    if (!_sinColsNumero) { _sinColsNumero = true; log('cobranza_proyectos_cfg sin número por proyecto (¿falta correr sql/166?) — todo sale por el principal') }
+    ;({ data, error } = await supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente'))
+  }
   if (error) {
     if (!_sinTablaProy) { _sinTablaProy = true; log('cobranza_proyectos_cfg:', error.message, '(¿falta correr sql/165?) — se sigue con todos los proyectos prendidos') }
     return new Map()
   }
   _sinTablaProy = false
-  return new Map((data || []).map(p => [p.project_id, { avisos: p.avisos !== false, agente: p.agente !== false }]))
+  const m = new Map((data || []).map(p => [p.project_id, {
+    avisos: p.avisos !== false, agente: p.agente !== false,
+    phone_number_id: dig(p.phone_number_id) || null, numero: dig(p.numero) || null, marca: String(p.marca || '').trim() || null, plantilla_prefijo: String(p.plantilla_prefijo || '').trim() || null,
+  }]))
+  _numerosExtra = new Set([...m.values()].map(p => p.phone_number_id).filter(id => id && !WA.esNumeroPropio(id)))
+  return m
 }
 const proyectoRecibeAvisos = (porProy, projectId) => !projectId || (porProy.get(projectId)?.avisos !== false)
 const proyectoConAgente = (porProy, projectId) => !projectId || (porProy.get(projectId)?.agente !== false)
+// sql/166: el aviso de una venta sale por el número de SU proyecto, con SUS
+// plantillas (prefijo) y SU marca. Sin configuración: el principal, Urbis.
+function marcarAviso(d, porProy, projectId) {
+  if (!d) return d
+  const pp = projectId ? porProy.get(projectId) : null
+  if (pp?.plantilla_prefijo) d.plantilla = marcarPlantilla(d.plantilla, pp.plantilla_prefijo)
+  d.numero_id = pp?.phone_number_id && !WA.esNumeroPropio(pp.phone_number_id) ? pp.phone_number_id : null
+  d.marca = pp?.marca || null
+  return d
+}
+// la marca con la que se habla en un chat: la del proyecto cuyo número es el del chat
+function marcaDelChat(chat, porProy) {
+  const nid = dig(chat?.numero_id)
+  if (nid) for (const p of porProy.values()) if (p.phone_number_id === nid && p.marca) return p.marca
+  return MARCAS.urbis.marca
+}
 
 const timers = new Map()
 const enCurso = new Set()
@@ -763,7 +804,7 @@ async function turno(chatId) {
       // sin IA y sin datos: respuesta fija una vez y a la secretaria
       const desde = new Date(Date.now() - 24 * 3600e3).toISOString()
       const { data: ya } = await supabase.from('cobranza_mensajes').select('id').eq('chat_id', chat.id).eq('autor', 'sistema').gte('created_at', desde).limit(1)
-      if (!ya || !ya.length) await enviarAlCliente(chat, NO_REGISTRADO, 'sistema')
+      if (!ya || !ya.length) await enviarAlCliente(chat, noRegistrado(marcaDelChat(chat, await cfgProyectos())), 'sistema')
       await pasarAHumano(chat, 'número no registrado como titular (o celular sin validar en su ficha)')
       return
     }
@@ -830,16 +871,20 @@ async function pasarAlBot(ruta, cuerpo, phone) {
 
 // Solo lo del numero propio: el conector reenvia por conexion, pero si algun dia
 // llegara el aviso de otro numero de la misma app, no se contesta desde aqui.
+// sql/166: también se atienden los números propios de los proyectos (Century…),
+// que están en cobranza_proyectos_cfg.phone_number_id (mismo WABA).
 function deOtroNumero(v) {
   const id = dig(v?.metadata?.phone_number_id)
-  return !!(id && process.env.WA_PHONE_NUMBER_ID && id !== dig(process.env.WA_PHONE_NUMBER_ID))
+  return !!(id && process.env.WA_PHONE_NUMBER_ID && id !== dig(process.env.WA_PHONE_NUMBER_ID) && !_numerosExtra.has(id))
 }
+const numeroDe = v => { const id = dig(v?.metadata?.phone_number_id); return id && !WA.esNumeroPropio(id) ? id : null }
 
 async function entrante(m, v) {
   if (m.type === 'reaction') return
   const quien = remitente(m, v)                       // sql/164: con celular o con nombre de usuario
   if (!quien.phone && !quien.usuario) return
   const phone = quien.phone || null
+  if (_numerosExtra.size === 0 && !_sinTablaProy) await cfgProyectos()   // por si todavía no se cargó la lista de números
   if (deOtroNumero(v)) return
   if (m.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', m.id).limit(1)
@@ -852,7 +897,7 @@ async function entrante(m, v) {
   // (sin celular no hay ficha que mirar: se queda aquí para que la secretaria lo vincule)
   if (phone && !(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/entrante', { m, v }, phone); return }
   const nombre = (phone ? (v.contacts || []).find(c => dig(c.wa_id) === phone) : (v.contacts || [])[0])?.profile?.name || null
-  const chat = phone ? await chatDe(phone, false, nombre) : await chatDeUsuario(quien.usuario, nombre)
+  const chat = phone ? await chatDe(phone, false, nombre, v?.metadata?.phone_number_id || null) : await chatDeUsuario(quien.usuario, nombre, v?.metadata?.phone_number_id || null)
   let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''
   const mm = m.image || m.document || m.video || m.audio || m.sticker
   let media = null
@@ -898,12 +943,12 @@ async function eco(e, v) {
   const phone = dig(e.to)
   if (!phone) return
   if (deOtroNumero(v)) return
-  if (!(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/eco', { e }, phone); return }
+  if (!(await esClienteRegistrado(supabase, phone))) { await pasarAlBot('/eco', { e, v }, phone); return }
   if (e.id) {
     const { data: dup } = await supabase.from('cobranza_mensajes').select('id').eq('wa_id', e.id).limit(1)
     if (dup && dup.length) return
   }
-  const chat = await chatDe(phone, false)
+  const chat = await chatDe(phone, false, null, v?.metadata?.phone_number_id || null)
   const texto = e.text?.body || e.image?.caption || e.document?.caption || '[' + (e.type || 'mensaje') + ' enviado desde el celular]'
   await supabase.from('cobranza_mensajes').insert({ chat_id: chat.id, direccion: 'out', autor: 'celular', texto, estado: 'enviado', wa_id: e.id || null })
   await supabase.from('cobranza_chats').update({ ultimo_mensaje_at: new Date().toISOString() }).eq('id', chat.id)
@@ -944,7 +989,7 @@ async function salientesPanel() {
     else if (!ventanaAbierta(chat)) upd = { estado: 'fallido', error: 'Pasaron más de 24 h desde el último mensaje del cliente: Meta solo deja escribirle con plantilla' }
     else if (!telDeChat(chat)) upd = { estado: 'fallido', error: 'Chat sin número: vincúlalo a la ficha del cliente para poder contestarle' }
     else {
-      try { const r = await WA.enviarTexto(telDeChat(chat), m.texto || ''); upd = { estado: 'enviado', wa_id: r.messages?.[0]?.id || null } }
+      try { const r = await WA.enviarTexto(telDeChat(chat), m.texto || '', chat.numero_id || null); upd = { estado: 'enviado', wa_id: r.messages?.[0]?.id || null } }
       catch (e) { upd = { estado: 'fallido', error: String(e.message || e).slice(0, 300) } }
     }
     await supabase.from('cobranza_mensajes').update(upd).eq('id', m.id)
@@ -1095,7 +1140,7 @@ async function vistaPreviaAviso(chat) {
       : (rep.data || []).some(p => p.sale_id === v.id) ? 'tiene un voucher esperando validación' : null
     if (fuera) { lineas.push(loteDe(v) + ': no recibe avisos (' + fuera + ')'); continue }
     const cli = (chat.clientes || []).find(c => c.id === v.client_id)
-    const d = decidirAviso({ ...v, client: cli }, cfg, hoy, envios.get(v.id) || [])
+    const d = marcarAviso(decidirAviso({ ...v, client: cli }, cfg, hoy, envios.get(v.id) || []), await cfgProyectos(), v.lot?.project?.id)
     lineas.push(loteDe(v) + ': ' + (d
       ? `hoy le toca "${d.motivo}" con la plantilla ${d.plantilla || '(SIN NOMBRE — configurar)'}:\n${textoDelAviso(d)}`
       : 'hoy no le toca aviso con la configuración actual'))
@@ -1109,18 +1154,18 @@ async function vistaPreviaAviso(chat) {
 // agente sabe que se le dijo. Plantilla que no esta en plantillas_cobranza.js:
 // su nombre y sus datos.
 function textoDelAviso(d) {
-  const p = PLANTILLAS.find(x => x.nombre === d.plantilla || x.nombre + '_v2' === d.plantilla)
-  return p ? comoSeVe(p, d.params.map(String)) : `Aviso "${d.plantilla}" (${d.motivo}): ${d.params.join(' · ')}`
+  const p = PLANTILLAS.find(x => x.nombre === nombreBase(d.plantilla))   // sql/166: también century_cobranza_* y *_v2
+  return p ? comoSeVe(p, d.params.map(String), d.marca || null) : `Aviso "${d.plantilla}" (${d.motivo}): ${d.params.join(' · ')}`
 }
 
 async function registrarEnvio(tel, d, extra, cfg) {
   const fila = { phone: tel, motivo: d.motivo, plantilla: d.plantilla, parametros: d.params, estado: 'enviado', ...extra }
   try {
-    const r = await WA.enviarPlantilla(tel, d.plantilla, d.params.map(String), cfg.plantilla_idioma || 'es')
+    const r = await WA.enviarPlantilla(tel, d.plantilla, d.params.map(String), cfg.plantilla_idioma || 'es', d.numero_id || null)   // sql/166: por el número del proyecto
     fila.wa_id = r.messages?.[0]?.id || null
   } catch (e) { fila.estado = 'fallido'; fila.error = String(e.message || e).slice(0, 300) }
   await supabase.from('cobranza_envios').insert(fila)
-  const chat = await chatDe(tel, false)
+  const chat = await chatDe(tel, false, null, d.numero_id || process.env.WA_PHONE_NUMBER_ID || null)
   await supabase.from('cobranza_mensajes').insert({ chat_id: chat.id, direccion: 'out', autor: 'plantilla', texto: textoDelAviso(d), estado: fila.estado, error: fila.error || null, wa_id: fila.wa_id || null })
   await supabase.from('cobranza_chats').update({ ultimo_mensaje_at: new Date().toISOString() }).eq('id', chat.id)
   return fila.estado === 'enviado'
@@ -1131,7 +1176,7 @@ async function registrarEnvio(tel, d, extra, cfg) {
 // 'texto_propio' para que la escalera lo cuente igual que un aviso, y se borra
 // de la ficha del cliente: es para UN aviso.
 async function registrarTextoPropio(tel, d, texto, extra) {
-  const chat = await chatDe(tel, false)
+  const chat = await chatDe(tel, false, null, d.numero_id || process.env.WA_PHONE_NUMBER_ID || null)
   const ok = await enviarAlCliente(chat, texto, 'plantilla')
   await supabase.from('cobranza_envios').insert({ phone: tel, motivo: d.motivo, plantilla: 'texto_propio', parametros: [texto], estado: ok ? 'enviado' : 'fallido', ...extra })
   if (ok) await supabase.from('cobranza_clientes_cfg').update({ aviso_texto: null, updated_at: new Date().toISOString() }).eq('client_id', extra.client_id)
@@ -1246,7 +1291,7 @@ async function barridoAvisos() {
           sinRespuesta.push('• ' + (v.client?.full_name || '?') + ' · ' + loteDe(v) + ' (' + (v.lot.project?.name || '') + ') · ' + vencidas.length + ' cuotas · '
             + soles(vencidas.reduce((s, q) => s + q.pendiente, 0)) + ' · aviso del ' + fechaCorta(ultContrato.fecha))
       }
-      const d = decidirAviso(v, cfg, hoy, env)
+      const d = marcarAviso(decidirAviso(v, cfg, hoy, env), porProy, v.lot.project?.id)   // sql/166: número, plantilla y marca del proyecto
       if (!d) continue
       // sql/161: texto propio del próximo aviso, solo con la ventana de 24 h abierta
       // (regla de Meta); si no, sale la plantilla de siempre
@@ -1279,7 +1324,9 @@ async function barridoAvisos() {
       if (!(hoy >= habilHasta(cfg, sumarDias(p.fecha_promesa, -dias)) && hoy <= p.fecha_promesa)) continue
       const pend = cuotasPendientes(p.sale, hoy)
       const monto = p.monto || (pend[0] ? pend[0].pendiente : 0)
-      const d = { motivo: 'promesa', plantilla: usable(cfg.plantilla_promesa), params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }
+      const d = marcarAviso({ motivo: 'promesa', plantilla: cfg.plantilla_promesa, params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }, porProy, p.sale.lot?.project?.id)
+      if (!sirve(d.plantilla)) continue
+      d.plantilla = usable(d.plantilla)
       let ok = false
       for (const tel of telefonosBot(p.client)) {
         if (cupo <= 0) { topeAlcanzado = true; break }
@@ -1365,7 +1412,7 @@ async function proyectarAvisos(porQue = 'programada') {
         deuda_vencida: Math.round(vencidas.reduce((s, q) => s + q.pendiente, 0) * 100) / 100,
         calculado_at: inicio,
       }
-      const d = pend.length ? proximoAviso(v, cfg, hoy, envios.get(v.id) || []) : null
+      const d = pend.length ? marcarAviso(proximoAviso(v, cfg, hoy, envios.get(v.id) || []), porProy, v.lot.project?.id) : null
       if (d) Object.assign(fila, { motivo: d.motivo, fecha: d.fecha, plantilla: d.plantilla || null, texto: textoDelAviso(d), cuota: d.q?.installment_number ?? null, monto: d.q ? d.q.pendiente : null })
       // texto propio (sql/161): se muestra el que escribió la secretaria y, debajo, la plantilla de respaldo
       if (d && propios.has(v.client_id)) fila.texto = '✍️ TEXTO PROPIO (sale así si el cliente escribió en las últimas 24 h):\n' + propios.get(v.client_id) + '\n\n— Si no, sale la plantilla:\n' + fila.texto

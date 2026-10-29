@@ -184,6 +184,26 @@ queda en Por validar, pero con la alerta "VOUCHER ANTIGUO" y el mismo aviso, par
 El WhatsApp a la secretaria sale como texto si ella le escribió al 960 en las últimas 24 h; si no, con la
 plantilla interna `urbis_aviso_interno` (hay que crearla en Meta: `node cobranza_meta.js crear_plantillas`).
 
+## 29 oct: un número y una marca por proyecto (Century) · sql/166
+
+**Pedido:** "todo lo que es Century con otro número, y que diga Century Proyectos Inmobiliarios, ya no Urbis".
+El número de Century se conecta en la **misma cuenta de WhatsApp de Meta** que el 960 (mismo token, misma
+tarjeta), y en Clientes y avisos → elegir el proyecto → **📱 número** se guardan: el identificador del número en
+Meta, el número visible, la **marca** y el **prefijo de sus plantillas**. Desde ahí:
+
+- los **avisos** de ese proyecto salen por ese número con sus propias plantillas (`century_cobranza_*`, copia
+  de las de Urbis con la marca cambiada; se crean una vez con `node cobranza_meta.js crear_plantillas century`
+  y Meta las aprueba);
+- el **agente** se presenta como esa marca en los chats que entraron por ese número y nunca menciona a Urbis;
+- cada chat recuerda por qué número entró y se le contesta **siempre por el mismo**; el bot de leads también.
+
+Un cliente que tiene lotes en dos proyectos recibe cada aviso por el número del proyecto de ese lote.
+
+**💲 Consumo** (pestaña nueva): plantillas enviadas / llegaron / fallidas, textos del agente y de la secretaria
+(gratis dentro de las 24 h), mensajes de clientes y el **estimado del mes** por proyecto y número: plantillas ×
+tarifa + IA por tokens. La tarifa es de referencia (se edita ahí); la factura real está en Meta → WhatsApp
+Manager → Facturación.
+
 _Técnico: `cobranza_proyectos_cfg` (sin fila = todo prendido), `cobranza_proyecto_set()`, `cobranza_envios_dia(p_dia)`,
 `cobranza_envios_dias()`, `wa_chats_cobranza()`; el agente lo aplica en `barridoAvisos`, `proyectarAvisos`
 (estado `proyecto_pausado`) y `turno` (motivo `PROYECTO_APAGADO`)._

@@ -64,7 +64,7 @@ export default function CobranzaIA() {
 
   if (!ve) return <p className="error">Esta pantalla es de la responsable de cobranza. El superusuario da el permiso desde Usuarios.</p>
   const vivo = !!cfg?.latido && Date.now() - new Date(cfg.latido).getTime() < 3 * 60000
-  const TABS = [['clientes', '👥 Clientes y avisos'], ['envios', '📨 Envíos del día'], ['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
+  const TABS = [['clientes', '👥 Clientes y avisos'], ['envios', '📨 Envíos del día'], ['consumo', '💲 Consumo'], ['validar', '💵 Por validar'], ['promesas', '📅 Promesas y vencimientos'], ['chats', '💬 Conversaciones'], ['probar', '🧪 Probar agente'], ['config', '⚙️ Configuración']]
 
   return (
     <>
@@ -87,6 +87,7 @@ export default function CobranzaIA() {
       </div>
       {!falta && cfg && tab === 'clientes' && <ClientesYAvisos />}
       {!falta && cfg && tab === 'envios' && <EnviosDelDia setMsg={setMsg} />}
+      {!falta && cfg && tab === 'consumo' && <Consumo cfg={cfg} puede={puede} setMsg={setMsg} recargar={cargarCfg} />}
       {!falta && cfg && tab === 'validar' && <PorValidar puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'promesas' && <Promesas puede={puede} setMsg={setMsg} />}
       {!falta && cfg && tab === 'chats' && <Conversaciones puede={puede} profile={profile} setMsg={setMsg} />}
@@ -240,6 +241,126 @@ function EnviosDelDia({ setMsg }) {
           </table>
         </div>
       )}
+    </>
+  )
+}
+
+// ============================================================================
+// CONSUMO (sql/166, 29 oct 2026) — cuántos mensajes salen y cuánto va costando
+// ----------------------------------------------------------------------------
+// Pedido del dueño: "cuánto va acumulando mi pago". Meta cobra cada PLANTILLA que
+// se entrega fuera de la ventana de 24 h (los textos dentro de la ventana son
+// gratis); la IA cobra por tokens. La tarifa por plantilla es de REFERENCIA
+// (cobranza_config.costo_plantilla_usd): se corrige con la factura real de Meta.
+// ============================================================================
+const mesLima = () => hoyLima().slice(0, 7)
+const ultimoDia = ym => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) }
+const usd = n => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function Consumo({ cfg, puede, setMsg, recargar }) {
+  const [mes, setMes] = useState(mesLima())
+  const [filas, setFilas] = useState(null)
+  const [tarifa, setTarifa] = useState(String(cfg.costo_plantilla_usd ?? 0.02))
+  const [tc, setTc] = useState(String(cfg.tipo_cambio ?? 3.75))
+  const [verDias, setVerDias] = useState(false)
+
+  async function cargar() {
+    const { data, error } = await supabase.rpc('cobranza_consumo', { p_desde: mes + '-01', p_hasta: ultimoDia(mes) })
+    if (error) { setMsg({ ok: false, t: /cobranza_consumo/.test(error.message) ? 'Falta correr sql/166 en el servidor.' : error.message }); setFilas([]); return }
+    setFilas(data || [])
+  }
+  useEffect(() => { setFilas(null); cargar() }, [mes])
+
+  const costoPl = Number(tarifa) || 0, cambio = Number(tc) || 3.75
+  const costoIA = f => ((f.tokens_in || 0) * PRECIO.in + (f.tokens_out || 0) * PRECIO.out + (f.tokens_cache || 0) * PRECIO.cache) / 1e6
+  const porProy = useMemo(() => {
+    const m = new Map()
+    for (const f of (filas || [])) {
+      const k = f.project_id || ''
+      const r = m.get(k) || { proyecto: f.proyecto || 'Sin proyecto', numeros: new Set(), plantillas: 0, entregadas: 0, fallidas: 0, agente: 0, secretaria: 0, entrantes: 0, ia: 0 }
+      r.numeros.add(f.numero_id || 'principal')
+      r.plantillas += f.plantillas; r.entregadas += f.plantillas_entregadas; r.fallidas += f.plantillas_fallidas
+      r.agente += f.textos_agente; r.secretaria += f.textos_secretaria; r.entrantes += f.entrantes; r.ia += costoIA(f)
+      m.set(k, r)
+    }
+    return [...m.values()].sort((a, b) => a.proyecto.localeCompare(b.proyecto))
+  }, [filas])
+  const cobrables = r => Math.max(0, r.plantillas - r.fallidas)
+  const tot = porProy.reduce((t, r) => ({ plantillas: t.plantillas + r.plantillas, entregadas: t.entregadas + r.entregadas, fallidas: t.fallidas + r.fallidas, agente: t.agente + r.agente, secretaria: t.secretaria + r.secretaria, entrantes: t.entrantes + r.entrantes, ia: t.ia + r.ia, cobrables: t.cobrables + cobrables(r) }), { plantillas: 0, entregadas: 0, fallidas: 0, agente: 0, secretaria: 0, entrantes: 0, ia: 0, cobrables: 0 })
+  const porDia = useMemo(() => {
+    const m = new Map()
+    for (const f of (filas || [])) { const r = m.get(f.dia) || { dia: f.dia, plantillas: 0, fallidas: 0, agente: 0, entrantes: 0, ia: 0 }; r.plantillas += f.plantillas; r.fallidas += f.plantillas_fallidas; r.agente += f.textos_agente; r.entrantes += f.entrantes; r.ia += costoIA(f); m.set(f.dia, r) }
+    return [...m.values()].sort((a, b) => b.dia.localeCompare(a.dia))
+  }, [filas])
+
+  async function guardarTarifa() {
+    if (!puede) return
+    const { error } = await supabase.from('cobranza_config').update({ costo_plantilla_usd: costoPl, tipo_cambio: cambio, updated_at: new Date().toISOString() }).eq('id', 1)
+    if (error) { setMsg({ ok: false, t: /costo_plantilla_usd/.test(error.message) ? 'Falta correr sql/166 en el servidor.' : 'ERROR: ' + error.message }); return }
+    savedFx(); setMsg({ ok: true, t: 'TARIFA GUARDADA' }); recargar()
+  }
+  const totalUsd = tot.cobrables * costoPl + tot.ia
+
+  return (
+    <>
+      <div className="toolbar">
+        <h2 style={{ margin: 0, flex: 1, fontSize: '1.05rem' }}>💲 Consumo de mensajes</h2>
+        <label className="small">Mes <input type="month" value={mes} max={mesLima()} onChange={e => setMes(e.target.value)} /></label>
+        <button className="btn-ghost" onClick={cargar}>↻</button>
+      </div>
+      <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
+        Meta cobra cada <b>plantilla</b> que sale (los avisos automáticos y los recordatorios); los textos del agente y de la secretaria dentro de las 24 h del último mensaje del cliente son <b>gratis</b>. La IA se paga aparte, por lo que lee y escribe (tokens).
+        La tarifa por plantilla es de referencia: la factura real está en Meta → WhatsApp Manager → Facturación.
+      </p>
+      {filas === null && <p className="muted">Cargando…</p>}
+      {filas && (
+        <div className="glass" style={{ padding: '.8rem 1rem', marginBottom: '1rem', display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div><div className="muted small">Plantillas enviadas</div><b style={{ fontSize: '1.4rem' }}>{tot.plantillas}</b> <span className="muted small">({tot.entregadas} llegaron · {tot.fallidas} fallaron)</span></div>
+          <div><div className="muted small">Textos del agente / secretaria</div><b style={{ fontSize: '1.4rem' }}>{tot.agente}</b> <span className="muted small">/ {tot.secretaria} · gratis</span></div>
+          <div><div className="muted small">Mensajes de clientes</div><b style={{ fontSize: '1.4rem' }}>{tot.entrantes}</b></div>
+          <div><div className="muted small">Estimado del mes</div><b style={{ fontSize: '1.4rem' }} className="warn">{usd(totalUsd)}</b> <span className="muted small">≈ {soles(totalUsd * cambio)} · plantillas {usd(tot.cobrables * costoPl)} + IA {usd(tot.ia)}</span></div>
+        </div>
+      )}
+      {filas && filas.length > 0 && (
+        <div className="glass table-wrap" style={{ marginBottom: '1rem' }}>
+          <table>
+            <thead><tr><th>Proyecto</th><th>Número</th><th>Plantillas</th><th>Llegaron</th><th>Fallidas</th><th>Textos agente</th><th>Textos secretaria</th><th>Del cliente</th><th>Plantillas US$</th><th>IA US$</th><th>Total</th></tr></thead>
+            <tbody>
+              {porProy.map(r => (
+                <tr key={r.proyecto}>
+                  <td><b>{r.proyecto}</b></td>
+                  <td className="small">{[...r.numeros].map(n => n === 'principal' ? '960' : n).join(', ')}</td>
+                  <td>{r.plantillas}</td><td>{r.entregadas}</td><td className={r.fallidas ? 'bad' : ''}>{r.fallidas}</td>
+                  <td>{r.agente}</td><td>{r.secretaria}</td><td>{r.entrantes}</td>
+                  <td>{usd(cobrables(r) * costoPl)}</td><td>{usd(r.ia)}</td><td><b>{usd(cobrables(r) * costoPl + r.ia)}</b> <span className="muted small">{soles((cobrables(r) * costoPl + r.ia) * cambio)}</span></td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 700, background: 'rgba(255,255,255,.04)' }}>
+                <td>TOTAL</td><td></td><td>{tot.plantillas}</td><td>{tot.entregadas}</td><td>{tot.fallidas}</td><td>{tot.agente}</td><td>{tot.secretaria}</td><td>{tot.entrantes}</td>
+                <td>{usd(tot.cobrables * costoPl)}</td><td>{usd(tot.ia)}</td><td>{usd(totalUsd)} <span className="muted small">{soles(totalUsd * cambio)}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {filas && !filas.length && <p className="muted">Ese mes no hubo mensajes.</p>}
+      {filas && filas.length > 0 && (
+        <details open={verDias} onToggle={e => setVerDias(e.target.open)} style={{ marginBottom: '1rem' }}>
+          <summary className="small">📅 Por día</summary>
+          <div className="glass table-wrap" style={{ marginTop: '.5rem' }}>
+            <table>
+              <thead><tr><th>Día</th><th>Plantillas</th><th>Fallidas</th><th>Textos agente</th><th>Del cliente</th><th>Estimado</th></tr></thead>
+              <tbody>{porDia.map(r => <tr key={r.dia}><td>{fCorta(r.dia)}</td><td>{r.plantillas}</td><td className={r.fallidas ? 'bad' : ''}>{r.fallidas}</td><td>{r.agente}</td><td>{r.entrantes}</td><td>{usd(Math.max(0, r.plantillas - r.fallidas) * costoPl + r.ia)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
+      <div className="glass" style={{ padding: '.8rem 1rem', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', textTransform: 'none' }}>
+        <label className="small">Tarifa por plantilla (US$)<input type="number" step="0.001" min="0" value={tarifa} onChange={e => setTarifa(e.target.value)} disabled={!puede} style={{ width: 110 }} /></label>
+        <label className="small">Tipo de cambio (S/ por US$)<input type="number" step="0.01" min="1" value={tc} onChange={e => setTc(e.target.value)} disabled={!puede} style={{ width: 110 }} /></label>
+        {puede && <button className="btn-ghost" onClick={guardarTarifa}>Guardar tarifa</button>}
+        <span className="muted small">IA: Claude Haiku, US$ {PRECIO.in}/M tokens de entrada, US$ {PRECIO.out}/M de salida.</span>
+      </div>
     </>
   )
 }

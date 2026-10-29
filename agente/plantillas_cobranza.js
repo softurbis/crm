@@ -78,10 +78,40 @@ const PLANTILLAS = [
   },
 ]
 
+// 29 oct 2026: MARCAS. Un proyecto puede salir por su propio número y con su
+// propio nombre (pedido del dueño: Las Praderas de Pucallpa es "Century Proyectos
+// Inmobiliarios", ya no Urbis, porque hubo confusiones). Las plantillas son las
+// MISMAS de arriba con la marca cambiada y otro nombre en Meta
+// (prefijo + '_' + lo que sigue a 'urbis_cobranza_'). El aviso interno a la
+// secretaria no se duplica: es uno solo.
+//   node cobranza_meta.js crear_plantillas century   → crea las 5 de Century
+// El panel (Cobranza IA → Clientes y avisos → proyecto) guarda la marca y el
+// prefijo en cobranza_proyectos_cfg; cobranza.js arma el nombre con marcarPlantilla().
+const MARCAS = {
+  urbis: { marca: 'Urbis Group', prefijo: 'urbis_cobranza' },
+  century: { marca: 'Century Proyectos Inmobiliarios', prefijo: 'century_cobranza' },
+}
+const PREFIJO_BASE = 'urbis_cobranza'
+// el nombre de la plantilla de una marca a partir del de Urbis (y al revés)
+function marcarPlantilla(nombre, prefijo) {
+  if (!nombre || !prefijo || prefijo === PREFIJO_BASE) return nombre
+  return String(nombre).replace(new RegExp('^' + PREFIJO_BASE + '_'), prefijo + '_')
+}
+function nombreBase(nombre) {
+  return String(nombre || '').replace(/_v2$/, '').replace(/^[a-z0-9]+_cobranza_/, PREFIJO_BASE + '_')
+}
+function cuerpoConMarca(cuerpo, marca) {
+  return !marca || marca === MARCAS.urbis.marca ? cuerpo : String(cuerpo).split('Urbis Group').join(marca)
+}
+// las plantillas de una marca: copia de las de Urbis con el nombre y la marca cambiados
+function plantillasDe(prefijo, marca) {
+  return PLANTILLAS.filter(p => !p.interna).map(p => ({ ...p, nombre: marcarPlantilla(p.nombre, prefijo), cuerpo: cuerpoConMarca(p.cuerpo, marca), marca }))
+}
+
 // El cuerpo con los valores puestos: asi le llega al cliente. Sin valores, los
-// del ejemplo.
-function comoSeVe(p, valores = p.ejemplo) {
-  return p.cuerpo.replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? `{{${n}}}`)
+// del ejemplo. `marca` cambia "Urbis Group" por la del proyecto (sql/166).
+function comoSeVe(p, valores = p.ejemplo, marca = null) {
+  return cuerpoConMarca(p.cuerpo, marca).replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? `{{${n}}}`)
 }
 
 // Lo que Meta espera en POST /{WABA_ID}/message_templates
@@ -94,4 +124,4 @@ function paraMeta(p, idioma = 'es') {
   }
 }
 
-module.exports = { PLANTILLAS, comoSeVe, paraMeta }
+module.exports = { PLANTILLAS, MARCAS, PREFIJO_BASE, comoSeVe, paraMeta, plantillasDe, marcarPlantilla, nombreBase, cuerpoConMarca }

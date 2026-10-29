@@ -53,9 +53,15 @@ async function api(ruta, body, metodo = 'POST') {
 }
 
 // --- ENVIOS ------------------------------------------------------------------
+// 29 oct 2026 (sql/166): varios numeros en el MISMO WABA (el 960 de Urbis y el de
+// Century). Todo envio acepta al final `desde` = phone_number_id por el que sale;
+// vacio = el principal (WA_PHONE_NUMBER_ID). El token es el mismo (mismo WABA).
+const idDe = desde => String(desde || '').replace(/\D/g, '') || PHONE_ID
+const esNumeroPropio = id => { const d = String(id || '').replace(/\D/g, ''); return !!d && d === String(PHONE_ID || '').replace(/\D/g, '') }
+
 // plantilla aprobada (cobranza fuera de ventana). params = textos de {{1}}, {{2}}...
-async function enviarPlantilla(to, nombre, params = [], idioma = 'es') {
-  return api(`${PHONE_ID}/messages`, {
+async function enviarPlantilla(to, nombre, params = [], idioma = 'es', desde = null) {
+  return api(`${idDe(desde)}/messages`, {
     messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
     type: 'template',
     template: {
@@ -66,41 +72,41 @@ async function enviarPlantilla(to, nombre, params = [], idioma = 'es') {
 }
 
 // texto libre (solo valido dentro de la ventana de 24h tras un mensaje del cliente)
-async function enviarTexto(to, body) {
-  return api(`${PHONE_ID}/messages`, {
+async function enviarTexto(to, body, desde = null) {
+  return api(`${idDe(desde)}/messages`, {
     messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
     type: 'text', text: { body: String(body).slice(0, 4096), preview_url: false },
   })
 }
 
 // media por URL publica (imagen/documento/video/audio) dentro de ventana
-async function enviarMedia(to, url, tipo = 'image', caption = '', filename = '') {
-  return api(`${PHONE_ID}/messages`, {
+async function enviarMedia(to, url, tipo = 'image', caption = '', filename = '', desde = null) {
+  return api(`${idDe(desde)}/messages`, {
     messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
     type: tipo, [tipo]: { link: url, ...(caption && tipo !== 'audio' ? { caption } : {}), ...(filename && tipo === 'document' ? { filename } : {}) },
   })
 }
 // media que esta en memoria (un buffer): primero se sube a Meta, despues se manda por id
-async function subirMedia(buffer, mime, nombre = 'archivo') {
+async function subirMedia(buffer, mime, nombre = 'archivo', desde = null) {
   const fd = new FormData()
   fd.append('messaging_product', 'whatsapp')
   fd.append('type', mime || 'application/octet-stream')
   fd.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), nombre)
-  const r = await fetch(`${BASE}/${PHONE_ID}/media`, { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN }, body: fd })
+  const r = await fetch(`${BASE}/${idDe(desde)}/media`, { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN }, body: fd })
   const j = await r.json().catch(() => ({}))
   if (!r.ok || !j.id) throw new Error(`CloudAPI media ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`)
   return j.id
 }
-async function enviarMediaId(to, mediaId, tipo = 'image', caption = '', filename = '') {
-  return api(`${PHONE_ID}/messages`, {
+async function enviarMediaId(to, mediaId, tipo = 'image', caption = '', filename = '', desde = null) {
+  return api(`${idDe(desde)}/messages`, {
     messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''),
     type: tipo, [tipo]: { id: mediaId, ...(caption && tipo !== 'audio' ? { caption } : {}), ...(filename && tipo === 'document' ? { filename } : {}) },
   })
 }
 // "visto" + "escribiendo…" sobre el ultimo mensaje del cliente (Meta lo apaga
 // solo a los ~25 s o al contestar). Es lo que reemplaza al sendPresenceUpdate de Baileys.
-async function marcarLeido(messageId, escribiendo = false) {
-  return api(`${PHONE_ID}/messages`, {
+async function marcarLeido(messageId, escribiendo = false, desde = null) {
+  return api(`${idDe(desde)}/messages`, {
     messaging_product: 'whatsapp', status: 'read', message_id: messageId,
     ...(escribiendo ? { typing_indicator: { type: 'text' } } : {}),
   })
@@ -215,7 +221,7 @@ async function bajarMedia(mediaId) {
 }
 
 module.exports = {
-  enviarPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida,
+  enviarPlantilla, enviarTexto, enviarMedia, subirMedia, enviarMediaId, marcarLeido, servidorWebhook, bajarMedia, firmaValida, esNumeroPropio,
   infoNumero, suscribirApp, appsSuscritas, listarPlantillas, crearPlantilla,
   infoCuenta, numerosDe, buscarWaba, sincronizarApp,
 }

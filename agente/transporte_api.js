@@ -23,21 +23,29 @@ module.exports = function crearSockAPI({ WA, log = console.log, numero = '' }) {
   const dig = t => String(t || '').replace(/\D/g, '')
   const telDeJid = jid => dig(String(jid || '').split('@')[0])
   const ultimoEntrante = new Map()   // telefono -> wamid del ultimo mensaje que mando (para "escribiendo")
+  // sql/166 (29 oct): varios numeros en el mismo WABA. Se recuerda por que numero
+  // escribio cada persona y se le contesta por ESE (vacio = el principal).
+  const numeroDe = new Map()         // telefono (9) -> phone_number_id por el que escribio
+  const desdeDe = to => numeroDe.get(dig(to).slice(-9)) || null
   const resp = r => ({ key: { id: r?.messages?.[0]?.id || ('api-' + Date.now()), fromMe: true }, api: true })
   const noop = (que) => { log('API: ' + que + ' no existe en la Cloud API, se omite'); return { key: { id: 'api-noop-' + Date.now(), fromMe: true }, api: true, omitido: true } }
 
   async function mandarMedia(to, obj, tipo, caption, fileName, mime) {
-    if (obj && obj.url) return WA.enviarMedia(to, obj.url, tipo, caption, fileName)
+    const desde = desdeDe(to)
+    if (obj && obj.url) return WA.enviarMedia(to, obj.url, tipo, caption, fileName, desde)
     const buf = Buffer.isBuffer(obj) ? obj : (obj && Buffer.isBuffer(obj.buffer) ? obj.buffer : null)
     if (!buf) throw new Error('media sin url ni buffer')
-    const id = await WA.subirMedia(buf, mime || (tipo === 'image' ? 'image/jpeg' : tipo === 'video' ? 'video/mp4' : 'application/octet-stream'), fileName || tipo)
-    return WA.enviarMediaId(to, id, tipo, caption, fileName)
+    const id = await WA.subirMedia(buf, mime || (tipo === 'image' ? 'image/jpeg' : tipo === 'video' ? 'video/mp4' : 'application/octet-stream'), fileName || tipo, desde)
+    return WA.enviarMediaId(to, id, tipo, caption, fileName, desde)
   }
 
   return {
     user: { id: (numero || '') + ':1@s.whatsapp.net' },
     api: true,
-    recordarEntrante(phone, wamid) { if (phone && wamid) ultimoEntrante.set(dig(phone).slice(-9), wamid) },
+    recordarEntrante(phone, wamid, numeroId = null) {
+      if (phone && wamid) ultimoEntrante.set(dig(phone).slice(-9), wamid)
+      if (phone && numeroId !== null) { const id = dig(numeroId); if (id && !(WA.esNumeroPropio && WA.esNumeroPropio(id))) numeroDe.set(dig(phone).slice(-9), id); else numeroDe.delete(dig(phone).slice(-9)) }
+    },
 
     async sendMessage(jid, c = {}) {
       const to = telDeJid(jid)
@@ -47,7 +55,7 @@ module.exports = function crearSockAPI({ WA, log = console.log, numero = '' }) {
       if (c.video) return resp(await mandarMedia(to, c.video, 'video', c.caption, null, c.mimetype || 'video/mp4'))
       if (c.audio) return resp(await mandarMedia(to, c.audio, 'audio', '', null, c.mimetype || 'audio/mpeg'))
       if (c.document) return resp(await mandarMedia(to, c.document, 'document', c.caption, c.fileName || 'DOCUMENTO', c.mimetype))
-      if (c.text !== undefined) return resp(await WA.enviarTexto(to, c.text))
+      if (c.text !== undefined) return resp(await WA.enviarTexto(to, c.text, desdeDe(to)))
       return noop('ese tipo de mensaje')
     },
 
@@ -57,7 +65,7 @@ module.exports = function crearSockAPI({ WA, log = console.log, numero = '' }) {
       if (estado !== 'composing') return
       const id = ultimoEntrante.get(telDeJid(jid).slice(-9))
       if (!id) return
-      try { await WA.marcarLeido(id, true) } catch (e) { /* ya contestado o muy viejo: no importa */ }
+      try { await WA.marcarLeido(id, true, desdeDe(telDeJid(jid))) } catch (e) { /* ya contestado o muy viejo: no importa */ }
     },
 
     // no hay consulta de existencia en la API: se asume que si, sin LID

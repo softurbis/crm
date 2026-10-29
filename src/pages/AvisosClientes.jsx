@@ -112,13 +112,16 @@ export function ClientesYAvisos() {
   // sql/165: interruptores POR PROYECTO (avisos / agente). Sin fila = los dos prendidos.
   const [proyCfg, setProyCfg] = useState(() => new Map())
   const cfgDe = id => proyCfg.get(id) || { avisos: true, agente: true }
+  // sql/166: número propio, marca y plantillas del proyecto (Century)
+  const [verNumero, setVerNumero] = useState(false)
+  const [fNum, setFNum] = useState(null)
 
   async function cargar(silencioso = false) {
     const [{ data, error }, pc] = await Promise.all([
       supabase.rpc('avisos_por_cliente'),
-      supabase.from('cobranza_proyectos_cfg').select('project_id, avisos, agente'),
+      supabase.from('cobranza_proyectos_cfg').select('*'),
     ])
-    if (!pc.error) setProyCfg(new Map((pc.data || []).map(p => [p.project_id, { avisos: p.avisos !== false, agente: p.agente !== false }])))
+    if (!pc.error) setProyCfg(new Map((pc.data || []).map(p => [p.project_id, { avisos: p.avisos !== false, agente: p.agente !== false, phone_number_id: p.phone_number_id || '', numero: p.numero || '', marca: p.marca || '', plantilla_prefijo: p.plantilla_prefijo || '' }])))
     if (error) {
       if (!silencioso) setMsg({ ok: false, t: /avisos_por_cliente/.test(error.message) ? 'Falta correr sql/159 en el servidor.' : error.message })
       setDatos(d => d || { clientes: [], leads: [], cfg: {} })
@@ -142,6 +145,16 @@ export function ClientesYAvisos() {
     savedFx()
     setMsg({ ok: true, t: (campo === 'avisos' ? '📨 Avisos de ' : '🤖 Agente de ') + nombre + (on ? ': PRENDIDO' : ': APAGADO') })
     setTimeout(() => cargar(true), 25000)
+  }
+  async function guardarNumero(e) {
+    e.preventDefault()
+    if (!puede || proy === 'todos' || !fNum) return
+    setBusy(true)
+    const { error } = await supabase.rpc('cobranza_proyecto_numero', { p_project: proy, p_phone_number_id: fNum.phone_number_id, p_numero: fNum.numero, p_marca: fNum.marca, p_prefijo: fNum.plantilla_prefijo })
+    setBusy(false)
+    if (error) { setMsg({ ok: false, t: /cobranza_proyecto_numero/.test(error.message) ? 'Falta correr sql/166 en el servidor.' : 'No se pudo: ' + error.message }); return }
+    savedFx(); setMsg({ ok: true, t: 'NÚMERO Y MARCA DEL PROYECTO GUARDADOS (el agente los toma en menos de un minuto)' })
+    setVerNumero(false); cargar(true)
   }
   useEffect(() => {
     if (!ve) return
@@ -326,6 +339,10 @@ export function ClientesYAvisos() {
                 style={{ padding: '.25rem .6rem', fontSize: '.8rem', ...(c.agente ? {} : { borderColor: 'var(--error)', color: 'var(--error)' }) }}
                 title={c.agente ? 'El agente contesta a los clientes del proyecto que tengan 🤖 ON. Clic para apagarlo a todos.' : 'AGENTE APAGADO para todo el proyecto: contesta solo la secretaria. Clic para prenderlo.'}>
                 🤖 agente del proyecto {c.agente ? 'ON' : 'OFF'}</button>
+              <button className="btn-ghost" disabled={busy} onClick={() => { setFNum({ phone_number_id: c.phone_number_id || '', numero: c.numero || '', marca: c.marca || '', plantilla_prefijo: c.plantilla_prefijo || '' }); setVerNumero(v => !v) }}
+                style={{ padding: '.25rem .6rem', fontSize: '.8rem', ...(c.phone_number_id ? { borderColor: '#e0b34c', color: '#e0b34c' } : {}) }}
+                title={c.phone_number_id ? 'Este proyecto sale por su propio número (' + (c.numero ? '+' + c.numero : c.phone_number_id) + ') con la marca ' + (c.marca || 'Urbis Group') : 'Sale por el número principal (960) como Urbis Group. Clic para darle número y marca propios.'}>
+                📱 {c.phone_number_id ? (c.marca || 'número propio') : 'número: principal'}</button>
             </span>
           )
         })()}
@@ -334,6 +351,25 @@ export function ClientesYAvisos() {
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Nombre, lote (A1, G-7), celular…" style={{ flex: '1 1 220px', maxWidth: 360 }} />
       </div>
 
+      {verNumero && fNum && proy !== 'todos' && (
+        <form className="glass" onSubmit={guardarNumero} style={{ padding: '.8rem 1rem', marginBottom: '.8rem', textTransform: 'none' }}>
+          <b>📱 Número propio de {proyectos.find(([id]) => id === proy)?.[1] || 'este proyecto'}</b>
+          <p className="muted small" style={{ margin: '.2rem 0 .6rem' }}>
+            Sus avisos y el agente salen por este número, con esta marca y con sus propias plantillas. El número tiene que estar en la <b>misma cuenta de WhatsApp de Meta</b> que el 960 (conectado por C-Soft). Vacío = sale por el 960 como Urbis Group.
+          </p>
+          <div className="form-grid">
+            <label>Identificador del número en Meta (phone_number_id)<input value={fNum.phone_number_id} onChange={e => setFNum(f => ({ ...f, phone_number_id: e.target.value }))} placeholder="575708528962509" disabled={!puede} /></label>
+            <label>Número visible (51 + 9 dígitos)<input value={fNum.numero} onChange={e => setFNum(f => ({ ...f, numero: e.target.value }))} placeholder="51987654321" disabled={!puede} /></label>
+            <label>Marca (cómo se presenta)<input value={fNum.marca} onChange={e => setFNum(f => ({ ...f, marca: e.target.value }))} placeholder="Century Proyectos Inmobiliarios" disabled={!puede} /></label>
+            <label>Prefijo de sus plantillas en Meta<input value={fNum.plantilla_prefijo} onChange={e => setFNum(f => ({ ...f, plantilla_prefijo: e.target.value }))} placeholder="century_cobranza" disabled={!puede} /></label>
+          </div>
+          <p className="muted small" style={{ margin: '.4rem 0' }}>Las plantillas con ese prefijo se crean una vez con <code>node cobranza_meta.js crear_plantillas century</code> y Meta las aprueba; mientras no estén aprobadas, los avisos de este proyecto no salen.</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-primary" disabled={!puede || busy}>Guardar</button>
+            <button type="button" className="btn-ghost" onClick={() => setVerNumero(false)}>Cerrar</button>
+          </div>
+        </form>
+      )}
       {datos === null && <p className="muted">Cargando…</p>}
       {datos && !!filas.length && (
         <p className="hint">

@@ -51,6 +51,7 @@ const LECTOR_VOUCHERS = require('./lector_vouchers')({
 })
 // avisos de firma de gastos: a quien pide y a los socios, cada 4 horas, WhatsApp y Telegram (sql/135)
 const AVISOS_FIRMA = require('./avisos_firma').crearAvisosFirma({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
+const AVISOS_CARTAS = require('./avisos_cartas').crearAvisosCartas({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
 // trae el nombre de un DNI o la razón social de un RUC al emitir un comprobante (sql/119)
 const CONSULTA_DOC = require('./consulta_doc')({ supabase, log: (...a) => log(...a) })
 // emite las boletas y facturas que pide el panel, con el RUC de cada proyecto (sql/113)
@@ -1915,19 +1916,18 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
     const jid = jidDe(phone)
     const factor = esPrueba ? 0.1 : 1
     const prueba = esPrueba ? phone : false                     // explícito: ver enviar()
-    let desde = Date.now()                                      // "escribiendo" arranca al empezar a pensar
     const ctx = {
       conv, lead, phone, esPrueba, nota,
       decir: async texto => {
         const burbujas = String(texto).split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
         for (let i = 0; i < burbujas.length; i++) {
           const b = burbujas[i]
-          // ~45 ms por letra, entre 2 y 16 s, con variación: nadie escribe a ritmo fijo
-          const tipeo = Math.min(16000, 2000 + b.length * 45) * (0.8 + Math.random() * 0.4) * factor
-          await escribiendo(ses, phone, tipeo - (Date.now() - desde), esPrueba)
+          // Solo ventas: 5–25 s de escritura según el largo, con variación.
+          // Preparar la respuesta no descuenta este tiempo: cada burbuja se escribe.
+          const tipeo = Math.min(25000, Math.max(5000, (3500 + b.length * 90) * (0.85 + Math.random() * 0.3))) * factor
+          await escribiendo(ses, phone, tipeo, esPrueba)
           await enviar(phone, b, { tipo: 'ia_ventas', lead_id: lead.id, ses, prueba })
-          await espera((700 + Math.random() * 1500) * factor)
-          desde = Date.now()
+          await espera((3000 + Math.random() * 3000) * factor)
         }
       },
       mandarMaterial: async ids => {
@@ -1936,7 +1936,6 @@ async function turnoVentas(phone, esPruebaProgramada, nota) {
         if (!esPrueba) for (let i = 0; TEST_ACTIVE && i < 120; i++) await espera(500)
         const { data: proy } = await supabase.from('projects').select('*').eq('id', lead.project_id).maybeSingle()
         await enviarMediaLib(ses, jid, (parseFlowRaw(proy) || {}).media_lib || [], ids, lead, proy)
-        desde = Date.now()
       },
       avisar: async texto => { if (cfg?.aviso_phone) await enviar(cfg.aviso_phone, texto, { tipo: 'aviso_admin', prueba }) },
       // al asesor del proyecto (pases del agente, sql/94): solo por Telegram; false = no le llegó
@@ -3492,6 +3491,8 @@ async function avisarAprobaciones() {
   // firma quien la pidió, y recordatorio cada 4 horas por WhatsApp y Telegram hasta
   // que firmen (avisos_firma.js, sql/135; antes era un solo aviso por un solo canal)
   await AVISOS_FIRMA.tick().catch(e => log('avisos de firma:', String(e.message || e)))
+  // cartas de cobranza (sql/155): a la socia, las que tiene por firmar; a quien la creó, que ya está firmada
+  await AVISOS_CARTAS.tick().catch(e => log('avisos de cartas:', String(e.message || e)))
 
   // 2) decisiones -> a quien pidio el gasto (su Telegram/WhatsApp de seguimiento)
   const { data: dec } = await supabase.from('expenses')
@@ -3527,18 +3528,29 @@ setInterval(() => { avisarAprobaciones().catch(e => log('avisarAprobaciones:', S
 // entrega — Telegram si lo tiene vinculado, WhatsApp si no. La copia en claro se
 // borra apenas sale: en la base queda solo su huella.
 async function enviarCodigosFirma() {
-  const { data: pend } = await supabase.from('firma_codigos')
-    .select('id, expense_id, accion, codigo_plano, destino')
+  // carta_id: los códigos para firmar las cartas de cobranza (sql/155). Sin sql/155
+  // la columna no existe: se piden sin ella, como antes.
+  const pedir = cols => supabase.from('firma_codigos').select(cols)
     .is('enviado_at', null).not('codigo_plano', 'is', null)
     .gt('expira_at', new Date().toISOString()).limit(10)
+  let { data: pend, error: ePend } = await pedir('id, expense_id, carta_id, accion, codigo_plano, destino')
+  if (ePend) ({ data: pend } = await pedir('id, expense_id, accion, codigo_plano, destino'))
   for (const c of (pend || [])) {
     const dig = String(c.destino || '').replace(/\D/g, '')
-    const { data: g } = await supabase.from('expenses')
-      .select('request_number, amount, recipient').eq('id', c.expense_id).maybeSingle()
-    const sol = g?.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : ''
-    const texto = '🔐 *Código para firmar*\n\n*' + c.codigo_plano + '*\n\n'
-      + [sol, soles(g?.amount || 0), g?.recipient].filter(Boolean).join(' · ')
-      + '\n' + (c.accion === 'aprobacion' ? 'Aprobación del socio' : 'Firma de quien pide el gasto')
+    let detalle
+    if (c.carta_id) {
+      const { data: k } = await supabase.from('cartas')
+        .select('numero, sale:sales(client:clients!sales_client_id_fkey(full_name), lot:lots(mz, lt))').eq('id', c.carta_id).maybeSingle()
+      detalle = ['Carta de cobranza N° ' + (k?.numero || ''), k?.sale?.lot ? 'lote ' + k.sale.lot.mz + '-' + k.sale.lot.lt : '', k?.sale?.client?.full_name]
+        .filter(Boolean).join(' · ') + '\nFirma de la socia'
+    } else {
+      const { data: g } = await supabase.from('expenses')
+        .select('request_number, amount, recipient').eq('id', c.expense_id).maybeSingle()
+      const sol = g?.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0') : ''
+      detalle = [sol, soles(g?.amount || 0), g?.recipient].filter(Boolean).join(' · ')
+        + '\n' + (c.accion === 'aprobacion' ? 'Aprobación del socio' : 'Firma de quien pide el gasto')
+    }
+    const texto = '🔐 *Código para firmar*\n\n*' + c.codigo_plano + '*\n\n' + detalle
       + '\n\nVence en 5 minutos y sirve una sola vez. *No se lo pases a nadie.*'
     let por = null, err = null
     try {
@@ -4163,7 +4175,7 @@ async function entranteAPI(S, m, v) {
     if (_entrantesVistos.has(m.id)) return
     _entrantesVistos.set(m.id, Date.now())
     if (_entrantesVistos.size > 2000) for (const [k, t] of _entrantesVistos) { if (Date.now() - t > 3600e3) _entrantesVistos.delete(k) }
-    S.sock.recordarEntrante(phone, m.id)
+    S.sock.recordarEntrante(phone, m.id, v?.metadata?.phone_number_id || null)   // sql/166: se le contesta por el número al que escribió
   }
   const pushName = (v.contacts || []).find(c => String(c.wa_id || '').replace(/\D/g, '') === phone)?.profile?.name || ''
   let texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || ''

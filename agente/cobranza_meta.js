@@ -14,7 +14,7 @@
 // ============================================================================
 require('dotenv').config()
 const WA = require('./cloudapi')
-const { PLANTILLAS, comoSeVe, paraMeta } = require('./plantillas_cobranza')
+const { PLANTILLAS, MARCAS, comoSeVe, paraMeta, plantillasDe } = require('./plantillas_cobranza')
 
 const [, , cmd, arg] = process.argv
 const ok = t => console.log('✅ ' + t)
@@ -139,7 +139,16 @@ async function crearPlantillas() {
   if (!id) return
   let ya = []
   try { ya = (await WA.listarPlantillas(id)).data || [] } catch (e) { nota('(no pude leer las existentes: ' + e.message.slice(0, 90) + ')') }
-  for (const p of PLANTILLAS) {
+  // sql/166: `crear_plantillas century` crea las copias con la marca de esa clave
+  // (plantillas_cobranza.js → MARCAS). Sin argumento: las de Urbis + la interna.
+  let lista = PLANTILLAS
+  if (arg) {
+    const m = MARCAS[String(arg).toLowerCase()]
+    if (!m) { mal('Marca desconocida: ' + arg + '. Conocidas: ' + Object.keys(MARCAS).join(', ')); return }
+    lista = plantillasDe(m.prefijo, m.marca)
+    nota('Plantillas de ' + m.marca + ' (prefijo ' + m.prefijo + ')')
+  }
+  for (const p of lista) {
     const existe = ya.find(x => x.name === p.nombre && x.language === IDIOMA)
     if (existe) { nota(icono(existe.status) + ' ' + p.nombre + ' ya existe (' + existe.status + '): no se toca') ; continue }
     try {
