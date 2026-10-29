@@ -643,16 +643,17 @@ function Promesas({ puede, setMsg }) {
               return (
                 <tr key={p.id}>
                   <td><b>{fCorta(p.fecha_promesa)}</b><br /><span className={d < 0 ? 'bad small' : d === 0 ? 'warn small' : 'muted small'}>{d < 0 ? 'venció' : d === 0 ? 'HOY' : 'faltan ' + d + ' d'}</span></td>
-                  <td>{p.client?.full_name}</td>
-                  <td>{loteDe(p.sale)}<br /><span className="muted small">{p.sale?.lot?.project?.name}</span></td>
-                  <td>{p.monto ? soles(p.monto) : '—'}</td>
-                  <td className="small" style={{ textTransform: 'none', maxWidth: 260 }}>{p.texto_cliente || '—'}{p.origen === 'secretaria' ? ' (secretaria)' : ''}</td>
-                  <td>
-                    <input type="number" min="0" max="15" disabled={!puede} defaultValue={p.avisar_dias_antes ?? ''} placeholder="config" style={{ width: 70 }}
+                  <td style={{ whiteSpace: 'normal', minWidth: 160 }}>{p.client?.full_name}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{loteDe(p.sale)}<br /><span className="muted small">{p.sale?.lot?.project?.name}</span></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{p.monto ? soles(p.monto) : '—'}</td>
+                  {/* 29 oct: el texto largo se envuelve dentro de su columna (antes se montaba sobre las de al lado) */}
+                  <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 220, maxWidth: 420, lineHeight: 1.35 }}>{p.texto_cliente || '—'}{p.origen === 'secretaria' ? ' (secretaria)' : ''}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <input type="number" min="0" max="15" disabled={!puede} defaultValue={p.avisar_dias_antes ?? ''} placeholder="config" style={{ width: 80, minWidth: 80 }}
                       onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (p.avisar_dias_antes ?? null)) cambiar(p, { avisar_dias_antes: v }, 'RECORDATORIO AJUSTADO') }} /> días
                   </td>
-                  <td className="small">{p.aviso_enviado_at ? '✅ ' + fHora(p.aviso_enviado_at) : 'pendiente'}</td>
-                  <td>
+                  <td className="small" style={{ whiteSpace: 'nowrap' }}>{p.aviso_enviado_at ? '✅ ' + fHora(p.aviso_enviado_at) : 'pendiente'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     {puede && <>
                       <button className="link-btn" onClick={() => cambiar(p, { estado: 'cumplida', cerrado_at: new Date().toISOString() }, 'PROMESA MARCADA COMO CUMPLIDA')}>cumplida</button>{' · '}
                       <button className="link-btn bad" onClick={async () => { if (await confirmar('¿Cancelar esta promesa? El lote vuelve a recibir los avisos normales.', { aceptar: 'Sí, cancelar la promesa', cancelar: 'No' })) cambiar(p, { estado: 'cancelada', cerrado_at: new Date().toISOString() }, 'PROMESA CANCELADA') }}>cancelar</button>
