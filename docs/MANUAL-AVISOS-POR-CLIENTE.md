@@ -175,6 +175,15 @@ clientes, cuántos **llegaron** y se **leyeron** (palomitas de Meta), cuántos *
 hora de la respuesta); tocar una fila muestra el mensaje tal cual le llegó, y **💬 chat** abre la conversación
 completa en la bandeja de WhatsApp (que desde el 29 oct también muestra los chats de cobranza).
 
+**Voucher de un pago que ya estaba registrado (29 oct).** Si un cliente manda el voucher de un pago que
+ya figura en Cuotas (mismo número de operación, o mismo monto y fecha en su venta), el agente **no lo registra
+como pago nuevo**: le dice al cliente que ese pago ya está registrado y que la secretaria se comunicará con él,
+el chat pasa a la secretaria (motivo "mandó el voucher de un pago que ya está registrado…") y a los responsables
+de cobranza les llega el aviso por **WhatsApp** (y por Telegram). Un voucher con fecha de hace más de 45 días sí
+queda en Por validar, pero con la alerta "VOUCHER ANTIGUO" y el mismo aviso, para que una persona lo revise.
+El WhatsApp a la secretaria sale como texto si ella le escribió al 960 en las últimas 24 h; si no, con la
+plantilla interna `urbis_aviso_interno` (hay que crearla en Meta: `node cobranza_meta.js crear_plantillas`).
+
 _Técnico: `cobranza_proyectos_cfg` (sin fila = todo prendido), `cobranza_proyecto_set()`, `cobranza_envios_dia(p_dia)`,
 `cobranza_envios_dias()`, `wa_chats_cobranza()`; el agente lo aplica en `barridoAvisos`, `proyectarAvisos`
 (estado `proyecto_pausado`) y `turno` (motivo `PROYECTO_APAGADO`)._

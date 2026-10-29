@@ -248,6 +248,36 @@ async function avisarTelefono(phone, texto) {
   } catch (e) { log('aviso por telegram:', String(e.message || e)); return false }
 }
 
+// 29 oct 2026: aviso a la(s) responsable(s) de cobranza por WHATSAPP (pedido del
+// dueño: "que le llegue un mensaje a su wsp"). Primero texto libre (si ella le
+// escribió al 960 en las últimas 24 h); si Meta lo rechaza, la plantilla interna
+// `urbis_aviso_interno` (plantillas_cobranza.js), si ya está aprobada. Lo que no
+// salga por WhatsApp igual llega por Telegram (quien llama también usa
+// avisarResponsables). Nunca frena al agente.
+const PLANTILLA_INTERNA = 'urbis_aviso_interno'
+async function avisarSecretariaWsp(detalle) {
+  if (!WA_LISTO) return 0
+  let enviados = 0
+  try {
+    const { data: us } = await supabase.from('profiles').select('phone, active, full_name').contains('permisos', ['cobranza'])
+    const tels = [...new Set((us || []).filter(x => x.active !== false).map(x => dig(x.phone)).map(t => t.length === 9 ? '51' + t : t).filter(t => t.length >= 11))]
+    if (!tels.length) { log('aviso wsp a secretaria: ningún responsable de cobranza tiene celular en su perfil'); return 0 }
+    let aprobadas = null
+    const plano = String(detalle || '').replace(/\s+/g, ' ').trim().slice(0, 900)   // Meta no acepta saltos de línea en los parámetros
+    for (const tel of tels) {
+      try { await WA.enviarTexto(tel, '🔔 *Cobranzas · aviso interno*\n' + detalle + '\n\nPanel → Cobranza IA → Conversaciones'); enviados++; continue }
+      catch (e) { if (!/131047|131026|ventana|re-engagement/i.test(String(e.message || e))) log('aviso wsp (texto) a +' + tel + ':', String(e.message || e).slice(0, 160)) }
+      // fuera de la ventana de 24 h: plantilla interna, si Meta ya la aprobó
+      if (aprobadas === null) aprobadas = (await plantillasAprobadas()) || new Set()
+      const nombre = [PLANTILLA_INTERNA, PLANTILLA_INTERNA + '_v2'].find(n => aprobadas.has(n))
+      if (!nombre) { log('aviso wsp a +' + tel + ': fuera de ventana y la plantilla ' + PLANTILLA_INTERNA + ' no está aprobada (va solo por Telegram)'); continue }
+      try { await WA.enviarPlantilla(tel, nombre, [plano], CFG.plantilla_idioma || 'es'); enviados++ }
+      catch (e) { log('aviso wsp (plantilla) a +' + tel + ':', String(e.message || e).slice(0, 160)) }
+    }
+  } catch (e) { log('aviso wsp a secretaria:', String(e.message || e)) }
+  return enviados
+}
+
 // sql/164: la secretaria marcó un chat sin número como LEAD ("Pasar a ventas").
 // Se le avisa al asesor del proyecto (lead_notify_phone); si no tiene asesor o no
 // está en Telegram, a los responsables de cobranza. Sin número no se le puede
@@ -362,18 +392,48 @@ async function registrarPagoReportado(chat, input) {
   const venta = activas.length === 1 ? activas[0] : ventaPorTexto(activas, input.lote)
   const alertas = []
   const op = String(input.numero_operacion || '').trim().toUpperCase()
-  if (op) {
-    const [d1, d2] = await Promise.all([
-      supabase.from('daily_income').select('id').ilike('operation_number', op).limit(1),
-      supabase.from('cobranza_pagos_reportados').select('id').ilike('numero_operacion', op).neq('estado', 'rechazado').eq('es_prueba', !!chat.es_prueba).limit(1),
-    ])
-    if (d1.data && d1.data.length) alertas.push('OPERACIÓN YA REGISTRADA EN CUOTAS (¿voucher repetido?)')
-    if (d2.data && d2.data.length) alertas.push('OPERACIÓN YA REPORTADA ANTES')
-  } else alertas.push('SIN NÚMERO DE OPERACIÓN LEGIBLE')
   const fecha = esFecha(input.fecha) ? input.fecha : null
+  const monto = Number(input.monto)
+  const quien = (chat.clientes || []).map(c => c.full_name).join(' / ') || '+' + chat.phone
+  const cuenta = (venta ? loteDe(venta) + (venta.lot?.project?.name ? ' · ' + venta.lot.project.name : '') : '')
+  // 29 oct 2026 (pedido del dueño): el voucher de un pago que YA está registrado en
+  // Cuotas no es un pago nuevo. No se registra: el chat pasa a la secretaria y le
+  // llega el aviso por WhatsApp (y Telegram) para que ella lo aclare con el cliente.
+  // Se reconoce por el número de operación, o por el mismo monto y fecha en una
+  // venta del cliente (vouchers sin número legible).
+  if (!chat.es_prueba) {
+    let registrado = null
+    if (op) {
+      const { data } = await supabase.from('daily_income').select('id, amount, date, operation_number, sale_id').ilike('operation_number', op).limit(1)
+      registrado = (data || [])[0] || null
+    }
+    if (!registrado && fecha && monto > 0 && ventas.length) {
+      const { data } = await supabase.from('daily_income').select('id, amount, date, operation_number, sale_id')
+        .in('sale_id', ventas.map(v => v.id)).eq('date', fecha).gte('amount', monto - 0.01).lte('amount', monto + 0.01).limit(1)
+      registrado = (data || [])[0] || null
+    }
+    if (registrado) {
+      const detalle = quien + (cuenta ? ' (' + cuenta + ')' : '') + ' mandó el voucher de un pago que YA está registrado'
+        + ' (op ' + (registrado.operation_number || op || 'sin número') + ', ' + soles(registrado.amount) + ' del ' + fechaCorta(registrado.date) + ')'
+        + '. Hay que aclararle qué pago es ese o qué le falta.'
+      await pasarAHumano(chat, 'mandó el voucher de un pago que ya está registrado (op ' + (registrado.operation_number || op || '?') + ', ' + soles(registrado.amount) + ' del ' + fechaCorta(registrado.date) + ')')
+      const n = await avisarSecretariaWsp(detalle)
+      log('VOUCHER YA REGISTRADO de', chat.phone, '→ a la secretaria (wsp:', n + ')')
+      return {
+        ok: true, voucher_ya_registrado: true,
+        nota: 'Ese pago YA figura registrado en su cuenta (' + soles(registrado.amount) + ' del ' + fechaCorta(registrado.date) + '). NO lo registres. Dile que ese pago ya está registrado y que la secretaria de cobranzas se comunicará con él para aclararlo. No le pidas otro voucher ni le digas que debe pagar de nuevo.',
+      }
+    }
+  }
+  if (op) {
+    const { data: d2 } = await supabase.from('cobranza_pagos_reportados').select('id').ilike('numero_operacion', op).neq('estado', 'rechazado').eq('es_prueba', !!chat.es_prueba).limit(1)
+    if (d2 && d2.length) alertas.push('OPERACIÓN YA REPORTADA ANTES')
+  } else alertas.push('SIN NÚMERO DE OPERACIÓN LEGIBLE')
   if (!fecha) alertas.push('FECHA NO LEGIBLE')
   else if (fecha > hoy) alertas.push('FECHA FUTURA')
-  const monto = Number(input.monto)
+  // voucher viejo (más de 45 días): se registra para revisar, pero lo ve una persona
+  const antiguo = fecha && diasEntre(hoy, fecha) > 45
+  if (antiguo) alertas.push('VOUCHER ANTIGUO (' + fechaCorta(fecha) + ')')
   if (!(monto > 0)) alertas.push('MONTO NO LEGIBLE')
   if (!venta && activas.length > 1) alertas.push('NO SE SABE A QUÉ LOTE CORRESPONDE')
   if (venta && monto > 0) {
@@ -390,9 +450,14 @@ async function registrarPagoReportado(chat, input) {
   })
   if (error) return { error: 'No se pudo registrar: ' + error.message }
   if (!chat.es_prueba) {
-    await avisarResponsables('💵 *PAGO REPORTADO POR VALIDAR*\n' + ((chat.clientes || []).map(c => c.full_name).join(' / ') || '+' + chat.phone)
+    await avisarResponsables('💵 *PAGO REPORTADO POR VALIDAR*\n' + quien
       + (venta ? ' · ' + loteDe(venta) : '') + '\n' + (monto > 0 ? soles(monto) : 'monto no legible') + (op ? ' · op ' + op : '')
       + (alertas.length ? '\n⚠ ' + alertas.join(' · ') : '') + '\n\nPanel → Cobranza IA → Por validar')
+    if (antiguo) {
+      // un voucher de hace más de 45 días casi siempre es un pago viejo mal mandado: lo ve una persona
+      await pasarAHumano(chat, 'mandó un voucher antiguo (' + fechaCorta(fecha) + '): revisar si es un pago ya registrado')
+      await avisarSecretariaWsp(quien + (cuenta ? ' (' + cuenta + ')' : '') + ' mandó un voucher con fecha ' + fechaCorta(fecha) + ' (' + (monto > 0 ? soles(monto) : 'monto no legible') + (op ? ', op ' + op : '') + '). Quedó en Por validar: revisar si es un pago viejo que ya está registrado.')
+    }
   }
   return {
     ok: true, registrado_para_revision: true, alertas,
@@ -517,6 +582,7 @@ Reglas que no se rompen:
 Cómo trabajar:
 - Antes de responder cualquier pregunta sobre deuda, cuotas, fechas o pagos, consulta estado_de_cuenta.
 - Si envía la foto o el PDF de un voucher: léelo (monto, fecha, número de operación, banco o billetera, titular) y regístralo con registrar_pago_reportado. Si no se lee bien, pídele una foto más nítida. Si la imagen no es un comprobante de pago, no la registres.
+- Si registrar_pago_reportado responde voucher_ya_registrado: ese pago ya figura en su cuenta. Dile eso con amabilidad y que la secretaria de cobranzas se comunicará con él para aclararlo; no le pidas otro voucher, no le digas que debe pagar de nuevo y no sigas cobrando en ese chat.
 - Si dice que no podrá pagar en la fecha: si da una fecha concreta, anótala con registrar_promesa_de_pago, convirtiendo expresiones como "el 15" o "el viernes" con la fecha de hoy. Si no da fecha, pregúntale para qué día puede. Si la herramienta responde que la fecha es muy lejana, deriva.
 - Si pregunta a qué cuenta pagar, usa cuentas_para_pagar.
 - Si responde al aviso sobre su contrato (varias cuotas vencidas): dile cuánto debe con estado_de_cuenta y pídele su voucher si ya pagó. Si da una fecha concreta para pagar todo lo vencido, anótala como promesa. Si quiere pagar en partes, un plan de pagos o pregunta qué pasará con su contrato o su lote, no lo expliques ni lo negocies: deriva a la secretaria. Nunca hables de demandas, abogados, embargos, centrales de riesgo ni de perder lo pagado.

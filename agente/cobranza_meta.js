@@ -129,7 +129,7 @@ async function plantillas() {
   const faltan = nuestras.filter(n => !lista.some(x => x.name === n))
   if (faltan.length) nota('FALTAN por crear: ' + faltan.join(', '))
   const aprobadas = lista.filter(x => nuestras.includes(x.name) && x.status === 'APPROVED')
-  if (aprobadas.length === nuestras.length) ok('Las 5 plantillas de cobranza estan aprobadas. Sus nombres ya estan en el panel (sql/107): se pueden prender los avisos.')
+  if (aprobadas.length === nuestras.length) ok('Las ' + nuestras.length + ' plantillas de cobranza estan aprobadas. Sus nombres ya estan en el panel (sql/107): se pueden prender los avisos.')
   else if (!faltan.length) nota('Meta todavia esta revisando alguna. Suele tardar de minutos a 24 h.')
 }
 

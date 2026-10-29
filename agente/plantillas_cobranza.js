@@ -63,6 +63,19 @@ const PLANTILLAS = [
     cuerpo: '_Urbis Group · Cobranzas_\nEstimado(a) {{1}}: le recordamos que para el {{2}} se comprometió a pagar S/ {{3}} del lote {{4}} del proyecto {{5}}. Cuando realice el pago, envíe la foto de su voucher por este chat, gracias.\nSi el pago no se registra en la fecha acordada, su cuenta seguirá el proceso de cobranza.',
     ejemplo: ['Juan', '15/10/2026', '350.00', 'Mz B Lt 7', 'Las Praderas de Cashibo'],
   },
+  // 29 oct 2026: aviso INTERNO a la secretaria de cobranza por WhatsApp (no al cliente).
+  // Sale cuando el agente necesita que una persona resuelva algo (p. ej. un cliente
+  // mandó el voucher de un pago que ya estaba registrado). Como ella casi nunca le
+  // escribe al 960, el texto libre no pasa (ventana de 24 h): va por plantilla.
+  {
+    campo: 'plantilla_aviso_interno',
+    interna: true,
+    nombre: 'urbis_aviso_interno',
+    cuando: 'Cuando el agente de cobranza le pasa un caso a la secretaria (solo a los responsables de cobranza, nunca a clientes).',
+    variables: ['detalle del caso'],
+    cuerpo: '_Urbis Group · Cobranzas (aviso interno)_\nHay un caso que necesita que lo resuelva una persona: {{1}}. Revise el panel, en Cobranza IA, Conversaciones.',
+    ejemplo: ['Juan Pérez (Mz B Lt 7) mandó el voucher de un pago que ya está registrado (op 12345, S/ 350.00 del 15/10/2026)'],
+  },
 ]
 
 // El cuerpo con los valores puestos: asi le llega al cliente. Sin valores, los
