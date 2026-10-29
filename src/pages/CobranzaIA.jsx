@@ -368,7 +368,7 @@ function Consumo({ cfg, puede, setMsg, recargar }) {
 // ============================================================================
 // POR VALIDAR
 // ============================================================================
-const COLS_PAGO ='id, created_at, monto, fecha, numero_operacion, banco, titular, alerta, estado, voucher_url, client_id, sale_id, chat_id, motivo_rechazo, validado_at, client:clients(full_name, doc_number), sale:sales(id, lot:lots(mz, lt, project:projects(name))), chat:cobranza_chats(phone)'
+const COLS_PAGO ='id, created_at, monto, fecha, numero_operacion, banco, titular, alerta, estado, voucher_url, client_id, sale_id, chat_id, motivo_rechazo, validado_at, client:clients(full_name, doc_number), sale:sales(id, lot:lots(mz, lt, project:projects(name))), chat:cobranza_chats(id, phone, ultimo_entrante_at, modo)'
 
 function PorValidar({ puede, setMsg }) {
   const [lista, setLista] = useState([])
@@ -469,31 +469,38 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
     return { partes, sobra: resto }
   }, [cuotas, f.monto])
 
-  async function validar() {
+  // 29 oct (pedido del dueño): dos salidas claras en cada decisión: "y avisar" (el
+  // mensaje sale por el 960 en segundos, como 'sistema': no calla al agente) o "sin
+  // avisar" (queda interno). El aviso solo sale con la ventana de 24 h abierta: si se
+  // cerró, Meta no deja texto libre y el botón lo dice.
+  const ventana = ventanaAbierta(r.chat)
+  async function validar(avisar) {
     if (!f.sale) { alTerminar({ ok: false, t: 'ELIGE EL LOTE AL QUE CORRESPONDE EL PAGO.' }); return }
     if (!(Number(f.monto) > 0) || !f.fecha) { alTerminar({ ok: false, t: 'FALTA EL MONTO O LA FECHA DEL PAGO.' }); return }
     if (reparto.sobra > 0.01) { alTerminar({ ok: false, t: 'EL MONTO SUPERA LA DEUDA DEL LOTE EN ' + soles(reparto.sobra) + '.' }); return }
-    if (!await confirmar(`¿Registrar ${soles(f.monto)} en ${loteDe(venta)}?\n\nSe aplica a: ${reparto.partes.map(p => 'cuota ' + p.n).join(', ')}.`)) return
+    if (avisar && !f.aviso.trim()) { alTerminar({ ok: false, t: 'ESCRIBE EL MENSAJE PARA EL CLIENTE (O USA "APROBAR SIN AVISAR").' }); return }
+    if (!await confirmar(`¿Registrar ${soles(f.monto)} en ${loteDe(venta)}?\n\nSe aplica a: ${reparto.partes.map(p => 'cuota ' + p.n).join(', ')}.` + (avisar ? '\n\nY se le avisa al cliente por WhatsApp.' : '\n\nSin avisarle al cliente.'))) return
     setBusy(true)
     const { data, error } = await supabase.rpc('validar_pago_reportado', {
       rid: r.id, p_sale: f.sale, p_monto: Number(f.monto), p_fecha: f.fecha, p_operacion: f.op,
-      p_tipo_op: f.tipo, p_cuenta: f.cuenta || null, p_obs: f.obs || null, p_mensaje: f.aviso.trim() || null,
+      p_tipo_op: f.tipo, p_cuenta: f.cuenta || null, p_obs: f.obs || null, p_mensaje: avisar ? f.aviso.trim() : null,
     })
     setBusy(false)
-    alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'PAGO VALIDADO Y REGISTRADO EN CUOTAS' + (data?.cuotas ? ' (cuota ' + data.cuotas + ')' : '') + '.' })
+    alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'PAGO VALIDADO Y REGISTRADO EN CUOTAS' + (data?.cuotas ? ' (cuota ' + data.cuotas + ')' : '') + (avisar ? '. SE LE AVISA AL CLIENTE.' : '.') })
   }
 
-  async function rechazar() {
-    // dos diálogos y no uno: el mensaje al cliente se arma con el motivo, y cancelar
-    // el segundo NO cancela el rechazo (solo deja de avisarle al cliente)
-    const motivo = await pedir('¿Por qué se rechaza este voucher? (queda en bitácora)', { tipo: 'largo', obligatorio: true })
+  async function rechazar(avisar) {
+    const motivo = await pedir('¿Por qué se rechaza este voucher? (queda en bitácora' + (avisar ? '; el mensaje al cliente se arma con esto' : ', el cliente no lo ve') + ')', { tipo: 'largo', obligatorio: true })
     if (!motivo || motivo.trim().length < 4) return
-    const aviso = await pedir('Mensaje para el cliente (Cancelar = no enviar nada):', {
-      tipo: 'largo', aceptar: 'Enviar al cliente',
-      valor: `Hola ${nombre || ''}, no pudimos validar su voucher: ${motivo.trim()}. ¿Nos envía una foto más clara o el comprobante correcto? Gracias.`,
-    })
+    let aviso = null
+    if (avisar) {
+      aviso = await pedir('Mensaje para el cliente (Cancelar = rechazar sin avisar):', {
+        tipo: 'largo', aceptar: 'Rechazar y enviar',
+        valor: `Hola ${nombre || ''}, no pudimos validar su voucher: ${motivo.trim()}. ¿Nos envía una foto más clara o el comprobante correcto? Gracias.`,
+      })
+    } else if (!await confirmar('¿Rechazar este voucher SIN avisarle al cliente? (queda solo en la bitácora)', { titulo: 'Rechazar internamente' })) return
     const { error } = await supabase.rpc('rechazar_pago_reportado', { rid: r.id, p_motivo: motivo, p_mensaje: aviso ? aviso.trim() : null })
-    alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'VOUCHER RECHAZADO' + (aviso ? '. SE LE AVISA AL CLIENTE.' : '.') })
+    alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'VOUCHER RECHAZADO' + (aviso ? '. SE LE AVISA AL CLIENTE.' : ' (INTERNO, SIN AVISO).') })
   }
 
   const esPdf = /\.pdf(\?|$)/i.test(r.voucher_url || '')
@@ -527,7 +534,13 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
         </div>
       )}
       <div style={{ flex: '1 1 380px' }}>
-        <p style={{ margin: 0 }}><b>{r.client?.full_name || 'Cliente sin identificar'}</b> <span className="muted small">+{r.chat?.phone || '—'} · {fHora(r.created_at)}</span></p>
+        <p style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <b>{r.client?.full_name || 'Cliente sin identificar'}</b> <span className="muted small">+{r.chat?.phone || '—'} · {fHora(r.created_at)}</span>
+          {r.chat?.id && <Link className="btn-ghost" to={'/whatsapp?chat=cob:' + r.chat.id} style={{ padding: '.15rem .55rem', fontSize: '.75rem', textDecoration: 'none' }} title="Seguir la conversación del voucher en la bandeja (y volver con atrás)">💬 Ver chat</Link>}
+          {r.chat && (ventana
+            ? <span className="ok small" title="El cliente escribió hace menos de 24 h: se le puede avisar por WhatsApp">🕒 ventana abierta</span>
+            : <span className="warn small" title="Pasaron más de 24 h desde su último mensaje: Meta no deja texto libre. Si se aprueba o rechaza, queda sin aviso (o se le escribe desde el celular).">🔒 ventana cerrada · sin aviso posible</span>)}
+        </p>
         <p className="small" style={{ margin: '6px 0', textTransform: 'none' }}>
           El agente leyó: <b>{r.monto != null ? soles(r.monto) : 'monto ilegible'}</b> · {fCorta(r.fecha)} · operación <b>{r.numero_operacion || '—'}</b> · {r.banco || '—'}{r.titular ? ' · ' + r.titular : ''}
           <br />Lote: {r.sale ? loteDe(r.sale) + ' · ' + (r.sale.lot?.project?.name || '') : <span className="warn">sin definir</span>}
@@ -536,8 +549,9 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
 
         {puede && !abierto && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn-primary" onClick={abrir}>Revisar y validar</button>
-            <button className="btn-ghost" onClick={rechazar}>Rechazar…</button>
+            <button className="btn-primary" onClick={abrir}>Revisar y aprobar…</button>
+            <button className="btn-ghost" onClick={() => rechazar(true)} disabled={!ventana} title={ventana ? 'Rechaza y le manda el motivo al cliente' : 'Ventana de 24 h cerrada: no se le puede avisar'} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>✖ Rechazar y avisar</button>
+            <button className="btn-ghost" onClick={() => rechazar(false)} title="Rechaza y queda solo en la bitácora; el cliente no recibe nada">✖ Rechazar internamente</button>
           </div>
         )}
         {puede && abierto && (
@@ -561,8 +575,8 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
               </select>
             </label>
             <label className="span2">Observación (opcional)<input value={f.obs} onChange={campo('obs')} /></label>
-            <label className="span2">Mensaje al cliente (sale si la conversación sigue abierta; vacío = no enviar)
-              <textarea rows="2" value={f.aviso} onChange={campo('aviso')} style={{ textTransform: 'none' }} />
+            <label className="span2">Mensaje al cliente si eliges "Aprobar y avisar"{!ventana && <span className="warn"> · ventana de 24 h cerrada: no se puede enviar</span>}
+              <textarea rows="2" value={f.aviso} onChange={campo('aviso')} style={{ textTransform: 'none' }} disabled={!ventana} />
             </label>
             <div className="span2 small" style={{ textTransform: 'none' }}>
               {reparto.partes.length
@@ -571,8 +585,11 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
               {reparto.sobra > 0.01 && <b className="bad"> · SOBRAN {soles(reparto.sobra)}: el monto supera la deuda</b>}
             </div>
             <div className="span2" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn-primary" disabled={busy} onClick={validar}>{busy ? 'Registrando…' : '✅ Validar y registrar'}</button>
-              <button className="btn-ghost" onClick={rechazar}>Rechazar…</button>
+              <button className="btn-primary" disabled={busy || !ventana} onClick={() => validar(true)} title={ventana ? 'Registra el pago en Cuotas y le avisa al cliente por WhatsApp' : 'Ventana de 24 h cerrada: no se le puede avisar'}>{busy ? 'Registrando…' : '✅ Aprobar y avisar'}</button>
+              <button className="btn-primary" disabled={busy} onClick={() => validar(false)} title="Registra el pago en Cuotas sin mandarle nada al cliente" style={{ opacity: .85 }}>{busy ? 'Registrando…' : '✅ Aprobar sin avisar'}</button>
+              <span className="muted small">|</span>
+              <button className="btn-ghost" onClick={() => rechazar(true)} disabled={!ventana} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>✖ Rechazar y avisar</button>
+              <button className="btn-ghost" onClick={() => rechazar(false)}>✖ Rechazar internamente</button>
               <button className="btn-ghost" onClick={abrir}>Cerrar</button>
             </div>
           </div>
