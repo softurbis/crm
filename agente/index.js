@@ -3100,9 +3100,33 @@ async function supervisarSesiones() {
 // arranca otro. El silencio sigue siendo la alarma: si el mensaje deja de
 // ACTUALIZARSE, el bot se cayo. /estado y el boton "Estado ahora" mandan un
 // reporte suelto (modo directo), fuera del bloque.
+// 29 oct 2026: con el número en la API de Meta (MODO_API) ya no hay sesión que
+// se caiga ni oreja que se quede sorda: el latido es solo "SISTEMA EN PIE",
+// sin números ni conteos. Lo crítico (aprobaciones, firmas, pide asesor) sale
+// por sus propios avisos y no depende de esto.
+async function latidoSimple(titulo, opts = {}) {
+  const tg = TG.activo() ? TG.estadoEscucha() : null
+  const sordo = !!tg && (!tg.arrancada || !tg.ultimoOk || Date.now() - tg.ultimoOk > 3 * 60000)
+  const reloj = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const texto = [
+    titulo || (sordo ? '⚠️ *SISTEMA EN PIE — Telegram no está recibiendo*' : '✅ *SISTEMA EN PIE*'),
+    reloj,
+    '',
+    sordo ? '🔧 No te va a leer los comandos. Reinícialo desde el panel: *WhatsApp → Reiniciar bot*.'
+      : '_Se actualiza cada 30 min. Si deja de actualizarse, algo se cayó._',
+  ].join('\n')
+  if (opts.directo) { await enviar(ADMIN, texto, { tipo: 'reporte' }); return }
+  // un solo mensaje por día que se edita en silencio; un reinicio suena
+  const clave = 'latido:' + new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  if (!_avisosTg.has(clave)) for (const k of [..._avisosTg.keys()]) if (k.startsWith('latido:')) _avisosTg.delete(k)
+  if (titulo) await avisoSonoro(clave, texto)
+  else await avisoDinamico(clave, texto)
+}
+
 const _latidoTicks = new Map()   // clave del bloque -> [{ hora, in, out, nota, alerta }]
 async function latido(titulo, opts = {}) {
   if (!ADMIN) return
+  if (MODO_API) return latidoSimple(titulo, opts)
   const desde = new Date(Date.now() - 30 * 60000).toISOString()
   const hoy0 = new Date().toISOString().slice(0, 10)
   const [{ count: recibidos }, { count: enviados }, { count: leadsHoy }, { data: sesiones }, { data: ultimoIn }] = await Promise.all([
@@ -3255,8 +3279,9 @@ async function vigia() {
   //    normal). Y las horas se cuentan desde las 9:00 de HOY, no desde anoche:
   //    a las 9:00 en punto el vigia veia "14 h sin mensajes" (el ultimo era de
   //    las 18:32 de la vispera) y reiniciaba el bot cada manana sin motivo.
+  //    En MODO_API no: el número no se cae y el silencio es solo un día flojo.
   const hLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false })) % 24
-  if (hLima >= 9 && hLima < 21 && await flag('bot_activo') && await flag('ia_activa')) {
+  if (!MODO_API && hLima >= 9 && hLima < 21 && await flag('bot_activo') && await flag('ia_activa')) {
     const { data: ult } = await supabase.from('whatsapp_messages').select('created_at')
       .eq('direction', 'in').order('created_at', { ascending: false }).limit(1)
     const tsUlt = ult && ult[0] ? new Date(ult[0].created_at).getTime() : 0
@@ -3377,14 +3402,15 @@ async function panelControl(chatId, msgId) {
         ? '⏸ *Bot: EN PAUSA* — no responde a leads; los que escriban se guardan en el Kanban en silencio.'
         : '▶️ *Bot: ATENDIENDO* — responde a los leads con el flujo del panel.',
     avisos
-      ? '🔔 *Avisos: ENCENDIDOS* — "EN LÍNEA" cada 30 min, alarmas y tablero de leads.'
+      ? '🔔 *Avisos: ENCENDIDOS* — "' + (MODO_API ? 'SISTEMA EN PIE' : 'EN LÍNEA') + '" cada 30 min, alarmas y tablero de leads.'
       : '🔕 *Avisos: APAGADOS* — Telegram en silencio. Ojo: si el bot se cae, no te vas a enterar.',
     reint
       ? '🔄 *Reintentos: ENCENDIDOS* — si WhatsApp se cae, insiste solo (60 s y cada 30 min).'
       : '⏹ *Reintentos: APAGADOS* — si WhatsApp se cae, se queda caído hasta que los prendas.',
     '',
-    ...(ses || []).map(x => '📱 ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
-      + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? ' conectado' : ' — ' + x.estado)),
+    // en MODO_API el número vive en Meta: no hay sesión que mostrar
+    ...(MODO_API ? [] : (ses || []).map(x => '📱 ' + (x.estado === 'conectado' ? '🟢' : '🔴') + ' ' + (x.label || 'PRINCIPAL')
+      + (x.phone ? ' +' + x.phone : '') + (x.estado === 'conectado' ? ' conectado' : ' — ' + x.estado))),
     '',
     '_Toca un botón para cambiarlo. Este mensaje se actualiza solo._',
   ]
@@ -3672,6 +3698,9 @@ async function avisarRevinculacion(row, code, motivo) {
 // quedaron sin respuesta y avisa AL ADMIN con el numero y el texto.
 async function vigilarSinRespuesta() {
   if (!ADMIN) return
+  // 29 oct 2026: en MODO_API el agente va por Meta y no se cae; esta alarma ya
+  // solo daba sustos (el dueño la pidió fuera).
+  if (MODO_API) return
   // bot APAGADO A PROPOSITO (interruptores del panel): los chats sin respuesta
   // son lo esperado — los atiende una persona. Gritar "no responde" seria
   // regañar al dueño por su propia decision.
