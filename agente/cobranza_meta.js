@@ -49,7 +49,8 @@ async function verificar() {
 
 // Devuelve el id de la cuenta de WhatsApp: el del argumento, el del .env o el que encuentre solo.
 async function cuenta(silencioso = false) {
-  if (arg) return arg
+  // el argumento es el id de la WABA solo si es un número: `crear_plantillas century` lo usa como marca
+  if (arg && /^\d+$/.test(String(arg).trim())) return String(arg).trim()
   const r = await WA.buscarWaba()
   if (r.id) { if (!silencioso) ok('Cuenta de WhatsApp (WABA): ' + r.id + '   [la encontro por ' + r.via + ']'); return r.id }
   if (r.varias) {
