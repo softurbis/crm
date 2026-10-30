@@ -1,15 +1,25 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useMsg } from '../lib/saveFx'
+import MiPin from '../components/MiPin'
 
 export default function Reset() {
   const [listo, setListo] = useState(false)
   const [pass, setPass] = useState('')
   const [msg, setMsg] = useMsg(null)
   const [ok, setOk] = useState(false)
+  // PIN de desbloqueo (sql/170): null = aún no se sabe / base sin sql/170
+  const [email, setEmail] = useState('')
+  const [tienePin, setTienePin] = useState(null)
+  const [pinMsg, setPinMsg] = useMsg(null)
+
+  const verPin = () => supabase.rpc('pin_tengo').then(({ data, error }) => setTienePin(error ? null : !!data))
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { if (data.session) setListo(true) })
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) return
+      setListo(true); setEmail(data.session.user?.email || ''); verPin()
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((ev) => {
       if (ev === 'PASSWORD_RECOVERY' || ev === 'SIGNED_IN') setListo(true)
     })
@@ -39,6 +49,20 @@ export default function Reset() {
         )}
         {msg && <p className={ok ? 'ok' : 'error'}>{msg}</p>}
         {ok && <a className="btn-link btn-primary" href={import.meta.env.BASE_URL}>IR AL SISTEMA</a>}
+        {listo && tienePin !== null && (
+          <div style={{ borderTop: '1px solid rgba(127,148,118,.25)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 18, textAlign: 'center' }}>🔢 Mi PIN</h2>
+            <p className="muted small" style={{ margin: 0 }}>
+              {tienePin
+                ? 'Ya tienes PIN. A los 30 minutos sin uso la pantalla se bloquea y la abres con él. Aquí puedes cambiarlo o quitarlo.'
+                : 'A los 30 minutos sin uso el panel te saca. Con un PIN, en vez de sacarte se bloquea, y lo abres en un segundo.'}
+            </p>
+            <MiPin key={String(tienePin)} email={email} tienePin={tienePin}
+              onListo={quitado => { verPin(); setPinMsg(quitado ? 'PIN quitado.' : '✅ PIN guardado.') }} />
+            {pinMsg && <p className="ok" style={{ margin: 0 }}>{pinMsg}</p>}
+          </div>
+        )}
+        {listo && !ok && <a className="btn-link btn-ghost" href={import.meta.env.BASE_URL}>VOLVER AL SISTEMA</a>}
       </div>
     </div>
   )

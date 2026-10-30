@@ -29,12 +29,14 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  // si la sesión se cerró por 30 min sin uso (UsoActivo.jsx), se dice por qué
+  // si la sesión se cerró por 30 min sin uso o por 5 PIN errados (UsoActivo.jsx), se dice por qué
   const [aviso, setAviso] = useState(() => {
     try {
-      if (!localStorage.getItem('uso_cerrada')) return ''
+      const m = localStorage.getItem('uso_cerrada')
+      if (!m) return ''
       localStorage.removeItem('uso_cerrada')
-      return 'Tu sesión se cerró porque pasaron 30 minutos sin usar el panel. Vuelve a ingresar.'
+      if (m === 'pin') return 'Se escribió mal el PIN 5 veces y la sesión se cerró. Entra con tu contraseña.'
+      return 'Tu sesión se cerró porque pasaron 30 minutos sin usar el panel. Vuelve a ingresar. Consejo: crea un PIN en 🔑 Mi contraseña y la próxima vez solo lo escribes.'
     } catch { return '' }
   })
   const [busy, setBusy] = useState(false)
@@ -52,6 +54,8 @@ export default function Login() {
       else if (m.includes('disabled') || m.includes('banned')) setError('USUARIO DESACTIVADO')
       else setError(error.message)
     } else {
+      // entrar con contraseña quita cualquier bloqueo de PIN que quedara en esta PC
+      try { localStorage.removeItem('uso_bloqueada') } catch {}
       recordarUsuario(email.trim().toLowerCase())
       nav('/')
     }

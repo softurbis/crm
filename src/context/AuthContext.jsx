@@ -65,8 +65,8 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{ session, profile, role, esSuper, esOperador, puedeCorregir, esJefe, loading, login, logout }}>
       {children}
-      {/* minutos activos y cierre a los 30 min sin uso (sql/168) */}
-      <UsoActivo activo={!!profile?.id} />
+      {/* minutos activos y, a los 30 min sin uso, bloqueo con PIN o cierre (sql/168, 170) */}
+      <UsoActivo activo={!!profile?.id} nombre={profile?.full_name} email={profile?.email} />
     </AuthContext.Provider>
   )
 }
