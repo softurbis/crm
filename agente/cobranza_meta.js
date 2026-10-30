@@ -14,7 +14,7 @@
 // ============================================================================
 require('dotenv').config()
 const WA = require('./cloudapi')
-const { PLANTILLAS, PLANTILLA_COMPROBANTE, paraMetaComprobante, MARCAS, comoSeVe, paraMeta, plantillasDe } = require('./plantillas_cobranza')
+const { PLANTILLAS, PLANTILLAS_TIPO, plantillasTipoDe, PLANTILLA_COMPROBANTE, paraMetaComprobante, MARCAS, comoSeVe, paraMeta, plantillasDe } = require('./plantillas_cobranza')
 
 const [, , cmd, arg] = process.argv
 const ok = t => console.log('✅ ' + t)
@@ -134,7 +134,7 @@ async function plantillas() {
   else if (!faltan.length) nota('Meta todavia esta revisando alguna. Suele tardar de minutos a 24 h.')
 }
 
-async function crearPlantillas() {
+async function crearPlantillas(conTitulo = false) {
   if (!hayToken()) return
   const id = await cuenta()
   if (!id) return
@@ -142,11 +142,13 @@ async function crearPlantillas() {
   try { ya = (await WA.listarPlantillas(id)).data || [] } catch (e) { nota('(no pude leer las existentes: ' + e.message.slice(0, 90) + ')') }
   // sql/166: `crear_plantillas century` crea las copias con la marca de esa clave
   // (plantillas_cobranza.js → MARCAS). Sin argumento: las de Urbis + la interna.
-  let lista = PLANTILLAS
+  // 29 oct: `crear_plantillas_titulo [marca]` crea solo las nuevas CON TÍTULO
+  // (PLANTILLAS_TIPO); el agente las usa apenas Meta las aprueba.
+  let lista = conTitulo ? PLANTILLAS_TIPO : PLANTILLAS
   if (arg) {
     const m = MARCAS[String(arg).toLowerCase()]
     if (!m) { mal('Marca desconocida: ' + arg + '. Conocidas: ' + Object.keys(MARCAS).join(', ')); return }
-    lista = plantillasDe(m.prefijo, m.marca)
+    lista = conTitulo ? plantillasTipoDe(m.prefijo, m.marca) : plantillasDe(m.prefijo, m.marca)
     nota('Plantillas de ' + m.marca + ' (prefijo ' + m.prefijo + ')')
   }
   for (const p of lista) {
@@ -201,7 +203,7 @@ async function crearComprobante() {
 }
 
 function textos() {
-  for (const p of PLANTILLAS) {
+  for (const p of (arg === 'titulo' ? PLANTILLAS_TIPO : PLANTILLAS)) {
     titulo(p.nombre)
     console.log('Cuando sale: ' + p.cuando)
     console.log('Categoria: Utilidad · Idioma: Español · sin encabezado, sin pie, sin botones (la linea en cursiva va dentro del cuerpo)')
@@ -248,9 +250,9 @@ async function listo() {
   nota('Copia todo esto y pegaselo a Claude.')
 }
 
-const cmds = { listo, verificar, waba, suscribir, sincronizar, plantillas, crear_plantillas: crearPlantillas, crear_comprobante: crearComprobante, textos, ia: probarIA }
+const cmds = { listo, verificar, waba, suscribir, sincronizar, plantillas, crear_plantillas: () => crearPlantillas(false), crear_plantillas_titulo: () => crearPlantillas(true), crear_comprobante: crearComprobante, textos, ia: probarIA }
 if (!cmds[cmd]) {
-  console.log('Uso: node cobranza_meta.js listo | verificar | waba | crear_plantillas | plantillas [WABA] | suscribir [WABA] | sincronizar | textos | ia')
+  console.log('Uso: node cobranza_meta.js listo | verificar | waba | crear_plantillas [marca] | crear_plantillas_titulo [marca] | plantillas [WABA] | suscribir [WABA] | sincronizar | textos [titulo] | ia')
   process.exit(1)
 }
 Promise.resolve(cmds[cmd]()).catch(e => { mal(String(e.message || e).slice(0, 400)); process.exit(1) })

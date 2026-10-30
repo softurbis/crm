@@ -56,6 +56,7 @@ Cuando un cliente **no** recibe, la columna lo dice:
 | ⏸ Pausado | la casilla está en "No" | aquí o en la ficha del lote (pausar/reactivar) |
 | 📅 Con promesa | tiene promesa de pago vigente: solo recibe el recordatorio de la promesa | Cobranza IA → Promesas |
 | 🧾 Voucher en revisión | mandó un voucher que nadie validó todavía | Cobranza IA → Por validar |
+| 🚦 Por revisar | la cuenta de la venta no cuadra (semáforo): no le sale ningún aviso hasta arreglarla; debajo dice el motivo | ficha del lote → pestaña Cuotas |
 | 📵 Sin celular validado | ningún celular de la ficha está validado y habilitado para el bot | ficha del cliente |
 | ⚠ Falta plantilla | le toca un aviso pero falta el nombre de la plantilla | Cobranza IA → Configuración |
 | ✅ Al día | no tiene cuotas pendientes | — |
@@ -82,9 +83,27 @@ Qué cambia por detrás:
 
 El cambio se ve al instante; el "próximo aviso" se vuelve a calcular en menos de un minuto.
 
+### 🚦 El semáforo (29 oct)
+
+Pedido de la secretaria: "que el sistema cuadre bien los montos antes de enviar una
+cobranza incorrecta". Antes de cada aviso el agente revisa la cuenta de la venta:
+
+1. inicial + separación + todas las cuotas = precio (la misma cuenta de la ficha:
+   "✓ EL CRONOGRAMA CUADRA");
+2. lo pagado de cada cuota = lo que hay en caja para esa cuota;
+3. ninguna cuota con más pagado que su monto;
+4. ningún pago de la venta (fuera de inicial y separación) sin cuota asignada.
+
+Si algo falla, ese día **no sale ningún aviso** a esa venta (tampoco el texto
+propio), la fila queda en **🚦 Por revisar** con el motivo y la lista llega en el
+resumen de Telegram del envío. Al arreglarla en la ficha, el aviso sale en el
+siguiente envío. Al 29 oct: 20 de 225 ventas en proceso no cuadraban, todas por el
+cronograma (4 de Neshuya, 10 de Praderas de Cashibo, 6 de Pucallpa).
+
 ## Filtros
 
 - **Todos / Clientes / Leads** y **Sí se les escribe / No se les escribe**.
+- **🚦 Por revisar**: solo las ventas que el semáforo frenó.
 - **Proyecto** (sigue al proyecto elegido arriba en el menú).
 - **Buscador**: nombre, lote (A1, G-7), celular.
 

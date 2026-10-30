@@ -81,6 +81,7 @@ const ESTADO = {
   proyecto_pausado: ['🏗️', 'Proyecto apagado', 'bad'],   // sql/165
   promesa: ['📅', 'Con promesa', 'warn'],
   voucher: ['🧾', 'Voucher en revisión', 'warn'],
+  revisar: ['🚦', 'Por revisar: la cuenta no cuadra', 'bad'],   // semáforo del agente (29 oct)
   sin_celular: ['📵', 'Sin celular validado', 'bad'],
   sin_plantilla: ['⚠', 'Falta plantilla', 'warn'],
   al_dia: ['✅', 'Al día', 'muted'],
@@ -203,7 +204,7 @@ export function ClientesYAvisos() {
     return filas.filter(f => (proy === 'todos' || f.project_id === proy)
       && (tipo === 'todos' || (tipo === 'clientes' ? f.tipo === 'cliente' : f.tipo === 'lead'))
       && (recibe === 'todos' || (recibe === 'si' ? f.recibe : !f.recibe))
-      && (resp === 'todos' || (resp === 'agente' ? f.agente : resp === 'respondio' ? f.respondio === true : f.respondio === false))
+      && (resp === 'todos' || (resp === 'agente' ? f.agente : resp === 'revisar' ? f.estado === 'revisar' : resp === 'respondio' ? f.respondio === true : f.respondio === false))
       && (!t || sinTildes([f.nombre, f.extra, f.lote, f.lote?.replace(/MZ | LT /g, ''), f.telefono, f.telefono2, f.proyecto].join(' ')).includes(t)))
       .sort((a, b) => a.proyecto.localeCompare(b.proyecto) || (a.tipo === b.tipo ? 0 : a.tipo === 'cliente' ? -1 : 1) || a.orden.localeCompare(b.orden) || a.nombre.localeCompare(b.nombre))
   }, [filas, proy, tipo, recibe, resp, q])
@@ -215,6 +216,7 @@ export function ClientesYAvisos() {
     hoy: vista.filter(f => f.proximo?.estado === 'programado' && f.proximo?.fecha === hoyLima()).length,
     agente: vista.filter(f => f.agente).length,
     sinResp: vista.filter(f => f.respondio === false).length,
+    revisar: vista.filter(f => f.estado === 'revisar').length,
   }), [vista])
 
   const cfg = datos?.cfg || {}
@@ -347,7 +349,7 @@ export function ClientesYAvisos() {
           )
         })()}
         <span className="muted small" style={{ alignSelf: 'center' }}>|</span>
-        {[['todos', 'Todo'], ['agente', '🤖 Con agente'], ['respondio', '✅ Respondió'], ['sin_respuesta', '⏳ Sin respuesta']].map(([v, t]) => <button key={v} className={`chip ${resp === v ? 'on' : ''}`} onClick={() => setResp(v)}>{t}</button>)}
+        {[['todos', 'Todo'], ['agente', '🤖 Con agente'], ['respondio', '✅ Respondió'], ['sin_respuesta', '⏳ Sin respuesta'], ['revisar', '🚦 Por revisar']].map(([v, t]) => <button key={v} className={`chip ${resp === v ? 'on' : ''}`} onClick={() => setResp(v)}>{t}</button>)}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Nombre, lote (A1, G-7), celular…" style={{ flex: '1 1 220px', maxWidth: 360 }} />
       </div>
 
@@ -376,6 +378,7 @@ export function ClientesYAvisos() {
           <b>{tot.clientes}</b> cliente{tot.clientes === 1 ? '' : 's'} · <b>{tot.leads}</b> lead{tot.leads === 1 ? '' : 's'} · reciben mensajes <b>{tot.reciben}</b> de {vista.length}
           {tot.hoy > 0 && <> · <b className="warn">{tot.hoy}</b> con aviso programado para HOY</>}
           {' · '}🤖 agente con <b>{tot.agente}</b>{tot.sinResp > 0 && <> · <b className="warn">{tot.sinResp}</b> sin responder el último aviso</>}
+          {tot.revisar > 0 && <> · 🚦 <b className="bad">{tot.revisar}</b> por revisar (la cuenta no cuadra: no les sale ningún aviso)</>}
         </p>
       )}
       {datos && !!filas.length && !vista.length && <p className="muted">Nada con ese filtro.</p>}
@@ -437,7 +440,7 @@ export function ClientesYAvisos() {
         <summary className="small">📖 Cómo se usa esta pantalla</summary>
         <div className="muted small" style={{ textTransform: 'none', lineHeight: 1.55 }}>
           <p><b>Qué muestra.</b> Cada <b>cliente</b> con una venta vigente (una fila por lote) y cada <b>lead</b> del kanban que todavía no compró, agrupados por proyecto. Un lead cuyo celular ya está en la ficha de un cliente aparece marcado: el sistema lo trata como cliente.</p>
-          <p><b>Próximo aviso.</b> Lo calcula el agente de cobranza con la misma escalera de siempre (recordatorio 3 días antes, vence hoy, pago vencido a los 2 y 5 días y luego cada 7, aviso por contrato desde 4 cuotas vencidas), respetando sábados, domingos y feriados. Toca el aviso para leer el mensaje tal cual le llegaría. Si no recibe, dice por qué: pausado, con promesa de pago, voucher en revisión, sin celular validado o falta la plantilla. Los leads no reciben avisos de cobranza: a ellos les escribe el bot de ventas.</p>
+          <p><b>Próximo aviso.</b> Lo calcula el agente de cobranza con la misma escalera de siempre (recordatorio 3 días antes, vence hoy, pago vencido a los 2 y 5 días y luego cada 7, aviso por contrato desde 4 cuotas vencidas), respetando sábados, domingos y feriados. Toca el aviso para leer el mensaje tal cual le llegaría. Si no recibe, dice por qué: pausado, con promesa de pago, voucher en revisión, la cuenta no cuadra (🚦), sin celular validado o falta la plantilla. Los leads no reciben avisos de cobranza: a ellos les escribe el bot de ventas.</p>
           <p><b>¿Se le escribe?</b> La casilla de un cliente es la misma que "pausar/reactivar" en la ficha del lote (<i>auto_cobranza</i>). La de un lead es el <b>silencio total</b> del directorio del bot: el bot ni le responde ni le escribe. Marca varias filas y usa "Sí escribirles" / "No escribirles" para cambiarlas en bloque.</p>
           <p><b>Desde aquí no se manda nada.</b> Los avisos salen a la hora configurada en Cobranza IA → Configuración, solo si los avisos están prendidos. "Recalcular" le pide al agente que vuelva a calcular qué le toca a cada uno (también lo hace solo cada 30 minutos y después de cada envío).</p>
           <p><b>¿Respondió?</b> Debajo del último aviso dice <b>✅ respondió</b> si el cliente escribió al 960 después de ese aviso, o <b>⏳ sin respuesta</b> si no. Los filtros "Respondió" y "Sin respuesta" sirven para armar la lista de llamadas.</p>
@@ -445,6 +448,7 @@ export function ClientesYAvisos() {
           <p><b>Seguimiento (📝).</b> Abre la ficha de cobranza del cliente: historial de notas y resultados, y el formulario para anotar uno nuevo. <b>Prometió pagar</b> crea la promesa (pestaña Promesas) y desde ahí ese cliente recibe solo el recordatorio de la promesa. <b>Pagó</b> con voucher lo deja en <b>Por validar</b>, igual que si lo hubiera mandado el cliente: nada suma en Cuotas hasta validarlo. <b>No contesta</b> y <b>Número equivocado</b> quedan anotados para la siguiente llamada o para corregir la ficha.</p>
           <p><b>Mensaje propio.</b> En la misma ficha: <b>instrucciones para el agente</b> (las lee antes de contestarle a ese cliente, por ejemplo "tiene acuerdo de pagar los 30" o "no mencionar el contrato") y <b>texto del próximo aviso</b>. El texto propio sale tal cual solo si el cliente escribió en las últimas 24 horas, porque Meta no deja mandar texto libre fuera de esa ventana; si no, sale la plantilla de siempre. Se usa una sola vez. Para que no reciba ningún aviso automático, pon <b>¿Avisos?</b> en 🚫 No.</p>
           <p><b>Por proyecto (29 oct).</b> Al elegir un proyecto en el selector aparecen sus dos interruptores: <b>📨 avisos del proyecto</b> y <b>🤖 agente del proyecto</b>. Apagar uno manda sobre las casillas de cada cliente: con los avisos del proyecto en OFF nadie de ese proyecto recibe avisos (en la tabla sale "🏗️ Proyecto apagado"); con el agente en OFF, a sus clientes les contesta solo la secretaria. Un cliente con lotes en dos proyectos recibe del que esté prendido.</p>
+          <p><b>🚦 Por revisar (29 oct).</b> Antes de cada aviso el agente revisa que la cuenta de la venta cuadre: que inicial + separación + cuotas den el precio, que lo pagado de cada cuota sea lo que hay en caja, que ninguna cuota tenga más pagado que su monto y que no haya pagos sin cuota. Si algo no cuadra, <b>no le sale ningún aviso</b> y aquí dice el motivo. Se arregla en la ficha del lote (pestaña Cuotas) y el aviso sale en el siguiente envío. Los que se frenaron ese día llegan también en el resumen de Telegram.</p>
           <p><b>Quién la ve.</b> El superusuario y quien tenga el permiso de cobranza (Usuarios). El administrador solo mira.</p>
         </div>
       </details>
@@ -495,6 +499,7 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
               )}
               {px.estado === 'programado' && <div><b className={px.fecha === hoyLima() ? 'warn' : ''}>{fCorta(px.fecha)}</b> <span className="muted">{enDias(px.fecha)}</span></div>}
               {px.estado !== 'programado' && est && <div className={est[2]} title={px.detalle || ''}>{est[0]} {est[1]}</div>}
+              {px.estado === 'revisar' && px.detalle && <div className="muted" style={{ fontSize: 11 }}>{px.detalle}</div>}
               {px.estado !== 'programado' && px.motivo && <div className="muted" style={{ fontSize: 11 }}>si recibiera: {motivoLegible(px.motivo)} el {fCorta(px.fecha)}</div>}
             </>
           )}

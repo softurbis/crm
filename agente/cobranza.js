@@ -33,7 +33,7 @@ const crypto = require('crypto')
 const { createClient } = require('@supabase/supabase-js')
 const { Anthropic } = require('@anthropic-ai/sdk')
 const WA = require('./cloudapi')
-const { PLANTILLAS, MARCAS, comoSeVe, marcarPlantilla, nombreBase } = require('./plantillas_cobranza')
+const { PLANTILLAS, PLANTILLAS_TIPO, TIPO, MARCAS, comoSeVe, marcarPlantilla, nombreBase } = require('./plantillas_cobranza')
 const { subirAR2 } = require('./r2')
 const TG = require('./telegram')
 const { esClienteRegistrado } = require('./quien_escribe')
@@ -103,7 +103,7 @@ function telefonosBot(c) {
   return [...new Set(out.map(t => t.length === 9 ? '51' + t : t))]
 }
 
-const COLS_VENTA = 'id, client_id, co_client_id, status, monthly_amount, auto_cobranza, lot:lots!inner(id, mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)'
+const COLS_VENTA = 'id, client_id, co_client_id, status, monthly_amount, auto_cobranza, total_sale_price, initial_amount_paid, financed_amount, lot:lots!inner(id, mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)'
 async function ventasDe(clientIds) {
   if (!clientIds || !clientIds.length) return []
   const [a, b] = await Promise.all([
@@ -121,6 +121,127 @@ function cuotasPendientes(v, hoy) {
     .sort((a, b) => a.installment_number - b.installment_number)
     .map(q => ({ ...q, vencida: q.due_date < hoy }))
 }
+const r2 = n => Math.round(Number(n || 0) * 100) / 100
+
+// 29 oct 2026 (observaciones de la secretaria): lo vencido CUOTA POR CUOTA con el
+// monto de su cronograma, para el aviso y para el agente. Las cuotas enteras
+// seguidas del mismo monto van juntas ("Cuotas 11 a 14"); la que tiene una parte
+// pagada dice su saldo. Meta no acepta saltos de línea en una variable: va con " · ".
+function detalleVencido(vencidas) {
+  const entera = q => Math.abs(q.pendiente - Number(q.amount)) < 0.005
+  const partes = []
+  for (let i = 0; i < vencidas.length;) {
+    const q = vencidas[i]
+    let j = i
+    if (entera(q)) while (j + 1 < vencidas.length && entera(vencidas[j + 1]) && Number(vencidas[j + 1].amount) === Number(q.amount)
+      && vencidas[j + 1].installment_number === vencidas[j].installment_number + 1) j++
+    if (!entera(q)) partes.push(`Cuota ${q.installment_number}: saldo de S/ ${monto2(q.pendiente)} de S/ ${monto2(q.amount)} (venció el ${fechaCorta(q.due_date)})`)
+    else if (j === i) partes.push(`Cuota ${q.installment_number}: S/ ${monto2(q.pendiente)} (venció el ${fechaCorta(q.due_date)})`)
+    else partes.push(`Cuotas ${q.installment_number} a ${vencidas[j].installment_number}: S/ ${monto2(q.amount)} cada una (vencieron del ${fechaCorta(q.due_date)} al ${fechaCorta(vencidas[j].due_date)})`)
+    i = j + 1
+  }
+  const txt = partes.join(' · ')
+  return txt.length <= 700 ? txt : partes.slice(0, 4).join(' · ') + ` · y ${partes.length - 4} tramo(s) más`
+}
+// Plata A FAVOR: la cuota que todavía no vence pero ya tiene una parte pagada (cada
+// pago completa primero la cuota más antigua y lo que sobra pasa a la siguiente).
+// Ese mes el cliente paga MENOS, por única vez.
+const aFavor = q => (Number(q.amount_paid) > 0.004 && q.pendiente > 0.004) ? r2(q.amount_paid) : 0
+
+// Los pagos de cuota agrupados por depósito (misma fecha y operación) que NO fueron
+// de una cuota exacta ni de varias enteras: de ahí sale un saldo o una plata a favor.
+function depositosDistintos(pagos, cuota) {
+  if (!(cuota > 0)) return []
+  const m = new Map()
+  for (const x of pagos) {
+    if (x.income_type !== 'cuota') continue
+    const k = x.date + '|' + (x.operation_number || '')
+    m.set(k, { fecha: x.date, monto: r2((m.get(k)?.monto || 0) + Number(x.amount)) })
+  }
+  return [...m.values()]
+    .map(d => ({ ...d, delta: r2(d.monto - Math.max(1, Math.round(d.monto / cuota)) * cuota) }))
+    .filter(d => Math.abs(d.delta) >= 0.05)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+}
+// Por qué una cuota quedó con saldo (o con plata a favor), en palabras para el
+// cliente. Sale solo si esos depósitos explican EXACTO el monto; si no, null.
+function origenDelSaldo(q, deps, cuota, favor = 0) {
+  if (!q || !deps.length || !(cuota > 0)) return null
+  const neto = r2(deps.reduce((s, d) => s + d.delta, 0))
+  const resto = r2(((neto % cuota) + cuota) % cuota)          // lo que queda pagado en la última cuota
+  const cuales = (deps.length === 1 ? 'su pago del ' : 'sus pagos del ') + deps.map(d =>
+    `${fechaCorta(d.fecha)} (${soles(d.monto)}, ${d.delta < 0 ? soles(-d.delta) + ' menos' : soles(d.delta) + ' más'} que su cuota de ${soles(cuota)})`).join(', ')
+  if (favor) return Math.abs(resto - favor) <= 0.05
+    ? `Los ${soles(favor)} a favor vienen de ${cuales}: lo pagado de más pasa a la cuota siguiente.` : null
+  return Math.abs(r2(cuota - resto) - q.pendiente) <= 0.05
+    ? `El saldo de ${soles(q.pendiente)} de la cuota ${q.installment_number} viene de ${cuales}. Cada pago se aplica primero a la cuota más antigua, por eso ese faltante pasó a la última cuota pagada.` : null
+}
+
+// ============================================================================
+// SEMÁFORO (29 oct 2026, pedido de la secretaria: "que el sistema cuadre bien los
+// montos antes de enviar una cobranza incorrecta"). Antes de cada aviso se revisa
+// que la cuenta de la venta cuadre; si no, el aviso NO sale y la venta queda
+// "🚦 Por revisar" en Cobranza IA → Clientes y avisos, con el motivo:
+//   · el cronograma (inicial + separación + cuotas) tiene que dar el precio: la
+//     misma cuenta de la ficha del lote ("✓ EL CRONOGRAMA CUADRA")
+//   · lo pagado de cada cuota tiene que ser lo que hay en caja para esa cuota
+//   · ninguna cuota con más pagado que su monto
+//   · ningún pago de la venta (fuera de inicial y separación) sin cuota asignada
+// Al 29 oct: 20 de 225 ventas en proceso no cuadran, todas por el cronograma.
+// ============================================================================
+async function pagosDeVentas(ids) {
+  const out = []
+  for (let i = 0; i < ids.length; i += 80) {          // de a 80: la lista viaja en la URL
+    const grupo = ids.slice(i, i + 80)
+    for (let desde = 0; ; desde += 1000) {             // paginado: la API corta en silencio a las 1000
+      const { data, error } = await supabase.from('daily_income')
+        .select('id, sale_id, installment_id, income_type, amount, date, operation_number')
+        .in('sale_id', grupo).order('id').range(desde, desde + 999)
+      if (error) throw new Error('pagos: ' + error.message)
+      out.push(...(data || []))
+      if (!data || data.length < 1000) break
+    }
+  }
+  return out
+}
+function problemasDeCuadre(v, pagos) {
+  const p = []
+  const precio = r2(v.total_sale_price)
+  const cuotas = v.installments || []
+  const suma = tipo => r2(pagos.filter(x => x.income_type === tipo).reduce((s, x) => s + Number(x.amount), 0))
+  if (precio > 0) {
+    // igual que la ficha: el monto REAL de caja; si no hay, el de la venta
+    const ini = suma('inicial') > 0 ? suma('inicial') : r2(v.initial_amount_paid)
+    const sep = suma('separacion') > 0 ? suma('separacion') : Math.max(0, r2(precio - Number(v.initial_amount_paid || 0) - Number(v.financed_amount || 0)))
+    const sumaCuotas = r2(cuotas.reduce((s, q) => s + Number(q.amount), 0))
+    const dif = r2(ini + sep + sumaCuotas - precio)
+    if (Math.abs(dif) > 1) p.push(`El cronograma no cuadra con el precio: inicial ${soles(ini)}${sep > 0 ? ' + separación ' + soles(sep) : ''} + ${cuotas.length} cuotas ${soles(sumaCuotas)} = ${soles(ini + sep + sumaCuotas)}, y el precio es ${soles(precio)} (${soles(Math.abs(dif))} de ${dif > 0 ? 'más' : 'menos'}).`)
+  }
+  const caja = new Map()
+  for (const x of pagos) if (x.installment_id) caja.set(x.installment_id, r2((caja.get(x.installment_id) || 0) + Number(x.amount)))
+  for (const q of cuotas.slice().sort((a, b) => a.installment_number - b.installment_number)) {
+    const pagado = r2(q.amount_paid)
+    const enCaja = caja.get(q.id) || 0
+    if (Math.abs(pagado - enCaja) > 0.05) p.push(`La cuota ${q.installment_number} dice pagado ${soles(pagado)}, pero en caja hay ${soles(enCaja)}.`)
+    if (pagado > Number(q.amount) + 0.05) p.push(`La cuota ${q.installment_number} tiene pagado ${soles(pagado)}, más que su monto de ${soles(q.amount)}.`)
+  }
+  const sueltos = pagos.filter(x => !x.installment_id && !['inicial', 'separacion'].includes(x.income_type))
+  if (sueltos.length) p.push(`Hay ${soles(sueltos.reduce((s, x) => s + Number(x.amount), 0))} en ${sueltos.length} pago(s) de la venta sin cuota asignada.`)
+  return p
+}
+// venta → [motivos], solo las que NO cuadran. Si no se pueden leer los pagos, error:
+// quien llama no manda nada (mejor tarde que una cobranza mal hecha).
+async function cuentasQueNoCuadran(ventas) {
+  const porVenta = new Map()
+  for (const x of await pagosDeVentas(ventas.map(v => v.id))) {
+    if (!porVenta.has(x.sale_id)) porVenta.set(x.sale_id, [])
+    porVenta.get(x.sale_id).push(x)
+  }
+  const m = new Map()
+  for (const v of ventas) { const p = problemasDeCuadre(v, porVenta.get(v.id) || []); if (p.length) m.set(v.id, p) }
+  return m
+}
+const POR_REVISAR = 'No sale ningún aviso hasta que la cuenta cuadre (se arregla en la ficha del lote, pestaña Cuotas): '
 // "Mz B Lt 12", "manzana b lote 12", "lote 12" → la venta que calza
 function ventaPorTexto(ventas, texto) {
   const t = String(texto || '').toUpperCase()
@@ -330,7 +451,7 @@ async function estadoDeCuenta(chat) {
   if (!ventas.length) return { mensaje: 'Este número no tiene lotes registrados. No des datos: deriva a la secretaria.' }
   const ids = ventas.map(v => v.id)
   const [pagos, promesas, reportados] = await Promise.all([
-    supabase.from('daily_income').select('sale_id, date, amount, income_type').in('sale_id', ids).order('date', { ascending: false }).limit(60),
+    supabase.from('daily_income').select('sale_id, date, amount, income_type, operation_number').in('sale_id', ids).order('date', { ascending: false }).limit(800),
     supabase.from('cobranza_promesas').select('sale_id, fecha_promesa, monto').in('sale_id', ids).eq('estado', 'vigente').eq('es_prueba', !!chat.es_prueba),
     supabase.from('cobranza_pagos_reportados').select('sale_id, monto, fecha').in('client_id', chat.client_ids).eq('estado', 'pendiente').eq('es_prueba', !!chat.es_prueba),
   ])
@@ -343,6 +464,19 @@ async function estadoDeCuenta(chat) {
       const vencidas = pend.filter(q => q.vencida)
       const proxima = pend.find(q => !q.vencida)
       const prom = (promesas.data || []).find(p => p.sale_id === v.id)
+      // 29 oct (secretaria): el detalle por cuota, por qué una cuota tiene saldo y el
+      // "por única vez" de la cuota que sale menos por plata a favor
+      const pagosVenta = (pagos.data || []).filter(p => p.sale_id === v.id)
+      const cuota = Number(v.monthly_amount) || Number(cuotas[0]?.amount) || 0
+      const deps = depositosDistintos(pagosVenta, cuota)
+      const parcial = vencidas.find(q => q.pendiente < Number(q.amount) - 0.004)
+      const sig = proxima && pend.find(q => q.installment_number > proxima.installment_number)
+      const favor = proxima && sig ? aFavor(proxima) : 0
+      const porDeposito = new Map()
+      for (const p of pagosVenta) {
+        const k = p.date + '|' + (p.operation_number || '') + '|' + p.income_type
+        porDeposito.set(k, { fecha: p.date, monto: r2((porDeposito.get(k)?.monto || 0) + Number(p.amount)), tipo: p.income_type })
+      }
       return {
         lote: loteDe(v),
         proyecto: v.lot.project?.name || '',
@@ -350,12 +484,21 @@ async function estadoDeCuenta(chat) {
         cuota_mensual: v.monthly_amount ? soles(v.monthly_amount) : null,
         cuotas_pagadas: cuotas.filter(q => q.status === 'pagado').length,
         cuotas_totales: cuotas.length,
-        cuotas_vencidas: vencidas.map(q => ({ numero: q.installment_number, vencio: fechaCorta(q.due_date), pendiente: soles(q.pendiente) })),
-        total_vencido: soles(vencidas.reduce((s, q) => s + q.pendiente, 0)),
-        proxima_cuota: proxima ? { numero: proxima.installment_number, vence: fechaCorta(proxima.due_date), monto: soles(proxima.pendiente) } : null,
+        cuotas_vencidas: vencidas.map(q => ({ numero: q.installment_number, vencio: fechaCorta(q.due_date), monto_de_la_cuota: soles(q.amount), ya_pagado: soles(q.amount_paid), pendiente: soles(q.pendiente) })),
+        detalle_vencido: vencidas.length ? detalleVencido(vencidas) : null,
+        total_vencido_referencial: soles(vencidas.reduce((s, q) => s + q.pendiente, 0)),
+        origen_del_saldo: parcial ? origenDelSaldo(parcial, deps, cuota) : null,
+        proxima_cuota: proxima ? {
+          numero: proxima.installment_number, vence: fechaCorta(proxima.due_date),
+          vence_hoy: proxima.due_date === hoy, dias_para_vencer: diasEntre(proxima.due_date, hoy),
+          monto_de_la_cuota: soles(proxima.amount), monto_a_pagar: soles(proxima.pendiente),
+          por_unica_vez: favor ? `Por única vez, en la cuota ${proxima.installment_number} paga ${soles(proxima.pendiente)}: la cuota es de ${soles(proxima.amount)} y ya tiene ${soles(favor)} a favor de un pago anterior. Desde la cuota ${sig.installment_number} vuelve a pagar ${soles(sig.amount)}.` : null,
+          origen_a_favor: favor ? origenDelSaldo(proxima, deps, cuota, favor) : null,
+        } : null,
         saldo_pendiente_total: soles(pend.reduce((s, q) => s + q.pendiente, 0)),
-        ultimos_pagos_registrados: (pagos.data || []).filter(p => p.sale_id === v.id).slice(0, 3)
-          .map(p => ({ fecha: fechaCorta(p.date), monto: soles(p.amount), tipo: p.income_type })),
+        pagos_distintos_a_la_cuota: deps.slice(0, 8).map(d => ({ fecha: fechaCorta(d.fecha), monto: soles(d.monto), diferencia: d.delta < 0 ? soles(-d.delta) + ' menos que la cuota' : soles(d.delta) + ' más que la cuota' })),
+        ultimos_pagos_registrados: [...porDeposito.values()].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 3)
+          .map(p => ({ fecha: fechaCorta(p.fecha), monto: soles(p.monto), tipo: p.tipo })),
         promesa_de_pago_vigente: prom ? { fecha: fechaCorta(prom.fecha_promesa), monto: prom.monto ? soles(prom.monto) : null } : null,
       }
     }),
@@ -594,11 +737,15 @@ Cómo trabajar:
 - Si registrar_pago_reportado responde voucher_ya_registrado: ese pago ya figura en su cuenta. Dile eso con amabilidad y que la secretaria de cobranzas se comunicará con él para aclararlo; no le pidas otro voucher, no le digas que debe pagar de nuevo y no sigas cobrando en ese chat.
 - Si dice que no podrá pagar en la fecha: si da una fecha concreta, anótala con registrar_promesa_de_pago, convirtiendo expresiones como "el 15" o "el viernes" con la fecha de hoy. Si no da fecha, pregúntale para qué día puede. Si la herramienta responde que la fecha es muy lejana, deriva.
 - Si pregunta a qué cuenta pagar, usa cuentas_para_pagar.
+- Fechas: cópialas tal cual de estado_de_cuenta. Di "hoy" solo si vence_hoy es true y "mañana" solo si dias_para_vencer es 1; nunca calcules un vencimiento por tu cuenta.
+- Si debe cuotas: detalla CADA cuota con su monto, como viene en detalle_vencido, y al final pon el total solo como referencia ("Total vencido (referencial): S/ ..."). Pídele pagar cada cuota con el monto de su cronograma de pagos; no le pidas un solo depósito por el total.
+- Si una cuota tiene un saldo (pagó una parte) y pregunta por qué, explícalo con origen_del_saldo, con esas mismas palabras. Si viene vacío, mira pagos_distintos_a_la_cuota; si aun así no queda claro, deriva a la secretaria.
+- Si proxima_cuota trae por_unica_vez, díselo así: ese mes paga menos por única vez porque tiene plata a favor de un pago anterior, y desde la cuota siguiente vuelve a su monto. Si pregunta de dónde sale, usa origen_a_favor.
 - Si responde al aviso sobre su contrato (varias cuotas vencidas): dile cuánto debe con estado_de_cuenta y pídele su voucher si ya pagó. Si da una fecha concreta para pagar todo lo vencido, anótala como promesa. Si quiere pagar en partes, un plan de pagos o pregunta qué pasará con su contrato o su lote, no lo expliques ni lo negocies: deriva a la secretaria. Nunca hables de demandas, abogados, embargos, centrales de riesgo ni de perder lo pagado.
 
 Estilo:
 - Español peruano, cordial y respetuoso, tratando de usted.
-- Mensajes cortos, como en WhatsApp: de una a cuatro líneas, sin listas largas ni tecnicismos.
+- Mensajes cortos, como en WhatsApp: de una a cuatro líneas, sin tecnicismos. Cuando detallas cuotas, una línea por cuota.
 - Montos como S/ 350.00 y fechas como 15/09/2026.
 - Saluda por su nombre solo al comienzo de la conversación.
 - Si el cliente solo agradece o se despide, responde breve.`
@@ -769,6 +916,7 @@ function marcarAviso(d, porProy, projectId) {
   if (!d) return d
   const pp = projectId ? porProy.get(projectId) : null
   if (pp?.plantilla_prefijo) d.plantilla = marcarPlantilla(d.plantilla, pp.plantilla_prefijo)
+  if (pp?.plantilla_prefijo && d.nueva) d.nueva = { ...d.nueva, plantilla: marcarPlantilla(d.nueva.plantilla, pp.plantilla_prefijo) }
   d.numero_id = pp?.phone_number_id && !WA.esNumeroPropio(pp.phone_number_id) ? pp.phone_number_id : null
   d.marca = pp?.marca || null
   return d
@@ -1036,6 +1184,16 @@ async function pruebas() {
 const DE_DEUDA = /^(vencido|contrato|vencida|repite|grave)(_|$)/
 const DE_CONTRATO = /^(contrato|grave)(_|$)/
 
+// 29 oct 2026: cada aviso trae también su versión CON TÍTULO (plantillas_cobranza.js
+// → PLANTILLAS_TIPO: tipo de aviso arriba, detalle por cuota, "por única vez").
+// elegirPlantilla la usa solo si Meta ya la aprobó; si no, sale la de siempre con
+// sus datos de siempre. `aprobadas` undefined = no se puede preguntar: la de siempre.
+const conTitulo = (d, clave, params) => ({ ...d, nueva: { plantilla: TIPO[clave].nombre, params } })
+function elegirPlantilla(d, aprobadas) {
+  if (d?.nueva && aprobadas && aprobadas.has(d.nueva.plantilla)) { d.plantilla = d.nueva.plantilla; d.params = d.nueva.params }
+  return d
+}
+
 // Ultimo dia en que se puede cobrar (Ley 29571) en o antes de `iso`.
 function habilHasta(cfg, iso) {
   let d = iso
@@ -1064,16 +1222,26 @@ function decidirAviso(v, cfg, hoy, envios = []) {
   if (!vencidas.length) {
     const q = pend[0]
     const antes = (cfg.dias_antes || []).map(Number)
+    // cuota con plata a favor (ya tiene una parte pagada): ese mes paga menos, "por
+    // única vez". En la última cuota no aplica: no hay "desde la siguiente".
+    const sig = pend.find(x => x.installment_number > q.installment_number)
+    const favor = sig ? aFavor(q) : 0
     if (q.due_date === hoy) {
       if (!antes.includes(0) || yaSalio(q, 'vence_hoy')) return null
-      return { motivo: 'vence_hoy', plantilla: cfg.plantilla_vence_hoy, q, params: [nombre, q.installment_number, lote, proyecto, monto2(q.pendiente)] }
+      const d = { motivo: 'vence_hoy', plantilla: cfg.plantilla_vence_hoy, q, params: [nombre, q.installment_number, lote, proyecto, monto2(q.pendiente)] }
+      return favor
+        ? conTitulo(d, 'vence_hoy_ajuste', [nombre, q.installment_number, lote, proyecto, monto2(q.pendiente), monto2(q.amount), monto2(favor), sig.installment_number])
+        : conTitulo(d, 'vence_hoy', d.params)
     }
     // el recordatorio de N dias antes vale desde ese dia (o el habil anterior)
     // hasta la vispera; con varios N, el mas cercano al vencimiento ya alcanzado
     const n = antes.filter(d => d > 0).sort((a, b) => a - b)
       .find(d => hoy >= habilHasta(cfg, sumarDias(q.due_date, -d)))
     if (!n || yaSalio(q, 'antes_' + n)) return null
-    return { motivo: 'antes_' + n, plantilla: cfg.plantilla_recordatorio, q, params: [nombre, q.installment_number, lote, proyecto, fechaCorta(q.due_date), monto2(q.pendiente)] }
+    const d = { motivo: 'antes_' + n, plantilla: cfg.plantilla_recordatorio, q, params: [nombre, q.installment_number, lote, proyecto, fechaCorta(q.due_date), monto2(q.pendiente)] }
+    return favor
+      ? conTitulo(d, 'recordatorio_ajuste', [nombre, q.installment_number, lote, proyecto, fechaCorta(q.due_date), monto2(q.pendiente), monto2(q.amount), monto2(favor), sig.installment_number])
+      : conTitulo(d, 'recordatorio', d.params)
   }
 
   const q = vencidas[0]                                  // desde la mas antigua se cuenta
@@ -1087,7 +1255,8 @@ function decidirAviso(v, cfg, hoy, envios = []) {
     const cada = Math.max(1, Number(cfg.repetir_contrato_dias || 7))
     const prev = ultimo(DE_CONTRATO)
     if (prev && diasEntre(hoy, prev) < cada) return null
-    return { motivo: 'contrato', plantilla: cfg.plantilla_vencida_grave, q, params: [nombre, lote, proyecto, vencidas.length, monto2(total)] }
+    return conTitulo({ motivo: 'contrato', plantilla: cfg.plantilla_vencida_grave, q, params: [nombre, lote, proyecto, vencidas.length, monto2(total)] },
+      'aviso_contrato', [nombre, lote, proyecto, vencidas.length, detalleVencido(vencidas), monto2(total)])
   }
 
   // el ultimo hito alcanzado: 2, 5, y despues 5 + 7, 5 + 14...
@@ -1099,7 +1268,8 @@ function decidirAviso(v, cfg, hoy, envios = []) {
   for (const h of hitos) if (h <= dd) hito = h
   if (dd > base && dd - base >= cada) hito = base + Math.floor((dd - base) / cada) * cada
   if (hito == null || yaSalio(q, 'vencido_' + hito)) return null
-  return { motivo: 'vencido_' + hito, plantilla: cfg.plantilla_vencida, q, params: [nombre, lote, proyecto, monto2(total), fechaCorta(q.due_date)] }
+  return conTitulo({ motivo: 'vencido_' + hito, plantilla: cfg.plantilla_vencida, q, params: [nombre, lote, proyecto, monto2(total), fechaCorta(q.due_date)] },
+    'pago_vencido', [nombre, lote, proyecto, detalleVencido(vencidas), monto2(total)])
 }
 
 // Los avisos que ya salieron, por venta, de los ultimos 60 dias (paginado: la
@@ -1133,14 +1303,16 @@ async function vistaPreviaAviso(chat) {
     supabase.from('cobranza_promesas').select('sale_id').in('sale_id', ids).eq('estado', 'vigente').eq('es_prueba', false),
     supabase.from('cobranza_pagos_reportados').select('sale_id').in('sale_id', ids).eq('estado', 'pendiente').eq('es_prueba', false),
   ])
+  const [noCuadra, aprobadas] = await Promise.all([cuentasQueNoCuadran(ventas), aprobadasRecientes()])
   const lineas = []
   for (const v of ventas) {
     const fuera = v.auto_cobranza === false ? 'la cobranza automática está PAUSADA en su ficha'
       : (prom.data || []).some(p => p.sale_id === v.id) ? 'tiene una promesa de pago vigente'
-      : (rep.data || []).some(p => p.sale_id === v.id) ? 'tiene un voucher esperando validación' : null
+      : (rep.data || []).some(p => p.sale_id === v.id) ? 'tiene un voucher esperando validación'
+      : noCuadra.has(v.id) ? '🚦 la cuenta no cuadra. ' + POR_REVISAR + noCuadra.get(v.id).join(' ') : null
     if (fuera) { lineas.push(loteDe(v) + ': no recibe avisos (' + fuera + ')'); continue }
     const cli = (chat.clientes || []).find(c => c.id === v.client_id)
-    const d = marcarAviso(decidirAviso({ ...v, client: cli }, cfg, hoy, envios.get(v.id) || []), await cfgProyectos(), v.lot?.project?.id)
+    const d = elegirPlantilla(marcarAviso(decidirAviso({ ...v, client: cli }, cfg, hoy, envios.get(v.id) || []), await cfgProyectos(), v.lot?.project?.id), aprobadas)
     lineas.push(loteDe(v) + ': ' + (d
       ? `hoy le toca "${d.motivo}" con la plantilla ${d.plantilla || '(SIN NOMBRE — configurar)'}:\n${textoDelAviso(d)}`
       : 'hoy no le toca aviso con la configuración actual'))
@@ -1154,7 +1326,7 @@ async function vistaPreviaAviso(chat) {
 // agente sabe que se le dijo. Plantilla que no esta en plantillas_cobranza.js:
 // su nombre y sus datos.
 function textoDelAviso(d) {
-  const p = PLANTILLAS.find(x => x.nombre === nombreBase(d.plantilla))   // sql/166: también century_cobranza_* y *_v2
+  const p = PLANTILLAS.concat(PLANTILLAS_TIPO).find(x => x.nombre === nombreBase(d.plantilla))   // sql/166: también century_cobranza_* y *_v2; 29 oct: las _v3 con título
   return p ? comoSeVe(p, d.params.map(String), d.marca || null) : `Aviso "${d.plantilla}" (${d.motivo}): ${d.params.join(' · ')}`
 }
 
@@ -1186,7 +1358,7 @@ async function registrarTextoPropio(tel, d, texto, extra) {
 // soloActivas = false trae tambien las pausadas (auto_cobranza = false): la
 // proyeccion de la pantalla Avisos por cliente las muestra como "no recibe".
 async function todasLasVentas(soloActivas = true) {
-  const cols = 'id, client_id, status, auto_cobranza, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)'
+  const cols = 'id, client_id, status, auto_cobranza, total_sale_price, initial_amount_paid, financed_amount, client:clients!sales_client_id_fkey(id, full_name, phone, phone_valid, phone_bot, phone2, phone2_valid, phone2_bot), lot:lots!inner(mz, lt, project:projects(id, name)), installments(id, installment_number, amount, amount_paid, due_date, status)'
   const out = []
   for (let desde = 0; ; desde += 500) {   // paginado: Supabase corta en silencio a las 1000 filas
     let q = supabase.from('sales').select(cols).eq('status', 'en_proceso').order('id').range(desde, desde + 499)
@@ -1221,6 +1393,15 @@ async function plantillasAprobadas() {
     const r = await WA.listarPlantillas(waba)
     return new Set((r.data || []).filter(t => t.status === 'APPROVED').map(t => t.name))
   } catch (e) { log('AVISOS: no pude leer las plantillas de Meta:', String(e.message || e).slice(0, 160)); return null }
+}
+// para la proyección y la vista previa (no para el envío): la lista de Meta de
+// hace menos de 10 minutos alcanza
+let _aprobadas = { t: 0, v: undefined }
+async function aprobadasRecientes() {
+  if (Date.now() - _aprobadas.t < 10 * 60e3) return _aprobadas.v
+  const v = await plantillasAprobadas()
+  if (v !== null) _aprobadas = { t: Date.now(), v }
+  return v
 }
 
 let _avisoSinAprobar = 0
@@ -1273,8 +1454,9 @@ async function barridoAvisos() {
     const propios = await textosPropios()
     const porProy = await cfgProyectos()   // sql/165: proyectos con los avisos apagados
     const plazo = Math.max(1, Number(cfg.plazo_contrato_dias || 7))
+    const noCuadra = await cuentasQueNoCuadran(ventas)   // SEMÁFORO: si no se puede revisar, hoy no sale nada
     let enviados = 0, sinPlantilla = 0, topeAlcanzado = false, proyApagado = 0
-    const sinRespuesta = []
+    const sinRespuesta = [], porRevisar = []
     for (const v of ventas) {
       const tels = telefonosBot(v.client)
       if (!tels.length || conPromesa.has(v.id) || enRevision.has(v.id)) continue
@@ -1291,8 +1473,14 @@ async function barridoAvisos() {
           sinRespuesta.push('• ' + (v.client?.full_name || '?') + ' · ' + loteDe(v) + ' (' + (v.lot.project?.name || '') + ') · ' + vencidas.length + ' cuotas · '
             + soles(vencidas.reduce((s, q) => s + q.pendiente, 0)) + ' · aviso del ' + fechaCorta(ultContrato.fecha))
       }
-      const d = marcarAviso(decidirAviso(v, cfg, hoy, env), porProy, v.lot.project?.id)   // sql/166: número, plantilla y marca del proyecto
+      const d = elegirPlantilla(marcarAviso(decidirAviso(v, cfg, hoy, env), porProy, v.lot.project?.id), aprobadas)   // sql/166: número, plantilla y marca del proyecto
       if (!d) continue
+      // SEMÁFORO: la cuenta no cuadra → hoy el aviso no sale (ni el texto propio); la
+      // secretaria lo arregla en la ficha y sale en el siguiente barrido
+      if (noCuadra.has(v.id)) {
+        porRevisar.push('• ' + (v.client?.full_name || '?') + ' · ' + loteDe(v) + ' (' + (v.lot.project?.name || '') + '): ' + noCuadra.get(v.id)[0])
+        continue
+      }
       // sql/161: texto propio del próximo aviso, solo con la ventana de 24 h abierta
       // (regla de Meta); si no, sale la plantilla de siempre
       const propio = propios.get(v.client_id)
@@ -1324,7 +1512,8 @@ async function barridoAvisos() {
       if (!(hoy >= habilHasta(cfg, sumarDias(p.fecha_promesa, -dias)) && hoy <= p.fecha_promesa)) continue
       const pend = cuotasPendientes(p.sale, hoy)
       const monto = p.monto || (pend[0] ? pend[0].pendiente : 0)
-      const d = marcarAviso({ motivo: 'promesa', plantilla: cfg.plantilla_promesa, params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }, porProy, p.sale.lot?.project?.id)
+      const base = { motivo: 'promesa', plantilla: cfg.plantilla_promesa, params: [nombrePila(p.client?.full_name), fechaCorta(p.fecha_promesa), monto2(monto), loteDe(p.sale), p.sale.lot?.project?.name || ''] }
+      const d = elegirPlantilla(marcarAviso(conTitulo(base, 'promesa', base.params), porProy, p.sale.lot?.project?.id), aprobadas)
       if (!sirve(d.plantilla)) continue
       d.plantilla = usable(d.plantilla)
       let ok = false
@@ -1353,9 +1542,11 @@ async function barridoAvisos() {
     }
 
     await supabase.from('cobranza_config').update({ ultimo_barrido: hoy }).eq('id', 1)
-    log('AVISOS:', enviados, 'enviados', sinPlantilla ? '· ' + sinPlantilla + ' sin plantilla configurada' : '', proyApagado ? '· ' + proyApagado + ' de proyectos con avisos apagados' : '', topeAlcanzado ? '· TOPE DIARIO ALCANZADO' : '')
+    log('AVISOS:', enviados, 'enviados', sinPlantilla ? '· ' + sinPlantilla + ' sin plantilla configurada' : '', proyApagado ? '· ' + proyApagado + ' de proyectos con avisos apagados' : '', porRevisar.length ? '· ' + porRevisar.length + ' frenados por el semáforo (no cuadran)' : '', topeAlcanzado ? '· TOPE DIARIO ALCANZADO' : '')
     const partes = []
     if (topeAlcanzado) partes.push('🛑 Se llegó al tope diario de ' + cfg.tope_diario + ' avisos: el resto sale mañana.')
+    if (porRevisar.length) partes.push('🚦 ' + porRevisar.length + ' aviso(s) NO salieron porque la cuenta no cuadra. Se arregla en la ficha del lote (pestaña Cuotas) y el aviso sale en el siguiente barrido:\n'
+      + porRevisar.slice(0, 15).join('\n') + (porRevisar.length > 15 ? '\n… y ' + (porRevisar.length - 15) + ' más (Cobranza IA → Clientes y avisos → 🚦 Por revisar)' : ''))
     if (sinPlantilla) partes.push('⚠ ' + sinPlantilla + ' aviso(s) no salieron porque falta el nombre de la plantilla en la configuración.')
     if (incumplidas.length) partes.push('📅 Promesas incumplidas:\n' + incumplidas.join('\n'))
     if (sinRespuesta.length) partes.push('⚖ Sin respuesta al aviso por contrato (' + plazo + ' días o más). Evaluar la carta notarial:\n' + sinRespuesta.join('\n'))
@@ -1402,6 +1593,7 @@ async function proyectarAvisos(porQue = 'programada') {
     const enRevision = new Set((rep.data || []).map(p => p.sale_id))
     const propios = await textosPropios()
     const porProy = await cfgProyectos()   // sql/165
+    const [noCuadra, aprobadas] = await Promise.all([cuentasQueNoCuadran(ventas), aprobadasRecientes()])   // semáforo + plantillas con título
     const filas = []
     for (const v of ventas) {
       const pend = cuotasPendientes(v, hoy)
@@ -1412,7 +1604,7 @@ async function proyectarAvisos(porQue = 'programada') {
         deuda_vencida: Math.round(vencidas.reduce((s, q) => s + q.pendiente, 0) * 100) / 100,
         calculado_at: inicio,
       }
-      const d = pend.length ? marcarAviso(proximoAviso(v, cfg, hoy, envios.get(v.id) || []), porProy, v.lot.project?.id) : null
+      const d = pend.length ? elegirPlantilla(marcarAviso(proximoAviso(v, cfg, hoy, envios.get(v.id) || []), porProy, v.lot.project?.id), aprobadas) : null
       if (d) Object.assign(fila, { motivo: d.motivo, fecha: d.fecha, plantilla: d.plantilla || null, texto: textoDelAviso(d), cuota: d.q?.installment_number ?? null, monto: d.q ? d.q.pendiente : null })
       // texto propio (sql/161): se muestra el que escribió la secretaria y, debajo, la plantilla de respaldo
       if (d && propios.has(v.client_id)) fila.texto = '✍️ TEXTO PROPIO (sale así si el cliente escribió en las últimas 24 h):\n' + propios.get(v.client_id) + '\n\n— Si no, sale la plantilla:\n' + fila.texto
@@ -1423,6 +1615,7 @@ async function proyectarAvisos(porQue = 'programada') {
       else if (!telefonosBot(v.client).length) { fila.estado = 'sin_celular'; fila.detalle = 'Ningún celular de la ficha está validado y habilitado para el bot.' }
       else if (conPromesa.has(v.id)) { fila.estado = 'promesa'; fila.detalle = 'Tiene una promesa de pago vigente para el ' + fechaCorta(conPromesa.get(v.id)) + ': recibe solo el recordatorio de la promesa.' }
       else if (enRevision.has(v.id)) { fila.estado = 'voucher'; fila.detalle = 'Tiene un voucher esperando validación: no se le cobra hasta que se revise.' }
+      else if (noCuadra.has(v.id)) { fila.estado = 'revisar'; fila.detalle = POR_REVISAR + noCuadra.get(v.id).join(' ') }
       else if (!d) { fila.estado = 'nada'; fila.detalle = 'Con la configuración actual no le toca ningún aviso en los próximos ' + HORIZONTE_DIAS + ' días.' }
       else if (!d.plantilla) { fila.estado = 'sin_plantilla'; fila.detalle = 'Le toca "' + d.motivo + '" pero falta el nombre de la plantilla en Configuración.' }
       filas.push(fila)
@@ -1443,6 +1636,34 @@ async function proyectarAvisos(porQue = 'programada') {
 async function proyeccionPedida() {
   const { data } = await supabase.from('cobranza_config').select('proyectar_ahora').eq('id', 1).maybeSingle()
   if (data?.proyectar_ahora) await proyectarAvisos('pedida desde el panel')
+}
+
+// 29 oct 2026: BOLETAS que Meta rechazó por la ventana de 24 h ("Re-engagement
+// message") mientras la plantilla comprobante_de_pago seguía en revisión (5 el 29 oct).
+// Apenas Meta la aprueba se vuelven a encolar: solo la última de cada cliente y
+// archivo (la secretaria a veces la mandó dos veces), solo si después no le llegó
+// otra igual y como mucho dos veces. index.js (agente-urbis) las manda por la plantilla.
+async function reencolarBoletasFallidas() {
+  if (!WA_LISTO) return
+  const aprobadas = await aprobadasRecientes()
+  if (!aprobadas || !aprobadas.has('comprobante_de_pago')) return
+  const { data, error } = await supabase.from('scheduled_messages')
+    .select('id, recipient_phone, media_url, attempts, entrega, entrega_error')
+    .eq('tipo', 'comprobante_panel').gte('created_at', new Date(Date.now() - 7 * 86400e3).toISOString())
+    .order('created_at', { ascending: false }).limit(500)
+  if (error || !data) return
+  const vistos = new Set()
+  for (const m of data) {                                      // de la más nueva a la más vieja
+    const k = nueve(m.recipient_phone) + '|' + m.media_url
+    if (vistos.has(k)) continue
+    vistos.add(k)
+    if (m.entrega !== 'fallido' || !/engagement/i.test(m.entrega_error || '') || Number(m.attempts || 0) >= 2) continue
+    await supabase.from('scheduled_messages').update({
+      status: 'pendiente', entrega: null, entrega_error: null, last_error: null, wa_msg_id: null,
+      attempts: Number(m.attempts || 0) + 1, scheduled_for: new Date().toISOString(),
+    }).eq('id', m.id)
+    log('BOLETA reencolada (Meta ya aprobó comprobante_de_pago):', m.recipient_phone)
+  }
 }
 
 // ============================================================================
@@ -1478,6 +1699,7 @@ cadaTanto(barridoAvisos, 5 * 60000, 'avisos')
 cadaTanto(latido, 60000, 'latido')
 cadaTanto(proyectarAvisos, 30 * 60000, 'proyeccion')        // Avisos por cliente (sql/159)
 cadaTanto(proyeccionPedida, 20000, 'proyeccion pedida')
+cadaTanto(reencolarBoletasFallidas, 10 * 60000, 'boletas fallidas')      // 29 oct: se reenvían al aprobarse la plantilla
 setTimeout(() => proyectarAvisos('al arrancar').catch(() => {}), 15000)
 latido()
 config().then(c => log('AGENTE DE COBRANZA corriendo · webhook :' + PUERTO
