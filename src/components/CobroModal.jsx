@@ -62,6 +62,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     monto: modo === 'cuota' && debePrimera ? debePrimera.toFixed(2) : esInicial ? String(lote.initial_payment_default ?? '') : '',
   }))
 
+  // la inicial pagada con dos depositos: null = un solo voucher
+  const [pago2, setPago2] = useState(null)
+
   // ---- separacion ----
   const [cel, setCel] = useState('')
   const [nombre, setNombre] = useState('')
@@ -135,12 +138,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
 
   // ---- numeros de la inicial ----
   const sepMonto = sep ? Number(sep.amount) : 0
-  const financiado = r2(Number(precio || 0) - Number(pago.monto || 0) - sepMonto)
+  const montoInicial = r2(Number(pago.monto || 0) + Number(pago2?.monto || 0))
+  const financiado = r2(Number(precio || 0) - montoInicial - sepMonto)
   const nMeses = parseInt(meses) || 0
   const montos = esInicial && financiado > 0 && nMeses >= 1 && nMeses <= 120 ? repartirCuotas(financiado, nMeses) : []
   const plan = useMemo(() => (modo === 'cuota' ? planCascada(pendientes, pago.monto) : null), [modo, pendientes, pago.monto])
 
-  const tocado = !!(pago.file || cel || nombre || archTit || co)
+  const tocado = !!(pago.file || pago2 || cel || nombre || archTit || co)
   const cerrar = async () => {
     if (hecho) { onListo(); return }
     if (tocado && !await confirmar('¿Cerrar sin registrar? Se pierde lo que llenaste.', { aceptar: 'Sí, cerrar', cancelar: 'Seguir llenando' })) return
@@ -168,10 +172,17 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
         if (String(co.doc_number).toUpperCase() === String(titular.doc_number).toUpperCase()) return 'El co-comprador no puede tener el mismo documento que el titular.'
       }
       if (ePago) return ePago
+      if (pago2) {
+        const ePago2 = validarPago(pago2)
+        if (ePago2) return 'Segundo voucher: ' + ePago2
+        if (pago2.bloqueo) return 'El segundo voucher ya está registrado (mismo N° de operación y monto). Pide la aprobación del superusuario con el botón rojo.'
+        const op1 = String(pago.nroOp || '').trim().toUpperCase()
+        if (op1 && op1 === String(pago2.nroOp || '').trim().toUpperCase()) return 'Los dos vouchers tienen el mismo N° de operación: revisa que no sea el mismo depósito.'
+      }
       if (!(Number(precio) > 0)) return 'Revisa el precio de venta.'
       if (!(nMeses >= 1 && nMeses <= 120)) return 'Número de cuotas inválido (1 a 120).'
       if (!(financiado > 0)) return 'No queda saldo por financiar: revisa precio, inicial y separación.'
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha) return 'La primera cuota tiene que vencer después de la fecha de la inicial.'
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha || (pago2 && primeraCuota <= pago2.fecha)) return 'La primera cuota tiene que vencer después de la fecha de la inicial.'
       if (!advisorId) return 'Elige el vendedor (asesor).'
     }
     if (modo === 'cuota') {
@@ -229,16 +240,18 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       if (esInicial) {
         // el voucher primero: si no sube, no se toca ninguna ficha ni se crea la venta
         const subida = await subirVoucher(pago)
+        const subida2 = pago2 ? await subirVoucher(pago2) : null
         const { cliente } = await guardarPersona(titular, archTit)
         const coCli = co ? (await guardarPersona(co, archCo)).cliente : null
         const r = await registrarInicial({
           pidOp, lote, sep, clienteId: cliente.id,
           clientePendienteId: sep && sep.client_id !== cliente.id ? sep.client_id : null,
-          coClienteId: coCli?.id || null, pago, subida, precio, meses: nMeses, primeraCuota,
+          coClienteId: coCli?.id || null, pago, subida, pago2, subida2, precio, meses: nMeses, primeraCuota,
           advisorId, comision, comUrbis, profile, telefonos: [cliente.phone, cliente.phone2],
         })
         setHecho({
-          titulo: 'Venta registrada', saleId: r.sale.id, avisos: r.avisos, cobro: { ...refPago(1), cliente },
+          titulo: 'Venta registrada', saleId: r.sale.id, cobro: { ...refPago(1), cliente },
+          avisos: [...r.avisos, ...(pago2 && facturaAqui ? ['El botón de abajo emite el comprobante del PRIMER voucher. El del segundo se emite en la pestaña Pagos y documentos de la ficha.'] : [])],
           texto: `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}.`,
         })
       }
@@ -386,9 +399,18 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 <label>Comisión asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
                 <label>Comisión Urbis S/ <input type="number" step="0.01" min="0" value={comUrbis} onChange={e => setComUrbis(e.target.value)} placeholder="0.00" /></label>
               </DatosPago>
+              <div className="cobro-caja">
+                {!pago2
+                  ? <button type="button" className="link-btn" onClick={() => setPago2({ file: null, nota: '', fecha: pago.fecha, nroOp: '', cuentaId: '', opTipo: 'TRANSFERENCIA', obs: '', monto: '' })}>+ Agregar segundo voucher (la inicial se pagó con dos depósitos)</button>
+                  : (<>
+                    <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Segundo voucher de la inicial</p>
+                    <DatosPago pago={pago2} setPago={setPago2} cuentas={cuentas} loteId={lote?.id} paso={4} />
+                    <button type="button" className="link-btn small" onClick={() => setPago2(null)}>quitar segundo voucher</button>
+                  </>)}
+              </div>
               <div className="cobro-resumen">
                 <p style={{ margin: 0 }}>
-                  Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(pago.monto)} = <b>{soles(financiado)}</b> a financiar
+                  Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(montoInicial)}{pago2 ? <> ({soles(pago.monto)} + {soles(pago2.monto)})</> : null} = <b>{soles(financiado)}</b> a financiar
                 </p>
                 {montos.length > 0
                   ? <p style={{ margin: '4px 0 0' }}>&#128197; <b>{textoCuotas(montos)}</b>, del {fechaPe(primeraCuota)} al {fechaPe(sumarMeses(primeraCuota, montos.length - 1))}. <span className="muted small">(cuotas redondeadas al sol; la última absorbe la diferencia)</span></p>

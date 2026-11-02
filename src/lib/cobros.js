@@ -270,11 +270,13 @@ export async function registrarSeparacion({ pidOp, lote, clienteId, nuevaPersona
 // a la venta (asi sale en el estado de cuenta).
 
 export async function registrarInicial({
-  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, precio, meses, primeraCuota,
+  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, pago2 = null, subida2 = null, precio, meses, primeraCuota,
   advisorId, comision, comUrbis, profile, leadId, telefonos = [],
 }) {
   subida = subida || await subirVoucher(pago)
-  const precioN = r2(precio), inicial = r2(pago.monto), sepMonto = sep ? r2(sep.amount) : 0
+  if (pago2) subida2 = subida2 || await subirVoucher(pago2)
+  // la inicial puede venir en dos depositos: cada uno es su propio pago, con su voucher
+  const precioN = r2(precio), inicial = r2(Number(pago.monto) + Number(pago2?.monto || 0)), sepMonto = sep ? r2(sep.amount) : 0
   const financiado = r2(precioN - inicial - sepMonto)
   const montos = repartirCuotas(financiado, meses)
   if (!montos.length) throw new Error('No queda saldo por financiar: revisa el precio, la inicial y la separación.')
@@ -293,8 +295,13 @@ export async function registrarInicial({
   const { error: e2 } = await supabase.from('installments').insert(filas)
   if (e2) throw new Error('La venta se creó pero el cronograma NO: ' + e2.message + ' — genéralo desde la ficha (pestaña Cuotas).')
   const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })
-  const { error: e3 } = await supabase.from('daily_income').insert({ ...base, amount: inicial, income_type: 'inicial', sale_id: sale.id })
+  const { error: e3 } = await supabase.from('daily_income').insert({ ...base, amount: r2(pago.monto), income_type: 'inicial', sale_id: sale.id })
   if (e3) throw new Error('Venta y cronograma creados, pero el pago de la inicial NO se registró: ' + e3.message)
+  if (pago2) {
+    const base2 = filaPago({ pidOp, loteId: lote.id, clienteId, pago: pago2, profile, subida: subida2 })
+    const { error: e3b } = await supabase.from('daily_income').insert({ ...base2, amount: r2(pago2.monto), income_type: 'inicial', sale_id: sale.id })
+    if (e3b) throw new Error('Venta y primer voucher registrados, pero el SEGUNDO voucher NO: ' + e3b.message + ' — regístralo con el cuadre de la ficha.')
+  }
   await supabase.from('lots').update({ status: 'vendido' }).eq('id', lote.id)
   if (sep) {
     await supabase.from('separations').update({ status: 'completada' }).eq('id', sep.id)
