@@ -4,7 +4,7 @@ import Logo from './Logo'
 import { soles } from '../lib/pagos'
 import { MESES, fechaPe, letras, detalleCuotas, fechasDeDeposito, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
 import { imprimirConPie, prepararArchivo, precargar } from '../lib/contratoArchivos'
-import { avisar } from '../lib/dialogos'
+import { avisar, confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 
 // **negrita** dentro de una linea de la plantilla
@@ -23,6 +23,9 @@ export default function ContratoModal({ saleId, onClose }) {
   const [listo, setListo] = useState(null)      // { tipo, url, nombre }: el enlace "guardar" de respaldo
   const [formato, setFormato] = useState(null)  // 'normal' | 'poder' (solo si el proyecto tiene apoderado)
   const [nuevo, setNuevo] = useState(false)     // contrato nuevo sobre uno ya firmado
+  const [diaPago, setDiaPago] = useState('15')  // '15' quincena | 'fin' fin de mes | 'otro' día elegido
+  const [diaOtro, setDiaOtro] = useState('')
+  const [cambiandoDia, setCambiandoDia] = useState(false)
   const { puedeCorregir } = useAuth()
   const hoja = useRef(null)
   useEffect(() => { precargar() }, [])
@@ -37,7 +40,7 @@ export default function ContratoModal({ saleId, onClose }) {
       if (e || !v) { setError('No se pudo cargar la venta: ' + (e?.message || 'no existe')); return }
       const [p, inst, sep, acct, dep] = await Promise.all([
         supabase.from('projects').select('*').eq('id', v.lot.project_id).single(),
-        supabase.from('installments').select('installment_number, due_date, amount, status').eq('sale_id', v.id).order('installment_number'),
+        supabase.from('installments').select('id, installment_number, due_date, amount, amount_paid, status').eq('sale_id', v.id).order('installment_number'),
         v.separation_id
           ? supabase.from('separations').select('amount, date').eq('id', v.separation_id).single()
           : Promise.resolve({ data: null }),
@@ -295,6 +298,50 @@ export default function ContratoModal({ saleId, onClose }) {
     cuerpo.push(<p key={i}>{conNegritas(fill(t))}</p>)
   }
 
+  // ---- DÍA DE PAGO DEL CRONOGRAMA (4 nov) ----
+  // Unos clientes pagan a la quincena, otros a fin de mes, otros un día fijo. Cambia
+  // el DÍA de vencimiento de las cuotas que no están pagadas; cada cuota se queda en
+  // su mes. Fin de mes = el último día de cada mes (28, 29, 30 o 31); un día que el
+  // mes no tiene (31 en junio) cae en el último día de ese mes.
+  const pendientes = data.inst.filter(i => i.status !== 'pagado')
+  const conDia = (iso, dia) => {
+    const [y, m] = String(iso).slice(0, 10).split('-').map(Number)
+    const ult = new Date(y, m, 0).getDate()
+    const d = dia === 'fin' ? ult : Math.min(Number(dia), ult)
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  }
+  async function cambiarDiaPago() {
+    const dia = diaPago === 'otro' ? diaOtro : diaPago
+    if (dia !== 'fin' && !(Number(dia) >= 1 && Number(dia) <= 31 && Number.isInteger(Number(dia)))) { await avisar('Escribe un día del 1 al 31.'); return }
+    const cambios = pendientes.map(i => ({ i, nueva: conDia(i.due_date, dia) })).filter(x => x.nueva !== String(x.i.due_date).slice(0, 10))
+    if (!cambios.length) { await avisar('Las cuotas pendientes ya vencen ese día: no hay nada que cambiar.'); return }
+    const texto = dia === 'fin' ? 'el ÚLTIMO DÍA de cada mes' : 'el día ' + Number(dia) + ' de cada mes'
+    const pagadas = data.inst.length - pendientes.length
+    if (!await confirmar('Las ' + pendientes.length + ' cuotas pendientes pasan a vencer ' + texto + '.\n\n'
+      + 'Cuota ' + cambios[0].i.installment_number + ': ' + fechaPe(cambios[0].i.due_date) + ' → ' + fechaPe(cambios[0].nueva) + '\n'
+      + 'Cuota ' + cambios[cambios.length - 1].i.installment_number + ': ' + fechaPe(cambios[cambios.length - 1].i.due_date) + ' → ' + fechaPe(cambios[cambios.length - 1].nueva)
+      + (pagadas ? '\n\nLas ' + pagadas + ' cuotas ya pagadas no se tocan.' : '') + '\n\n¿Cambiar el cronograma?')) return
+    setCambiandoDia(true)
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    try {
+      for (const { i, nueva } of cambios) {
+        const { error: e } = await supabase.from('installments').update({ due_date: nueva, status: nueva < hoyStr ? 'vencido' : 'pendiente' }).eq('id', i.id)
+        if (e) throw new Error('cuota ' + i.installment_number + ': ' + e.message)
+      }
+      await supabase.from('activity_log').insert({ action: 'UPDATE', entity_type: 'installments', entity_id: gen.id, details: {
+        cambio: 'dia_de_pago', lote: l.mz + '-' + l.lt, proyecto: p.name, dia: dia === 'fin' ? 'fin de mes' : Number(dia), cuotas: cambios.length,
+        antes: cambios.map(x => x.i.installment_number + ':' + String(x.i.due_date).slice(0, 10)).join(' '),
+      } }).then(() => {}, () => {})
+      const { data: inst } = await supabase.from('installments').select('id, installment_number, due_date, amount, amount_paid, status').eq('sale_id', gen.id).order('installment_number')
+      setData(d => ({ ...d, inst: inst || d.inst }))
+      await avisar('✓ Cronograma cambiado: las cuotas vencen ' + texto + '. El contrato ya muestra las fechas nuevas.')
+    } catch (e) {
+      await avisar('No se pudo cambiar el cronograma (' + (e?.message || e) + '). Si algunas cuotas sí cambiaron, vuelve a aplicar.', { tono: 'error' })
+      const { data: inst } = await supabase.from('installments').select('id, installment_number, due_date, amount, amount_paid, status').eq('sale_id', gen.id).order('installment_number')
+      if (inst) setData(d => ({ ...d, inst }))
+    } finally { setCambiandoDia(false) }
+  }
+
   // PDF y Word salen de la hoja TAL COMO SE VE (con lo corregido a mano)
   const titulo = `Contrato ${p.name || ''} Mz ${l.mz} Lt ${l.lt} - ${c.full_name || ''}`
   // arriba de cada hoja (pedido del 30 sep); todos los proyectos son habilitación urbana progresiva
@@ -342,6 +389,21 @@ export default function ContratoModal({ saleId, onClose }) {
             <p className="warn" style={{ margin: 0 }}><b>&#9888; Ojo con los documentos del proyecto</b> (el contrato se puede imprimir igual):</p>
             {problemas.map((x, i) => <p key={i} className="warn small" style={{ margin: '2px 0 0' }}>&#8226; {x}</p>)}
             <p className="muted small" style={{ margin: '4px 0 0' }}>Se regularizan en PROYECTOS &#8594; EDITAR.</p>
+          </div>
+        )}
+        {pendientes.length > 0 && (
+          <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(120,170,220,.08)', border: '1px solid rgba(120,170,220,.3)' }}>
+            <b style={{ textTransform: 'none' }}>&#128197; Día de pago de las cuotas:</b>
+            <select value={diaPago} onChange={e => setDiaPago(e.target.value)} disabled={cambiandoDia}>
+              <option value="15">Quincena (día 15)</option>
+              <option value="fin">Fin de mes (último día)</option>
+              <option value="otro">Otro día…</option>
+            </select>
+            {diaPago === 'otro' && (
+              <input type="number" min="1" max="31" placeholder="Día (1-31)" value={diaOtro} onChange={e => setDiaOtro(e.target.value)} style={{ width: 110 }} disabled={cambiandoDia} />
+            )}
+            <button className="btn-ghost" onClick={cambiarDiaPago} disabled={cambiandoDia}>{cambiandoDia ? 'Cambiando…' : 'Aplicar al cronograma'}</button>
+            <span className="muted small" style={{ textTransform: 'none' }}>Hoy vencen el día {Number(String(pendientes[0].due_date).slice(8, 10))}. Solo cambia las cuotas no pagadas.</span>
           </div>
         )}
         {editDoc && <p className="no-print" style={{ color: '#e0b34c', fontSize: 12, margin: '0 0 8px' }}>✎ MODO EDICIÓN: haz clic sobre el texto y corrige lo que necesites. Los cambios aplican a esta impresión.</p>}
