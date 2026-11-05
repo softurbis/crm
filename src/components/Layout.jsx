@@ -183,12 +183,15 @@ export default function Layout() {
     }
     const contar = async () => {
       contarPagos()
-      const base = supabase.from('expenses')
-        .select('project_id, requester_id, requester_signed_at, amount, project:projects!inner(name, expense_approval)')
-        .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).limit(200)
-      const { data, error } = esSocio
-        ? await base.eq('project.expense_approval', true)
-        : await base.eq('requester_id', profile.id).is('requester_signed_at', null)
+      const COLS = 'project_id, requester_id, requester_signed_at, amount, project:projects!inner(name, expense_approval)'
+      const consulta = cols => {
+        const base = supabase.from('expenses').select(cols)
+          .eq('status', 'solicitado').is('approved_at', null).is('rejected_at', null).limit(200)
+        return esSocio ? base.eq('project.expense_approval', true) : base.eq('requester_id', profile.id).is('requester_signed_at', null)
+      }
+      // con la firma en papel (sql/183) no le toca a nadie en el panel; sin ese SQL, como antes
+      let { data, error } = await consulta(COLS + ', requester_papel, approval_papel')
+      if (error) ({ data, error } = await consulta(COLS))
       if (!vivo || error) return       // sql/74 sin correr: el aviso no aparece y ya
       const m = {}
       for (const r of (data || [])) {
@@ -196,6 +199,8 @@ export default function Layout() {
         // registró sin solicitante, sql/136): no es su turno, y un contador que no
         // puede bajar deja de significar algo
         if (esSocio && (!r.requester_id || !r.requester_signed_at)) continue
+        // una firma en papel se sube con la hoja: no es "te toca firmar" (sql/183)
+        if (esSocio ? r.approval_papel : r.requester_papel) continue
         sumar(m, r)
       }
       setPorFirmar(Object.values(m))

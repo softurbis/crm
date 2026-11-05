@@ -5,7 +5,8 @@ import { useMsg } from '../lib/saveFx'
 // "preguntar" = confirmar de lib/dialogos: aquí ya hay una función confirmar(g) (el dinero se entregó)
 import { avisar, confirmar as preguntar, pedir } from '../lib/dialogos'
 import { fechaLetras } from '../lib/letras'
-import { DEFAULT_GASTO_TEMPLATE, estadoGasto, numeroGasto, constanciaGasto, HojaConstancia } from '../components/ConstanciaGasto'
+import { DEFAULT_GASTO_TEMPLATE, estadoGasto, numeroGasto, constanciaGasto, HojaConstancia, firmasEnPapelFaltan, hojaListaParaSubir } from '../components/ConstanciaGasto'
+import { SubirHojaFirmada, CambiarFirma } from '../components/FirmaPapelGasto'
 import { filtrarGastos, FILTRO_VACIO } from '../lib/buscarGastos'
 import BuscadorGastos from '../components/BuscadorGastos'
 import FichaGasto from '../components/FichaGasto'
@@ -95,6 +96,9 @@ export default function Expenses() {
   const [reposiciones, setReposiciones] = useState({})  // id -> reposición
   const [hay125, setHay125] = useState(false)           // la tabla existe: si no, nada de esto se muestra
   const [reponer, setReponer] = useState(null)          // { persona, ids } ventana abierta
+  // FIRMA EN PAPEL (sql/183, 5 nov): subir la hoja firmada a mano / cambiar cómo se firma
+  const [hoja, setHoja] = useState(null)                // gasto al que se le sube la hoja firmada
+  const [formaFirma, setFormaFirma] = useState(null)    // gasto al que se le cambia digital <-> papel
 
   async function load() {
     if (!pidOp) return
@@ -135,6 +139,7 @@ export default function Expenses() {
       if (fest === 'por_firmar' && estadoGasto(g) !== 'por_firmar') return false
       if (fest === 'aprobado' && estadoGasto(g) !== 'aprobado') return false
       if (fest === 'rechazado' && estadoGasto(g) !== 'rechazado') return false
+      if (fest === 'en_papel' && estadoGasto(g) !== 'en_papel') return false
       // un gasto marcado NO APLICA no es un faltante: no tiene que aparecer aqui
       if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na)) return false
       if (fest === 'no_aplica' && !(g.request_doc_na || g.receipt_na || g.voucher_na)) return false
@@ -191,6 +196,17 @@ export default function Expenses() {
   // suben la reposición la oficina y la socia del proyecto (cualquiera de las dos)
   const puedeReponer = hay125 && (['admin', 'secretary', 'superuser', 'operador'].includes(role) || esSocio)
   const noAplican = list.filter(g => g.request_doc_na || g.receipt_na || g.voucher_na).length
+  // FIRMA EN PAPEL (sql/183): la base ya tiene las columnas (sin gastos todavía no se sabe:
+  // se ofrece igual y, si falta el SQL, el registro avisa y queda digital)
+  const hay183 = list.length ? 'requester_papel' in list[0] : true
+  const esOficina = ['admin', 'secretary', 'superuser', 'operador'].includes(role)
+  // la hoja la suben la oficina y la socia (la secretaria de facturación, desde su pantalla);
+  // cómo se firma lo cambian la oficina y la socia
+  const puedeSubirHoja = hay183 && (esOficina || esSocio)
+  const puedeCambiarFirma = hay183 && (esOficina || esSocio)
+  // 'en_papel' ya es "lista para subir": la aprobación en papel con la izquierda digital
+  // pendiente queda 'por_firmar' hasta que esa persona firme
+  const hojasPorSubir = list.filter(g => estadoGasto(g) === 'en_papel')
 
   function abrirEditar(g) {
     setF({
@@ -201,6 +217,7 @@ export default function Expenses() {
       document_type: g.document_type, description: g.description, detail: g.detail,
       adelanto_por: g.adelanto_por || '',
       plantilla_propia: g.plantilla_propia || '',
+      requester_papel: !!g.requester_papel, approval_papel: !!g.approval_papel,
     })
     setEditTexto(false)
     setEditId(g.id); setShow(true); setMsg(null)
@@ -220,6 +237,12 @@ export default function Expenses() {
       // la constancia y el que tiene que coincidir con la firma. Si no se eligio
       // a nadie (gasto viejo, o proyecto sin el circuito) se respeta el texto.
       const firm = firmantes.find(p => p.id === f.requester_id)
+      // FIRMA EN PAPEL (sql/183): la de la izquierda, si hay quién la pida (o el proyecto
+      // exige firmas); la de la derecha, solo con firma de socia. Con la aprobación en
+      // papel entrega el dinero quien firma la hoja (ej. José), no la socia.
+      const papelIzq = !!f.requester_papel && (!!f.requester_id || !!proyecto?.expense_approval)
+      const papelDer = !!proyecto?.expense_approval && !!f.approval_papel
+      const sociaEntrega = sociaFija && !papelDer ? sociaFija : null
       const campos = {
         type: f.type || 'OTROS', issue_date: f.issue_date || hoy(),
         recipient: up(f.recipient), recipient_dni: (f.recipient_dni || '').trim() || null,
@@ -227,8 +250,8 @@ export default function Expenses() {
         // propio: antes se copiaba el nombre de quien firma la solicitud, que
         // casi siempre es OTRA persona — justamente la que recibe (sql/87)
         // con firma de socio y una sola socia, ella entrega: su nombre y su DNI (sql/136)
-        sender: sociaFija ? up(sociaFija.full_name) : up(f.sender),
-        sender_dni: (sociaFija?.dni || f.sender_dni || '').trim() || null,
+        sender: sociaEntrega ? up(sociaEntrega.full_name) : up(f.sender),
+        sender_dni: ((sociaEntrega ? sociaEntrega.dni : f.sender_dni) || '').trim() || null,
         amount: Number(f.amount),
         // la columna solo se manda si sql/74 esta corrido (si no, firmantes_gasto
         // no responde y la lista queda vacia). Sin esto, un panel desplegado
@@ -245,12 +268,17 @@ export default function Expenses() {
       // Se manda si se escribió algo o si la base ya tiene la columna.
       const filaAntes = editId ? list.find(x => x.id === editId) : null
       if ((f.plantilla_propia || '').trim() || (filaAntes && 'plantilla_propia' in filaAntes)) campos.plantilla_propia = (f.plantilla_propia || '').trim() || null
-      // si todavía no se corrió sql/87 (sender_dni) o sql/143 (plantilla_propia), esa
-      // columna no existe: se reintenta sin ella en vez de dejar a nadie sin poder
-      // registrar el gasto
-      let sinTexto = false
-      const sinDni = o => { const c = { ...o }; delete c.sender_dni; if ('plantilla_propia' in c) { delete c.plantilla_propia; sinTexto = true } return c }
+      // cómo se firma cada lado (sql/183): se manda si se eligió papel o si la base ya lo tiene
+      if (papelIzq || papelDer || (list[0] && 'requester_papel' in list[0])) { campos.requester_papel = papelIzq; campos.approval_papel = papelDer }
+      // si todavía no se corrió sql/87 (sender_dni), sql/143 (plantilla_propia) o sql/183
+      // (firma en papel), esa columna no existe: se reintenta sin ella en vez de dejar a
+      // nadie sin poder registrar el gasto
+      let sinTexto = false, sinPapel = false
+      const sinColPapel = o => { const c = { ...o }; if (c.requester_papel || c.approval_papel) sinPapel = true; delete c.requester_papel; delete c.approval_papel; return c }
+      const sinDni = o => { const c = sinColPapel(o); delete c.sender_dni; if ('plantilla_propia' in c) { delete c.plantilla_propia; sinTexto = true } return c }
+      const faltaPapel = e => /requester_papel|approval_papel/i.test(e?.message || '')
       const faltaCol = e => /sender_dni|plantilla_propia/i.test(e?.message || '')
+      const avisoPapel = () => sinPapel ? ' OJO: la firma en papel NO se guardó (falta correr sql/183): quedó con firma digital.' : ''
 
       if (editId) {
         // corrige la MISMA solicitud: conserva el correlativo (request_number).
@@ -272,24 +300,31 @@ export default function Expenses() {
           } : {}),
         } : {}
         let { error } = await supabase.from('expenses').update({ ...campos, ...reinicio }).eq('id', editId)
+        if (error && faltaPapel(error)) ({ error } = await supabase.from('expenses').update({ ...sinColPapel(campos), ...reinicio }).eq('id', editId))
         if (error && faltaCol(error)) ({ error } = await supabase.from('expenses').update({ ...sinDni(campos), ...reinicio }).eq('id', editId))
         if (error) throw new Error(error.message)
-        setMsg({ ok: !sinTexto, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00f3 (falta correr sql/143).' : '') })
+        setMsg({ ok: !sinTexto && !sinPapel, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : '') + avisoPapel() })
       } else {
         const base = { project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id }
-        let { data: creado, error } = await supabase.from('expenses')
-          .insert({ ...base, ...campos }).select('request_number').single()
-        if (error && faltaCol(error)) {
-          ({ data: creado, error } = await supabase.from('expenses')
-            .insert({ ...base, ...sinDni(campos) }).select('request_number').single())
-        }
+        const insertar = c => supabase.from('expenses').insert({ ...base, ...c }).select('request_number').single()
+        let { data: creado, error } = await insertar(campos)
+        if (error && faltaPapel(error)) ({ data: creado, error } = await insertar(sinColPapel(campos)))
+        if (error && faltaCol(error)) ({ data: creado, error } = await insertar(sinDni(campos)))
         if (error) throw new Error(error.message)
+        // qu\u00E9 sigue, seg\u00FAn c\u00F3mo firma cada lado (sql/183)
+        const p1 = s => String(s || '').trim().split(/\s+/)[0] || ''
+        const izqPapel = papelIzq && !sinPapel, derPapel = papelDer && !sinPapel
+        const sigue = izqPapel
+          ? 'IMPR\u00CDMELA PARA FIRMAR A MANO' + (derPapel ? ' (' + p1(f.recipient) + ' Y ' + p1(f.sender) + ')' : ' (' + p1(f.recipient) + ')') + ' Y SUBE LA HOJA CON "\uD83D\uDCC4 SUBIR HOJA".'
+          : (firm ? (firm.id === profile?.id ? 'F\u00CDRMALA T\u00DA CON "\u270D FIRMAR"' + (derPapel ? '.' : ' Y PASA AL SOCIO.') : 'SE LE AVISA A ' + (firm.full_name || '').split(' ')[0] + ' PARA QUE LA FIRME.')
+                  : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.')
+            + (derPapel ? ' DESPU\u00C9S ' + p1(f.sender) + ' FIRMA A MANO LA HOJA IMPRESA Y SE SUBE CON "\uD83D\uDCC4 SUBIR HOJA".' : '')
         setMsg({
-          ok: true,
+          ok: !sinPapel,
           t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. '
-            + (firm ? (firm.id === profile?.id ? 'F\u00CDRMALA T\u00DA CON "\u270D FIRMAR" Y PASA AL SOCIO.' : 'SE LE AVISA A ' + (firm.full_name || '').split(' ')[0] + ' PARA QUE LA FIRME.')
-                    : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.')
-            + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : ''),
+            + sigue
+            + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : '')
+            + avisoPapel(),
         })
       }
       setF({}); setEditId(null); setShow(false); load()
@@ -451,7 +486,10 @@ export default function Expenses() {
   // El archivo en si no se borra del almacenamiento — solo se desliga del gasto —
   // asi que un error aqui no destruye evidencia.
   async function quitarDocGasto(g, campo) {
-    if (!await preguntar('¿Quitar ' + LBL_DOC[campo] + ' de este gasto?\n\nLa casilla volvera a pedir el documento y podras subir otro. El archivo anterior queda en el almacenamiento.', { peligro: true, aceptar: 'Sí, quitar' })) return
+    // una hoja con firmas a mano (sql/183): quitarla las anula (lo hace la base)
+    const conFirmas = campo === 'request_doc_url' && (g.requester_papel_por || g.approval_papel_por)
+    if (!await preguntar('¿Quitar ' + LBL_DOC[campo] + ' de este gasto?\n\nLa casilla volvera a pedir el documento y podras subir otro. El archivo anterior queda en el almacenamiento.'
+      + (conFirmas ? '\n\n⚠ Esta hoja tiene las FIRMAS EN PAPEL del gasto: al quitarla se anulan y hay que volver a subir la hoja firmada.' : ''), { peligro: true, aceptar: 'Sí, quitar' })) return
     const { error } = await supabase.from('expenses')
       .update({ [campo]: null, [campo.replace('_url', '_note')]: null }).eq('id', g.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
@@ -554,13 +592,19 @@ export default function Expenses() {
     // quien ENTREGA de parte de Urbis: la socia del proyecto, o el último que entregó
     const socio = socias[0]
     const ultEntrega = list.find(g => g.sender) || {}
+    // cómo se firma (sql/183, decisión del dueño 5 nov: por gasto): arranca como el último
+    // gasto registrado en el proyecto. En Campo Verde, mientras José firme en papel, sale
+    // en papel solo; y con la aprobación en papel, quien entrega es el de ese gasto.
+    const ultCreado = list.reduce((a, g) => (!a || String(g.created_at || '') > String(a.created_at || '') ? g : a), null) || {}
+    const derPapel = !!proyecto?.expense_approval && !!ultCreado.approval_papel
     return {
       issue_date: hoy(),
       requester_id: firmantes.some(p => p.id === previo) ? previo : '',
       recipient: ult.recipient || '',
       recipient_dni: ult.recipient_dni || dniDe(ult.recipient),
-      sender: socio?.full_name || ultEntrega.sender || '',
-      sender_dni: socio?.dni || ultEntrega.sender_dni || '',
+      sender: derPapel ? (ultCreado.sender || '') : socio?.full_name || ultEntrega.sender || '',
+      sender_dni: derPapel ? (ultCreado.sender_dni || '') : socio?.dni || ultEntrega.sender_dni || '',
+      requester_papel: !!ultCreado.requester_papel, approval_papel: derPapel,
       ...extra,
     }
   }
@@ -590,8 +634,11 @@ export default function Expenses() {
     if (n === 3) {
       if (!(Number(f.amount) > 0)) return 'Escribe el monto.'
       if (!f.issue_date) return 'Falta la fecha.'
-      if (proyecto?.expense_approval && !socias.length) return 'Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios.'
-      if (!sociaFija && !String(f.sender || '').trim()) return 'Escribe quién entrega el dinero.'
+      // con la aprobación EN PAPEL (sql/183) firma la hoja quien entrega (ej. José): no hace falta socia
+      const derPapel = !!proyecto?.expense_approval && !!f.approval_papel
+      if (proyecto?.expense_approval && !socias.length && !derPapel) return 'Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios, o marca la aprobación "En papel".'
+      if ((!sociaFija || derPapel) && !String(f.sender || '').trim()) return derPapel ? 'Escribe quién firma la hoja como REMITENTE (quien entrega el dinero), por ejemplo JOSE MACEDO SANCHEZ.' : 'Escribe quién entrega el dinero.'
+      if (derPapel && !String(f.sender_dni || '').trim()) return 'Falta el DNI de quien entrega el dinero: sale en la hoja que va a firmar.'
     }
     return ''
   }
@@ -610,6 +657,7 @@ export default function Expenses() {
       requester_id: g.requester_id || '', sender: g.sender, sender_dni: g.sender_dni || '', discount_from: g.discount_from,
       payment_method: g.payment_method, document_type: g.document_type, description: g.description, detail: g.detail,
       plantilla_propia: g.plantilla_propia || '',
+      requester_papel: !!g.requester_papel, approval_papel: !!g.approval_papel,
     })
     setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null); setEditTexto(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -674,6 +722,7 @@ export default function Expenses() {
   const abrirFicha = g => (
     <button className="link-btn" title="Ver todo de este gasto" onClick={() => setFicha({
       ...g, pedido_por_nombre: nombreDe(g.requester_id), registrado_por_nombre: nombreDe(g.registered_by), pagado_por_nombre: nombreDe(g.confirmed_by),
+      hoja_izq_por_nombre: nombreDe(g.requester_papel_por), hoja_der_por_nombre: nombreDe(g.approval_papel_por),
       reposicion: g.reposicion_id && reposiciones[g.reposicion_id] ? reposiciones[g.reposicion_id] : null,
     })}><b>{g.request_number ? numeroDe(g) : '—'}</b></button>
   )
@@ -694,9 +743,14 @@ export default function Expenses() {
     if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
     if (e === 'aprobado') return pagoPendiente(g)
       ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar el pago' : 'falta comprobante'}</span></span>
-      : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}</span></span>
+      : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}{g.approval_papel_por ? ' · en papel' : ''}</span></span>
     if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
-    if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}</span></span>
+    if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}{g.approval_papel ? ' · después ' + primerNombre(g.sender) + ' en papel' : ''}</span></span>
+    // la firma que toca va A MANO (sql/183): falta subir la hoja firmada
+    if (e === 'en_papel') {
+      const quien = firmasEnPapelFaltan(g).map(l => primerNombre(l === 'solicitud' ? g.recipient : g.sender)).join(' y ')
+      return <span className="warn" title="Se firma a mano: falta subir la foto de la hoja firmada">📄 FIRMA EN PAPEL<br /><span className="muted small" style={{ textTransform: 'none' }}>falta la hoja de {quien || 'quien firma'}</span></span>
+    }
     if (sinSolicitante(g)) return <span className="bad" title="Se registró sin elegir quién pide el gasto: nadie firmó primero">⚠ FALTA QUIÉN LA PIDE<br /><span className="muted small" style={{ textTransform: 'none' }}>corrígela con "editar"</span></span>
     return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
   }
@@ -712,12 +766,31 @@ export default function Expenses() {
       {puedeAprobar && estadoGasto(g) === 'solicitado' && (esSocio || proyecto?.expense_approval) && g.requester_id === profile?.id && espera('la aprueba otra persona')}
       {miPuedePagar(g) && <button className="btn-primary" style={st} onClick={() => setPagar(g)}>{g.voucher_url ? '✔ Confirmar pago' : '💸 Subir comprobante'}</button>}
       {pagoPendiente(g) && !miPuedePagar(g) && espera(g.voucher_url ? 'la socia o su secretaria confirma el pago' : 'la socia o su secretaria sube el comprobante')}
+      {/* FIRMA EN PAPEL (sql/183): la hoja firmada a mano se sube y eso pone la firma */}
+      {estadoGasto(g) === 'en_papel' && (puedeSubirHoja && hojaListaParaSubir(g)
+        ? <button className="btn-primary" style={st} onClick={() => setHoja(g)}>📄 Subir hoja firmada</button>
+        : espera('se firma a mano: falta subir la hoja'))}
+      {/* cómo se firma: se puede cambiar mientras alguna firma falte */}
+      {puedeCambiarFirma && g.status === 'solicitado' && !g.rejected_at && (!g.requester_signed_at || (proyecto?.expense_approval && !g.approved_at)) && (
+        <div><button className="link-btn muted small" style={{ textTransform: 'none' }} title="Cambiar una firma pendiente de digital a papel o al revés"
+          onClick={() => setFormaFirma(g)}>✎ {g.requester_papel || g.approval_papel ? 'firma en papel' : 'firma digital'} · cambiar</button></div>
+      )}
     </>
   }
 
+  // con una firma en papel pendiente, la hoja va por "📄 subir hoja" (registrar_firma_papel,
+  // sql/183): subida por el botón de siempre quedaría el archivo sin la firma
+  const hojaPendiente = g => puedeSubirHoja && estadoGasto(g) === 'en_papel' && hojaListaParaSubir(g)
   const docConstancia = g => <>
     <button className="link-btn" onClick={() => setPrt(g)}>imprimir</button>{' | '}
-    <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />
+    {hojaPendiente(g) && !g.request_doc_url
+      ? <button type="button" className="upload-btn" onClick={() => setHoja(g)}>📄 subir hoja</button>
+      // la aprobación va en papel pero antes firma alguien en el panel: la hoja se sube después
+      : firmasEnPapelFaltan(g).length && !g.request_doc_url && estadoGasto(g) === 'por_firmar'
+        ? <span className="muted small" style={{ textTransform: 'none' }}>hoja en papel: después de la firma de {primerFirmante(g)}</span>
+        : <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />}
+    {hojaPendiente(g) && g.request_doc_url && <div><button type="button" className="upload-btn" onClick={() => setHoja(g)}>📄 subir hoja con la firma que falta</button></div>}
+    {(g.requester_papel_por || g.approval_papel_por) && <div className="muted small" style={{ textTransform: 'none' }}>firmada a mano{nombreDe(g.approval_papel_por || g.requester_papel_por) ? ' · subió ' + primerNombre(nombreDe(g.approval_papel_por || g.requester_papel_por)) : ''}</div>}
   </>
 
   // el comprobante de un pago lo sube la socia (o su secretaria, sql/145) con el botón de
@@ -882,6 +955,7 @@ export default function Expenses() {
           <option value="por_firmar">POR FIRMAR (solicitante)</option>
           <option value="por_aprobar">POR APROBAR (socio)</option>
           <option value="aprobado">{proyecto?.expense_approval ? 'PAGO PENDIENTE (falta comprobante)' : 'APROBADOS, SIN PAGAR'}</option>
+          <option value="en_papel">📄 FIRMA EN PAPEL (falta subir la hoja)</option>
           <option value="rechazado">RECHAZADOS</option>
           <option value="falta_rh">FALTA RH / FACTURA</option>
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
@@ -896,6 +970,7 @@ export default function Expenses() {
         {filtrada.length} gastos | TOTAL: <b>{soles(total)}</b>
         {porFirmar > 0 && <span className="warn"> | ✍ ESPERAN LA FIRMA DEL SOLICITANTE: {porFirmar}</span>}
         {proyecto?.expense_approval && porAprobar > 0 && <span className="warn"> | ✍ POR APROBAR: {porAprobar}</span>}
+        {hojasPorSubir.length > 0 && <span className="warn"> | 📄 FALTAN HOJAS FIRMADAS: {hojasPorSubir.length}</span>}
         {!readOnly && pendConfirmar > 0 && <span className="warn"> | POR CONFIRMAR: {pendConfirmar}</span>}
         {!readOnly && faltaRH > 0 && <span className="bad"> | FALTA RH/FACTURA: {faltaRH}</span>}
         {!readOnly && noAplican > 0 && <span className="muted"> | SIN DOCUMENTO A PROPOSITO: {noAplican}</span>}
@@ -1059,12 +1134,26 @@ export default function Expenses() {
                   ) : (
                     <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
                   )}
-                  <span className="sg-ej">Le llega un aviso por WhatsApp y Telegram para firmar con su código. Ej.: VICTOR, que pide el pago de su comisión.</span>
+                  {!f.requester_papel && <span className="sg-ej">Le llega un aviso por WhatsApp y Telegram para firmar con su código. Ej.: VICTOR, que pide el pago de su comisión.</span>}
                   <span className="sg-ej">¿No aparece quien pide? Aquí salen solo los usuarios del panel que tienen <b>este proyecto</b> asignado (se marca en Usuarios). La socia no sale: ella firma del otro lado.</span>
-                  {solicitante && !solicitante.tiene_firma && (
+                  {solicitante && !solicitante.tiene_firma && !f.requester_papel && (
                     <span className="warn small" style={{ textTransform: 'none' }}>⚠ {primerNombre(solicitante.full_name)} todavía no registró su firma: se la pide el panel la primera vez que entre a Gastos.</span>
                   )}
                 </label>
+                {/* CÓMO FIRMA (sql/183, 5 nov): digital en el panel o a mano en la hoja impresa.
+                    Sin quién la pida (proyecto sin firma de socia) se firma en papel como siempre. */}
+                {(proyecto?.expense_approval || f.requester_id) && (
+                  <div className="span2">
+                    <p className="sg-sub" style={{ margin: '0 0 4px' }}>¿Cómo firma? <span className="muted small" style={{ textTransform: 'none' }}>(firma 1, la de la izquierda)</span></p>
+                    <div className="chips" style={{ margin: 0 }}>
+                      <button type="button" className={'chip' + (!f.requester_papel ? ' on' : '')} style={{ textTransform: 'none' }}
+                        onClick={() => setF(x => ({ ...x, requester_papel: false }))}>✍ Firma digital (en el panel, con su código)</button>
+                      <button type="button" className={'chip' + (f.requester_papel ? ' on' : '')} style={{ textTransform: 'none' }}
+                        onClick={() => setF(x => ({ ...x, requester_papel: true }))}>📄 Firma en papel (a mano)</button>
+                    </div>
+                    {f.requester_papel && <span className="sg-ej">Se imprime la constancia y firma a mano quien recibe el dinero; después se sube la foto de la hoja y eso cuenta como su firma. No le llega aviso ni código.</span>}
+                  </div>
+                )}
                 <label>¿Quién recibe el dinero?
                   <input list="personas-gasto" value={f.recipient || ''}
                     onChange={e => {
@@ -1117,7 +1206,38 @@ export default function Expenses() {
                 </label>
                 <div className="span2">
                   <p className="sg-sub">¿Quién entrega el dinero? <span className="muted small" style={{ textTransform: 'none' }}>(firma 2, la de la derecha)</span></p>
-                  {proyecto?.expense_approval ? (
+                  {/* CÓMO FIRMA LA APROBACIÓN (sql/183, 5 nov): la socia en el panel, o a mano en
+                      la hoja (José, "hasta que se adapte"): esa firma en papel es la aprobación */}
+                  {proyecto?.expense_approval && (
+                    <div className="chips" style={{ margin: '0 0 8px' }}>
+                      <button type="button" className={'chip' + (!f.approval_papel ? ' on' : '')} style={{ textTransform: 'none' }}
+                        onClick={() => { setFaltaPaso(''); setF(x => ({ ...x, approval_papel: false })) }}>✍ Firma digital (la socia en el panel)</button>
+                      <button type="button" className={'chip' + (f.approval_papel ? ' on' : '')} style={{ textTransform: 'none' }}
+                        onClick={() => {
+                          setFaltaPaso('')
+                          // al pasar a papel no se deja puesta la socia: quien firma la hoja se escribe
+                          setF(x => ({ ...x, approval_papel: true, ...(sociaFija && String(x.sender || '').toUpperCase() === String(sociaFija.full_name || '').toUpperCase() ? { sender: '', sender_dni: '' } : {}) }))
+                        }}>📄 Firma en papel (a mano)</button>
+                    </div>
+                  )}
+                  {proyecto?.expense_approval && f.approval_papel ? (
+                    <>
+                      <div className="form-grid" style={{ margin: 0 }}>
+                        <label>¿Quién firma la hoja?
+                          <input list="personas-gasto" value={f.sender || ''} placeholder="JOSE MACEDO SANCHEZ"
+                            onChange={e => {
+                              const v = e.target.value, d = dniDe(v)
+                              setFaltaPaso('')
+                              setF(x => ({ ...x, sender: v, ...(d ? { sender_dni: d } : {}) }))
+                            }} />
+                        </label>
+                        <label>DNI
+                          <input value={f.sender_dni || ''} inputMode="numeric" onChange={e => { setFaltaPaso(''); setF(x => ({ ...x, sender_dni: e.target.value })) }} />
+                        </label>
+                      </div>
+                      <span className="sg-ej">Ej.: JOSE MACEDO SANCHEZ. Firma a mano la constancia impresa y esa firma es la aprobación: no le llega aviso ni código. Después se sube la foto de la hoja.</span>
+                    </>
+                  ) : proyecto?.expense_approval ? (
                     sociaFija ? (
                       <div className="sg-fija">
                         <b>{sociaFija.full_name}</b>{sociaFija.dni ? ' · DNI ' + sociaFija.dni : <span className="warn"> · ⚠ sin DNI: cárgalo en Usuarios</span>}
@@ -1155,26 +1275,40 @@ export default function Expenses() {
             const quienPide = solicitante?.full_name || ''
             const recibe = String(f.recipient || '').trim().toUpperCase()
             const mismo = quienPide && recibe === quienPide.toUpperCase()
-            const entrega = sociaFija?.full_name || f.sender || ''
+            // cómo firma cada lado (sql/183)
+            const conSocia = !!proyecto?.expense_approval
+            const izqPapel = !!f.requester_papel && (!!quienPide || conSocia)
+            const derPapel = conSocia && !!f.approval_papel
+            const entrega = (derPapel ? f.sender : sociaFija?.full_name || f.sender) || ''
+            const dniEntrega = derPapel ? f.sender_dni : (sociaFija?.dni || f.sender_dni)
+            const tipo = papel => <span className={'small ' + (papel ? 'warn' : 'ok')} style={{ textTransform: 'none' }}>{papel ? '📄 a mano, en papel' : '✍ digital, con código'}</span>
             return (
               <div className="sg-paso">
                 <p className="sg-preg">4. Revisa y registra</p>
                 <div className="sg-firmas">
                   <div>
                     <span className="muted small">FIRMA 1 · IZQUIERDA</span>
-                    <b>{quienPide || (proyecto?.expense_approval ? '⚠ falta elegir' : 'se firma en papel')}</b>
+                    <b>{izqPapel ? (f.recipient || quienPide) : quienPide || (conSocia ? '⚠ falta elegir' : 'se firma en papel')}</b>
                     <span className="small" style={{ textTransform: 'none' }}>{mismo ? 'pide el gasto y recibe el dinero' : 'pide el gasto' + (recibe ? ' · el dinero lo recibe ' + recibe : '')}</span>
+                    {(quienPide || conSocia) && tipo(izqPapel)}
                   </div>
                   <div>
                     <span className="muted small">FIRMA 2 · DERECHA</span>
                     <b>{entrega || '—'}</b>
-                    <span className="small" style={{ textTransform: 'none' }}>{proyecto?.expense_approval ? 'aprueba y entrega el dinero' : 'entrega el dinero'}</span>
+                    <span className="small" style={{ textTransform: 'none' }}>{conSocia ? 'aprueba y entrega el dinero' : 'entrega el dinero'}</span>
+                    {conSocia && tipo(derPapel)}
                   </div>
                 </div>
                 <ol className="sg-flujo">
-                  <li>{quienPide ? primerNombre(quienPide) + ' firma la solicitud con su código (le llega el aviso).' : 'Se imprime y se firma en papel.'}</li>
-                  {proyecto?.expense_approval && <li>{primerNombre(entrega) || 'La socia'} la revisa y la aprueba con su firma.</li>}
-                  {proyecto?.expense_approval && <li>{primerNombre(entrega) || 'La socia'} paga y sube el voucher del pago.</li>}
+                  {izqPapel && derPapel
+                    ? <li>Se imprime la constancia y la firman a mano {primerNombre(f.recipient) || 'quien recibe'} y {primerNombre(entrega) || 'quien entrega'} (sin avisos ni códigos).</li>
+                    : izqPapel
+                      ? <li>Se imprime la constancia y {primerNombre(f.recipient) || 'quien recibe'} la firma a mano (sin aviso ni código).</li>
+                      : <li>{quienPide ? primerNombre(quienPide) + ' firma la solicitud con su código (le llega el aviso).' : 'Se imprime y se firma en papel.'}</li>}
+                  {izqPapel && <li>La oficina, la socia o su secretaria sube la foto de la hoja firmada: eso cuenta como la firma.</li>}
+                  {conSocia && !derPapel && <li>{primerNombre(entrega) || 'La socia'} la revisa y la aprueba con su firma.</li>}
+                  {derPapel && !izqPapel && <li>Se imprime la constancia (ya con la firma de {primerNombre(quienPide) || 'quien pide'}), {primerNombre(entrega) || 'quien entrega'} la firma a mano y se sube la foto: esa es la aprobación.</li>}
+                  {conSocia && <li>{derPapel ? 'La socia o su secretaria' : primerNombre(entrega) || 'La socia'} paga y sube el voucher del pago.</li>}
                   <li>Se sube {f.document_type ? 'el ' + String(f.document_type).toUpperCase() : 'el RH o la factura'} de quien recibió el dinero.</li>
                 </ol>
                 <p className="sg-resumen"><b>{soles(f.amount)}</b> · {f.issue_date ? fechaLetras(f.issue_date) : ''} · {f.payment_method || 'sin método de pago'}</p>
@@ -1228,7 +1362,7 @@ export default function Expenses() {
                   {constanciaDe({
                     ...f,
                     sender: entrega || f.sender,
-                    sender_dni: sociaFija?.dni || f.sender_dni,
+                    sender_dni: dniEntrega,
                     amount: Number(f.amount || 0),
                     issue_date: f.issue_date || hoy(),
                     request_number: editId ? (list.find(g => g.id === editId)?.request_number ?? null) : null,
@@ -1236,12 +1370,12 @@ export default function Expenses() {
                   {/* las dos firmas, como salen al imprimir (ahí van con la firma y el código) */}
                   <table className="ctable firmas"><tbody><tr>
                     <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
-                      ______________________________<br /><b>RECEPTOR</b><br />{quienPide || f.recipient || ''}
+                      ______________________________<br /><b>RECEPTOR</b><br />{(izqPapel ? f.recipient : quienPide) || f.recipient || ''}
                       {f.recipient_dni ? <><br />DNI: {f.recipient_dni}</> : null}
                     </td>
                     <td style={{ textAlign: 'center', paddingTop: '4.5em', width: '50%' }}>
                       ______________________________<br /><b>REMITENTE</b><br />{entrega}
-                      {(sociaFija?.dni || f.sender_dni) ? <><br />DNI: {sociaFija?.dni || f.sender_dni}</> : null}
+                      {dniEntrega ? <><br />DNI: {dniEntrega}</> : null}
                     </td>
                   </tr></tbody></table>
                 </div>
@@ -1284,6 +1418,30 @@ export default function Expenses() {
                   onClick={() => modo === 'pagar' ? setPagar(g) : setAprobar({ g, modo })}>
                   {modo === 'solicitar' ? '✍ Firmar' : modo === 'pagar' ? (g.voucher_url ? '✔ Confirmar pago' : '💸 Subir comprobante de pago') : '✍ Revisar y firmar'}
                 </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* FIRMAS EN PAPEL (sql/183): las hojas que hay que imprimir, hacer firmar a mano y
+          subir. La foto subida pone la firma. */}
+      {puedeSubirHoja && hojasPorSubir.length > 0 && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p style={{ margin: '0 0 8px' }}><b>📄 HOJAS FIRMADAS POR SUBIR ({hojasPorSubir.length})</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — se imprimen, se firman a mano y se sube la foto: eso cuenta como la firma</span></p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
+            {hojasPorSubir.slice(0, 8).map(g => (
+              <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ minWidth: 90 }}>{numeroDe(g)}</b>
+                <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</b>
+                <span className="muted small" style={{ textTransform: 'none', flexBasis: esCelular ? '100%' : undefined }}>
+                  firma a mano: {firmasEnPapelFaltan(g).map(l => l === 'solicitud' ? g.recipient : g.sender).filter(Boolean).join(' y ') || '—'} · {(g.description || g.type || '').slice(0, 50)}
+                </span>
+                <span style={{ marginLeft: esCelular ? 0 : 'auto', display: 'flex', gap: 6, width: esCelular ? '100%' : undefined }}>
+                  <button className="btn-ghost" style={{ fontSize: 12, flex: esCelular ? 1 : undefined }} onClick={() => setPrt(g)}>🖨 Imprimir</button>
+                  <button className="btn-primary" style={{ fontSize: 12, whiteSpace: 'nowrap', flex: esCelular ? 1 : undefined }} onClick={() => setHoja(g)}>📄 Subir hoja firmada</button>
+                </span>
               </div>
             ))}
           </div>
@@ -1376,6 +1534,18 @@ export default function Expenses() {
         <RegistrarPago gasto={pagar} proyecto={proyecto} urlInicial={pagar.voucher_url || null}
           onCerrar={() => setPagar(null)}
           onHecho={t => { setPagar(null); setMsg({ ok: true, t }); load() }} />
+      )}
+
+      {hoja && (
+        <SubirHojaFirmada gasto={hoja} onCerrar={() => setHoja(null)}
+          onImprimir={g => { setHoja(null); setPrt(g) }}
+          onHecho={t => { setHoja(null); setMsg({ ok: true, t }); load() }} />
+      )}
+
+      {formaFirma && (
+        <CambiarFirma gasto={formaFirma} proyecto={proyecto} opcionesPersonas={opcionesPersonas}
+          onCerrar={() => setFormaFirma(null)}
+          onHecho={t => { setFormaFirma(null); setMsg({ ok: true, t }); load() }} />
       )}
 
       {reponer && (

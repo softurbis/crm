@@ -24,9 +24,30 @@ export const fechaHora = s => new Date(s).toLocaleString('es-PE', { timeZone: 'A
 // confirmado; las dos firmas viven en sus propias columnas (sql/73 y sql/74).
 // El orden importa: primero firma quien pide el gasto, despues el socio. Una
 // solicitud sin la primera firma NO esta "por aprobar", esta por firmar.
+// 'en_papel' (sql/183): la firma que toca ahora va A MANO y falta subir la hoja firmada.
 export const estadoGasto = g => g.status === 'confirmado' ? 'confirmado'
   : g.rejected_at ? 'rechazado' : g.approved_at ? 'aprobado'
-  : (g.requester_id && !g.requester_signed_at) ? 'por_firmar' : 'solicitado'
+  : (g.requester_papel && !g.requester_signed_at) ? 'en_papel'
+  : (g.requester_id && !g.requester_signed_at) ? 'por_firmar'
+  : g.approval_papel ? 'en_papel' : 'solicitado'
+
+// FIRMA EN PAPEL (sql/183, 5 nov): cada firma de la constancia va digital (en el panel,
+// con código) o a mano en la hoja impresa, que después se sube. Las firmas en papel que
+// todavía faltan: 'solicitud' (izquierda, quien recibe) y/o 'aprobacion' (derecha, quien
+// entrega). Solo la de la izquierda mientras ella falte: la aprobación va después.
+export const firmasEnPapelFaltan = g => {
+  if (g.status === 'confirmado' || g.rejected_at) return []
+  const izq = !!g.requester_papel && !g.requester_signed_at
+  const der = !!g.approval_papel && !g.approved_at
+  return [izq && 'solicitud', der && 'aprobacion'].filter(Boolean)
+}
+// ¿se puede subir ya la hoja? la aprobación en papel espera la firma digital de la izquierda
+export const hojaListaParaSubir = g => {
+  const f = firmasEnPapelFaltan(g)
+  if (!f.length) return false
+  if (f.includes('solicitud')) return true
+  return !!g.requester_signed_at || !g.requester_id
+}
 
 export const numeroGasto = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0')
   : g.id ? String(g.id).slice(0, 8).toUpperCase() : '(se asigna al registrarla)'
@@ -89,10 +110,21 @@ export function constanciaGasto(g, proyecto, { conFirmas = false } = {}) {
 // lo dice aquí. `verif`: { valido, solicitud_valida } (verificar_gasto, o lo que trae
 // facturacion_gastos como firma_valida / solicitud_valida).
 export function FirmasConstancia({ g, verif }) {
+  // una firma puesta A MANO (sql/183): no hay imagen; la firma está en la hoja subida
+  const aMano = (cuando, quien, dni, codigo, valida, rol) => <>
+    ______________________________<br /><b>{rol}</b><br />{quien}
+    {dni ? <><br />DNI: {dni}</> : null}<br />
+    <span className="small">Firmado a mano · hoja firmada subida el {fechaHora(cuando)}<br />Código de verificación: <b>{codigo}</b>
+      {valida === false && <><br /><b style={{ color: '#c0392b' }}>⚠ EL GASTO FUE MODIFICADO DESPUÉS DE LA FIRMA</b></>}
+      {valida === true && ' · verificado'}</span>
+  </>
+  const izqPapel = g.requester_signed_at && !g.requester_signature_url && g.requester_papel
+  const derPapel = g.approved_at && !g.approval_signature_url && g.approval_papel
   return (
     <table className="ctable firmas"><tbody><tr>
       <td style={{ textAlign: 'center', paddingTop: g.requester_signed_at && g.requester_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
-        {g.requester_signed_at && g.requester_signature_url
+        {izqPapel ? aMano(g.requester_signed_at, g.requester_name || g.recipient, g.recipient_dni, g.requester_code, verif?.solicitud_valida, 'RECEPTOR')
+        : g.requester_signed_at && g.requester_signature_url
           ? <>
               <img src={g.requester_signature_url} alt="Firma de quien recibe" style={{ height: 70, display: 'block', margin: '0 auto' }} />
               ______________________________<br /><b>RECEPTOR</b><br />{g.requester_name || g.recipient}
@@ -105,7 +137,8 @@ export function FirmasConstancia({ g, verif }) {
               {g.recipient_dni ? <><br />DNI: {g.recipient_dni}</> : null}</>}
       </td>
       <td style={{ textAlign: 'center', paddingTop: g.approved_at && g.approval_signature_url ? '0.5em' : '4.5em', width: '50%' }}>
-        {g.approved_at && g.approval_signature_url
+        {derPapel ? aMano(g.approved_at, g.approved_name || g.sender, g.sender_dni, g.approval_code, verif?.valido, 'REMITENTE')
+        : g.approved_at && g.approval_signature_url
           ? <>
               <img src={g.approval_signature_url} alt="Firma de quien entrega" style={{ height: 70, display: 'block', margin: '0 auto' }} />
               ______________________________<br /><b>REMITENTE</b><br />{g.approved_name || g.sender}

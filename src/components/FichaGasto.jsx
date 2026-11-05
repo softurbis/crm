@@ -11,6 +11,7 @@ const fechaPe = d => d ? String(d).slice(8, 10) + '/' + String(d).slice(5, 7) + 
 const ESTADO = {
   confirmado: ['ok', '✔ PAGADO'], rechazado: ['bad', '✖ RECHAZADO'], aprobado: ['ok', '✍ APROBADO'],
   por_firmar: ['warn', '⏳ POR FIRMAR (quien lo pide)'], solicitado: ['warn', '⏳ POR APROBAR'],
+  en_papel: ['warn', '📄 FIRMA EN PAPEL · falta subir la hoja'],
 }
 
 export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
@@ -39,9 +40,14 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
   const pasos = [
     cargado ? { t: 'Cargado al sistema', cuando: g.created_at, quien: 'gasto anterior, desde su constancia' }
       : { t: 'Registrada', cuando: g.created_at, quien: g.registrado_por_nombre },
-    g.requester_id && { t: 'Firmó quien lo pide', cuando: g.requester_signed_at, quien: pidio, cod: g.requester_code, espera: 'espera la firma de ' + (pidio || 'quien lo pide') },
+    // una firma EN PAPEL (sql/183): la hora es la de la hoja subida, y se dice quién la subió
+    (g.requester_id || g.requester_papel) && (g.requester_papel
+      ? { t: 'Firmó a mano quien lo recibe (papel)', cuando: g.requester_signed_at, quien: (g.requester_name || g.recipient) + (g.hoja_izq_por_nombre ? ' · hoja subida por ' + g.hoja_izq_por_nombre : ''), cod: g.requester_code, espera: 'falta subir la hoja firmada por ' + (g.recipient || 'quien recibe') }
+      : { t: 'Firmó quien lo pide', cuando: g.requester_signed_at, quien: pidio, cod: g.requester_code, espera: 'espera la firma de ' + (pidio || 'quien lo pide') }),
     // un gasto ya pagado sin aprobación es de antes del circuito de firmas: no "espera" nada
-    proyecto?.expense_approval && !g.rejected_at && (g.approved_at || g.status !== 'confirmado') && { t: 'Aprobó la socia', cuando: g.approved_at, quien: g.approved_name, cod: g.approval_code, espera: 'espera la aprobación de la socia' },
+    proyecto?.expense_approval && !g.rejected_at && (g.approved_at || g.status !== 'confirmado') && (g.approval_papel
+      ? { t: 'Aprobó a mano (papel)', cuando: g.approved_at, quien: (g.approved_name || g.sender) + (g.hoja_der_por_nombre ? ' · hoja subida por ' + g.hoja_der_por_nombre : ''), cod: g.approval_code, espera: 'falta subir la hoja firmada por ' + (g.sender || 'quien entrega') }
+      : { t: 'Aprobó la socia', cuando: g.approved_at, quien: g.approved_name, cod: g.approval_code, espera: 'espera la aprobación de la socia' }),
     g.rejected_at && { t: 'Rechazada', cuando: g.rejected_at, quien: g.rejected_reason, mal: true },
     !g.rejected_at && { t: 'Pagado', cuando: pagadoEl, quien: g.confirmed_by ? g.pagado_por_nombre : 'según la constancia', nota: g.voucher_note, espera: porPagar ? (g.voucher_url ? 'el voucher ya está: falta confirmar el pago' : 'falta subir el voucher') : 'todavía no se paga' },
     g.adelanto_por && { t: 'Reposición a ' + g.adelanto_por, cuando: g.reposicion?.fecha, nota: g.reposicion?.operacion ? 'OP ' + g.reposicion.operacion : '', espera: 'falta devolverle el dinero' },

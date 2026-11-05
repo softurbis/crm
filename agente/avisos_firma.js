@@ -17,6 +17,10 @@
 //     falta pagar y subir el voucher (sql/101), hasta que lo suba.
 // Todo sale por WhatsApp Y por Telegram (si lo tiene vinculado). Se deja de avisar
 // cuando firma o paga, cuando la solicitud se rechaza o cuando deja de estar "solicitado".
+//  5. (5 nov, sql/183) FIRMA EN PAPEL: una firma que va a mano no lleva aviso ni código
+//     (pedido del dueño: José firma en papel "hasta que se adapte"). Si la de la
+//     izquierda va en papel, la socia espera a que suban la hoja y recién ahí le llega
+//     "ya puedes firmar"; si la aprobación va en papel, a la socia no se le pide firmar.
 //
 // planificar() decide qué mandar sin tocar nada (se prueba aparte); tick() lee, manda
 // y anota.
@@ -49,7 +53,9 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   const mensajes = []          // { userId, tel, texto }
   const gastosUpd = []         // { id, campos }
   const avisados = new Set()   // a quién se le avisó en esta vuelta (su reloj vuelve a cero)
-  const nombreSolicitante = g => g.requester_name || perfiles.get(g.requester_id)?.full_name || 'quien la pidió'
+  // con la firma de la izquierda en papel, la pone a mano quien recibe el dinero (sql/183)
+  const nombreSolicitante = g => (g.requester_papel && !g.requester_signed_at ? g.recipient : null)
+    || g.requester_name || perfiles.get(g.requester_id)?.full_name || 'quien la pidió'
   const cab = g => (g.project?.name || '') + ' · ' + sol(g) + '\n' + soles(g.amount) + ' → ' + (g.recipient || '-') + (g.description ? '\n' + g.description : '')
   const sinCelular = new Set() // a quién le tocaba un aviso y no tiene celular válido (51 + 9 dígitos)
   const decir = (userId, texto) => {
@@ -61,8 +67,11 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
     avisados.add(userId)
     return true
   }
-  const falta = g => g.requester_id && !g.requester_signed_at          // la firma de quien la pide
-  const socioToca = g => g.project?.expense_approval && !g.approved_at  // la firma del socio
+  // la firma de la izquierda falta (digital o en papel); el aviso "para tu firma" es solo
+  // para la digital: la de papel se sube con la hoja (sql/183)
+  const faltaIzq = g => !g.requester_signed_at && (!!g.requester_id || !!g.requester_papel)
+  const falta = g => g.requester_id && !g.requester_signed_at && !g.requester_papel   // la firma DIGITAL de quien la pide
+  const socioToca = g => g.project?.expense_approval && !g.approved_at && !g.approval_papel  // la firma (digital) del socio
   // aprobada y sin pagar: la socia paga y sube el voucher (sql/101; pedido del 10 oct)
   const pagoToca = g => g.project?.expense_approval && !!g.approved_at
 
@@ -76,18 +85,19 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
       const antes = mensajes.length, tocaba = (falta(g) ? 1 : 0) + socios.length
       if (falta(g)) decir(g.requester_id, '✍ *SOLICITUD DE GASTO PARA TU FIRMA*\n' + cab(g) + '\n\nFírmala aquí: ' + panel + '\n(te lo recuerdo cada 4 horas hasta que la firmes)')
       for (const s of socios) {
-        decir(s.id, falta(g)
-          ? '📝 *SOLICITUD DE GASTO — PENDIENTE DE TU FIRMA*\n' + cab(g) + '\n\nPrimero la firma ' + nombreSolicitante(g) + '; apenas firme te aviso para que la apruebes. ' + panel
+        decir(s.id, faltaIzq(g)
+          ? '📝 *SOLICITUD DE GASTO — PENDIENTE DE TU FIRMA*\n' + cab(g) + '\n\nPrimero la firma ' + nombreSolicitante(g)
+            + (g.requester_papel ? ' a mano (en papel); apenas suban la hoja firmada' : '; apenas firme') + ' te aviso para que la apruebes. ' + panel
           : '✍ *SOLICITUD DE GASTO POR APROBAR*\n' + cab(g) + (g.requester_name ? '\nYa la firmó ' + g.requester_name : '') + '\n\nRevísala y fírmala aquí: ' + panel)
       }
       if (tocaba && mensajes.length === antes) continue
       const campos = { requester_notified_at: new Date(ahora).toISOString() }
-      if (socios.length && !falta(g)) campos.approval_notified_at = campos.requester_notified_at   // ya se le dijo "puedes firmar"
+      if (socios.length && !faltaIzq(g)) campos.approval_notified_at = campos.requester_notified_at   // ya se le dijo "puedes firmar"
       gastosUpd.push({ id: g.id, campos })
       continue
     }
-    // 2. quien la pidió ya firmó: a los socios, "ya puedes firmar"
-    if (socioToca(g) && !falta(g) && !g.approval_notified_at) {
+    // 2. quien la pidió ya firmó (en el panel o con la hoja en papel): a los socios, "ya puedes firmar"
+    if (socioToca(g) && !faltaIzq(g) && !g.approval_notified_at) {
       const antes = mensajes.length
       for (const s of socios) {
         decir(s.id, '✍ *YA PUEDES FIRMAR — SOLICITUD DE GASTO*\n' + cab(g) + '\nYa la firmó ' + nombreSolicitante(g) + '.\n\nRevísala y fírmala aquí: ' + panel)
@@ -102,7 +112,7 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
   const sumar = (uid, item) => { if (!pend.has(uid)) pend.set(uid, []); pend.get(uid).push(item) }
   for (const g of gastos) {
     if (falta(g)) sumar(g.requester_id, { g, puede: true })
-    if (socioToca(g)) for (const s of (sociosDe.get(g.project_id) || [])) sumar(s.id, { g, puede: !falta(g), espera: falta(g) ? nombreSolicitante(g) : null })
+    if (socioToca(g)) for (const s of (sociosDe.get(g.project_id) || [])) sumar(s.id, { g, puede: !faltaIzq(g), espera: faltaIzq(g) ? nombreSolicitante(g) : null, enPapel: !!g.requester_papel })
     if (pagoToca(g)) for (const s of (sociosDe.get(g.project_id) || [])) if (s.id !== g.requester_id) sumar(s.id, { g, paga: true })
   }
   for (const [uid, items] of pend) {
@@ -117,7 +127,7 @@ function planificar({ gastos, sociosDe, perfiles }, ahora, panel) {
       .sort((a, b) => !!a.paga - !!b.paga || new Date(a.g.created_at) - new Date(b.g.created_at))
       .map(x => '• ' + (x.g.project?.name || '') + ' · ' + sol(x.g) + ' · ' + soles(x.g.amount) + ' → ' + (x.g.recipient || '-') + '\n   ' +
         (x.paga ? '💸 falta pagar y subir el voucher · aprobada ' + haceCuanto(x.g.approved_at, ahora)
-          : (x.puede ? '✍ te toca firmar' : '⏳ espera la firma de ' + primerNombre(x.espera)) + ' · pedida ' + haceCuanto(x.g.created_at, ahora)))
+          : (x.puede ? '✍ te toca firmar' : '⏳ espera la firma ' + (x.enPapel ? 'en papel ' : '') + 'de ' + primerNombre(x.espera)) + ' · pedida ' + haceCuanto(x.g.created_at, ahora)))
     const que = [
       firmas.length && firmas.length + (firmas.length === 1 ? ' solicitud de gasto pendiente de firma' : ' solicitudes de gasto pendientes de firma'),
       pagos.length && pagos.length + (pagos.length === 1 ? ' gasto aprobado por pagar' : ' gastos aprobados por pagar'),
@@ -144,9 +154,11 @@ function crearAvisosFirma({ supabase, enviar, log = () => {}, panel }) {
   }
 
   async function tick() {
-    const { data: gastos, error } = await supabase.from('expenses')
-      .select('id, request_number, amount, recipient, description, requester_id, requester_name, requester_signed_at, approved_at, project_id, created_at, requester_notified_at, approval_notified_at, project:projects(name, expense_approval)')
-      .eq('status', 'solicitado').is('rejected_at', null).limit(300)
+    const COLS = 'id, request_number, amount, recipient, description, requester_id, requester_name, requester_signed_at, approved_at, project_id, created_at, requester_notified_at, approval_notified_at, project:projects(name, expense_approval)'
+    const leer = cols => supabase.from('expenses').select(cols).eq('status', 'solicitado').is('rejected_at', null).limit(300)
+    // con la firma en papel (sql/183); si ese SQL todavía no está, como antes (todo digital)
+    let { data: gastos, error } = await leer(COLS + ', requester_papel, approval_papel')
+    if (error && /requester_papel|approval_papel/i.test(error.message || '')) ({ data: gastos, error } = await leer(COLS))
     if (error) { if (!avisoFalta) { log('AVISOS DE FIRMA:', error.message); avisoFalta = true } return }
     if (!gastos?.length) return
     const proyectos = [...new Set(gastos.filter(g => g.project?.expense_approval).map(g => g.project_id))]

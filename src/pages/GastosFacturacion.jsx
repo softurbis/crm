@@ -10,7 +10,8 @@ import RegistrarPago from '../components/RegistrarPago'
 import BuscadorGastos from '../components/BuscadorGastos'
 import FichaGasto from '../components/FichaGasto'
 import Paginador, { usePaginacion } from '../components/Paginador'
-import { estadoGasto, numeroGasto, HojaConstancia } from '../components/ConstanciaGasto'
+import { estadoGasto, numeroGasto, HojaConstancia, firmasEnPapelFaltan, hojaListaParaSubir } from '../components/ConstanciaGasto'
+import { SubirHojaFirmada } from '../components/FirmaPapelGasto'
 
 // GASTOS PARA FACTURACIÓN (sql/145-146, 13 oct 2026): la secretaria de la socia ve TODO
 // Gastos de sus proyectos (también los anteriores), busca, abre la ficha de cada gasto,
@@ -26,6 +27,7 @@ const ESTADOS = [
   ['por_pagar', '💸 Por pagar (falta el voucher o confirmarlo)'],
   ['por_firmar', 'Por firmar (quien lo pide)'],
   ['por_aprobar', 'Por aprobar (la socia)'],
+  ['en_papel', '📄 Firma en papel (falta subir la hoja)'],
   ['pagados', '✔ Pagados'],
   ['falta_rh', 'Pagados sin RH / factura'],
   ['rechazados', 'Rechazados'],
@@ -49,6 +51,7 @@ export default function GastosFacturacion() {
   const [prt, setPrt] = useState(null)             // { lista } para imprimir
   const [ficha, setFicha] = useState(null)
   const [pagar, setPagar] = useState(null)
+  const [hoja, setHoja] = useState(null)           // gasto al que se le sube la hoja firmada a mano (sql/183)
 
   async function cargar() {
     const { data, error } = await supabase.rpc('facturacion_gastos')
@@ -65,6 +68,11 @@ export default function GastosFacturacion() {
   const porPagar = g => !!proyDe[g.project_id]?.expense_approval && estadoGasto(g) === 'aprobado'
   const botonPago = (g, st) => <button className="btn-primary" style={st || { fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setPagar(g)}>{g.voucher_url ? '✔ Confirmar pago' : '💸 Subir voucher'}</button>
   const listaPorPagar = todos.filter(porPagar)
+  // FIRMA EN PAPEL (sql/183, 5 nov): ella también sube la hoja firmada a mano (ej. por José);
+  // la foto subida pone la firma
+  const hojaLista = g => estadoGasto(g) === 'en_papel' && hojaListaParaSubir(g)
+  const botonHoja = (g, st) => <button className="btn-primary" style={st || { fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setHoja(g)}>📄 Subir hoja firmada</button>
+  const listaHojas = todos.filter(hojaLista)
 
   // primero el estado, después la búsqueda (los motivos se cuentan sobre lo que deja el estado)
   const porEstado = useMemo(() => todos.filter(g => {
@@ -73,6 +81,7 @@ export default function GastosFacturacion() {
     if (fest === 'por_pagar') return porPagar(g)
     if (fest === 'por_firmar') return e === 'por_firmar'
     if (fest === 'por_aprobar') return e === 'solicitado'
+    if (fest === 'en_papel') return e === 'en_papel'
     if (fest === 'pagados') return e === 'confirmado'
     if (fest === 'falta_rh') return e === 'confirmado' && !g.receipt_url && !g.receipt_na
     if (fest === 'rechazados') return e === 'rechazado'
@@ -85,7 +94,7 @@ export default function GastosFacturacion() {
   const resumen = [
     ['ok', '✔ Pagado', filtrada.filter(g => estadoGasto(g) === 'confirmado')],
     ['warn', '💸 Por pagar', filtrada.filter(porPagar)],
-    ['warn', '⏳ Por firmar o aprobar', filtrada.filter(g => ['por_firmar', 'solicitado'].includes(estadoGasto(g)))],
+    ['warn', '⏳ Por firmar o aprobar', filtrada.filter(g => ['por_firmar', 'solicitado', 'en_papel'].includes(estadoGasto(g)))],
     ['bad', '✖ Rechazado', filtrada.filter(g => estadoGasto(g) === 'rechazado')],
   ].filter(([, , l]) => l.length)
   const verifDe = g => ({ valido: g.firma_valida, solicitud_valida: g.solicitud_valida })
@@ -98,6 +107,7 @@ export default function GastosFacturacion() {
       ? <span className="warn">💸 POR PAGAR<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar' : 'falta el voucher'}</span></span>
       : <span className="ok">✍ APROBADO</span>
     if (e === 'por_firmar') return <span className="warn">⏳ POR FIRMAR<br /><span className="muted small" style={{ textTransform: 'none' }}>{g.pedido_por_nombre ? 'firma ' + g.pedido_por_nombre.split(' ')[0] : 'firma quien lo pide'}</span></span>
+    if (e === 'en_papel') return <span className="warn">📄 FIRMA EN PAPEL<br /><span className="muted small" style={{ textTransform: 'none' }}>falta la hoja de {firmasEnPapelFaltan(g).map(l => String((l === 'solicitud' ? g.recipient : g.sender) || '').split(' ')[0]).filter(Boolean).join(' y ') || 'quien firma'}</span></span>
     return <span className="warn">⏳ {proyDe[g.project_id]?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}{proyDe[g.project_id]?.expense_approval && <><br /><span className="muted small" style={{ textTransform: 'none' }}>firma la socia</span></>}</span>
   }
   const doc = (url, titulo, nota) => url
@@ -106,6 +116,7 @@ export default function GastosFacturacion() {
   const docConstancia = g => <>
     <button className="link-btn" onClick={() => setPrt({ lista: [g] })}>🖨 imprimir</button>
     {g.request_doc_url && <> · {doc(g.request_doc_url, 'Constancia firmada · ' + numeroGasto(g))}</>}
+    {hojaLista(g) && <div style={{ marginTop: 4 }}>{botonHoja(g)}</div>}
   </>
   // SUBIR LO QUE FALTA (sql/147, 14 oct): el RH o la factura (o uno más) y el voucher de un
   // gasto ya pagado que no lo tiene. Nunca reemplaza ni borra: eso es del superusuario.
@@ -176,6 +187,29 @@ export default function GastosFacturacion() {
                   {proyectos.length > 1 ? nombreProy(g) + ' · ' : ''}{g.recipient || '—'} · {(g.description || g.type || '').slice(0, 60)}
                 </span>
                 {botonPago(g, esCelular ? { width: '100%', padding: '.8rem' } : { fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap' })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* LAS HOJAS FIRMADAS A MANO QUE FALTA SUBIR (sql/183) */}
+      {listaHojas.length > 0 && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p style={{ margin: '0 0 8px' }}><b>📄 HOJAS FIRMADAS POR SUBIR ({listaHojas.length})</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — se imprime la constancia, se firma a mano y se sube la foto: eso cuenta como la firma</span></p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
+            {listaHojas.slice(0, 10).map(g => (
+              <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ minWidth: 90 }}>{abrirFicha(g)}</span>
+                <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</b>
+                <span className="muted small" style={{ textTransform: 'none', flexBasis: esCelular ? '100%' : undefined }}>
+                  {proyectos.length > 1 ? nombreProy(g) + ' · ' : ''}firma a mano: {firmasEnPapelFaltan(g).map(l => l === 'solicitud' ? g.recipient : g.sender).filter(Boolean).join(' y ') || '—'}
+                </span>
+                <span style={{ marginLeft: esCelular ? 0 : 'auto', display: 'flex', gap: 6, width: esCelular ? '100%' : undefined }}>
+                  <button className="btn-ghost" style={{ fontSize: 12, flex: esCelular ? 1 : undefined }} onClick={() => setPrt({ lista: [g] })}>🖨 Imprimir</button>
+                  {botonHoja(g, { fontSize: 12, whiteSpace: 'nowrap', flex: esCelular ? 1 : undefined })}
+                </span>
               </div>
             ))}
           </div>
@@ -277,6 +311,12 @@ export default function GastosFacturacion() {
         <RegistrarPago gasto={pagar} proyecto={proyDe[pagar.project_id]} urlInicial={pagar.voucher_url || null}
           onCerrar={() => setPagar(null)}
           onHecho={t => { setPagar(null); setMsg({ ok: true, t }); savedFx(); cargar() }} />
+      )}
+
+      {hoja && (
+        <SubirHojaFirmada gasto={hoja} onCerrar={() => setHoja(null)}
+          onImprimir={g => { setHoja(null); setPrt({ lista: [g] }) }}
+          onHecho={t => { setHoja(null); setMsg({ ok: true, t }); savedFx(); cargar() }} />
       )}
 
       {verDoc && (
