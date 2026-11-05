@@ -66,6 +66,9 @@ const MENU = [
   // lotes con deuda + Excel de cuotas vencidas (sql/156): la pantalla del facturador, también para el superusuario
   { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', admin: true, color: '#e05252', grupo: 'Cobranza' },
 
+  // precios, iniciales y cuotas de cada lote para cotizar y mandar por WhatsApp (sql/181).
+  // `siempre`: lo ve todo el equipo aunque tenga los paneles recortados; el asesor también
+  { to: '/vendedor', label: 'Panel del vendedor', icon: '🏷️', color: '#f0c05a', proy: true, siempre: true, grupo: 'Ventas' },
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
   { to: '/ventas', label: 'Ventas y contratos', icon: '📄', color: '#7bb6e0', proy: true, grupo: 'Ventas', tambien: ['/contratos'] },
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8', grupo: 'Ventas' },
@@ -321,9 +324,10 @@ export default function Layout() {
           <span><b>URBIS GROUP</b><br /><small>REAL ESTATE</small></span>
         </div>
         <nav onClick={() => setOpen(false)}>
-          {/* el rol ASESOR solo ve su chat de WhatsApp, nada más del CRM */}
+          {/* el rol ASESOR solo ve su chat de WhatsApp y el panel del vendedor (precios
+              y cuotas, sin datos de clientes), nada más del CRM */}
           {role === 'asesor'
-            ? MENU.filter(m => m.to === '/whatsapp').map(Item)
+            ? MENU.filter(m => m.to === '/whatsapp' || m.to === '/vendedor').map(Item)
             : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo

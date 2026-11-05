@@ -1545,3 +1545,86 @@ span.cp-chip { cursor: default; }
 .cp-valid li.mal { color: #e0b23f; }
 .cp-aviso { margin: .3rem 0 .5rem; padding: .4rem .6rem; border-radius: 8px; border: 1px solid rgba(224,178,63,.45); background: rgba(224,178,63,.08); text-transform: none; font-size: .82rem; }
 .cp-aviso p { margin: 0; }
+
+/* ---- PLANO REAL del proyecto (components/PlanoReal.jsx, sql/181) ---- */
+.pr-caja { position: relative; border-radius: var(--radius); overflow: hidden; background: #111a15;
+  border: 1px solid rgba(255,255,255,.07); min-height: 320px; }
+.pr-svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; }
+.pr-svg:active { cursor: grabbing; }
+.pr-lote { cursor: pointer; transition: fill-opacity .15s; }
+.pr-lote:hover { fill-opacity: 1; stroke: #fff; stroke-width: .7; }
+.pr-num { fill: #0d150f; font-weight: 700; font-family: 'Segoe UI', system-ui, sans-serif; text-transform: none; }
+.pr-calle { fill: #c9d4c4; font-weight: 600; letter-spacing: .02em; opacity: .85; pointer-events: none; }
+.pr-area { fill: #9ccb86; font-weight: 700; opacity: .8; pointer-events: none; }
+.pr-mz { fill: #fff; stroke: #b0001e; stroke-width: .7; }
+.pr-mz-t { fill: #b0001e; font-weight: 800; }
+.pr-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.pr-zoom button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid rgba(255,255,255,.15);
+  background: rgba(23,34,27,.9); color: var(--text); font-size: 1.2rem; font-weight: 700; cursor: pointer; }
+.pr-zoom button:hover { background: var(--panel-2); }
+.pr-pista { position: absolute; left: 10px; bottom: 8px; font-size: .7rem; color: var(--muted);
+  background: rgba(13,21,18,.75); padding: 2px 8px; border-radius: 8px; pointer-events: none; }
+
+/* ---- PANEL DEL VENDEDOR (pages/Vendedor.jsx, sql/181) ---- */
+.pv-cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .7rem; margin-bottom: .9rem; }
+.pv-cat { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .85rem; text-align: left; cursor: pointer;
+  color: var(--text); border-left: 5px solid var(--cc); font-size: .8rem; }
+.pv-cat.on { outline: 2px solid var(--cc); background: color-mix(in srgb, var(--cc) 12%, var(--panel)); }
+.pv-cat-n { display: flex; align-items: center; gap: .4rem; font-weight: 800; letter-spacing: .04em; }
+.pv-cat-n i { width: 12px; height: 12px; border-radius: 4px; background: var(--cc); display: inline-block; }
+.pv-cat > b { font-size: 1.05rem; }
+.pv-cat span { color: var(--muted); }
+.pv-cat span b { color: var(--accent-strong); }
+.pv-ctrl { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; padding: .7rem .9rem; margin-bottom: .9rem; }
+.pv-ctrl label { font-size: .75rem; }
+.pv-ctrl input, .pv-ctrl select { padding: .4rem .55rem; width: 130px; }
+.pv-plazos { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; flex-basis: 100%; }
+.pv-plazos .chip { padding: .3rem .7rem; }
+.pv-check { flex-direction: row !important; align-items: center; gap: .4rem !important; }
+.pv-check input { width: auto; }
+.pv-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 1rem; align-items: start; }
+.pv-grid.sin-plano { grid-template-columns: minmax(0, 560px); }
+.pv-lado { position: sticky; top: 1rem; }
+.pv-cot { padding: 1rem 1.1rem; border-top: 5px solid var(--cc, var(--accent)); }
+.pv-cot-cab { display: flex; align-items: center; gap: .6rem; margin-bottom: .3rem; }
+.pv-cot-lote { font-size: 1.7rem; font-weight: 800; font-family: 'Montserrat', 'Segoe UI', sans-serif; }
+.pv-cot-cat { font-size: .72rem; font-weight: 800; padding: 2px 8px; border-radius: 8px; background: var(--cc); color: #0d150f; }
+.pv-x { margin-left: auto; padding: .2rem .55rem; }
+.pv-cifras { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .8rem 0; }
+.pv-cifras div { display: flex; flex-direction: column; gap: .2rem; font-size: .72rem; color: var(--muted); }
+.pv-cifras b { font-size: 1rem; color: var(--text); }
+.pv-cifras input { padding: .3rem .45rem; font-size: 1rem; font-weight: 700; width: 100%; }
+.pv-cuota { display: flex; flex-direction: column; gap: .2rem; padding: .75rem .85rem; border-radius: 12px;
+  background: color-mix(in srgb, var(--cc, var(--accent)) 10%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--cc, var(--accent)) 35%, transparent); }
+.pv-cuota > span:first-child { font-size: .72rem; color: var(--muted); font-weight: 700; }
+.pv-cuota b { font-size: 1.9rem; color: var(--accent-strong); font-family: 'Montserrat', 'Segoe UI', sans-serif; }
+.pv-cuota b small { font-size: .8rem; color: var(--muted); }
+.pv-cuota em { font-style: normal; font-weight: 700; font-size: .88rem; }
+.pv-contado { margin: .6rem 0 0; font-size: .85rem; }
+.pv-botones { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; }
+.pv-botones .btn-primary { background: linear-gradient(135deg, #5fe08f, #25d366); }
+.pv-titulo { margin: 1.4rem 0 .6rem; font-size: .95rem; color: var(--muted); }
+.pv-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .55rem; }
+.pv-lote { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; padding: .55rem .7rem; cursor: pointer;
+  text-align: left; color: var(--text); border-left: 5px solid var(--cc); font-size: .74rem; }
+.pv-lote.on { outline: 2px solid var(--cc); }
+.pv-lote.ocupado { opacity: .55; }
+.pv-lote-n { font-size: 1.1rem; font-weight: 800; }
+.pv-lote-a, .pv-lote-i, .pv-lote-u { color: var(--muted); }
+.pv-lote-c { font-size: 1.05rem; color: var(--accent-strong); }
+.pv-lote-c small { font-size: .7rem; color: var(--muted); }
+.pv-lote-e { font-weight: 800; color: var(--error); }
+@media (max-width: 900px) {
+  .pv-grid { grid-template-columns: 1fr; }
+  .pv-lado { position: static; }
+  .pv-ctrl input, .pv-ctrl select { width: 110px; }
+}
+@media (max-width: 560px) {
+  .pv-cats { grid-template-columns: 1fr 1fr; gap: .45rem; }
+  .pv-cat { padding: .5rem .6rem; font-size: .68rem; border-left-width: 4px; }
+  .pv-cat > b { font-size: .9rem; }
+  .pv-lista { grid-template-columns: 1fr 1fr; }
+  .pv-cot-lote { font-size: 1.4rem; }
+  .pv-cuota b { font-size: 1.6rem; }
+  .pr-caja { height: 58vh !important; }
+}

@@ -7,6 +7,8 @@ import { useProject, ProjectPicker } from '../context/ProjectContext'
 import BuscarLote from '../components/BuscarLote'
 import { COLORS, LBL, esLote, EN_CARTERA, saldoCuota, TOLERANCIA_CUOTA } from '../lib/lotes'
 import { useEsCelular } from '../lib/useEsCelular'
+import PlanoReal from '../components/PlanoReal'
+import { tienePlano } from '../lib/plano'
 
 // El mapa del proyecto. Cada lote abre su ficha a pantalla completa
 // (pages/FichaLote.jsx), donde esta todo lo del dia a dia.
@@ -34,8 +36,20 @@ export default function Lots() {
     const encontrado = lots.find(x => String(x.mz).toUpperCase() === String(mz).toUpperCase() && String(x.lt) === String(lt))
     if (encontrado) irA('/lotes/' + encontrado.id, { replace: true })
   }, [searchParams, lots])
-  const [vista, setVista] = useState(() => { try { return localStorage.getItem('urbis.mapa.vista') || 'plano' } catch { return 'plano' } })
-  const cambiarVista = v => { setVista(v); try { localStorage.setItem('urbis.mapa.vista', v) } catch { /* sin almacenamiento: no pasa nada */ } }
+  // 'real' = el plano del proyecto con la forma de cada lote (sql/181), 'plano' = los
+  // cuadritos por manzana, 'lista' = la grilla. La llave es nueva (5 nov) para que
+  // todos entren al plano real donde lo hay; quien elige otra vista la conserva.
+  const [vista, setVista] = useState(() => { try { return localStorage.getItem('urbis.mapa.vista2') || 'real' } catch { return 'real' } })
+  const cambiarVista = v => { setVista(v); try { localStorage.setItem('urbis.mapa.vista2', v) } catch { /* sin almacenamiento: no pasa nada */ } }
+  // el fondo del plano real del proyecto (calles, parques, rótulos). Sin sql/181 la
+  // columna no existe: el pedido falla y el mapa sigue con los cuadritos.
+  const [planoProy, setPlanoProy] = useState(null)
+  useEffect(() => {
+    setPlanoProy(null)
+    if (!pidOp) return
+    supabase.from('projects').select('plano').eq('id', pidOp).maybeSingle()
+      .then(({ data, error }) => { if (!error) setPlanoProy(data?.plano || null) })
+  }, [pidOp])
 
   // creacion masiva de lotes (admin)
   const [crear, setCrear] = useState(false)
@@ -113,14 +127,20 @@ export default function Lots() {
   // lotes que SI existen (los eliminados solo se ven con su propio filtro)
   const activos = useMemo(() => lots.filter(esLote), [lots])
 
+  // ¿el lote pasa el filtro de arriba? (lo usan los cuadritos, la lista y el plano real)
+  const pasaFiltro = l => {
+    if (filter === 'vencidas') return vencidos.has(l.id)
+    if (filter === 'expropiado') return expropiados.has(l.id)
+    if (filter === 'cartera') return EN_CARTERA.includes(l.status)
+    if (filter === 'eliminado') return !esLote(l)
+    return filter === 'todos' || l.status === filter
+  }
+
   const byMz = useMemo(() => {
     const g = {}
     const base = filter === 'eliminado' ? lots.filter(l => !esLote(l)) : activos
     for (const l of base) {
-      if (filter === 'vencidas') { if (!vencidos.has(l.id)) continue }
-      else if (filter === 'expropiado') { if (!expropiados.has(l.id)) continue }
-      else if (filter === 'cartera') { if (!EN_CARTERA.includes(l.status)) continue }
-      else if (!['todos', 'eliminado'].includes(filter) && l.status !== filter) continue
+      if (!pasaFiltro(l)) continue
       ;(g[l.mz] = g[l.mz] || []).push(l)
     }
     for (const k in g) g[k].sort((a, b) => Number(a.lt) - Number(b.lt) || String(a.lt).localeCompare(String(b.lt)))
@@ -142,6 +162,10 @@ export default function Lots() {
 
   // desde el mapa se vuelve con "atras" (mismo filtro); la ficha lo sabe por el state
   const abrirLote = l => irA('/lotes/' + l.id, { state: { desdeMapa: true } })
+
+  // el plano real solo donde el proyecto lo tiene; si no, la vista elegida cae a los cuadritos
+  const hayPlanoReal = tienePlano(planoProy, activos)
+  const vistaVer = vista === 'real' && !hayPlanoReal ? 'plano' : vista
 
   // creacion masiva de lotes (admin)
   async function crearLotes(e) {
@@ -220,8 +244,9 @@ export default function Lots() {
           </button>
         )}
         <span style={{ flex: 1 }} />
-        <button className={`chip ${vista === 'plano' ? 'on' : ''}`} onClick={() => cambiarVista('plano')}>🗺️ Plano</button>
-        <button className={`chip ${vista === 'lista' ? 'on' : ''}`} onClick={() => cambiarVista('lista')}>☰ Lista</button>
+        {hayPlanoReal && <button className={`chip ${vistaVer === 'real' ? 'on' : ''}`} onClick={() => cambiarVista('real')}>📐 Plano real</button>}
+        <button className={`chip ${vistaVer === 'plano' ? 'on' : ''}`} onClick={() => cambiarVista('plano')}>🗺️ {hayPlanoReal ? 'Cuadros' : 'Plano'}</button>
+        <button className={`chip ${vistaVer === 'lista' ? 'on' : ''}`} onClick={() => cambiarVista('lista')}>☰ Lista</button>
       </div>
 
       {filter === 'eliminado' && (
@@ -238,7 +263,19 @@ export default function Lots() {
         </p>
       )}
 
-      {vista === 'plano' ? (
+      {vistaVer === 'real' ? (
+        <>
+          <PlanoReal plano={planoProy} lotes={filter === 'eliminado' ? lots : activos}
+            relleno={l => COLORS[l.status] || '#6d6f74'}
+            borde={l => vencidos.has(l.id) ? { color: '#ff4d4d', ancho: 1.1 } : null}
+            atenuado={l => !pasaFiltro(l)}
+            titulo={tituloLote}
+            onLote={abrirLote} />
+          <p className="muted small" style={{ margin: '.5rem 0 0' }}>
+            Cada lote con su color de estado{counts.vencidas ? <> · borde <b style={{ color: '#ff4d4d' }}>rojo</b> = tiene cuotas vencidas</> : null}. Toca un lote para abrir su ficha; arrastra para moverte y usa + / − (o pellizca en el celular) para acercar.
+          </p>
+        </>
+      ) : vistaVer === 'plano' ? (
         <div className="plano-wrap">
           {Object.entries(byMz).map(([mz, arr]) => {
             const mitad = arr.length > 4 ? Math.ceil(arr.length / 2) : arr.length

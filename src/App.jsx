@@ -39,6 +39,7 @@ const Planilla = lazy(() => import('./pages/Planilla'))
 const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Deudores = lazy(() => import('./pages/Deudores'))
+const Vendedor = lazy(() => import('./pages/Vendedor'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
@@ -123,6 +124,8 @@ export default function App() {
           <Route path="secretarias" element={<Secretarias />} />
           <Route path="visitas" element={<Visitas />} />
           <Route path="lotes" element={<Lots />} />
+          {/* precios, iniciales y cuotas de cada lote para cotizar (sql/181): también el asesor */}
+          <Route path="vendedor" element={<Vendedor />} />
           <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />
           <Route path="lotes/:id" element={<FichaLote />} />
           <Route path="ventas" element={<Contracts />} />

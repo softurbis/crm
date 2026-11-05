@@ -1,0 +1,193 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { centroDe, ladoMenor } from '../lib/plano'
+
+// EL PLANO REAL DEL PROYECTO (sql/181): el fondo de projects.plano (calles, parques,
+// quebrada, rótulos) y cada lote con su forma de lots.poligono, todo en metros.
+// Se acerca con la rueda, los botones o pellizcando en el celular, y se mueve
+// arrastrando. Un toque (sin arrastrar) sobre un lote llama a onLote.
+//
+//   relleno(l)  color del lote          borde(l)   {color, ancho} o null
+//   atenuado(l) lo pinta apagado (no pasa el filtro)
+//   titulo(l)   texto al pasar el mouse
+//   elegido     id del lote marcado
+// Los colores del fondo van en el tema oscuro del panel; los lotes llevan el color
+// que decide cada pantalla (estado en el mapa, precio en el panel del vendedor).
+const FONDO = {
+  calle: '#2b352f', via: '#252d28', parque: '#1f3b27', quebrada: '#2f73b3',
+  educacion: '#3a3150', otros: '#4b2f3c',
+}
+
+export default function PlanoReal({ plano, lotes, relleno, borde, atenuado, titulo, onLote, elegido, alto = '72vh' }) {
+  const W = Number(plano.ancho), H = Number(plano.alto)
+  const caja = useRef(null)
+  const svg = useRef(null)
+  // la vista de entrada encuadra los LOTES (no toda la avenida ni el borde del plano)
+  const inicial = useMemo(() => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const l of lotes || []) for (const [x, y] of (Array.isArray(l.poligono) ? l.poligono : [])) {
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y)
+    }
+    if (!(x1 > x0)) { x0 = 0; y0 = 0; x1 = W; y1 = H }
+    const m = Math.max(x1 - x0, y1 - y0) * 0.04
+    return { x: x0 - m, y: y0 - m, w: x1 - x0 + 2 * m, h: y1 - y0 + 2 * m }
+  }, [W, H, lotes && lotes.length])   
+  const [vb, setVb] = useState(inicial)
+  const vbRef = useRef(vb)
+  useEffect(() => { vbRef.current = vb }, [vb])
+  useEffect(() => { setVb(inicial) }, [inicial])
+
+  // píxeles por metro: con eso se decide si ya se leen los números de los lotes
+  const [anchoPx, setAnchoPx] = useState(800)
+  useEffect(() => {
+    if (!caja.current) return
+    const ro = new ResizeObserver(([e]) => setAnchoPx(e.contentRect.width || 800))
+    ro.observe(caja.current)
+    return () => ro.disconnect()
+  }, [])
+
+  // de coordenadas de pantalla a metros del plano (respeta el "meet" del viewBox)
+  const aPlano = (cx, cy) => {
+    const el = svg.current
+    const pt = el.createSVGPoint(); pt.x = cx; pt.y = cy
+    const r = pt.matrixTransform(el.getScreenCTM().inverse())
+    return [r.x, r.y]
+  }
+  const zoomEn = (f, cx, cy) => {
+    const v = vbRef.current
+    const [px, py] = cx == null ? [v.x + v.w / 2, v.y + v.h / 2] : aPlano(cx, cy)
+    const w = Math.min(Math.max(W, inicial.w) * 1.3, Math.max(inicial.w / 40, v.w / f))
+    const k = w / v.w
+    setVb({ x: px - (px - v.x) * k, y: py - (py - v.y) * k, w, h: v.h * k })
+  }
+
+  // rueda del mouse: se registra a mano porque React la deja pasiva y no se puede
+  // frenar el scroll de la página
+  useEffect(() => {
+    const el = svg.current
+    if (!el) return
+    const rueda = e => { e.preventDefault(); zoomEn(e.deltaY < 0 ? 1.25 : 0.8, e.clientX, e.clientY) }
+    el.addEventListener('wheel', rueda, { passive: false })
+    return () => el.removeEventListener('wheel', rueda)
+  })
+
+  // arrastrar (un dedo o el mouse) y pellizcar (dos dedos)
+  const punteros = useRef(new Map())
+  const gesto = useRef(null)
+  const abajo = e => {
+    svg.current.setPointerCapture?.(e.pointerId)
+    punteros.current.set(e.pointerId, [e.clientX, e.clientY])
+    const ps = [...punteros.current.values()]
+    gesto.current = {
+      vb: { ...vbRef.current }, ps, movido: gesto.current?.movido && ps.length > 1,
+      id: e.target?.dataset?.id || null, inicio: [e.clientX, e.clientY],
+    }
+  }
+  const mueve = e => {
+    if (!punteros.current.has(e.pointerId) || !gesto.current) return
+    punteros.current.set(e.pointerId, [e.clientX, e.clientY])
+    const g = gesto.current
+    const ps = [...punteros.current.values()]
+    const rect = svg.current.getBoundingClientRect()
+    const escala = Math.max(g.vb.w / rect.width, g.vb.h / rect.height)
+    if (ps.length === 1 && g.ps.length === 1) {
+      const dx = ps[0][0] - g.ps[0][0], dy = ps[0][1] - g.ps[0][1]
+      if (Math.hypot(dx, dy) > 6) g.movido = true
+      if (g.movido) setVb({ ...g.vb, x: g.vb.x - dx * escala, y: g.vb.y - dy * escala })
+    } else if (ps.length === 2 && g.ps.length === 2) {
+      g.movido = true
+      const d0 = Math.hypot(g.ps[0][0] - g.ps[1][0], g.ps[0][1] - g.ps[1][1])
+      const d1 = Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1])
+      if (d0 < 10) return
+      const f = d1 / d0
+      const w = Math.min(Math.max(W, inicial.w) * 1.3, Math.max(inicial.w / 40, g.vb.w / f))
+      const k = w / g.vb.w
+      // el punto medio de los dos dedos queda fijo
+      const mx = (g.ps[0][0] + g.ps[1][0]) / 2 - rect.left, my = (g.ps[0][1] + g.ps[1][1]) / 2 - rect.top
+      const px = g.vb.x + mx * escala, py = g.vb.y + my * escala
+      setVb({ x: px - (px - g.vb.x) * k, y: py - (py - g.vb.y) * k, w, h: g.vb.h * k })
+    }
+  }
+  const arriba = e => {
+    const g = gesto.current
+    punteros.current.delete(e.pointerId)
+    if (g && !g.movido && punteros.current.size === 0 && g.id && onLote) {
+      const l = lotes.find(x => String(x.id) === g.id)
+      if (l) onLote(l)
+    }
+    if (punteros.current.size === 0) gesto.current = null
+    else gesto.current = { vb: { ...vbRef.current }, ps: [...punteros.current.values()], movido: true }
+  }
+
+  const pxPorM = anchoPx / vb.w
+  const verNumeros = pxPorM > 1.4
+
+  // el fondo no cambia al mover el plano: se arma una sola vez
+  const fondo = useMemo(() => (
+    <g>
+      {(plano.capas || []).filter(c => c.t !== 'limite').map((c, i) => (
+        <path key={i} d={c.d} fill={FONDO[c.t] || '#2b352f'} fillRule="evenodd" />
+      ))}
+      {(plano.capas || []).filter(c => c.t === 'limite').map((c, i) => (
+        <path key={'l' + i} d={c.d} fill="none" stroke="#6fae5a" strokeWidth={1.2} strokeDasharray="6 3" />
+      ))}
+    </g>
+  ), [plano])
+  const rotulos = useMemo(() => (
+    <g className="pr-rotulos">
+      {(plano.rotulos || []).map((r, i) => (
+        <text key={i} x={r.x} y={r.y} fontSize={r.tam || 2.4} textAnchor="middle" dominantBaseline="central"
+          transform={r.ang ? `rotate(${r.ang} ${r.x} ${r.y})` : undefined}
+          className={r.area ? 'pr-area' : 'pr-calle'}>{r.txt}</text>
+      ))}
+    </g>
+  ), [plano])
+
+  const conForma = useMemo(() => (lotes || []).filter(l => Array.isArray(l.poligono) && l.poligono.length >= 3), [lotes])
+  const parcelas = conForma.map(l => {
+    const b = borde?.(l)
+    const sel = elegido && String(l.id) === String(elegido)
+    return (
+      <path key={l.id} data-id={l.id} className="pr-lote"
+        d={'M' + l.poligono.map(p => p[0] + ' ' + p[1]).join('L') + 'Z'}
+        fill={relleno(l)} fillOpacity={atenuado?.(l) ? 0.18 : 0.92}
+        stroke={sel ? '#ffffff' : b?.color || 'rgba(10,16,12,.85)'}
+        strokeWidth={sel ? 1.1 : b?.ancho || 0.35}>
+        {titulo && <title>{titulo(l)}</title>}
+      </path>
+    )
+  })
+  const numeros = verNumeros && conForma.map(l => {
+    const [x, y] = centroDe(l.poligono)
+    const t = Math.min(3.6, Math.max(1.6, ladoMenor(l.poligono) * 0.36))
+    return (
+      <text key={l.id} x={x} y={y} fontSize={t} textAnchor="middle" dominantBaseline="central"
+        className="pr-num" opacity={atenuado?.(l) ? 0.35 : 1}>{l.lt}</text>
+    )
+  })
+
+  return (
+    <div className="pr-caja" ref={caja} style={{ height: alto }}>
+      <svg ref={svg} className="pr-svg" viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet"
+        onPointerDown={abajo} onPointerMove={mueve} onPointerUp={arriba} onPointerCancel={arriba}>
+        {fondo}
+        <g>{parcelas}</g>
+        <g style={{ pointerEvents: 'none' }}>{numeros}</g>
+        {rotulos}
+        <g style={{ pointerEvents: 'none' }}>
+          {(plano.manzanas || []).map(m => (
+            <g key={m.mz}>
+              <circle cx={m.x} cy={m.y} r={4.6} className="pr-mz" />
+              <text x={m.x} y={m.y} fontSize={5.2} textAnchor="middle" dominantBaseline="central" className="pr-mz-t">{m.mz}</text>
+            </g>
+          ))}
+        </g>
+      </svg>
+      <div className="pr-zoom">
+        <button type="button" title="Acercar" onClick={() => zoomEn(1.5)}>+</button>
+        <button type="button" title="Alejar" onClick={() => zoomEn(1 / 1.5)}>−</button>
+        <button type="button" title="Ver todo el plano" onClick={() => setVb(inicial)}>⤢</button>
+      </div>
+      {!verNumeros && <span className="pr-pista">Acerca el plano para ver el número de cada lote</span>}
+    </div>
+  )
+}
