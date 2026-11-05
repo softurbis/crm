@@ -28,14 +28,15 @@ CLÁUSULA CUARTA: OBJETO DEL CONTRATO Y DESCRIPCIÓN DEL LOTE
 CLÁUSULA QUINTA: PRECIO, FORMA DE PAGO Y DESTINO DE LOS INGRESOS
 5.1. El precio total del lote materia del presente contrato se fija en la suma de {{PRECIO}} ({{PRECIO_LETRAS}} SOLES), que EL COMPRADOR pagará de la siguiente manera:
 {{SI_SEPARACION}}• Separación: {{SEPARACION}} ({{SEPARACION_LETRAS}} SOLES), pagada en fecha {{SEPARACION_FECHA}}.
-• Inicial: {{INICIAL}} ({{INICIAL_LETRAS}} SOLES), pagada en fecha {{INICIAL_FECHA}}.
+• Inicial: {{INICIAL}} ({{INICIAL_LETRAS}} SOLES) pagado el día {{INICIAL_FECHA}}.
 • Saldo financiado: {{SALDO}} ({{SALDO_LETRAS}} SOLES), en {{CUOTAS_DETALLE}}, conforme al cronograma del Anexo 1.
 5.2. Los pagos se realizarán mediante depósito o transferencia bancaria a la cuenta designada por EL VENDEDOR, todo ingreso vinculado a EL PROYECTO tiene naturaleza de ingreso del proyecto y será registrado administrativamente.
 5.3. EL COMPRADOR se obliga a remitir el comprobante de pago dentro de los tres (3) días hábiles siguientes al depósito o transferencia, mediante el canal oficial indicado en el cuadro a continuación, la falta de envío del comprobante no invalida el pago si puede ser identificado bancariamente, pero puede retrasar la actualización del estado de cuenta.
 | Banco | BBVA |
 | N.° de cuenta | 0011-0306-0201304346 |
+| Titular | JOSE MACEDO SANCHEZ |
+| Billetera YAPE | 951447800 |
 | CCI | 011-306-000201304346-84 |
-| Titular | José Macedo Sánchez |
 | WhatsApp oficial | 960 487 000 |
 | Correo oficial | urbisgrouprealestate@gmail.com |
 | Oficina de atención | Jr. Augusto B. Leguía N°482, Callería, Pucallpa. |
