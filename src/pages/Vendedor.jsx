@@ -17,6 +17,11 @@ const PLAZOS = [12, 24, 36, 48, 60, 72]
 const LIBRE = ['disponible']
 const nombreLote = l => l.mz + '-' + l.lt
 const frenteA = t => String(t || '').replace(/^(LA|EL)\s+/i, '')
+// La oficina de la cotización es SIEMPRE la de Leguía (pedido del dueño, 5 nov 2026), la
+// misma que da el agente de ventas (agente/ventas_ia.js): no la office_address del proyecto,
+// que puede tener una dirección vieja.
+const OFICINA = 'Jr. Augusto B. Leguía 482 - Callería (referencia: por el colegio bautista)'
+const OFICINA_MAPA = 'https://maps.app.goo.gl/3nyCne6oFdQ3sGE86'
 
 function textoWhatsApp(proy, l, q, cfg) {
   const med = l.medidas || {}
@@ -31,7 +36,8 @@ function textoWhatsApp(proy, l, q, cfg) {
     q.n ? '(más o menos ' + soles(q.semanal) + ' por semana o ' + soles(q.diaria) + ' por día)' : '',
     q.contado ? 'Al contado: ' + soles(q.contado) + ' (' + q.dto + '% de descuento pagando todo de una vez)' : '',
     Number(cfg.separacion) > 0 ? 'Separa tu lote con ' + soles(cfg.separacion) + '.' : '',
-    proy.oficina ? 'Oficina: ' + proy.oficina : '',
+    'Oficina: ' + OFICINA,
+    'Cómo llegar: ' + OFICINA_MAPA,
   ]
   return lineas.filter((x, i) => x !== '' || i === 3).join('\n')
 }
@@ -88,7 +94,7 @@ export default function Vendedor() {
     const t = Number(tope) || 0
     let r = lotes.filter(l => {
       if (soloLibres && !libre(l)) return false
-      if (cat !== 'todas' && String(categoriaDe(cats, l)?.precio_m2) !== cat) return false
+      if (cat !== 'todas' && categoriaDe(cats, l)?.nombre !== cat) return false
       if (mz !== 'todas' && l.mz !== mz) return false
       if (b && !(l.mz + l.lt).toUpperCase().startsWith(b) && nombreLote(l).toUpperCase().replace('-', '') !== b) return false
       if (t && qDe(l).cuota > t) return false
@@ -133,12 +139,16 @@ export default function Vendedor() {
             const quedan = delColor.filter(libre)
             const qs = quedan.map(l => qDe(l))
             const ini = [...new Set(quedan.map(l => Number(l.inicial)))].sort((a, b) => a - b)
-            const on = cat === String(c.precio_m2)
+            const on = cat === c.nombre
+            // color por zona (Neshuya): no hay un precio por m², se muestra el rango de precios
+            const precios = quedan.map(l => Number(l.total_price)).filter(n => n > 0)
+            const pMin = Math.min(...precios), pMax = Math.max(...precios)
             return (
-              <button key={c.precio_m2} type="button" className={'glass pv-cat' + (on ? ' on' : '')} style={{ '--cc': c.color }}
-                onClick={() => setCat(on ? 'todas' : String(c.precio_m2))}>
+              <button key={c.nombre} type="button" className={'glass pv-cat' + (on ? ' on' : '')} style={{ '--cc': c.color }}
+                onClick={() => setCat(on ? 'todas' : c.nombre)}>
                 <span className="pv-cat-n"><i />{c.nombre}</span>
-                <b>{soles(c.precio_m2)} el m²</b>
+                <b>{c.precio_m2 ? soles(c.precio_m2) + ' el m²'
+                  : !precios.length ? 'sin disponibles' : pMin === pMax ? soles(pMin) : soles(pMin) + ' a ' + soles(pMax)}</b>
                 <span>{quedan.length} disponibles de {delColor.length}</span>
                 {qs.length > 0 && <span>Inicial {ini.map(n => soles(n)).join(' / ')}</span>}
                 {qs.length > 0 && <span>Cuota desde <b>{soles(Math.min(...qs.map(q => q.cuota)))}</b> en {meses} meses</span>}

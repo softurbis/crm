@@ -24,16 +24,25 @@ export function ladoMenor(poly) {
   return m
 }
 
-// COLORES DE PRECIO: los del plano del proyecto (NARANJA S/ 74, VERDE S/ 45…). Si el
-// plano no los trae, uno por cada precio por m², del más caro al más barato.
+// COLORES DEL PLANO: los del plano del proyecto. Dos maneras (projects.plano.categorias):
+//  · por PRECIO: { precio_m2, nombre, color } — Campo Verde (NARANJA S/ 74…), Brisas (NARANJA S/ 130…)
+//  · por ZONA:   { nombre, color, lotes: ['A-1', …] } — Neshuya, donde el color es la zona del
+//    plano (carretera, esquina…) y cada lote tiene su propio precio (sql/184).
+// Si el plano no las trae, una por cada precio por m², del más caro al más barato.
 const PALETA = ['#ffad00', '#fff000', '#00c8ff', '#00d73c', '#c58ae0', '#f08080', '#9ad0ff', '#e8c39e']
 export function categoriasDe(plano, lotes) {
-  const propias = (plano?.categorias || []).filter(c => c && Number(c.precio_m2) > 0)
-  if (propias.length) return propias.map(c => ({ ...c, precio_m2: Number(c.precio_m2) }))
+  const propias = (plano?.categorias || []).filter(c => c && (Number(c.precio_m2) > 0 || Array.isArray(c.lotes)))
+  if (propias.length) return propias.map(c => ({
+    ...c,
+    precio_m2: Number(c.precio_m2) > 0 ? Number(c.precio_m2) : null,
+    lotes: Array.isArray(c.lotes) ? new Set(c.lotes.map(s => String(s).toUpperCase())) : null,
+  }))
   const precios = [...new Set((lotes || []).map(l => Number(l.price_per_m2)).filter(n => n > 0))].sort((a, b) => b - a)
-  return precios.map((p, i) => ({ precio_m2: p, nombre: 'S/ ' + p + ' el m²', color: PALETA[i % PALETA.length] }))
+  return precios.map((p, i) => ({ precio_m2: p, nombre: 'S/ ' + p + ' el m²', color: PALETA[i % PALETA.length], lotes: null }))
 }
-export const categoriaDe = (cats, l) => cats.find(c => Math.abs(c.precio_m2 - Number(l.price_per_m2)) < 0.005) || null
+export const categoriaDe = (cats, l) => cats.find(c => c.lotes
+  ? c.lotes.has((l.mz + '-' + l.lt).toUpperCase())
+  : Math.abs(c.precio_m2 - Number(l.price_per_m2)) < 0.005) || null
 
 // LA COTIZACIÓN DE UN LOTE, con la regla de los contratos del sistema (lib/cronograma):
 // cuotas en soles enteros y la última absorbe la diferencia. Así el vendedor dice

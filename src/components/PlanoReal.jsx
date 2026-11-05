@@ -15,6 +15,8 @@ import { centroDe, ladoMenor } from '../lib/plano'
 const FONDO = {
   calle: '#2b352f', via: '#252d28', parque: '#1f3b27', quebrada: '#2f73b3',
   educacion: '#3a3150', otros: '#4b2f3c',
+  // Brisas: losa deportiva y sus canchas · Neshuya: franja de la línea de alta tensión
+  deporte: '#353d39', cancha: '#2a5236', servidumbre: '#31452a',
 }
 
 export default function PlanoReal({ plano, lotes, relleno, borde, atenuado, titulo, onLote, elegido, alto = '72vh' }) {
