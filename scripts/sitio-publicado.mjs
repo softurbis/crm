@@ -5,7 +5,7 @@
 // En Cloudflare cada cara es un Worker de solo archivos (wrangler.publico.jsonc /
 // wrangler.panel.jsonc) en modo SPA: /p/<slug> responde index.html con 200. Por
 // eso aquí no se crea 404.html.
-import { renameSync, copyFileSync, writeFileSync, appendFileSync } from 'node:fs'
+import { renameSync, copyFileSync, writeFileSync, appendFileSync, cpSync, existsSync } from 'node:fs'
 
 const cara = process.argv[2]
 const salida = { panel: 'dist-panel', publico: 'dist-publico' }[cara]
@@ -20,6 +20,9 @@ const comunes = ['X-Content-Type-Options: nosniff', 'Referrer-Policy: strict-ori
 if (cara === 'publico') {
   renameSync(`${salida}/publico.html`, `${salida}/index.html`)
   copyFileSync('public/privacidad.html', `${salida}/privacidad.html`)
+  // páginas públicas sueltas, tal cual: los recorridos 3D y las fotos 360° (/recorrido/<proyecto>/ y .../fotos/).
+  // Sus imágenes están en R2 (recorridos/<proyecto>/), no en el repo.
+  if (existsSync('sitio-publico')) cpSync('sitio-publico', salida, { recursive: true })
   cabeceras([...comunes, 'X-Frame-Options: SAMEORIGIN'])
   writeFileSync(`${salida}/robots.txt`, 'User-agent: *\nAllow: /\n')
 } else {

@@ -295,18 +295,18 @@ export default function LandingEditor({ pr, setPub, avisar }) {
 
       {/* recorrido virtual */}
       <div style={bloque}>
-        {titulo('RECORRIDO VIRTUAL: TOUR 360° Y VISOR 3D')}
-        <label>Tour 360° (pega el link de inserción o el código completo del &lt;iframe&gt; que te da Panoraven: se queda solo con el link)
-          <input value={l.tour_url || ''} placeholder="https://panoraven.com/es/embed/…" onChange={e => set('tour_url', srcDeIframe(e.target.value))} />
+        {titulo('RECORRIDO VIRTUAL: FOTOS 360° Y RECORRIDO 3D')}
+        <label>Fotos 360° (el link de nuestras fotos, p. ej. https://urbisgroupinmobiliaria.com/recorrido/praderas-de-cashibo/fotos/ — o el link / código &lt;iframe&gt; de Panoraven: se queda solo con el link)
+          <input value={l.tour_url || ''} placeholder="https://urbisgroupinmobiliaria.com/recorrido/…/fotos/" onChange={e => set('tour_url', srcDeIframe(e.target.value))} />
         </label>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🧊 Subir visor (archivo .html)<input type="file" accept=".html,.htm,text/html" onChange={subirVisor} style={{ display: 'none' }} /></label>
-          <span className="muted" style={{ fontSize: 12 }}>o pega un link:</span>
-          <input value={l.visor_url || ''} placeholder="https://…" onChange={e => set('visor_url', e.target.value)} style={{ flex: '1 1 260px' }} />
+          <span className="muted" style={{ fontSize: 12 }}>o pega un link (recorrido 3D: https://urbisgroupinmobiliaria.com/recorrido/…/):</span>
+          <input value={l.visor_url || ''} placeholder="https://urbisgroupinmobiliaria.com/recorrido/…/" onChange={e => set('visor_url', e.target.value)} style={{ flex: '1 1 260px' }} />
           {l.visor_url && <a className="btn-ghost" href={l.visor_url} target="_blank" rel="noreferrer">👁️ Abrir</a>}
           {l.visor_url && <button type="button" className="btn-ghost" onClick={() => set('visor_url', '')} title="Quitar de la landing (luego Guardar)">✕</button>}
         </div>
-        <span className="muted" style={{ fontSize: 12 }}>Salen en la sección "Recorrido virtual" (si hay los dos, con pestañas 360° / 3D). El tour se abre dentro de la página; el visor 3D dentro en PC y en pestaña aparte en celular.</span>
+        <span className="muted" style={{ fontSize: 12 }}>Salen en la sección "Recorrido virtual" (si hay los dos, con pestañas: primero el 3D). En PC se abren dentro de la página; en celular el 3D y nuestras fotos 360° se abren en pestaña aparte, a pantalla completa.</span>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

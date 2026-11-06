@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabase'
 import { srcsetDe, medianaDe } from '../lib/imagenesWeb'
 import '../styles/landing.css'
 
+// archivos públicos en R2 (portadas de los recorridos: recorridos/<proyecto>/og-3d.jpg y og-fotos.jpg)
+const R2_PUBLICO = 'https://pub-04e0a91c024a4012960f304ed7528b55.r2.dev'
+
 // Landing PÚBLICA de un proyecto (sin login): /p/<slug>. Lee la vista segura
 // pub_landing (solo landings activas; sql/78). Si la landing sigue apagada y
 // quien entra tiene sesión, se arma el borrador desde las tablas como VISTA
@@ -166,16 +169,24 @@ export default function Landing() {
     ? Number(precioTxt.replace(/^S\/\s*/i, '').replace(/\.(?=\d{3}\b)/g, '').replace(/,/g, ''))   // "20100", "20,100" y "20.100" son lo mismo
     : NaN
   const desde = precioTxt ? (Number.isFinite(precioNum) ? soles(precioNum) : precioTxt) : (p.precio_desde != null ? soles(p.precio_desde) : null)
-  // recorrido virtual: tour 360° (link de inserción) y/o visor 3D (html en R2)
+  // recorrido virtual: visor 3D y/o tour 360°. Los nuestros viven en la web (/recorrido/<proyecto>/ y .../fotos/)
+  // y traen textos y portada propios; un link de afuera (Panoraven, un modelo de dron) mantiene los de siempre
+  const recPropio = u => (String(u || '').match(/^(?:https:\/\/(?:www\.)?urbisgroupinmobiliaria\.com)?\/recorrido\/([a-z0-9-]+)\//) || [])[1]
+  const portadaRec = (u, cual) => recPropio(u) ? `${R2_PUBLICO}/recorridos/${recPropio(u)}/og-${cual}.jpg` : null
   const modos = [
-    p.tour_url && { id: '360', nombre: 'Tour 360°', url: p.tour_url, boton: 'Ver el tour 360°', texto: 'Mira el terreno en 360° desde el mismo lugar: gira la vista con el dedo o el mouse.' },
-    p.visor_url && { id: '3d', nombre: 'Modelo 3D', url: p.visor_url, boton: 'Abrir el visor 3D', texto: 'Modelo real del terreno levantado con dron: gira, acércate y míralo desde cualquier ángulo.' },
+    p.visor_url && (recPropio(p.visor_url)
+      ? { id: '3d', nombre: 'Recorrido 3D', url: p.visor_url, boton: 'Caminar por el proyecto', portada: portadaRec(p.visor_url, '3d'), texto: 'Camina por el proyecto terminado: sus calles, parques, la laguna y los lotes, como si ya estuvieras ahí.' }
+      : { id: '3d', nombre: 'Modelo 3D', url: p.visor_url, boton: 'Abrir el visor 3D', texto: 'Modelo real del terreno levantado con dron: gira, acércate y míralo desde cualquier ángulo.' }),
+    p.tour_url && (recPropio(p.tour_url)
+      ? { id: '360', nombre: 'Fotos 360° reales', url: p.tour_url, boton: 'Ver las fotos 360°', portada: portadaRec(p.tour_url, 'fotos'), texto: 'Fotos reales del terreno tomadas con dron, con el trazo de las calles del proyecto encima: gira la vista con el dedo o el mouse.' }
+      : { id: '360', nombre: 'Tour 360°', url: p.tour_url, boton: 'Ver el tour 360°', texto: 'Mira el terreno en 360° desde el mismo lugar: gira la vista con el dedo o el mouse.' }),
   ].filter(Boolean)
   const modoActual = modos.find(m => m.id === modo) || modos[0]
   const fotoVisor = fotosHero[1] || fotoPortada
   const abrirRecorrido = () => {
-    // en celular el visor 3D captura el dedo y traba el scroll de la página: mejor en pestaña aparte
-    if (modoActual.id === '3d' && matchMedia('(max-width: 860px)').matches) window.open(modoActual.url, '_blank', 'noopener')
+    // en celular el visor captura el dedo y traba el scroll de la página: mejor en pestaña aparte
+    // (el 3D siempre; nuestro tour de fotos también, porque se ve a pantalla completa)
+    if ((modoActual.id === '3d' || recPropio(modoActual.url)) && matchMedia('(max-width: 860px)').matches) window.open(modoActual.url, '_blank', 'noopener')
     else setRecorrido(true)
   }
   const cambiarModo = id => { setModo(id); setRecorrido(false) }
@@ -292,7 +303,9 @@ export default function Landing() {
                   allow="fullscreen; accelerometer; magnetometer; gyroscope; xr-spatial-tracking" allowFullScreen />
               : (
                 <button type="button" className="lp-visor-poster" onClick={abrirRecorrido}>
-                  {fotoVisor && <img src={medianaDe(fotoVisor)} srcSet={srcsetDe(fotoVisor)} sizes="(max-width: 1120px) 100vw, 1120px" alt="" loading="lazy" decoding="async" />}
+                  {modoActual.portada
+                    ? <img src={modoActual.portada} alt="" loading="lazy" decoding="async" />
+                    : fotoVisor && <img src={medianaDe(fotoVisor)} srcSet={srcsetDe(fotoVisor)} sizes="(max-width: 1120px) 100vw, 1120px" alt="" loading="lazy" decoding="async" />}
                   <span className="lp-visor-play"><i>{modoActual.id === '360' ? <Ico360 /> : <IcoCubo />}</i>{modoActual.boton}</span>
                 </button>
               )}
