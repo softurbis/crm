@@ -109,8 +109,8 @@ export function avisosDni(L) {
   if (!L.es_documento) return ['El archivo no parece un DNI ni un carné de extranjería: revisa que sea el documento correcto.']
   const a = []
   if (!L.legible) a.push('El DNI no se lee bien (borroso, cortado o con reflejos): revisa cada dato con el documento en la mano.')
-  if (L.se_ve_frente && !L.se_ve_reverso) a.push('Solo se ve el FRENTE: la dirección, el distrito, la provincia y el departamento están en el reverso.')
-  if (!L.se_ve_frente && L.se_ve_reverso) a.push('Solo se ve el REVERSO: el nombre, el número y el estado civil están en el frente.')
+  if (L.se_ve_frente && !L.se_ve_reverso) a.push('Solo se ve el FRENTE: falta el reverso (ahí están la dirección, el distrito, la provincia y el departamento). Agrégalo y se vuelve a leer todo junto.')
+  if (!L.se_ve_frente && L.se_ve_reverso) a.push('Solo se ve el REVERSO: falta el frente (ahí están el nombre, el número y el estado civil). Agrégalo y se vuelve a leer todo junto.')
   if (L.fecha_caducidad && L.fecha_caducidad < hoy()) a.push('El DNI está VENCIDO: caducó el ' + dmy(L.fecha_caducidad) + '.')
   if (L.tipo_documento === 'DNI' && !L.numero_documento) a.push('No se leyó bien el número de DNI: escríbelo a mano.')
   if (L.observaciones) a.push(L.observaciones)

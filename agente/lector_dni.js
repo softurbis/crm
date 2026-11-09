@@ -23,6 +23,7 @@ Extrae SOLO lo que está impreso. Si un dato no se ve o no se lee con seguridad,
 - direccion: la dirección del reverso tal como está (JR., AV., AA.HH., MZ., LT., número). distrito, provincia y departamento: los del reverso, sin la palabra "distrito" ni "provincia".
 - nacionalidad: la del documento (en el DNI, PERUANA).
 - se_ve_frente / se_ve_reverso: qué caras aparecen en lo que llegó.
+- primer_archivo: qué cara trae el PRIMER archivo que llegó: "frente" (foto de la persona, nombres y número), "reverso" (dirección, ubigeo, código de barras o la zona de letras y <), "ambas" si trae las dos caras, "ninguna" si no es un documento.
 - es_documento: false si no es un DNI ni un carné de extranjería (otra foto, un voucher, un contrato).
 - legible: false si está borroso, cortado o con reflejos que no dejan leer lo principal.
 - observaciones: una línea en español con lo dudoso (datos cortados, tachados, reflejos, algo que no cuadra entre la MRZ y lo impreso). Cadena vacía si no hay nada que observar.`
@@ -37,6 +38,7 @@ const ESQUEMA = {
     legible: { type: 'boolean' },
     se_ve_frente: { type: 'boolean' },
     se_ve_reverso: { type: 'boolean' },
+    primer_archivo: { type: 'string', enum: ['frente', 'reverso', 'ambas', 'ninguna'] },
     numero_documento: nulo('string'),
     apellido_paterno: nulo('string'),
     apellido_materno: nulo('string'),
@@ -52,7 +54,7 @@ const ESQUEMA = {
     departamento: nulo('string'),
     observaciones: { type: 'string' },
   },
-  required: ['es_documento', 'tipo_documento', 'legible', 'se_ve_frente', 'se_ve_reverso', 'numero_documento',
+  required: ['es_documento', 'tipo_documento', 'legible', 'se_ve_frente', 'se_ve_reverso', 'primer_archivo', 'numero_documento',
     'apellido_paterno', 'apellido_materno', 'nombres', 'sexo', 'estado_civil', 'fecha_nacimiento', 'fecha_caducidad',
     'nacionalidad', 'direccion', 'distrito', 'provincia', 'departamento', 'observaciones'],
   additionalProperties: false,
@@ -78,6 +80,8 @@ function limpiar(L) {
   return {
     es_documento: !!L.es_documento, tipo_documento: tipo, legible: !!L.legible,
     se_ve_frente: !!L.se_ve_frente, se_ve_reverso: !!L.se_ve_reverso,
+    // el panel lo usa para guardar las 2 fotos como frente y reverso en su orden
+    primer_archivo: ['frente', 'reverso', 'ambas', 'ninguna'].includes(L.primer_archivo) ? L.primer_archivo : null,
     numero_documento: num,
     apellido_paterno: s(L.apellido_paterno), apellido_materno: s(L.apellido_materno), nombres: s(L.nombres),
     sexo: L.sexo === 'M' || L.sexo === 'F' ? L.sexo : null,
@@ -108,8 +112,12 @@ module.exports = function crearLectorDni({ supabase, log }) {
   async function leer(urls) {
     if (!ia) throw new Error('el servidor no tiene la clave de Claude (ANTHROPIC_API_KEY)')
     const archivos = []
-    for (const u of urls) archivos.push(await bloque(u))
-    const pedido = urls.length > 1 ? 'Lee este documento de identidad (van las dos caras por separado).' : 'Lee este documento de identidad.'
+    for (let i = 0; i < urls.length; i++) {
+      // con dos archivos cada uno va rotulado: así primer_archivo no se confunde
+      if (urls.length > 1) archivos.push({ type: 'text', text: `Archivo ${i + 1}:` })
+      archivos.push(await bloque(urls[i]))
+    }
+    const pedido = urls.length > 1 ? `Lee este documento de identidad (llegan ${urls.length} archivos, en orden: cada cara por separado).` : 'Lee este documento de identidad.'
     const r = await ia.beta.messages.create({
       model: MODELO,
       max_tokens: 16000,

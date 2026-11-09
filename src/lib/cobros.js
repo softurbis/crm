@@ -34,6 +34,20 @@ export function sumarMeses(fecha, n) {
 export const esPendiente = c => !c?.doc_number || c.doc_type === 'PEND' || String(c.doc_number).toUpperCase().startsWith('PEND')
 export const tieneFotoDni = c => !!(c?.dni_url || (c?.dni_front_url && c?.dni_back_url))
 
+// El DNI elegido en el formulario: nada, un archivo (las dos caras en una foto o
+// PDF) o dos (frente y reverso, en ese orden). Se sube tal cual, es la evidencia.
+// Uno va a dni_url; dos van a dni_front_url y dni_back_url, y dni_url se vacía
+// para que no siga mandando un DNI anterior (en todo el panel dni_url va primero).
+export async function subirDniCliente(archivos, base) {
+  const l = [].concat(archivos || []).filter(Boolean).slice(0, 2)
+  if (!l.length) return {}
+  const t = Date.now()
+  const ruta = (f, cara) => `dni/${base}-${cara}-${t}.${((f.name || '').split('.').pop() || 'jpg').toLowerCase()}`
+  if (l.length === 1) return { dni_url: await subirRuta(ruta(l[0], 'completo'), l[0]) }
+  const [frente, reverso] = await Promise.all([subirRuta(ruta(l[0], 'frente'), l[0]), subirRuta(ruta(l[1], 'reverso'), l[1])])
+  return { dni_url: null, dni_front_url: frente, dni_back_url: reverso }
+}
+
 // Lo que falta para que la persona pueda firmar el contrato (decision del 24
 // sep: la inicial exige todo esto; la separacion solo nombre y celular).
 export function faltanParaContrato(p, archivoDni) {
@@ -100,10 +114,7 @@ export async function guardarPersona(p, archivoDni) {
   if (p.phone2) Object.assign(payload, { phone2: digitos(p.phone2), phone2_valid: celularValido(p.phone2) })
   payload.doc_type = docType
   payload.doc_number = doc
-  if (archivoDni) {
-    const ext = (archivoDni.name.split('.').pop() || 'jpg').toLowerCase()
-    payload.dni_url = await subirRuta(`dni/${doc}-completo-${Date.now()}.${ext}`, archivoDni)
-  }
+  Object.assign(payload, await subirDniCliente(archivoDni, doc))
   const otra = await buscarPorDocumento(docType, doc)
   if (otra && otra.id !== p.id) {
     const { data, error } = await supabase.from('clients').update(payload).eq('id', otra.id).select('*').single()

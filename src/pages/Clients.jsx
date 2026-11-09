@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { subirRuta } from '../lib/archivos'
 import { aplicarDni } from '../lib/leerDni'
-import { useLecturaDni, AvisoLecturaDni } from '../components/LecturaDni'
+import { buscarPorDocumento, subirDniCliente } from '../lib/cobros'
+import { useLecturaDni, AvisoLecturaDni, SubirDni } from '../components/LecturaDni'
 import { useMsg } from '../lib/saveFx'
 import { confirmar } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
@@ -39,10 +39,8 @@ export default function Clients() {
   const [nuevo, setNuevo] = useState(false)
   const [busy, setBusy] = useState(false)
   const [docType, setDocType] = useState('DNI')
-  const [fFrente, setFFrente] = useState(null)
-  const [fReverso, setFReverso] = useState(null)
-  const [fUnico, setFUnico] = useState(null)          // DNI como un solo documento
-  const [dniModo, setDniModo] = useState('unico')     // 'unico' | 'caras'
+  const [fDni, setFDni] = useState(null)              // null o 1-2 archivos (ver SubirDni)
+  const [yaRegistrado, setYaRegistrado] = useState(null)  // el DNI leído era de una ficha que ya existía
   const [cta, setCta] = useState(null)       // cliente del estado de cuenta
   const [ctaData, setCtaData] = useState(null)
   const [ctaVenta, setCtaVenta] = useState('')
@@ -174,61 +172,61 @@ export default function Clients() {
   const telInvalidos = list.filter(c => !c.phone_valid).length
   const dniIncompletos = list.filter(c => !(c.dni_url || (c.dni_front_url && c.dni_back_url))).length
 
+  const formDe = c => ({
+    ...Object.fromEntries(CAMPOS.map(([k]) => [k, c[k] || ''])),
+    phone: c.phone || '', phone_note: c.phone_note || '', phone_bot: c.phone_bot !== false,
+    phone2: c.phone2 || '', phone2_note: c.phone2_note || '', phone2_bot: !!c.phone2_bot,
+    dni_front_note: c.dni_front_note || '', dni_back_note: c.dni_back_note || '',
+    dni_note: c.dni_note || '', nationality: c.nationality || '',
+  })
+  const tipoDe = c => ['DNI', 'CE', 'PASAPORTE', 'RUC'].includes(c.doc_type) ? c.doc_type : 'DNI'
+
   function abrir(c) {
     setSel(c); setNuevo(!c.id)
-    setForm({
-      ...Object.fromEntries(CAMPOS.map(([k]) => [k, c[k] || ''])),
-      phone: c.phone || '', phone_note: c.phone_note || '', phone_bot: c.phone_bot !== false,
-      phone2: c.phone2 || '', phone2_note: c.phone2_note || '', phone2_bot: !!c.phone2_bot,
-      dni_front_note: c.dni_front_note || '', dni_back_note: c.dni_back_note || '',
-      dni_note: c.dni_note || '', nationality: c.nationality || '',
-    })
+    setForm(formDe(c))
     dniIA.limpiar()
-    setDocType(['DNI', 'CE', 'PASAPORTE', 'RUC'].includes(c.doc_type) ? c.doc_type : 'DNI')
-    // modo del DNI: si ya está en un solo documento => 'unico'; si tiene frente/reverso => 'caras';
-    // los nuevos arrancan en 'unico' (un solo documento). No cambia a los ya subidos en partes.
-    setDniModo(c.dni_url ? 'unico' : ((c.dni_front_url || c.dni_back_url) ? 'caras' : 'unico'))
-    setFFrente(null); setFReverso(null); setFUnico(null); setMsg(null)
+    setDocType(tipoDe(c))
+    setFDni(null); setYaRegistrado(null); setMsg(null)
   }
 
-  // Lo que leyó la IA del DNI va al formulario (se revisa antes de guardar)
-  function aplicarLectura(L) {
-    const r = aplicarDni(formActual.current, L, [...CAMPOS.map(([k]) => k), 'nationality'])
+  // Lo que leyó la IA del DNI va al formulario (se revisa antes de guardar). Si es
+  // un cliente nuevo y ese documento ya tiene ficha, es la misma persona: se pasa
+  // a esa ficha con todos sus datos (celulares, notas) y encima va lo del DNI, en
+  // vez de chocar al guardar con el documento repetido.
+  async function aplicarLectura(L) {
+    let base = formActual.current
+    const doc = L?.es_documento ? L.numero_documento : null
+    const ficha = nuevo && doc ? await buscarPorDocumento(L.tipo_documento === 'CE' ? 'CE' : 'DNI', doc) : null
+    if (ficha) {
+      const vacio = v => !String(v ?? '').trim() || v === true || v === false
+      base = formDe(ficha)
+      // lo que ya se había escrito aquí (un celular, por ejemplo) completa lo que la ficha no tenga
+      for (const [k, v] of Object.entries(formActual.current)) if (!vacio(v) && vacio(base[k])) base[k] = v
+      setSel(ficha); setNuevo(false); setDocType(tipoDe(ficha)); setYaRegistrado(ficha)
+    }
+    const r = aplicarDni(base, L, [...CAMPOS.map(([k]) => k), 'nationality'])
     setForm(r.nuevo)
     const docCambio = r.puestos.includes('doc_number') || r.cambios.some(c => c.campo === 'doc_number')
     if (docCambio && ['DNI', 'CE'].includes(r.nuevo.doc_type)) setDocType(r.nuevo.doc_type)
     return r
   }
-  const leerArchivos = lista => {
-    const l = lista.filter(Boolean)
-    if (l.length) dniIA.leer(l, aplicarLectura)
-    else dniIA.limpiar()
-  }
   const dniSubido = sel ? (sel.dni_url ? [sel.dni_url] : [sel.dni_front_url, sel.dni_back_url].filter(Boolean)) : []
-
-  async function subirFoto(file, cara, doc) {
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `dni/${doc}-${cara}-${Date.now()}.${ext}`
-    try { return await subirRuta(path, file) }
-    catch (e) { throw new Error('No se pudo subir la foto (' + cara + '): ' + e.message) }
-  }
+  // notas del DNI: una si es un solo documento, dos si va en frente y reverso
+  const dosPartes = fDni ? fDni.length === 2 : !!(sel && !sel.dni_url && (sel.dni_front_url || sel.dni_back_url))
 
   async function guardar(e) {
     e.preventDefault()
-    // DNI obligatorio al crear: en modo 'unico' basta 1 documento; en 'caras', ambas.
-    if (nuevo) {
-      if (dniModo === 'unico' && !fUnico) { setMsg({ ok: false, t: 'OBLIGATORIO: sube el DNI (un documento con ambas caras o PDF).' }); return }
-      if (dniModo === 'caras' && (!fFrente || !fReverso)) { setMsg({ ok: false, t: 'OBLIGATORIO: sube la foto del DNI por ambas caras.' }); return }
-    }
+    // DNI obligatorio al crear: una foto con las dos caras, el PDF o las dos fotos
+    if (nuevo && !fDni) { setMsg({ ok: false, t: 'OBLIGATORIO: sube el DNI (las 2 fotos, una foto con las dos caras o el PDF).' }); return }
     setBusy(true); setMsg(null)
     try {
       const doc = form.doc_number.trim().toUpperCase()
-      let front = sel?.dni_front_url || null
-      let back = sel?.dni_back_url || null
-      let unico = sel?.dni_url || null
-      if (fUnico) unico = await subirFoto(fUnico, 'completo', doc)
-      if (fFrente) front = await subirFoto(fFrente, 'frente', doc)
-      if (fReverso) back = await subirFoto(fReverso, 'reverso', doc)
+      let dni
+      try { dni = await subirDniCliente(fDni, doc) }
+      catch (e) { throw new Error('No se pudo subir el DNI: ' + e.message) }
+      const front = 'dni_front_url' in dni ? dni.dni_front_url : (sel?.dni_front_url || null)
+      const back = 'dni_back_url' in dni ? dni.dni_back_url : (sel?.dni_back_url || null)
+      const unico = 'dni_url' in dni ? dni.dni_url : (sel?.dni_url || null)
       const valido = v => { const t = (v || '').replace(/\D/g, ''); return t.length >= 9 && !t.includes('999999999') }
       const payload = {}
       for (const [k] of CAMPOS) payload[k] = (form[k] || '').toUpperCase().trim() || null
@@ -359,47 +357,44 @@ export default function Clients() {
               <button className="btn-ghost" onClick={() => setSel(null)}>&#10005;</button>
             </div>
             <form onSubmit={guardar} className="form-grid">
-              {/* DNI: un solo documento (ambas caras/PDF) o por frente y reverso. Va
-                  primero: al elegirlo la IA lo lee y llena los datos de abajo. */}
+              {/* DNI: va primero. Se eligen juntas las 2 fotos (o una con las dos
+                  caras, o el PDF) y la IA lee ambas caras y llena los datos de abajo. */}
               <div className="span2">
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-                  <span className="muted small" style={{ marginRight: 4 }}>DOCUMENTO (DNI) · se lee solo y llena los datos:</span>
-                  {!readOnly && [['unico', '📄 Un solo documento'], ['caras', '🪪 Frente y reverso']].map(([v, t]) => (
-                    <button type="button" key={v} className={`chip ${dniModo === v ? 'on' : ''}`} style={{ fontSize: 12 }} onClick={() => setDniModo(v)}>{t}</button>
-                  ))}
-                  {!readOnly && !nuevo && dniSubido.length > 0 && !dniIA.leyendo && (
+                  <span className="muted small" style={{ marginRight: 4 }}>DOCUMENTO (DNI) · la IA lo lee y llena los datos</span>
+                  {!readOnly && !fDni && dniSubido.length > 0 && !dniIA.leyendo && (
                     <button type="button" className="link-btn" onClick={() => dniIA.leer(dniSubido, aplicarLectura)}>&#128269; leer los datos del DNI subido</button>
                   )}
                 </div>
-
-                {dniModo === 'unico' ? (
-                  <label style={{ margin: 0 }}>DNI — un documento (ambas caras o PDF) {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
-                    {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => { const f = e.target.files[0] || null; setFUnico(f); leerArchivos([f]) }} />}
-                    {!readOnly && <input value={form.dni_note || ''} placeholder="nota / comentario del documento"
-                      style={{ textTransform: 'none', marginTop: 4 }}
-                      onChange={e => setForm(f => ({ ...f, dni_note: e.target.value }))} />}
-                    {!nuevo && sel.dni_url && <a href={sel.dni_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_url} alt="DNI" /></a>}
-                    {!nuevo && !sel.dni_url && (sel.dni_front_url || sel.dni_back_url) && <span className="hint" style={{ display: 'block', marginTop: 4 }}>Este cliente tiene el DNI en 2 partes (frente/reverso). Sube uno aquí solo si quieres reemplazarlo por un documento único.</span>}
-                  </label>
-                ) : (
-                  <div className="form-grid" style={{ margin: 0 }}>
-                    <label style={{ margin: 0 }}>DNI - frente {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
-                      {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => { const f = e.target.files[0] || null; setFFrente(f); leerArchivos([f, fReverso]) }} />}
-                      {!readOnly && <input value={form.dni_front_note || ''} placeholder="nota / comentario"
-                        style={{ textTransform: 'none', marginTop: 4 }}
-                        onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />}
-                      {!nuevo && sel.dni_front_url && <a href={sel.dni_front_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_front_url} alt="DNI frente" /></a>}
-                    </label>
-                    <label style={{ margin: 0 }}>DNI - reverso {nuevo && !readOnly && <b className="bad">(obligatorio)</b>}
-                      {!readOnly && <input type="file" accept="image/*,.pdf" onChange={e => { const f = e.target.files[0] || null; setFReverso(f); leerArchivos([fFrente, f]) }} />}
-                      {!readOnly && <input value={form.dni_back_note || ''} placeholder="nota / comentario"
-                        style={{ textTransform: 'none', marginTop: 4 }}
-                        onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />}
-                      {!nuevo && sel.dni_back_url && <a href={sel.dni_back_url} target="_blank" rel="noreferrer" title="Abrir en alta calidad"><img className="thumb" src={sel.dni_back_url} alt="DNI reverso" /></a>}
-                    </label>
+                {!readOnly && <SubirDni archivos={fDni} setArchivos={setFDni} dniIA={dniIA} aplicar={aplicarLectura} obligatorio={nuevo} />}
+                {!fDni && dniSubido.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                    {dniSubido.map((u, i) => (
+                      <a key={u} href={u} target="_blank" rel="noreferrer" title="Abrir en alta calidad">
+                        <img className="thumb" src={u} alt={dniSubido.length === 2 ? (i ? 'DNI reverso' : 'DNI frente') : 'DNI'} />
+                      </a>
+                    ))}
                   </div>
                 )}
+                {!readOnly && (dosPartes ? (
+                  <div className="form-grid" style={{ margin: '6px 0 0' }}>
+                    <input value={form.dni_front_note || ''} placeholder="nota / comentario del frente" style={{ textTransform: 'none' }}
+                      onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />
+                    <input value={form.dni_back_note || ''} placeholder="nota / comentario del reverso" style={{ textTransform: 'none' }}
+                      onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />
+                  </div>
+                ) : (
+                  <input value={form.dni_note || ''} placeholder="nota / comentario del documento"
+                    style={{ textTransform: 'none', marginTop: 6 }}
+                    onChange={e => setForm(f => ({ ...f, dni_note: e.target.value }))} />
+                ))}
                 <AvisoLecturaDni estado={dniIA.estado} />
+                {yaRegistrado && (
+                  <p className="hint small" style={{ margin: '6px 0 0' }}>
+                    &#128279; Ese DNI ya estaba registrado a nombre de <b>{yaRegistrado.full_name}</b>: se abrió su ficha
+                    con todos sus datos y encima va lo leído del DNI. Al guardar se actualiza esa ficha (no queda duplicada).
+                  </p>
+                )}
               </div>
               <label>Tipo de documento
                 <select value={docType} onChange={e => setDocType(e.target.value)}>

@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { subirRuta } from '../lib/archivos'
 import FormPersona from './FormPersona'
-import { guardarPersona, buscarPorDocumento, esPendiente, digitos, celularValido } from '../lib/cobros'
+import { guardarPersona, buscarPorDocumento, esPendiente, digitos, celularValido, subirDniCliente } from '../lib/cobros'
 
 // Editar los datos de una persona SIN salir de donde se está. En la ficha del lote
 // "editar datos" llevaba a la pantalla Clientes y no había camino de regreso
@@ -28,10 +27,7 @@ export default function EditarPersonaModal({ persona: inicial, titulo, onCerrar,
           if (String(p[k] || '').trim()) payload[k] = String(p[k]).trim().toUpperCase()
         if (p.phone) Object.assign(payload, { phone: digitos(p.phone), phone_valid: celularValido(p.phone) })
         if (p.phone2) Object.assign(payload, { phone2: digitos(p.phone2), phone2_valid: celularValido(p.phone2) })
-        if (archivo) {
-          const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase()
-          payload.dni_url = await subirRuta(`dni/${inicial.id}-completo-${Date.now()}.${ext}`, archivo)
-        }
+        Object.assign(payload, await subirDniCliente(archivo, inicial.id))
         const { error } = await supabase.from('clients').update(payload).eq('id', inicial.id)
         if (error) throw new Error(error.message)
       } else {

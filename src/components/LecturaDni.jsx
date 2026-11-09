@@ -20,13 +20,74 @@ export function useLecturaDni() {
       if (!sigue()) return
       const r = (await aplicar(L)) || {}
       if (!sigue()) return
-      setEstado({ fase: 'listo', puestos: r.puestos || [], cambios: r.cambios || [], avisos: avisosDni(L) })
+      setEstado({ fase: 'listo', lectura: L, puestos: r.puestos || [], cambios: r.cambios || [], avisos: avisosDni(L) })
     } catch (e) {
       if (sigue()) setEstado({ fase: 'error', error: e.message })
     }
   }
   const limpiar = () => { turno.current++; setEstado(null) }
   return { estado, leer, limpiar, leyendo: estado?.fase === 'subiendo' || estado?.fase === 'leyendo' }
+}
+
+const esPdf = f => f?.type === 'application/pdf' || /\.pdf$/i.test(f?.name || '')
+
+// El DNI se sube en UN solo paso, en cualquier forma: una foto con las dos caras,
+// un PDF, o las dos fotos (frente y reverso) elegidas juntas. Apenas se eligen,
+// la IA las lee juntas y llena el formulario (aplicar). Si llegó una sola foto,
+// se puede agregar la otra cara y se vuelve a leer todo. archivos: null o una
+// lista de 1 o 2 File; si la IA ve que el primero es el reverso, los da vuelta
+// para que se guarden con su nombre.
+export function SubirDni({ archivos, setArchivos, dniIA, aplicar, obligatorio }) {
+  const [aviso, setAviso] = useState('')
+  const lista = [].concat(archivos || []).filter(Boolean)
+
+  function leer(l, nota = '') {
+    setAviso(nota)
+    setArchivos(l.length ? l : null)
+    if (!l.length) { dniIA.limpiar(); return }
+    dniIA.leer(l, L => {
+      if (l.length === 2 && L?.primer_archivo === 'reverso') setArchivos([l[1], l[0]])
+      return aplicar(L)
+    })
+  }
+  function elegir(e) {
+    const fs = [...(e.target.files || [])]
+    e.target.value = ''            // así se puede volver a elegir el mismo archivo
+    if (!fs.length) return
+    leer(fs.slice(0, 2), fs.length > 2 ? 'Elegiste ' + fs.length + ' archivos: se usan solo los 2 primeros (frente y reverso).' : '')
+  }
+  function agregar(e) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (f) leer([lista[0], f])
+  }
+
+  const L = dniIA.estado?.lectura
+  const faltaCara = lista.length === 1 && !esPdf(lista[0]) && dniIA.estado?.fase === 'listo' && L?.es_documento && L.se_ve_frente !== L.se_ve_reverso
+  const boton = { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="btn-act" style={{ ...boton, opacity: dniIA.leyendo ? .6 : 1 }}>
+          &#129706; {lista.length ? 'Cambiar el DNI' : 'Subir el DNI'}
+          <input type="file" accept="image/*,.pdf" multiple hidden disabled={dniIA.leyendo} onChange={elegir} />
+        </label>
+        {lista.length === 1 && !esPdf(lista[0]) && (
+          <label className={faltaCara ? 'btn-act' : 'link-btn'} style={{ ...boton, opacity: dniIA.leyendo ? .6 : 1 }}>
+            &#10133; {faltaCara ? (L.se_ve_frente ? 'Agregar el REVERSO' : 'Agregar el FRENTE') : 'agregar la otra cara (si son 2 fotos)'}
+            <input type="file" accept="image/*" hidden disabled={dniIA.leyendo} onChange={agregar} />
+          </label>
+        )}
+        {obligatorio && !lista.length && <b className="bad small">(obligatorio)</b>}
+      </div>
+      <span className="muted small" style={{ display: 'block', marginTop: 4, textTransform: 'none' }}>
+        {lista.length
+          ? lista.map((f, i) => (lista.length === 2 ? (i ? 'Reverso: ' : 'Frente: ') : '') + (f.name || 'DNI')).join(' · ')
+          : 'Elige las 2 fotos juntas (frente y reverso), una foto con las dos caras o el PDF: la IA lee ambas caras sola y llena los datos.'}
+      </span>
+      {aviso && <span className="warn small" style={{ display: 'block' }}>&#9888; {aviso}</span>}
+    </div>
+  )
 }
 
 export function AvisoLecturaDni({ estado }) {

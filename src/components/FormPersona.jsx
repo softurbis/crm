@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { buscarPorDocumento, esPendiente, tieneFotoDni, faltanParaContrato } from '../lib/cobros'
 import { aplicarDni } from '../lib/leerDni'
-import { useLecturaDni, AvisoLecturaDni } from './LecturaDni'
+import { useLecturaDni, AvisoLecturaDni, SubirDni } from './LecturaDni'
 
 const TIPOS_DOC = ['DNI', 'CE', 'PASAPORTE', 'RUC']
 const ESTADOS_CIVILES = ['SOLTERO(A)', 'CASADO(A)', 'CONVIVIENTE', 'DIVORCIADO(A)', 'VIUDO(A)']
@@ -105,11 +105,6 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
     setPersona(r.nuevo)
     return r
   }
-  const elegirDni = f => {
-    setArchivo(f)
-    if (f) dniIA.leer([f], aplicarLectura)
-    else dniIA.limpiar()
-  }
   const dniSubido = persona.dni_url ? [persona.dni_url] : [persona.dni_front_url, persona.dni_back_url].filter(Boolean)
 
   return (
@@ -118,9 +113,8 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
       <div className="form-grid">
         {/* el DNI va primero: al elegirlo la IA lo lee y llena los datos de abajo */}
         <div className="span2">
-          <label style={{ margin: 0 }}>Foto o PDF del DNI <span className="muted small">(un solo archivo con las dos caras, o PDF) · se lee solo y llena los datos</span>
-            <input type="file" accept="image/*,.pdf" onChange={e => elegirDni(e.target.files[0] || null)} />
-          </label>
+          <span className="muted small" style={{ display: 'block', marginBottom: 4 }}>DNI (frente y reverso) · la IA lo lee y llena los datos</span>
+          <SubirDni archivos={archivo} setArchivos={setArchivo} dniIA={dniIA} aplicar={aplicarLectura} />
           {tieneFotoDni(persona) && !archivo && (
             <span className="ok small" style={{ display: 'block', margin: '2px 0' }}>
               ✓ Ya está subida — <a href={persona.dni_url || persona.dni_front_url} target="_blank" rel="noreferrer">ver</a> (sube otra solo si hay que cambiarla)
