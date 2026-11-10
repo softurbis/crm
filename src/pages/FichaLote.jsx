@@ -848,6 +848,7 @@ export default function FichaLote() {
       area_m2: Number(ef.area_m2), price_per_m2: Number(ef.price_per_m2),
       associated_to: (ef.associated_to || '').toUpperCase() || null,
       initial_payment_default: Number(ef.initial_payment_default),
+      aviso: (ef.aviso || '').trim() || null,
     }
     const { error } = await supabase.from('lots').update(payload).eq('id', sel.id)
     if (error) { setEmsg('ERROR: ' + error.message); return }
@@ -1247,6 +1248,11 @@ export default function FichaLote() {
         <div className="fl-buscar"><BuscarLote placeholder="Ir a otro lote: G7, nombre, DNI…" /></div>
       </div>
 
+      {/* aviso del lote (lots.aviso, sql/188): un pendiente que todos deben ver, p. ej. Praderas
+          K-20/K-21, renumerados por el plano nuevo con el contrato firmado aún como K-8/K-9.
+          Se quita borrándolo en "Editar datos". */}
+      {sel.aviso && <p className="fl-aviso warn" style={{ margin: '0 0 .6rem', whiteSpace: 'pre-wrap', border: '1px solid rgba(224,178,63,.45)' }}>&#9888; {sel.aviso}</p>}
+
       {/* ---- lo que se puede hacer con este lote AHORA, segun su estado ---- */}
       <div className="fl-acciones">
         {cobrar && sel.status === 'disponible' && !detail.sep && (<>
@@ -1585,7 +1591,7 @@ export default function FichaLote() {
               total del proyecto. Se conserva únicamente porque tiene ventas y pagos reales asociados.</p>}
             {puedeEditar && (!edit ? (
               <p className="acc-row">
-                <button className="btn-ghost" onClick={() => { setEdit(true); setChg(false); setEf({ area_m2: sel.area_m2, price_per_m2: sel.price_per_m2, associated_to: sel.associated_to || '', initial_payment_default: sel.initial_payment_default }) }}>Editar datos</button>
+                <button className="btn-ghost" onClick={() => { setEdit(true); setChg(false); setEf({ area_m2: sel.area_m2, price_per_m2: sel.price_per_m2, associated_to: sel.associated_to || '', initial_payment_default: sel.initial_payment_default, aviso: sel.aviso || '' }) }}>Editar datos</button>
                 {esAdmin && <button className="btn-ghost" onClick={() => { setChg(!chg); setEdit(false) }}>Cambiar estado (admin)</button>}
                 {puedeCorregir && sel.status === 'disponible' && (
                   <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarLote}>🗑 Eliminar lote</button>
@@ -1597,6 +1603,8 @@ export default function FichaLote() {
                 <label>Precio por m² <input type="number" step="0.01" value={ef.price_per_m2} onChange={e => setEf(f => ({ ...f, price_per_m2: e.target.value }))} required /></label>
                 <label>Inicial sugerida S/ <input type="number" step="0.01" value={ef.initial_payment_default} onChange={e => setEf(f => ({ ...f, initial_payment_default: e.target.value }))} /></label>
                 <label>Asociado a <input value={ef.associated_to} onChange={e => setEf(f => ({ ...f, associated_to: e.target.value }))} /></label>
+                <label className="span2">Aviso (sale arriba en la ficha; bórralo cuando se resuelva)
+                  <textarea rows={2} value={ef.aviso} onChange={e => setEf(f => ({ ...f, aviso: e.target.value }))} placeholder="Vacío = sin aviso" /></label>
                 <div className="span2">
                   <button className="btn-primary">Guardar</button>{' '}
                   <button type="button" className="btn-ghost" onClick={() => setEdit(false)}>Cancelar</button>

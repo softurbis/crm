@@ -119,7 +119,8 @@ export default function Lots() {
     const contacto = contactosLote.get(l.id)
     const base = `Mz ${l.mz} Lt ${l.lt} — ${LBL[l.status]} — ${l.area_m2} m²`
     const nv = vencidos.get(l.id) || 0
-    const alerta = nv ? ' — ' + nv + (nv === 1 ? ' CUOTA VENCIDA' : ' CUOTAS VENCIDAS') : ''
+    const alerta = (nv ? ' — ' + nv + (nv === 1 ? ' CUOTA VENCIDA' : ' CUOTAS VENCIDAS') : '')
+      + (l.aviso ? '\n⚠ ' + l.aviso : '')   // aviso del lote (sql/188)
     if (!contacto) return base + alerta
     return `${base}${alerta}\n${contacto.tipo}: ${contacto.full_name}\nCelular: ${contacto.phone || 'sin celular'}\nDocumento: ${contacto.doc_number || 'sin documento'}`
   }
@@ -291,7 +292,7 @@ export default function Lots() {
                         style={{ '--st': COLORS[l.status] }}
                         title={tituloLote(l)}
                         onClick={() => abrirLote(l)}>
-                        <b>{l.lt}</b>
+                        <b>{l.lt}{l.aviso ? ' ⚠' : ''}</b>
                         <small>{Math.round(l.area_m2)} m²</small>
                       </button>
                     ))}
@@ -312,7 +313,7 @@ export default function Lots() {
                   style={{ background: COLORS[l.status] }}
                   title={tituloLote(l)}
                   onClick={() => abrirLote(l)}>
-                  {l.lt}
+                  {l.lt}{l.aviso ? ' ⚠' : ''}
                 </button>
               ))}
             </div>
