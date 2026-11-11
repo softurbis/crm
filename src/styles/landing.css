@@ -249,6 +249,71 @@
 .lp-chip-hecha { opacity: .55; }
 .lp-chat-pie { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--lp-line); font-size: 13.5px; color: var(--lp-soft); }
 
+/* ---------- plano interactivo (components/LandingLotes.jsx, sql/195) ---------- */
+#plano, #cuotas { scroll-margin-top: 12px; }
+.lpl { margin-top: 28px; }
+.lpl-leyenda { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 14px; }
+.lpl-ley { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--lp-line); font-size: 13.5px; color: var(--lp-soft); }
+.lpl-ley b { color: var(--lp-ink); font-weight: 700; }
+.lpl-ley i { flex: none; width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0, 0, 0, .15); }
+.lpl-mapa { position: relative; }
+/* el plano del panel es oscuro: acá va en los tonos del plano impreso (las reglas llevan .lp para ganarle a global.css) */
+.lp .pr-caja.pr-claro { background: #f7f8f5; border: 1px solid var(--lp-line); border-radius: 18px; box-shadow: 0 18px 44px rgba(16, 32, 24, .1); }
+/* la forma de la lotización (--ar, ancho ÷ alto), entre 400 px y 72 % de la pantalla de alto */
+/* width fijo: sin él, la altura mínima "arrastra" el ancho para mantener la forma y la página se sale de la pantalla */
+.lp .lpl-mapa .pr-caja.pr-claro { width: 100%; max-width: 100%; aspect-ratio: var(--ar, 16 / 9); height: auto; min-height: 400px; max-height: 72vh; }
+.lpl-ficha.lpl-der { left: auto; right: 12px; }
+.lp .pr-claro .pr-calle { fill: #56645c; opacity: 1; }
+.lp .pr-claro .pr-area { fill: #3d7533; opacity: .9; }
+.lp .pr-claro .pr-lote:hover { stroke: #0b1410; }
+.lp .pr-claro .pr-zoom { top: 12px; right: 12px; }
+.lp .pr-claro .pr-zoom button { width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--lp-line); background: #fff; color: var(--lp-ink); font: 700 20px/1 'Inter', system-ui, sans-serif; box-shadow: 0 4px 12px rgba(0, 0, 0, .1); }
+.lp .pr-claro .pr-zoom button:hover { background: #eef2ee; }
+.lp .pr-claro .pr-pista { top: 12px; bottom: auto; left: 12px; max-width: calc(100% - 84px); padding: 5px 11px; border: 1px solid var(--lp-line); background: rgba(255, 255, 255, .94); color: var(--lp-soft); font-size: 12.5px; }
+.lpl-toca { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 9px 16px; border-radius: 999px; background: var(--lp-ink); color: #fff; font-size: 13.5px; font-weight: 600; white-space: nowrap; pointer-events: none; box-shadow: 0 8px 20px rgba(0, 0, 0, .2); }
+.lpl-ficha { position: absolute; left: 12px; bottom: 12px; width: min(390px, calc(100% - 24px)); padding: 16px; border-radius: 16px; border: 1px solid var(--lp-line); background: #fff; box-shadow: 0 18px 44px rgba(16, 32, 24, .22); animation: lp-chat-in .25s ease both; }
+.lpl-x { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: #eef1ec; color: var(--lp-ink); font-size: 22px; line-height: 1; cursor: pointer; }
+.lpl-ficha-cab { display: flex; align-items: center; gap: 12px; padding-right: 30px; }
+.lpl-num { flex: none; display: grid; place-items: center; min-width: 60px; height: 46px; padding: 0 8px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, .12); background: var(--cc); color: #13201a; font: 800 17px 'Montserrat', sans-serif; }
+.lpl-ficha-cab b { display: block; font: 700 15px/1.3 'Montserrat', sans-serif; }
+.lpl-ficha-cab small { display: block; font-size: 13px; color: var(--lp-soft); }
+.lpl-cifras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 14px; }
+.lpl-cifras div { min-width: 0; padding: 8px 10px; border-radius: 10px; background: #f2f5f1; }
+.lpl-cifras small { display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--lp-soft); }
+.lpl-cifras b { display: block; font: 800 15px/1.25 'Montserrat', sans-serif; color: var(--lp-c); white-space: nowrap; }
+.lpl-nota { font-size: 13px; color: var(--lp-soft); margin-top: 10px !important; }
+.lpl-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+/* ---------- calculadora de cuotas (dentro de la banda "Cómo pagas") ---------- */
+.lpc { display: grid; grid-template-columns: 1fr 1fr; margin-top: 30px; border-radius: 20px; overflow: hidden; background: #fff; color: var(--lp-ink); box-shadow: 0 24px 54px rgba(0, 0, 0, .22); }
+.lpc-form, .lpc-res { padding: clamp(20px, 3vw, 30px); }
+.lpc-form h3 { font-size: 21px; font-weight: 800; margin-bottom: 14px; }
+.lpc-form label { display: block; margin: 14px 0 0; font-size: 13px; font-weight: 600; color: var(--lp-ink); text-transform: none; }
+.lpc-form h3 + label { margin-top: 0; }
+.lpc-form select, .lpc-form input {
+  display: block; width: 100%; margin-top: 6px; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--lp-line);
+  background: #fff; color: var(--lp-ink); font: 400 16px/1.4 'Inter', system-ui, sans-serif; text-transform: none;
+}
+.lpc-form select:focus, .lpc-form input:focus { outline: none; border-color: var(--lp-c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lp-c) 18%, transparent); }
+.lpc-link { display: inline-block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--lp-c); font: 600 13px 'Inter', system-ui, sans-serif; text-decoration: underline; cursor: pointer; }
+.lpc-ayuda { display: block; margin-top: 5px; font-size: 12.5px; color: var(--lp-soft); }
+.lpc-ayuda.lpc-mal { color: #b3261e; font-weight: 600; }
+.lpc-plazos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 18px; }
+.lpc-plazos span { margin-right: 4px; font-size: 13px; font-weight: 600; }
+.lpc-chip { padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--lp-line); background: #fff; color: var(--lp-ink); font: 600 13.5px 'Inter', system-ui, sans-serif; cursor: pointer; }
+.lpc-chip:hover { border-color: var(--lp-c); }
+.lpc-chip.lpc-on { border-color: var(--lp-c); background: var(--lp-c); color: #fff; }
+.lpc-res { display: flex; flex-direction: column; background: color-mix(in srgb, var(--lp-c) 8%, #fff); }
+.lpc-res > small { font-size: 12px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--lp-soft); }
+.lpc-cuota { display: block; margin-top: 4px; font: 800 clamp(38px, 5vw, 52px)/1.1 'Montserrat', sans-serif; color: var(--lp-c); }
+.lpc-txt { margin-top: 6px !important; font-size: 14.5px; }
+.lpc-sem { margin-top: 2px !important; font-size: 13.5px; color: var(--lp-soft); }
+.lpc-dl { display: grid; gap: 7px; margin: 18px 0 20px; }
+.lpc-dl div { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px dashed color-mix(in srgb, var(--lp-c) 22%, var(--lp-line)); font-size: 14px; }
+.lpc-dl dt { color: var(--lp-soft); }
+.lpc-dl dd { margin: 0; font-weight: 700; white-space: nowrap; }
+.lpc-res .lp-btn { width: 100%; margin-top: auto; white-space: normal; text-align: center; }
+
 .lp-draft { position: fixed; top: 0; left: 0; right: 0; z-index: 60; padding: 7px 14px; text-align: center; background: #ffc644; color: #3a2a00; font-size: 13px; font-weight: 600; }
 
 .lp-nada { display: grid; place-items: center; text-align: center; padding: 40px 0; }
@@ -295,9 +360,16 @@
   .lp-chat-abrir i { width: 32px; height: 32px; }
   .lp-chat { left: 8px; right: 8px; width: auto; bottom: calc(74px + env(safe-area-inset-bottom)); max-height: calc(100vh - 110px); }
   .lp-lb-prev, .lp-lb-next { top: auto; bottom: 56px; transform: none; }
+  .lpc { grid-template-columns: 1fr; }
+  .lpl-ley { font-size: 12.5px; padding: 6px 10px; }
+  /* celular: el plano llena el alto (se recorre de costado) y la ficha va debajo, sin taparlo */
+  .lp .lpl-mapa .pr-caja.pr-claro { aspect-ratio: auto; height: 380px; min-height: 0; max-height: none; }
+  .lpl-ficha, .lpl-ficha.lpl-der { position: static; width: 100%; margin-top: 10px; padding: 14px; scroll-margin-bottom: 96px; }
+  .lpl-cifras b { font-size: 14px; }
+  .lpl-toca { font-size: 12.5px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lp-hero-img, .lp-hero-cur, .lp-cinta-track, .lp-btn-360, .lp-chat, .lp-burbuja, .lp-card-ico { animation: none; }
+  .lp-hero-img, .lp-hero-cur, .lp-cinta-track, .lp-btn-360, .lp-chat, .lp-burbuja, .lp-card-ico, .lpl-ficha { animation: none; }
   .lp-chat-abrir { transition: none; }
   .lp-gal img, .lp-cinta-item img, .lp-mapa img { transition: none; }
   .lp [data-reveal] { opacity: 1; transform: none; transition: none; }

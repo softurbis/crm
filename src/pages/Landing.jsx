@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { srcsetDe, medianaDe } from '../lib/imagenesWeb'
+import { useLotesLanding, hayPlanoLanding, libresDe, PlanoLanding, Calculadora } from '../components/LandingLotes'
 import '../styles/landing.css'
 
 // archivos públicos en R2 (portadas de los recorridos: recorridos/<proyecto>/og-3d.jpg y og-fotos.jpg)
@@ -24,6 +25,7 @@ const bonito = s => String(s || '').toLowerCase().split(/\s+/).filter(Boolean)
   .map((w, i) => (i > 0 && MINUS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ')
 // "desde" se redondea hacia ARRIBA: nunca anunciar menos de lo que cuesta de verdad
 const soles = n => 'S/ ' + Math.ceil(Number(n)).toLocaleString('es-PE')
+const m2 = n => Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 })
 const telWa = w => { const d = String(w || '').replace(/\D/g, ''); return d.length === 9 ? '51' + d : d }
 const idYoutube = u => (String(u || '').match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/) || [])[1]
 const sinMovimiento = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -60,17 +62,20 @@ async function cargarBorrador(slug) {
     .select('*, projects(name, color, logo_url, photo_url)').eq('slug', slug).maybeSingle()
   if (!cp) return null
   const [{ data: lotes }, { data: ws }] = await Promise.all([
-    supabase.from('lots').select('total_price, status').eq('project_id', cp.project_id),
+    supabase.from('lots').select('total_price, status, area_m2, initial_payment_default').eq('project_id', cp.project_id),
     supabase.from('wa_sessions').select('phone').eq('project_id', cp.project_id).maybeSingle(),
   ])
   const ls = lotes || []
-  const disp = ls.filter(l => l.status === 'disponible')
+  const disp = ls.filter(l => l.status === 'disponible').sort((a, b) => Number(a.total_price) - Number(b.total_price))
   const pr = cp.projects || {}
+  const inis = disp.map(l => Number(l.initial_payment_default)).filter(n => n > 0)
   return {
     ...cp, id: cp.project_id, nombre: pr.name, borrador: !cp.landing_activa,
     color: cp.color || pr.color, logo_url: cp.logo_url || pr.logo_url, portada_url: cp.foto_url || pr.photo_url,
     whatsapp: cp.whatsapp || String(ws?.phone || '').split('@')[0].split(':')[0],
-    precio_desde: disp.length ? Math.min(...disp.map(l => Number(l.total_price))) : null,
+    precio_desde: disp.length ? Number(disp[0].total_price) : null,
+    area_desde: disp.length ? disp[0].area_m2 : null,
+    inicial_min: inis.length ? Math.min(...inis) : null,
     disponibles: disp.length,
     vendidos: ls.filter(l => ['vendido', 'entregado'].includes(l.status)).length,
     reservados: ls.filter(l => l.status === 'separado').length,
@@ -84,6 +89,9 @@ export default function Landing() {
   const [foto, setFoto] = useState(null)     // índice abierto en el visor
   const [modo, setModo] = useState(null)            // '360' | '3d' (null = el primero que haya)
   const [recorrido, setRecorrido] = useState(false) // el tour/visor incrustado (solo se carga si lo piden)
+  // plano interactivo y calculadora (sql/195): se piden recién cuando la landing existe
+  const lotesPub = useLotesLanding(slug, !!p)
+  const [loteCalc, setLoteCalc] = useState(null)    // el lote que muestra la calculadora (null = el más económico)
 
   useEffect(() => {
     let vivo = true
@@ -157,18 +165,32 @@ export default function Landing() {
   // dos fotos "sueltas" al lado del título de "¿Por qué…?", de las que no salen en la portada
   const fotosIntro = restantes.length > 5 ? restantes.slice(3, 5) : restantes.slice(0, 2)
   const beneficios = (Array.isArray(p.beneficios) ? p.beneficios : []).filter(b => b?.titulo || b?.texto)
-  const faq = (Array.isArray(p.faq) ? p.faq : []).filter(q => q?.p && q?.r)
   const tel = telWa(p.whatsapp)
   const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(p.wa_texto || `Hola, vi la página de ${nombre} y quiero información`)}` : null
   const totalLotes = (p.disponibles || 0) + (p.vendidos || 0) + (p.reservados || 0)
   const conStock = p.mostrar_stock !== false && totalLotes > 0
   const ocupados = (p.vendidos || 0) + (p.reservados || 0)
-  // el precio escrito en el panel manda; si no hay, el menor de los lotes disponibles
+  // "Precio desde": el lote disponible más barato, EN VIVO (sql/195, pedido de Cesar el 11 nov):
+  // si ese se separa o se vende, sale el siguiente. El texto del panel solo sirve para los
+  // proyectos que todavía no tienen lotes cargados.
   const precioTxt = String(p.precio_desde_txt || '').trim()
   const precioNum = /^(S\/\s*)?[\d.,]+$/i.test(precioTxt)
     ? Number(precioTxt.replace(/^S\/\s*/i, '').replace(/\.(?=\d{3}\b)/g, '').replace(/,/g, ''))   // "20100", "20,100" y "20.100" son lo mismo
     : NaN
-  const desde = precioTxt ? (Number.isFinite(precioNum) ? soles(precioNum) : precioTxt) : (p.precio_desde != null ? soles(p.precio_desde) : null)
+  const desde = p.precio_desde != null ? soles(p.precio_desde)
+    : precioTxt ? (Number.isFinite(precioNum) ? soles(precioNum) : precioTxt) : null
+  // la inicial también: la más baja de los lotes disponibles (si no hay lotes, el texto del panel)
+  const inicialDesde = p.inicial_min != null ? soles(p.inicial_min) : p.inicial_desde
+  // el chat puede decir {desde}, {area_desde}, {inicial_desde} y {cuotas}: se llenan con lo de hoy
+  const marcas = {
+    desde, inicial_desde: inicialDesde,
+    area_desde: p.area_desde != null ? m2(p.area_desde) : null,
+    cuotas: p.cuotas_max != null ? String(p.cuotas_max) : null,
+  }
+  const conMarcas = t => String(t).replace(/\{(\w+)\}/g, (todo, k) => (marcas[k] != null && marcas[k] !== '' ? marcas[k] : todo))
+  const faq = (Array.isArray(p.faq) ? p.faq : []).filter(q => q?.p && q?.r).map(q => ({ p: conMarcas(q.p), r: conMarcas(q.r) }))
+  const hayPlano = hayPlanoLanding(lotesPub)
+  const hayCalc = libresDe(lotesPub).length > 0
   // recorrido virtual: visor 3D y/o tour 360°. Los nuestros viven en la web (/recorrido/<proyecto>/ y .../fotos/)
   // y traen textos y portada propios; un link de afuera (Panoraven, un modelo de dron) mantiene los de siempre
   const recPropio = u => (String(u || '').match(/^(?:https:\/\/(?:www\.)?urbisgroupinmobiliaria\.com)?\/recorrido\/([a-z0-9-]+)\//) || [])[1]
@@ -197,7 +219,7 @@ export default function Landing() {
   const yt = idYoutube(p.video_url)
   const stats = [
     desde && ['Precio desde', desde],
-    p.inicial_desde && ['Inicial desde', p.inicial_desde],
+    inicialDesde && ['Inicial desde', inicialDesde],
     conStock && ['Lotes disponibles', p.disponibles],
     conStock && p.vendidos > 0 && ['Lotes vendidos', p.vendidos],
   ].filter(Boolean)
@@ -205,6 +227,11 @@ export default function Landing() {
   const aWa = (clase, texto, icono = true) => linkWa &&
     <a className={'lp-btn ' + clase} href={linkWa} target="_blank" rel="noreferrer">{icono && <IcoWa />}{texto}</a>
   const retraso = i => ({ transitionDelay: Math.min(i, 8) * 90 + 'ms' })
+  // "Ver plano": con plano interactivo baja a él; si no, abre la imagen del plano
+  const verPlano = (clase, texto) => hayPlano
+    ? <button type="button" className={'lp-btn ' + clase} onClick={() => ir('plano')}>{texto}</button>
+    : p.pdf_url && <a className={'lp-btn ' + clase} href={p.pdf_url} target="_blank" rel="noreferrer">{texto}</a>
+  const calcular = l => { setLoteCalc(l.id); ir('cuotas') }
 
   return (
     <div className="lp" style={p.color ? { '--lp-c': p.color } : undefined}>
@@ -227,7 +254,7 @@ export default function Landing() {
           <div className="lp-ctas">
             {aWa('lp-btn-wa', 'Quiero información')}
             <button type="button" className="lp-btn lp-btn-ghost" onClick={() => ir('contacto')}>Que me llamen</button>
-            {p.pdf_url && <a className="lp-btn lp-btn-ghost" href={p.pdf_url} target="_blank" rel="noreferrer">Ver plano</a>}
+            {verPlano('lp-btn-ghost', 'Ver plano')}
           </div>
         </div>
       </header>
@@ -314,7 +341,18 @@ export default function Landing() {
         </div></section>
       )}
 
-      {(desde || p.inicial_desde || cuotas) && (
+      {hayPlano && (
+        <section className="lp-sec lp-sec-alt" id="plano"><div className="lp-wrap">
+          <div data-reveal>
+            <div className="lp-eyebrow">Plano interactivo</div>
+            <h2>Elige tu lote</h2>
+            <p className="lp-lead">Toca cualquier lote para ver su tamaño, su precio, la inicial y la cuota. En color, los que todavía puedes separar; en gris, los que ya tienen dueño.</p>
+          </div>
+          <PlanoLanding datos={lotesPub} nombre={nombre} tel={tel} pdfUrl={p.pdf_url} onCalcular={calcular} />
+        </div></section>
+      )}
+
+      {(desde || inicialDesde || cuotas || hayCalc) && (
         <section className="lp-sec lp-band">
           {fotoBanda && <img className="lp-band-bg" src={medianaDe(fotoBanda)} srcSet={srcsetDe(fotoBanda)} sizes="100vw" alt="" loading="lazy" decoding="async" />}
           <div className="lp-wrap" data-reveal>
@@ -322,7 +360,7 @@ export default function Landing() {
             <h2>Financiamiento directo, sin bancos</h2>
             <div className="lp-pay">
               {desde && <div><small>Precio desde</small><b>{desde}</b></div>}
-              {p.inicial_desde && <div><small>Inicial desde</small><b>{p.inicial_desde}</b></div>}
+              {inicialDesde && <div><small>Inicial desde</small><b>{inicialDesde}</b></div>}
               {cuotas && <div><small>Cuotas</small><b className="lp-pay-txt">{cuotas}</b></div>}
             </div>
             {conStock && ocupados > 0 && (
@@ -331,10 +369,14 @@ export default function Landing() {
                 <div className="lp-bar"><i style={{ width: Math.round(ocupados / totalLotes * 100) + '%' }} /></div>
               </div>
             )}
-            <div className="lp-ctas">
-              {aWa('lp-btn-wa', 'Cotiza tu lote')}
-              {p.pdf_url && <a className="lp-btn lp-btn-ghost" href={p.pdf_url} target="_blank" rel="noreferrer">Ver plano de lotes</a>}
-            </div>
+            {hayCalc
+              ? <Calculadora datos={lotesPub} nombre={nombre} tel={tel} loteId={loteCalc} onLote={setLoteCalc} irContacto={() => ir('contacto')} />
+              : (
+                <div className="lp-ctas">
+                  {aWa('lp-btn-wa', 'Cotiza tu lote')}
+                  {verPlano('lp-btn-ghost', 'Ver plano de lotes')}
+                </div>
+              )}
             <p className="lp-nota">Precios y disponibilidad sujetos a cambio. Tu asesor confirma el lote y las condiciones vigentes.</p>
           </div>
         </section>
