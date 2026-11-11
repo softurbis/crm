@@ -51,7 +51,9 @@
 .lp-btn-360:hover { background: #ffd36b; }
 @keyframes lp-pulso { 0% { box-shadow: 0 0 0 0 rgba(255, 198, 68, .6); } 70% { box-shadow: 0 0 0 14px rgba(255, 198, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 198, 68, 0); } }
 #recorrido { scroll-margin-top: 12px; }
-.lp-logo { height: 52px; width: auto; max-width: 190px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, .35)); }
+/* el logo va sobre una placa clara: los logos de letras oscuras (Brisas, Neshuya) no se leían sobre la foto */
+.lp-logo { height: 56px; width: auto; max-width: 220px; object-fit: contain; padding: 7px 12px; border-radius: 14px;
+  background: rgba(255, 255, 255, .9); box-shadow: 0 6px 18px rgba(0, 0, 0, .22); backdrop-filter: blur(6px); }
 .lp-logo-txt { color: #fff; font: 800 15px/1.2 'Montserrat', sans-serif; letter-spacing: .05em; text-transform: uppercase; }
 
 .lp-hero { position: relative; min-height: 92vh; min-height: 92svh; display: flex; align-items: flex-end; color: #fff; background: var(--lp-c); overflow: hidden; }

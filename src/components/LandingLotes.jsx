@@ -137,7 +137,7 @@ export function PlanoLanding({ datos, nombre, tel, pdfUrl, onCalcular }) {
           <div className="lpl-toca">Toca un lote para ver su precio y su cuota</div>
         )}
       </div>
-      {pdfUrl && <a className="lp-visor-ext" href={pdfUrl} target="_blank" rel="noreferrer">Ver el plano en imagen ↗</a>}
+      {pdfUrl && <a className="lp-visor-ext" href={pdfUrl} target="_blank" rel="noreferrer">Ver el plano completo ↗</a>}
     </div>
   )
 }
