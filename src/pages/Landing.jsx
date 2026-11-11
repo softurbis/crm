@@ -61,12 +61,18 @@ async function cargarBorrador(slug) {
   const { data: cp } = await supabase.from('corr_proyectos_pub')
     .select('*, projects(name, color, logo_url, photo_url)').eq('slug', slug).maybeSingle()
   if (!cp) return null
-  const [{ data: lotes }, { data: ws }] = await Promise.all([
-    supabase.from('lots').select('total_price, status, area_m2, initial_payment_default').eq('project_id', cp.project_id),
+  const [{ data: lotes }, { data: ws }, { data: vi }] = await Promise.all([
+    supabase.from('lots').select('mz, lt, total_price, status, area_m2, initial_payment_default, associated_to').eq('project_id', cp.project_id).neq('status', 'eliminado'),
     supabase.from('wa_sessions').select('phone').eq('project_id', cp.project_id).maybeSingle(),
+    supabase.from('ventas_ia_proyectos').select('cuotas, lotes_no_ofrecer').eq('project_id', cp.project_id).maybeSingle(),
   ])
   const ls = lotes || []
-  const disp = ls.filter(l => l.status === 'disponible').sort((a, b) => Number(a.total_price) - Number(b.total_price))
+  // "libre" con la MISMA regla que pub_landing (sql/195): sin venta conjunta ni "no ofrecer".
+  // Antes la vista previa contaba todos los disponibles (Neshuya: 17 desde S/ 14,000 en el
+  // borrador y 8 desde S/ 16,000 en el plano)
+  const noOfrecer = new Set((vi?.lotes_no_ofrecer || []).map(s => String(s).toUpperCase()))
+  const disp = ls.filter(l => l.status === 'disponible' && l.associated_to == null && !noOfrecer.has((l.mz + '-' + l.lt).toUpperCase()))
+    .sort((a, b) => Number(a.total_price) - Number(b.total_price) || Number(a.area_m2) - Number(b.area_m2))
   const pr = cp.projects || {}
   const inis = disp.map(l => Number(l.initial_payment_default)).filter(n => n > 0)
   return {
@@ -76,6 +82,7 @@ async function cargarBorrador(slug) {
     precio_desde: disp.length ? Number(disp[0].total_price) : null,
     area_desde: disp.length ? disp[0].area_m2 : null,
     inicial_min: inis.length ? Math.min(...inis) : null,
+    cuotas_max: Number(vi?.cuotas) || 48,             // igual que pub_landing (sql/195): sin esto el chat decía "{cuotas}"
     disponibles: disp.length,
     vendidos: ls.filter(l => ['vendido', 'entregado'].includes(l.status)).length,
     reservados: ls.filter(l => l.status === 'separado').length,
