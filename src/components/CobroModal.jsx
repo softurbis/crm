@@ -202,7 +202,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     if (!c) return
     setBuscandoPago(true)
     const { data, error } = await supabase.from('daily_income')
-      .select('id, amount, income_type, installment_id, installment:installments(installment_number)')
+      .select('id, date, amount, income_type, installment_id, installment:installments(installment_number)')
       .eq('lot_id', lote.id).eq('date', c.fecha).eq('operation_number', c.op)
       .order('created_at', { ascending: false }).limit(c.n)
     setBuscandoPago(false)

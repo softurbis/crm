@@ -18,6 +18,11 @@ import {
 //   <EmitirComprobante>   el diálogo para pedirla (boleta con DNI / factura con RUC)
 //   <ComprobanteDetalle>  lo que pasó con ella: PDF, XML, constancia, anular
 
+// Fechas como 'AAAA-MM-DD' en hora de Lima (la de SUNAT), sin pelear con husos.
+const hoyLima = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+const nombreDia = (f, hoy) => f === hoy ? 'Hoy' : f === sumarDias(hoy, -1) ? 'Ayer' : f === sumarDias(hoy, -2) ? 'Anteayer' : fechaPe(f)
+
 // Quién factura: su logo y su nombre. Cada proyecto con su marca.
 export function MarcaEmisor({ proyecto, emisor, chico = false }) {
   const logo = logoProyecto(proyecto)
@@ -157,6 +162,19 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
   const total = grupo.items.reduce((s, p) => s + Number(p.amount || 0), 0)
   const items = useMemo(() => [...grupo.items].sort((x, y) => (x.installment?.installment_number || 0) - (y.installment?.installment_number || 0)), [grupo])
 
+  // LA FECHA DE EMISIÓN (sql/192): la del pago, si es de hoy, ayer o anteayer. Un
+  // voucher que llegó anoche se boletea hoy con la fecha de ayer. SUNAT recibe el
+  // comprobante hasta 3 días después de su fecha: más atrás no se deja.
+  const fechas = useMemo(() => {
+    const hoy = hoyLima()
+    const pago = grupo.items.map(p => String(p.date || '').slice(0, 10)).filter(Boolean).sort().pop() || hoy
+    const viejo = pago < sumarDias(hoy, -2)
+    // de hoy hacia atrás hasta el día del pago; si el pago es más viejo, solo hoy
+    const opciones = viejo ? [hoy] : [0, 1, 2].map(n => sumarDias(hoy, -n)).filter(f => f >= pago)
+    return { hoy, pago, opciones: opciones.length ? opciones : [hoy], viejo }
+  }, [grupo])
+  const [fecha, setFecha] = useState(() => fechas.opciones[fechas.opciones.length - 1])
+
   useEffect(() => { emisorDelServidor(proyecto?.fact_ruc).then(setEmisor) }, [proyecto?.fact_ruc])
 
   // Desde la pantalla Pagos no viene la ficha del cliente: se busca por la venta y
@@ -256,7 +274,9 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
       const cli = tipo === 'factura'
         ? { tipo_doc: '6', numero: f.numero.trim(), nombre: f.nombre, direccion: f.direccion }
         : { tipo_doc: b.tipo_doc, numero: b.tipo_doc === '0' ? '' : b.numero.trim(), nombre: b.nombre, direccion: b.direccion }
-      const id = await pedirComprobante({ pagos: grupo.items.map(p => p.id), tipo, cliente: cli, descripciones: lineas })
+      // solo se manda si no es hoy: así un panel nuevo funciona aunque la base aún no tenga sql/192
+      const id = await pedirComprobante({ pagos: grupo.items.map(p => p.id), tipo, cliente: cli, descripciones: lineas,
+        fecha: fecha !== fechas.hoy ? fecha : undefined })
       const { data } = await supabase.from('comprobantes').select(COLS_COMPROBANTE).eq('id', id).maybeSingle()
       setPedido(data || { id, estado: 'pendiente', tipo, serie: '', numero: null })
     } catch (e) { setErr(e.message) }
@@ -337,6 +357,21 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
                 )}
               </div>
             )}
+
+            <div className="form-grid">
+              <label>Fecha de emisión
+                <select value={fecha} onChange={e => setFecha(e.target.value)} disabled={fechas.opciones.length < 2}>
+                  {fechas.opciones.map(f => <option key={f} value={f}>{nombreDia(f, fechas.hoy)} · {fechaPe(f)}</option>)}
+                </select>
+              </label>
+              <p className="muted small span2" style={{ margin: 0, textTransform: 'none', alignSelf: 'end' }}>
+                {fechas.viejo
+                  ? <>El pago es del {fechaPe(fechas.pago)}: SUNAT solo deja emitir con hasta 2 días atrás, así que sale con la fecha de hoy.</>
+                  : fecha !== fechas.hoy
+                    ? <>Sale con la fecha del pago ({fechaPe(fecha)}), aunque se emita hoy.</>
+                    : <>Puede llevar la fecha de hoy, ayer o anteayer, nunca antes del pago.</>}
+              </p>
+            </div>
 
             <p className="cp-sub">Detalle <span className="muted small">(así sale en el comprobante; se puede corregir)</span></p>
             {items.map(p => (

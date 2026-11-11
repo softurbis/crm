@@ -90,9 +90,12 @@ const amable = e => {
   return m
 }
 
-export async function pedirComprobante({ pagos, tipo, cliente, descripciones }) {
+// fecha (sql/192): 'AAAA-MM-DD', hoy, ayer o anteayer y nunca antes del pago. Sin
+// ella sale con la de hoy (y así funciona aunque sql/192 no esté corrido).
+export async function pedirComprobante({ pagos, tipo, cliente, descripciones, fecha }) {
   const { data, error } = await supabase.rpc('pedir_comprobante', {
     p_pagos: pagos, p_tipo: tipo, p_cliente: cliente, p_descripciones: descripciones || null,
+    ...(fecha ? { p_fecha: fecha } : {}),
   })
   if (error) throw new Error(amable(error))
   return data
