@@ -188,12 +188,22 @@ else:
 
 echo ""
 echo "==> probando la Clave SOL contra SUNAT (no emite nada)…"
-bash /opt/facturador/probar-clave.sh "$RUC" || {
+# probar-clave sale con 1 cuando SUNAT dijo que NO (clave o usuario mal) y con 2
+# cuando no se pudo comprobar (10 nov 2026: decía "la clave NO entra" con un
+# 0127 = entró, solo porque el servicio de envío contesta vacío).
+set +e
+bash /opt/facturador/probar-clave.sh "$RUC"; PRUEBA=$?
+set -e
+if [ "$PRUEBA" = "1" ]; then
   echo ""
   echo "  La Clave SOL guardada NO entra en SUNAT. Vuelve a correr este asistente y"
   echo "  escríbela de nuevo (no des Enter en ese campo)."
   exit 1
-}
+elif [ "$PRUEBA" != "0" ]; then
+  echo ""
+  echo "  Quedó GUARDADO. Desde aquí no se pudo comprobar todo con SUNAT: la prueba"
+  echo "  que vale es la primera boleta de prueba desde el panel."
+fi
 echo ""
 echo "  Listo. Este RUC queda en PRUEBAS hasta que corras:"
 echo "      bash /opt/facturador/pasar-a-produccion.sh $RUC"

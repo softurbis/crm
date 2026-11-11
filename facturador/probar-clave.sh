@@ -56,6 +56,12 @@ if n.isdigit() and 100 <= int(n) <= 111:
 if not cod and r.status_code >= 500:
     print("  SUNAT no está contestando (", r.status_code, "). Prueba de nuevo en unos minutos.")
     raise SystemExit(2)
+# 15 oct 2026: con la clave MAL escrita SUNAT contestó vacío (HTTP 200) y aquí salía
+# "CREDENCIALES OK"; el envío real dijo 0102. Sin un código, NO se afirma que entró.
+if not cod:
+    print("  NO SE PUDO COMPROBAR LA CLAVE: SUNAT contestó vacío (HTTP %s)." % r.status_code)
+    print("  La prueba que vale es el próximo envío (en Comprobantes): 0102 = la clave está mal.")
+    raise SystemExit(2)
 print("  CREDENCIALES OK (SUNAT contestó:", cod, msg[:60] + ")")
 
 # SEGUNDA PUERTA (1 oct 2026): la consulta de arriba y el ENVÍO son servicios

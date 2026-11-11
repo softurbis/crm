@@ -25,7 +25,14 @@ if [ "$AMBIENTE" = "produccion" ]; then
   read -r -p "  Para confirmar, escribe el RUC otra vez: " OTRA
   [ "$(printf '%s' "$OTRA" | tr -cd '0-9')" = "$RUC" ] || { echo "  No coincide. No se cambió nada." >&2; exit 1; }
   echo "==> probando la Clave SOL antes de cambiar…"
-  bash /opt/facturador/probar-clave.sh "$RUC" || { echo "  No se cambió nada." >&2; exit 1; }
+  # 1 = SUNAT dijo que NO (no se cambia); 2 = no se pudo comprobar todo (10 nov 2026:
+  # el servicio de envío contesta vacío aunque la clave entre): se sigue, y el
+  # primer envío real dice la última palabra.
+  set +e
+  bash /opt/facturador/probar-clave.sh "$RUC"; PRUEBA=$?
+  set -e
+  [ "$PRUEBA" = "1" ] && { echo "  No se cambió nada." >&2; exit 1; }
+  [ "$PRUEBA" != "0" ] && echo "  (sigo: la clave entró; el primer envío real confirma el resto)"
 fi
 
 python3 - "$ARCHIVO" "$AMBIENTE" <<'PY'
