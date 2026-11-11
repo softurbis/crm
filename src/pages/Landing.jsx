@@ -120,11 +120,15 @@ export default function Landing() {
     }
   }, [p])
 
-  // las secciones aparecen cuando entran en pantalla (una sola vez cada una)
+  // las secciones aparecen cuando entran en pantalla (una sola vez cada una).
+  // Se vuelve a armar cuando llegan los lotes: el plano interactivo se dibuja DESPUÉS de la
+  // página y, sin esto, sus bloques se quedaban invisibles para siempre (11 nov 2026).
   useEffect(() => {
     if (!p) return
-    const els = [...document.querySelectorAll('.lp [data-reveal]')]
+    const els = [...document.querySelectorAll('.lp [data-reveal]:not(.lp-in)')]
     if (!('IntersectionObserver' in window) || sinMovimiento()) { els.forEach(e => e.classList.add('lp-in')); return }
+    // lo que llegó tarde y ya está en pantalla o más arriba se enciende de una vez
+    els.filter(el => el.getBoundingClientRect().top < window.innerHeight * 0.94).forEach(el => el.classList.add('lp-in'))
     const io = new IntersectionObserver(entradas => entradas.forEach(e => {
       if (!e.isIntersecting) return
       // se enciende este bloque y todos los de arriba: si alguien salta directo
@@ -138,9 +142,9 @@ export default function Landing() {
         setTimeout(() => { el.style.transitionDelay = '0s' }, espera * 1000 + 850)
       })
     }), { rootMargin: '0px 0px -6% 0px', threshold: 0.06 })
-    els.forEach(e => io.observe(e))
+    els.forEach(e => { if (!e.classList.contains('lp-in')) io.observe(e) })
     return () => io.disconnect()
-  }, [p])
+  }, [p, lotesPub])
 
   if (p === undefined) return <div className="lp"><div className="lp-hero" /></div>
   if (p === null) return (
