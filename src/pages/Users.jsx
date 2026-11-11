@@ -42,7 +42,8 @@ const ROLES = [
   ['admin', 'ADMINISTRADOR (edita todo, sin usuarios)'],
   ['secretary', 'SECRETARIA (opera)'],
   ['manager', 'GERENCIA (solo ver)'],
-  ['asesor', 'ASESOR (solo chat de sus proyectos)'],   // requiere sql/30 y asignarle proyecto(s) aquí
+  // el rol de la base se sigue llamando 'asesor' (sql/30); desde sql/190 ve SOLO lo suyo
+  ['asesor', 'VENDEDOR (sus prospectos, sus chats y el panel de precios)'],
   ['socio', 'SOCIO (ve SOLO sus proyectos · aprueba gastos con firma)'],   // sql/73: sin proyectos asignados NO ve nada
   ['facturacion', 'FACTURACIÓN (otra empresa: ve pagos y gastos de sus proyectos; sube boletas/facturas y el voucher de los pagos de la socia)'],   // sql/133-134, 145
 ]
@@ -109,6 +110,7 @@ export default function Users() {
 
   const [seguim, setSeguim] = useState([])
   const [segAcc, setSegAcc] = useState([])
+  const [fichas, setFichas] = useState([])          // fichas de vendedor (advisors) y a qué usuario están enlazadas (sql/190)
   const [firmaDe, setFirmaDe] = useState(null)      // a quién se le está cargando la firma
   const [firmaGrande, setFirmaGrande] = useState(null)   // firma abierta en grande para revisarla
   async function load() {
@@ -120,6 +122,31 @@ export default function Users() {
       supabase.from('seguimiento_access').select('*'),
     ])
     setUsers(u.data || []); setProjects(p.data || []); setAsig(a.data || []); setSeguim(s.data || []); setSegAcc(sa.data || [])
+    // aparte: si falta correr sql/190 la función no existe y el resto de la pantalla no se cae
+    supabase.rpc('vendedores_lista').then(({ data, error }) => setFichas(error ? null : data || []))
+  }
+
+  // FICHA DE VENDEDOR (sql/190): el usuario con rol VENDEDOR se enlaza con su ficha de
+  // comisiones y ventas. Los leads se le asignan a esa ficha; sin ella no ve ninguno.
+  async function enlazarFicha(u, val) {
+    if (!val) return
+    let args = { p_uid: u.id, p_advisor: val }
+    if (val === 'nueva') {
+      const sugerido = (u.full_name || '').split(/\s+/).filter(Boolean).map(x => x[0]).join('').slice(0, 3).toUpperCase()
+      const cod = await pedir('CÓDIGO CORTO para ' + (u.full_name || u.email) + '\n\nEs el que sale en Comisiones y al elegir el vendedor de una venta (ej. VM, AP).', { valor: sugerido, titulo: 'Crear su ficha de vendedor', obligatorio: true })
+      if (!cod) return
+      args = { p_uid: u.id, p_codigo: cod }
+    }
+    const { error } = await supabase.rpc('vendedor_enlazar', args)
+    setMsg(error ? { ok: false, t: /vendedor_enlazar|schema cache/i.test(error.message) ? 'FALTA CORRER sql/190 EN LA BASE.' : 'ERROR: ' + error.message }
+      : { ok: true, t: 'FICHA DE VENDEDOR ENLAZADA A ' + (u.full_name || u.email) + '. Ya se le pueden asignar leads en Prospectos.' })
+    load()
+  }
+  async function quitarFicha(u) {
+    if (!await confirmar('¿Quitar el enlace de ' + (u.full_name || u.email) + ' con su ficha de vendedor?\n\nDeja de ver sus prospectos hasta que se vuelva a enlazar. La ficha, sus leads y sus comisiones no se borran.', { peligro: true, aceptar: 'Sí, quitar' })) return
+    const { error } = await supabase.rpc('vendedor_enlazar', { p_uid: u.id })
+    setMsg(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'ENLACE QUITADO' })
+    load()
   }
   async function toggleSegAcc(u, sid, on) {
     if (on) await supabase.from('seguimiento_access').insert({ user_id: u.id, secretary_id: sid })
@@ -235,8 +262,10 @@ export default function Users() {
     if (dig && dig.length < 11) { setMsg({ ok: false, t: 'EL NÚMERO DEBE LLEVAR EL 51 ADELANTE (ej. 51961234567)' }); return }
     const { error } = await supabase.from('profiles').update({ phone: dig || null }).eq('id', u.id)
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
-    if (dig) await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'desactivado', note: (u.role === 'socio' ? 'SOCIO: ' : 'EQUIPO: ') + (u.full_name || u.email).toUpperCase() })
-    setMsg({ ok: true, t: dig ? 'WHATSAPP DEL SOCIO GUARDADO: +' + dig : 'WHATSAPP DEL SOCIO QUITADO' })
+    if (dig) await supabase.from('whatsapp_numbers').upsert({ phone: dig, tipo: 'desactivado', note: (u.role === 'socio' ? 'SOCIO: ' : u.role === 'asesor' ? 'VENDEDOR: ' : 'EQUIPO: ') + (u.full_name || u.email).toUpperCase() })
+    setMsg({ ok: true, t: u.role === 'asesor'
+      ? (dig ? 'CELULAR DE AVISOS GUARDADO: +' + dig + '. Que escriba a @UrbisAgenteBot en Telegram y toque "Compartir mi número".' : 'CELULAR DE AVISOS QUITADO')
+      : dig ? 'WHATSAPP DEL SOCIO GUARDADO: +' + dig : 'WHATSAPP DEL SOCIO QUITADO' })
     load()
   }
 
@@ -462,11 +491,39 @@ export default function Users() {
                         titulo="Por aquí le avisa el bot cuando hay una solicitud por firmar"
                         onGuardar={tel => guardarTelSocio(u, tel)} />
                     )}
+                    {/* el vendedor recibe sus recordatorios por Telegram en este número (sql/191) */}
+                    {u.role === 'asesor' && (
+                      <CampoConBoton valor={u.phone} placeholder="🔔 Celular de avisos 51…"
+                        titulo="Su celular: con ese número vincula el Telegram (@UrbisAgenteBot → Compartir mi número) y ahí le llegan sus recordatorios y los leads que se le asignan"
+                        onGuardar={tel => guardarTelSocio(u, tel)} />
+                    )}
                     <CampoConBoton valor={u.firma_phone} placeholder="📲 Celular para FIRMAR 51…"
                       titulo="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo."
                       onGuardar={tel => guardarTelFirma(u, tel)} />
                     {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
                     {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
+                    {u.role === 'asesor' && (() => {
+                      if (fichas === null) return <span className="bad" style={{ fontSize: 10 }}>⚠ Falta correr sql/190 para enlazar su ficha de vendedor.</span>
+                      const f = fichas.find(x => x.profile_id === u.id)
+                      if (f) return (
+                        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ color: '#f08fb0', fontWeight: 700 }}>🎯 Ficha {f.code}</span>
+                          <span className="muted" style={{ fontSize: 10 }}>{f.abiertos} en seguimiento · {f.total} en total</span>
+                          <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Quitar el enlace con su ficha" onClick={() => quitarFicha(u)}>✕</button>
+                        </span>
+                      )
+                      return (
+                        <>
+                          <select value="" onChange={e => enlazarFicha(u, e.target.value)} style={{ fontSize: 11, maxWidth: 260 }}>
+                            <option value="">🎯 ENLAZAR SU FICHA DE VENDEDOR…</option>
+                            <option value="nueva">➕ CREAR UNA FICHA NUEVA</option>
+                            {fichas.filter(x => !x.profile_id && x.activo).map(x => <option key={x.id} value={x.id}>{x.code}{x.full_name && x.full_name !== x.code ? ' - ' + x.full_name : ''}</option>)}
+                          </select>
+                          <span className="bad" style={{ fontSize: 10 }}>⚠ Sin ficha de vendedor no ve ningún prospecto.</span>
+                        </>
+                      )
+                    })()}
+                    {u.role === 'asesor' && <span className="muted" style={{ fontSize: 10, maxWidth: 260, textTransform: 'none' }}>Ve solo los prospectos y chats que se le asignan, y los precios de los proyectos que le marques.</span>}
                     {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas y el voucher de los pagos que hizo la socia, imprime constancias y ve el estado de cuenta de sus lotes. Nada más.</span>}
                   </div>
                 </td>

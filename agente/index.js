@@ -52,6 +52,8 @@ const LECTOR_VOUCHERS = require('./lector_vouchers')({
 // avisos de firma de gastos: a quien pide y a los socios, cada 4 horas, WhatsApp y Telegram (sql/135)
 const AVISOS_FIRMA = require('./avisos_firma').crearAvisosFirma({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
 const AVISOS_CARTAS = require('./avisos_cartas').crearAvisosCartas({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
+// recordatorios, asignaciones y resumen diario de los vendedores, solo por Telegram (sql/190-191)
+const AVISOS_VENDEDORES = require('./avisos_vendedores').crearAvisosVendedores({ supabase, enviar: (...a) => enviar(...a), log: (...a) => log(...a) })
 // trae el nombre de un DNI o la razón social de un RUC al emitir un comprobante (sql/119)
 const CONSULTA_DOC = require('./consulta_doc')({ supabase, log: (...a) => log(...a) })
 // emite las boletas y facturas que pide el panel, con el RUC de cada proyecto (sql/113)
@@ -3678,6 +3680,8 @@ async function avisarAprobaciones() {
   await AVISOS_FIRMA.tick().catch(e => log('avisos de firma:', String(e.message || e)))
   // cartas de cobranza (sql/155): a la socia, las que tiene por firmar; a quien la creó, que ya está firmada
   await AVISOS_CARTAS.tick().catch(e => log('avisos de cartas:', String(e.message || e)))
+  // vendedores: llegó la hora de un recordatorio, les asignaron leads o toca el resumen de las 8 (sql/191)
+  await AVISOS_VENDEDORES.tick().catch(e => log('avisos a vendedores:', String(e.message || e)))
 
   // 2) decisiones -> a quien pidio el gasto (su Telegram/WhatsApp de seguimiento)
   const { data: dec } = await supabase.from('expenses')

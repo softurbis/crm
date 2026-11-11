@@ -1628,3 +1628,57 @@ span.cp-chip { cursor: default; }
   .pv-cuota b { font-size: 1.6rem; }
   .pr-caja { height: 58vh !important; }
 }
+
+/* ---- Prospectos: el panel de seguimiento del vendedor (sql/190) ---- */
+.pr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; margin-bottom: .9rem; }
+.pr-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; padding: .7rem .9rem; text-align: left; border-left: 4px solid var(--kc, var(--accent)); }
+button.pr-kpi { cursor: pointer; }
+.pr-kpi b { font-size: 1.6rem; line-height: 1.1; color: var(--kc, var(--text)); }
+.pr-kpi span { font-size: .72rem; color: var(--muted); }
+.pr-kpi.on { box-shadow: 0 0 0 2px var(--kc, var(--accent)) inset; }
+.pr-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .8rem; }
+.pr-chips .chip { display: inline-flex; align-items: center; gap: .35rem; }
+.pr-repartir { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .6rem .9rem; margin-bottom: .8rem; border-left: 4px solid #f08fb0; }
+.pr-repartir select { width: auto; min-width: 220px; }
+.pr-fila { cursor: pointer; }
+.pr-fila:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.pr-est { display: inline-block; padding: .12rem .55rem; border-radius: 12px; font-size: .72rem; font-weight: 700;
+  color: var(--ec, var(--text)); border: 1px solid color-mix(in srgb, var(--ec, var(--muted)) 55%, transparent);
+  background: color-mix(in srgb, var(--ec, var(--muted)) 14%, transparent); }
+.pr-cards { display: grid; gap: .55rem; }
+.pr-card { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .7rem .85rem; text-align: left; cursor: pointer; border-left: 4px solid var(--ec, var(--muted)); }
+.pr-card-n { font-weight: 700; }
+.pr-card-e { font-size: .74rem; font-weight: 700; color: var(--ec, var(--muted)); }
+.pr-card-a { font-size: .82rem; }
+.modal.pr-ficha { max-width: 680px; }
+.pr-nombre { flex: 1; min-width: 0; font-size: 1.15rem; font-weight: 700; background: transparent; border-color: transparent; padding: .2rem .3rem; }
+.pr-nombre:hover, .pr-nombre:focus { border-color: var(--line); }
+.pr-tel { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.pr-tel-n { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.pr-tel a.btn-act, .pr-tel button.btn-act { text-decoration: none; font-size: .78rem; padding: .3rem .65rem; border-radius: 8px; border-width: 1px; border-style: solid; cursor: pointer; color: var(--text); }
+.pr-sub { margin: 1.1rem 0 .45rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--muted); }
+.pr-paso { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.pr-paso input:first-child { flex: 1 1 240px; }
+.pr-paso input[type="date"] { width: auto; }
+.pr-nota-nueva { display: flex; flex-direction: column; gap: .45rem; align-items: flex-start; }
+.pr-nota-nueva textarea { width: 100%; text-transform: none; }
+.pr-notas { display: flex; flex-direction: column; gap: .5rem; margin-top: .8rem; }
+.pr-nota { display: flex; flex-direction: column; gap: .15rem; padding: .5rem .7rem; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--accent); }
+.pr-nota.auto { border-left-color: var(--line); opacity: .8; }
+.pr-nota-cab { font-size: .68rem; color: var(--muted); }
+.pr-nota-txt { text-transform: none; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .88rem; }
+/* recordatorios y tablero del jefe (sql/191) */
+.pr-tablero { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .55rem; margin-bottom: .9rem; }
+.pr-vend { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; padding: .6rem .8rem; text-align: left; cursor: pointer; border-left: 4px solid var(--kc, var(--accent)); }
+.pr-vend.on { box-shadow: 0 0 0 2px var(--kc, var(--accent)) inset; }
+.pr-vend-n { font-size: .72rem; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pr-vend b { font-size: 1.5rem; line-height: 1.1; color: var(--kc, var(--text)); }
+.pr-vend-d { display: flex; flex-wrap: wrap; gap: .1rem .5rem; font-size: .68rem; color: var(--muted); }
+.pr-vend-d i { font-style: normal; font-weight: 600; }
+.pr-paso input[type="time"] { width: auto; }
+.pr-paso.pide { padding: .5rem; border-radius: 10px; outline: 2px solid #e0b34c; background: color-mix(in srgb, #e0b34c 8%, transparent); }
+.pr-pide { margin: 0 0 .45rem; font-size: .84rem; font-weight: 600; color: #e0b34c; text-transform: none; }
+.pr-card { position: relative; }
+.pr-card-chk { position: absolute; top: .6rem; right: .7rem; width: 22px; height: 22px; }
+.pr-card.marcado { box-shadow: 0 0 0 2px #f08fb0 inset; }
+.pr-repartir { position: sticky; top: .4rem; z-index: 5; }

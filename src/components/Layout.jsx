@@ -68,6 +68,8 @@ const MENU = [
 
   // precios, iniciales y cuotas de cada lote para cotizar y mandar por WhatsApp (sql/181).
   // `siempre`: lo ve todo el equipo aunque tenga los paneles recortados; el asesor también
+  // seguimiento de leads (sql/190): el vendedor ve solo los suyos; el equipo, todos, y los reparte
+  { to: '/prospectos', label: 'Prospectos', icon: '🎯', color: '#f08fb0', grupo: 'Ventas' },
   { to: '/vendedor', label: 'Panel del vendedor', icon: '🏷️', color: '#f0c05a', proy: true, siempre: true, grupo: 'Ventas' },
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
   { to: '/ventas', label: 'Ventas y contratos', icon: '📄', color: '#7bb6e0', proy: true, grupo: 'Ventas', tambien: ['/contratos'] },
@@ -315,6 +317,24 @@ export default function Layout() {
   )
   // la secretaria entra a Hoy (App.jsx): su Dashboard vive en /dashboard
   const delRol = m => (m.to === '/' && role === 'secretary' ? { ...m, to: '/dashboard', end: false } : m)
+  // el VENDEDOR: cuántos prospectos le tocan hoy o tiene vencidos (sql/190-191). La base
+  // solo le deja ver los suyos, así que basta contar. Cada minuto y al volver a la pestaña.
+  const [pendProsp, setPendProsp] = useState(0)
+  useEffect(() => {
+    if (!profile?.id || role !== 'asesor') return
+    let vivo = true
+    const contar = () => supabase.from('leads').select('id', { count: 'exact', head: true })
+      .in('status', ['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion'])
+      .lte('next_action_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }))
+      .then(({ count, error }) => { if (vivo && !error) setPendProsp(count || 0) })
+    contar()
+    const t = setInterval(() => { if (!document.hidden) contar() }, 60000)
+    const alVolver = () => { if (!document.hidden) contar() }
+    document.addEventListener('visibilitychange', alVolver)
+    window.addEventListener('urbis-prospectos', contar)
+    return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', alVolver); window.removeEventListener('urbis-prospectos', contar) }
+  }, [role, profile?.id])
+
   const visibles = MENU.filter(verItem).map(delRol)
 
   // facturación no tiene otra pantalla: cualquier otra dirección la devuelve a la suya
@@ -329,10 +349,11 @@ export default function Layout() {
           <span><b>URBIS GROUP</b><br /><small>REAL ESTATE</small></span>
         </div>
         <nav onClick={() => setOpen(false)}>
-          {/* el rol ASESOR solo ve su chat de WhatsApp y el panel del vendedor (precios
-              y cuotas, sin datos de clientes), nada más del CRM */}
+          {/* el VENDEDOR (rol asesor) solo ve sus prospectos, sus chats de WhatsApp y el panel
+              de precios y cuotas (sin datos de clientes), nada más del CRM */}
           {role === 'asesor'
-            ? MENU.filter(m => m.to === '/whatsapp' || m.to === '/vendedor').map(Item)
+            ? ['/prospectos', '/whatsapp', '/vendedor'].map(to => MENU.find(m => m.to === to)).filter(Boolean)
+                .map(m => Item(m.to === '/prospectos' ? { ...m, label: 'Mis prospectos', badge: pendProsp } : m))
             : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
@@ -428,7 +449,7 @@ export default function Layout() {
             <div style={{ minWidth: 0, flex: 1 }}>
               <p className="muted small" style={{ margin: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={profile?.full_name}>{profile?.full_name}</p>
-              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'operador' ? 'OPERADOR' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : role === 'facturacion' ? 'FACTURACIÓN' : role === 'asesor' ? 'ASESOR' : 'SECRETARIA'}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 10, opacity: .75 }}>{role === 'superuser' ? 'SUPERUSUARIO' : role === 'operador' ? 'OPERADOR' : role === 'socio' ? 'SOCIO' : role === 'manager' ? 'GERENCIA (solo ver)' : role === 'admin' ? 'ADMINISTRADOR' : role === 'facturacion' ? 'FACTURACIÓN' : role === 'asesor' ? 'VENDEDOR' : 'SECRETARIA'}</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>

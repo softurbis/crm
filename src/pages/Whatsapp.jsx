@@ -1653,7 +1653,7 @@ export default function Whatsapp() {
                             cargarConvs(); setSel(x => ({ ...x, assigned_to: v }))
                           }}>
                           <option value="">⭐ SIN ASIGNAR</option>
-                          {usuarios.map(u => <option key={u.id} value={u.id}>⭐ {u.full_name}{u.role === 'asesor' ? ' (ASESOR)' : ''}</option>)}
+                          {usuarios.map(u => <option key={u.id} value={u.id}>⭐ {u.full_name}{u.role === 'asesor' ? ' (VENDEDOR)' : ''}</option>)}
                         </select>
                       )}
                       {/* clasificar el número escribe en el DIRECTORIO (y decide a quién le contesta

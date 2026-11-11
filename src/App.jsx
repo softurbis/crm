@@ -40,6 +40,7 @@ const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Deudores = lazy(() => import('./pages/Deudores'))
 const Vendedor = lazy(() => import('./pages/Vendedor'))
+const Prospectos = lazy(() => import('./pages/Prospectos'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
@@ -53,12 +54,12 @@ function Protected({ children }) {
   return children
 }
 
-// el rol ASESOR entra directo a su chat (no ve el Dashboard del negocio) y la
+// el VENDEDOR (rol asesor) entra directo a sus prospectos (sql/190; no ve el Dashboard) y la
 // SECRETARIA a "Hoy": el buscador y lo urgente del dia (decision del 24 sep).
 // Ella llega al Dashboard por /dashboard, desde el menu.
 function Home() {
   const { role } = useAuth()
-  if (role === 'asesor') return <Navigate to="/whatsapp" replace />
+  if (role === 'asesor') return <Navigate to="/prospectos" replace />
   if (role === 'secretary') return <Navigate to="/hoy" replace />
   // la secretaria de la otra empresa: solo sube boletas y facturas (sql/134)
   if (role === 'facturacion') return <Navigate to="/facturacion" replace />
@@ -126,6 +127,8 @@ export default function App() {
           <Route path="lotes" element={<Lots />} />
           {/* precios, iniciales y cuotas de cada lote para cotizar (sql/181): también el asesor */}
           <Route path="vendedor" element={<Vendedor />} />
+          {/* seguimiento de leads: el vendedor ve solo los suyos, el equipo todos (sql/190) */}
+          <Route path="prospectos" element={<Vedada para={a => ['socio', 'facturacion'].includes(a.role)}><Prospectos /></Vedada>} />
           <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />
           <Route path="lotes/:id" element={<FichaLote />} />
           <Route path="ventas" element={<Contracts />} />
