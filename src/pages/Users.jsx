@@ -48,6 +48,11 @@ const ROLES = [
   ['facturacion', 'FACTURACIÓN (otra empresa: ve pagos y gastos de sus proyectos; sube boletas/facturas y el voucher de los pagos de la socia)'],   // sql/133-134, 145
 ]
 
+// 11 nov 2026: las boletas y facturas ya salen del panel (los 5 proyectos emiten en real), así que el
+// rol FACTURACIÓN ya no se ofrece. Sigue en la lista de arriba solo para que una cuenta vieja con ese
+// rol se vea con su nombre y se le pueda cambiar.
+const ROLES_VIGENTES = ROLES.filter(([v]) => v !== 'facturacion')
+
 // la línea que explica al OPERADOR debajo del selector de rol (al crear y en su fila)
 const AYUDA_OPERADOR = 'Trabaja como el superusuario —corrige, migra, edita— pero no ve Usuarios, Bitácora, Corretaje, Campañas ni la configuración de WhatsApp.'
 
@@ -436,7 +441,7 @@ export default function Users() {
           <label>Nombre completo <input value={nu.name || ''} onChange={e => setNu(x => ({ ...x, name: e.target.value }))} required /></label>
           <label>Rol
             <select value={nu.role} onChange={e => setNu(x => ({ ...x, role: e.target.value }))}>
-              {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {ROLES_VIGENTES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
             {nu.role === 'operador' && <span className="muted small" style={{ textTransform: 'none' }}>{AYUDA_OPERADOR}</span>}
           </label>
@@ -478,7 +483,7 @@ export default function Users() {
                 <td>
                   <select value={u.role} disabled={u.id === profile?.id}
                     onChange={e => cambiarRol(u, e.target.value)}>
-                    {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    {(u.role === 'facturacion' ? ROLES : ROLES_VIGENTES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
                   {u.role === 'operador' && <p className="muted" style={{ fontSize: 10, margin: '3px 0 0', maxWidth: 260, textTransform: 'none' }}>{AYUDA_OPERADOR}</p>}
                   {/* DOS celulares distintos a propósito:
