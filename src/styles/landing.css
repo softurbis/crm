@@ -317,6 +317,8 @@
 .lpc-res .lp-btn { width: 100%; margin-top: auto; white-space: normal; text-align: center; }
 
 .lp-draft { position: fixed; top: 0; left: 0; right: 0; z-index: 60; padding: 7px 14px; text-align: center; background: #ffc644; color: #3a2a00; font-size: 13px; font-weight: 600; }
+.lp-draft ~ .lp-nav { top: 32px; }                  /* en la vista previa la barra amarilla tapaba el logo */
+@media (max-width: 760px) { .lp-draft ~ .lp-nav { top: 48px; } }
 
 .lp-nada { display: grid; place-items: center; text-align: center; padding: 40px 0; }
 .lp-nada h1 { font-size: 28px; font-weight: 800; }

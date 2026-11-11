@@ -42,7 +42,33 @@ export const libresDe = d => (d ? d.lotes.filter(l => l.estado === 'disponible' 
 // ---------------------------------------------------------------------------
 // PLANO INTERACTIVO: toca un lote y ves su precio, su inicial y su cuota
 // ---------------------------------------------------------------------------
-export function PlanoLanding({ datos, nombre, tel, pdfUrl, onCalcular }) {
+// Un plano mucho más alto que ancho (Brisas: una franja larga) se veía en el landing como una
+// tira finita, en la PC y en el celular: se muestra ACOSTADO (girado 90°). Se giran los puntos
+// de los lotes, los rótulos y las manzanas; el fondo (trazos SVG) gira con `plano.giro`. Los
+// números de los lotes y las letras de las manzanas siguen derechos. Solo en el landing: el
+// plano del panel no cambia.
+function acostar(datos) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const l of datos.lotes) for (const [x, y] of (Array.isArray(l.poligono) ? l.poligono : [])) {
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y)
+  }
+  if (!(x1 > x0 && y1 > y0) || (x1 - x0) / (y1 - y0) >= 0.6) return datos
+  const W = Number(datos.plano.ancho)
+  const gira = ([x, y]) => [y, W - x]                 // lo de arriba queda a la izquierda
+  const angulo = a => { let b = (Number(a) || 0) - 90; while (b <= -90) b += 180; while (b > 90) b -= 180; return b }
+  return {
+    ...datos,
+    plano: {
+      ...datos.plano, ancho: datos.plano.alto, alto: datos.plano.ancho, giro: `matrix(0 -1 1 0 0 ${W})`,
+      rotulos: (datos.plano.rotulos || []).map(r => ({ ...r, x: r.y, y: W - r.x, ang: angulo(r.ang) })),
+      manzanas: (datos.plano.manzanas || []).map(m => ({ ...m, x: m.y, y: W - m.x })),
+    },
+    lotes: datos.lotes.map(l => Array.isArray(l.poligono) ? { ...l, poligono: l.poligono.map(gira) } : l),
+  }
+}
+
+export function PlanoLanding({ datos: crudos, nombre, tel, pdfUrl, onCalcular }) {
+  const datos = useMemo(() => acostar(crudos), [crudos])
   const [sel, setSel] = useState(null)
   const cats = useMemo(() => categoriasDe(datos.plano, datos.lotes), [datos])
   const libres = useMemo(() => libresDe(datos), [datos])

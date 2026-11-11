@@ -162,8 +162,10 @@ export default function PlanoReal({ plano, lotes, relleno, borde, atenuado, titu
   const verNumeros = pxPorM > 1.4
 
   // el fondo no cambia al mover el plano: se arma una sola vez
+  // plano.giro: el landing muestra acostado un plano muy alto (LandingLotes, acostar); los trazos
+  // del fondo se giran con esta transformación, el resto ya viene girado
   const fondo = useMemo(() => (
-    <g>
+    <g transform={plano.giro || undefined}>
       {(plano.capas || []).filter(c => c.t !== 'limite').map((c, i) => (
         <path key={i} d={c.d} fill={colores[c.t] || colores.calle} fillRule="evenodd" />
       ))}
