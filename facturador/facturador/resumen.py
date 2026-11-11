@@ -119,10 +119,11 @@ def _cabecera_firma(cfg):
 
 def _linea_resumen(n, b, moneda):
     """
-    Una boleta dentro del resumen.
+    Una boleta (o la nota de crédito de una boleta) dentro del resumen.
 
     `b` es {serie, numero, total, gravadas, exoneradas, inafectas, igv,
-    condicion, cliente_tipo_doc, cliente_numero}.
+    condicion, cliente_tipo_doc, cliente_numero} y, si es nota, también
+    {tipo_codigo: "07", referencia: {serie, numero, tipo_codigo: "03"}}.
 
     Solo se declara la base que existe: informar S/ 0.00 de gravadas cuando el
     negocio vende todo exonerado es decir algo que no pasó.
@@ -152,9 +153,15 @@ def _linea_resumen(n, b, moneda):
             continue
         tid, tnombre, ttipo = TRIBUTO[clave]
         monto = b.get("igv", 0) if clave == GRAVADO else 0
+        # LA TASA (cbc:Percent). Desde nov 2026 el beta de SUNAT rechaza el
+        # resumen sin ella (2992 "tasa del tributo faltante para código 1000"),
+        # aunque producción todavía lo aceptaba. Es la del IGV (18) aunque el
+        # importe sea cero: es la tasa del tributo, no lo que se cobró.
+        tasa = "18.00" if clave == GRAVADO else "0.00"
         impuestos.append(f"""      <cac:TaxSubtotal>
         <cbc:TaxAmount currencyID="{moneda}">{dos(monto)}</cbc:TaxAmount>
         <cac:TaxCategory>
+          <cbc:Percent>{tasa}</cbc:Percent>
           <cac:TaxScheme>
             <cbc:ID>{tid}</cbc:ID>
             <cbc:Name>{tnombre}</cbc:Name>
@@ -168,14 +175,30 @@ def _linea_resumen(n, b, moneda):
     # final— va tipo "0" y "-", que es como SUNAT nombra "sin documento".
     cli_tipo = str(b.get("cliente_tipo_doc") or "0")
     cli_num = str(b.get("cliente_numero") or "-")
+    # LA NOTA DE CRÉDITO DE UNA BOLETA viaja en el mismo resumen, como tipo 07 y
+    # diciendo qué boleta modifica. El bloque va entre el cliente y el estado:
+    # el esquema del resumen fija ese orden.
+    tipo = str(b.get("tipo_codigo") or "03")
+    ref = b.get("referencia") or None
+    referencia = ""
+    if tipo == "07":
+        if not ref:
+            raise ValueError("la nota de crédito %s no dice qué boleta modifica" % doc)
+        referencia = f"""
+    <cac:BillingReference>
+      <cac:InvoiceDocumentReference>
+        <cbc:ID>{ref['serie']}-{ref['numero']}</cbc:ID>
+        <cbc:DocumentTypeCode>{ref.get('tipo_codigo') or '03'}</cbc:DocumentTypeCode>
+      </cac:InvoiceDocumentReference>
+    </cac:BillingReference>"""
     return f"""  <sac:SummaryDocumentsLine>
     <cbc:LineID>{n}</cbc:LineID>
-    <cbc:DocumentTypeCode>03</cbc:DocumentTypeCode>
+    <cbc:DocumentTypeCode>{tipo}</cbc:DocumentTypeCode>
     <cbc:ID>{doc}</cbc:ID>
     <cac:AccountingCustomerParty>
       <cbc:CustomerAssignedAccountID>{cli_num}</cbc:CustomerAssignedAccountID>
       <cbc:AdditionalAccountID>{cli_tipo}</cbc:AdditionalAccountID>
-    </cac:AccountingCustomerParty>
+    </cac:AccountingCustomerParty>{referencia}
     <cac:Status>
       <cbc:ConditionCode>{b.get('condicion', ADICIONAR)}</cbc:ConditionCode>
     </cac:Status>

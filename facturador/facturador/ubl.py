@@ -36,6 +36,18 @@ DOC_SIN = "0"
 # Catálogo 01 — tipo de comprobante.
 TIPO_FACTURA = "01"
 TIPO_BOLETA = "03"
+TIPO_NOTA_CREDITO = "07"
+
+# Catálogo 09 — por qué se emite la nota de crédito. Urbis solo usa la 01: un
+# cobro que no debió tener ese comprobante (duplicado, mal emitido) y que ya no
+# se puede dar de baja porque pasaron los 7 días.
+MOTIVOS_NOTA_CREDITO = {
+    "01": "ANULACION DE LA OPERACION",
+    "02": "ANULACION POR ERROR EN EL RUC",
+    "03": "CORRECCION POR ERROR EN LA DESCRIPCION",
+    "06": "DEVOLUCION TOTAL",
+    "07": "DEVOLUCION POR ITEM",
+}
 
 # Los tributos como los nombra SUNAT en el total del comprobante.
 TRIBUTO_TOTAL = {
@@ -51,7 +63,7 @@ def _cdata(texto):
     return "<![CDATA[" + limpio + "]]>"
 
 
-def _linea_xml(n, linea, moneda):
+def _linea_xml(n, linea, moneda, elemento="InvoiceLine", cantidad="InvoicedQuantity"):
     """
     Una línea del comprobante.
 
@@ -61,11 +73,14 @@ def _linea_xml(n, linea, moneda):
 
     Con exoneración los dos números coinciden, y está bien que coincidan: no
     hay impuesto que separar.
+
+    La nota de crédito usa la MISMA línea con otros dos nombres
+    (`CreditNoteLine` / `CreditedQuantity`): por eso van como parámetro.
     """
     a = linea.datos_afectacion
-    return f"""  <cac:InvoiceLine>
+    return f"""  <cac:{elemento}>
     <cbc:ID>{n}</cbc:ID>
-    <cbc:InvoicedQuantity unitCode="{linea.unidad}">{linea.cantidad}</cbc:InvoicedQuantity>
+    <cbc:{cantidad} unitCode="{linea.unidad}">{linea.cantidad}</cbc:{cantidad}>
     <cbc:LineExtensionAmount currencyID="{moneda}">{dos(linea.valor_venta)}</cbc:LineExtensionAmount>
     <cac:PricingReference>
       <cac:AlternativeConditionPrice>
@@ -95,7 +110,7 @@ def _linea_xml(n, linea, moneda):
     <cac:Price>
       <cbc:PriceAmount currencyID="{moneda}">{dos(linea.valor_unitario)}</cbc:PriceAmount>
     </cac:Price>
-  </cac:InvoiceLine>"""
+  </cac:{elemento}>"""
 
 
 def _subtotal(afectacion, base, impuesto, moneda):
@@ -136,40 +151,17 @@ def _totales_impuestos(totales, moneda):
     return "\n".join(partes)
 
 
-def armar_comprobante(cfg, doc, lineas, totales):
+def _partes(cfg, doc, tipo_cliente):
     """
-    `doc` trae lo del comprobante: tipo, serie, numero, fecha, hora, moneda,
-    cliente y forma de pago. `lineas` y `totales` vienen ya calculados por
-    `dinero.py` — acá no se hace ni una cuenta, solo se escribe.
+    Firma, emisor y cliente: el mismo bloque en la factura, la boleta y la nota
+    de crédito. `tipo_cliente` es el tipo del comprobante que manda en el
+    documento del cliente (en una nota, el del comprobante que modifica).
     """
-    tipo = doc["tipo_codigo"]
-    moneda = doc.get("moneda", "PEN")
     cliente = doc["cliente"]
-    lineas_xml = "\n".join(_linea_xml(i + 1, l, moneda) for i, l in enumerate(lineas))
-
     # La boleta a consumidor final puede ir sin documento; la factura, nunca.
-    doc_tipo = cliente.get("tipo_doc") or (DOC_RUC if tipo == TIPO_FACTURA else DOC_SIN)
+    doc_tipo = cliente.get("tipo_doc") or (DOC_RUC if tipo_cliente == TIPO_FACTURA else DOC_SIN)
     doc_num = cliente.get("numero") or ""
-
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
-         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
-         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
-  <ext:UBLExtensions>
-    <ext:UBLExtension>
-      <ext:ExtensionContent/>
-    </ext:UBLExtension>
-  </ext:UBLExtensions>
-  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
-  <cbc:CustomizationID>2.0</cbc:CustomizationID>
-  <cbc:ID>{doc['serie']}-{doc['numero']}</cbc:ID>
-  <cbc:IssueDate>{doc['fecha']}</cbc:IssueDate>
-  <cbc:IssueTime>{doc['hora']}</cbc:IssueTime>
-  <cbc:InvoiceTypeCode listAgencyName="PE:SUNAT" listName="Tipo de Documento" listURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo01" listID="0101" name="Tipo de Operacion" listSchemeURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo51">{tipo}</cbc:InvoiceTypeCode>
-  <cbc:Note languageLocaleID="1000">{_cdata(doc['monto_en_letras'])}</cbc:Note>
-  <cbc:DocumentCurrencyCode>{moneda}</cbc:DocumentCurrencyCode>
-  <cac:Signature>
+    return f"""  <cac:Signature>
     <cbc:ID>SignatureSP</cbc:ID>
     <cac:SignatoryParty>
       <cac:PartyIdentification>
@@ -210,7 +202,104 @@ def armar_comprobante(cfg, doc, lineas, totales):
         <cbc:RegistrationName>{_cdata(cliente.get('nombre') or 'CLIENTE VARIOS')}</cbc:RegistrationName>
       </cac:PartyLegalEntity>
     </cac:Party>
-  </cac:AccountingCustomerParty>
+  </cac:AccountingCustomerParty>"""
+
+
+def armar_nota_credito(cfg, doc, lineas, totales):
+    """
+    LA NOTA DE CRÉDITO (tipo 07): deshace un comprobante que SUNAT ya tiene y que
+    no se puede dar de baja porque pasaron los 7 días.
+
+    `doc` trae lo mismo que una boleta más `referencia` {tipo_codigo, serie,
+    numero} —el comprobante que modifica— y `motivo_codigo` / `motivo`. Las
+    líneas son las del comprobante original: una anulación (motivo 01) devuelve
+    el total.
+
+    El ORDEN, como en la factura, lo fija el esquema: DiscrepancyResponse y
+    BillingReference van entre la moneda y la firma; las líneas al final, como
+    `CreditNoteLine`. No lleva `PaymentTerms` (solo el motivo 13 la usa) ni tipo
+    de operación: el motivo es el que dice qué pasó.
+    """
+    moneda = doc.get("moneda", "PEN")
+    ref = doc["referencia"]
+    ref_id = "%s-%s" % (ref["serie"], ref["numero"])
+    lineas_xml = "\n".join(
+        _linea_xml(i + 1, l, moneda, "CreditNoteLine", "CreditedQuantity") for i, l in enumerate(lineas)
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2"
+            xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+            xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+            xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
+  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionContent/>
+    </ext:UBLExtension>
+  </ext:UBLExtensions>
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:CustomizationID>2.0</cbc:CustomizationID>
+  <cbc:ID>{doc['serie']}-{doc['numero']}</cbc:ID>
+  <cbc:IssueDate>{doc['fecha']}</cbc:IssueDate>
+  <cbc:IssueTime>{doc['hora']}</cbc:IssueTime>
+  <cbc:Note languageLocaleID="1000">{_cdata(doc['monto_en_letras'])}</cbc:Note>
+  <cbc:DocumentCurrencyCode>{moneda}</cbc:DocumentCurrencyCode>
+  <cac:DiscrepancyResponse>
+    <cbc:ReferenceID>{ref_id}</cbc:ReferenceID>
+    <cbc:ResponseCode>{doc['motivo_codigo']}</cbc:ResponseCode>
+    <cbc:Description>{_cdata(doc['motivo'])}</cbc:Description>
+  </cac:DiscrepancyResponse>
+  <cac:BillingReference>
+    <cac:InvoiceDocumentReference>
+      <cbc:ID>{ref_id}</cbc:ID>
+      <cbc:DocumentTypeCode>{ref['tipo_codigo']}</cbc:DocumentTypeCode>
+    </cac:InvoiceDocumentReference>
+  </cac:BillingReference>
+{_partes(cfg, doc, ref['tipo_codigo'])}
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="{moneda}">{dos(totales.igv)}</cbc:TaxAmount>
+{_totales_impuestos(totales, moneda)}
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="{moneda}">{dos(totales.valor_venta)}</cbc:LineExtensionAmount>
+    <cbc:TaxInclusiveAmount currencyID="{moneda}">{dos(totales.total)}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="{moneda}">{dos(totales.total)}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+{lineas_xml}
+</CreditNote>
+"""
+
+
+def armar_comprobante(cfg, doc, lineas, totales):
+    """
+    `doc` trae lo del comprobante: tipo, serie, numero, fecha, hora, moneda,
+    cliente y forma de pago. `lineas` y `totales` vienen ya calculados por
+    `dinero.py` — acá no se hace ni una cuenta, solo se escribe.
+    """
+    tipo = doc["tipo_codigo"]
+    if tipo == TIPO_NOTA_CREDITO:
+        return armar_nota_credito(cfg, doc, lineas, totales)
+    moneda = doc.get("moneda", "PEN")
+    lineas_xml = "\n".join(_linea_xml(i + 1, l, moneda) for i, l in enumerate(lineas))
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
+  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionContent/>
+    </ext:UBLExtension>
+  </ext:UBLExtensions>
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:CustomizationID>2.0</cbc:CustomizationID>
+  <cbc:ID>{doc['serie']}-{doc['numero']}</cbc:ID>
+  <cbc:IssueDate>{doc['fecha']}</cbc:IssueDate>
+  <cbc:IssueTime>{doc['hora']}</cbc:IssueTime>
+  <cbc:InvoiceTypeCode listAgencyName="PE:SUNAT" listName="Tipo de Documento" listURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo01" listID="0101" name="Tipo de Operacion" listSchemeURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo51">{tipo}</cbc:InvoiceTypeCode>
+  <cbc:Note languageLocaleID="1000">{_cdata(doc['monto_en_letras'])}</cbc:Note>
+  <cbc:DocumentCurrencyCode>{moneda}</cbc:DocumentCurrencyCode>
+{_partes(cfg, doc, tipo)}
   <cac:PaymentTerms>
     <cbc:ID>FormaPago</cbc:ID>
     <cbc:PaymentMeansID>{doc.get('forma_pago', 'Contado')}</cbc:PaymentMeansID>

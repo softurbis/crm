@@ -30,16 +30,46 @@ from .letras import en_letras
 TIPOS = {
     "factura": ubl.TIPO_FACTURA,
     "boleta": ubl.TIPO_BOLETA,
+    "nota_credito": ubl.TIPO_NOTA_CREDITO,
 }
+# lo que una nota de crédito puede modificar
+MODIFICABLES = {"factura": ubl.TIPO_FACTURA, "boleta": ubl.TIPO_BOLETA}
 
 
 class ErrorDePeticion(Exception):
     """Lo que mandó el POS está mal. No es culpa de SUNAT ni de la red."""
 
 
+def _referencia(peticion):
+    """
+    El comprobante que modifica una nota de crédito, ya validado:
+    {tipo, tipo_codigo, serie, numero}. La serie de la nota tiene que empezar con
+    la misma letra que la del comprobante (B con boleta, F con factura): SUNAT
+    rechaza una nota "F" sobre una boleta.
+    """
+    ref = peticion.get("referencia") or {}
+    tipo = ref.get("tipo")
+    if tipo not in MODIFICABLES:
+        raise ErrorDePeticion("la nota de crédito tiene que decir si modifica una 'boleta' o una 'factura'")
+    serie = str(ref.get("serie", "")).strip().upper()
+    numero = str(ref.get("numero", "")).strip()
+    if not serie or not numero:
+        raise ErrorDePeticion("falta la serie o el número del comprobante que modifica la nota")
+    if str(peticion.get("serie", "")).strip().upper()[:1] != serie[:1]:
+        raise ErrorDePeticion("la serie de la nota tiene que empezar con %s, como la del comprobante que modifica" % serie[:1])
+    return {"tipo": tipo, "tipo_codigo": MODIFICABLES[tipo], "serie": serie, "numero": numero}
+
+
 def _validar(peticion):
     if peticion.get("tipo") not in TIPOS:
-        raise ErrorDePeticion("tipo tiene que ser 'factura' o 'boleta'")
+        raise ErrorDePeticion("tipo tiene que ser 'factura', 'boleta' o 'nota_credito'")
+    if peticion["tipo"] == "nota_credito":
+        _referencia(peticion)
+        codigo = str(peticion.get("motivo_codigo") or "01")
+        if codigo not in ubl.MOTIVOS_NOTA_CREDITO:
+            raise ErrorDePeticion("motivo de nota de crédito desconocido: %s" % codigo)
+        if len(str(peticion.get("motivo") or "").strip()) < 4:
+            raise ErrorDePeticion("falta el motivo de la nota de crédito (lo lee SUNAT)")
     for campo in ("serie", "numero"):
         if not str(peticion.get(campo, "")).strip():
             raise ErrorDePeticion("falta %s" % campo)
@@ -58,7 +88,11 @@ def _validar(peticion):
             raise ErrorDePeticion("el item %d tiene cantidad o precio no numéricos" % i)
 
     cliente = peticion.get("cliente") or {}
-    if peticion["tipo"] == "factura":
+    # una nota sobre una factura va a nombre del mismo RUC que la factura
+    a_factura = peticion["tipo"] == "factura" or (
+        peticion["tipo"] == "nota_credito" and (peticion.get("referencia") or {}).get("tipo") == "factura"
+    )
+    if a_factura:
         # Una factura sin RUC del cliente la rechaza SUNAT. Mejor decirlo acá,
         # donde el mensaje puede ser claro, que traducir después un código.
         if (cliente.get("tipo_doc") or ubl.DOC_RUC) != ubl.DOC_RUC or not cliente.get("numero"):
@@ -163,14 +197,18 @@ def emitir(config, certificado, peticion, solo_firmar=False):
     # ambiente de pruebas la acepta suelta — que es justo la trampa: se prueba
     # en beta, anda, se pasa a producción y ahí SUNAT las rechaza todas. Este
     # resguardo hace que ese error se vea acá y no en la caja.
+    # Lo mismo vale para la nota de crédito de una boleta: viaja en el resumen.
+    de_boleta = peticion["tipo"] == "boleta" or (
+        peticion["tipo"] == "nota_credito" and (peticion.get("referencia") or {}).get("tipo") == "boleta"
+    )
     if (
-        peticion["tipo"] == "boleta"
+        de_boleta
         and config.es_produccion
         and not peticion.get("en_resumen")
         and not solo_firmar  # firmarla sí: el cliente se lleva su boleta ya
     ):
         raise ErrorDePeticion(
-            "Una boleta no se manda sola en producción: va en el resumen diario."
+            "Una boleta (o su nota de crédito) no se manda sola en producción: va en el resumen diario."
         )
 
     tipo_codigo = TIPOS[peticion["tipo"]]
@@ -223,6 +261,10 @@ def emitir(config, certificado, peticion, solo_firmar=False):
         "establecimiento": peticion.get("establecimiento", "0000"),
         "monto_en_letras": en_letras(totales.total, moneda),
     }
+    if peticion["tipo"] == "nota_credito":
+        doc["referencia"] = _referencia(peticion)
+        doc["motivo_codigo"] = str(peticion.get("motivo_codigo") or "01")
+        doc["motivo"] = str(peticion["motivo"]).strip()[:250]
 
     xml = ubl.armar_comprobante(config, doc, lineas, totales)
     xml_firmado, resumen_firma = mod_firma.firmar(xml, certificado)

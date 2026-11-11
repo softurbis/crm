@@ -47,7 +47,12 @@ const enMin = m => new Date(Date.now() + m * 60000).toISOString()
 const dos = n => Number(n || 0).toFixed(2)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const nombreDe = c => c.serie + '-' + c.numero
-const TITULO = { boleta: 'BOLETA DE VENTA ELECTRÓNICA', factura: 'FACTURA ELECTRÓNICA' }
+const TITULO = { boleta: 'BOLETA DE VENTA ELECTRÓNICA', factura: 'FACTURA ELECTRÓNICA', nota_credito: 'NOTA DE CRÉDITO ELECTRÓNICA' }
+const CODIGO = { factura: '01', boleta: '03', nota_credito: '07' }
+const MOTIVO_NC = { '01': 'ANULACIÓN DE LA OPERACIÓN' }
+// La boleta real —y la nota de crédito de una boleta (sql/191)— no viajan solas:
+// van en el resumen del día siguiente. La factura y su nota viajan solas.
+const vaEnResumen = c => c.ambiente === 'produccion' && (c.tipo === 'boleta' || (c.tipo === 'nota_credito' && c.ref_tipo === 'boleta'))
 const DOC = { 0: 'Doc.', 1: 'DNI', 4: 'C.E.', 6: 'RUC', 7: 'Pasaporte' }
 // El color de quien factura (#rrggbb) -> [r, g, b]; y el mismo aclarado para fondos
 const rgb = hex => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : null }
@@ -222,7 +227,7 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     d.setDrawColor(...COLOR).setLineWidth(0.6).roundedRect(132, 11, 63, 28, 2, 2)
     d.setFont('helvetica', 'bold').setFontSize(11.5).text('R.U.C. ' + c.ruc, 163.5, 19, { align: 'center' })
     d.setFillColor(...COLOR).rect(132.3, 21.6, 62.4, 7.4, 'F')
-    d.setTextColor(255, 255, 255).setFontSize(c.tipo === 'boleta' ? 9.6 : 11).text(TITULO[c.tipo], 163.5, 26.7, { align: 'center' })
+    d.setTextColor(255, 255, 255).setFontSize(c.tipo === 'factura' ? 11 : 9.6).text(TITULO[c.tipo], 163.5, 26.7, { align: 'center' })
     d.setTextColor(20, 20, 20).setFontSize(12.5).text(nombreDe(c), 163.5, 35.3, { align: 'center' })
 
     // --- a nombre de quién
@@ -243,9 +248,19 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     if (c.cliente_direccion) y += 4.4 * fila('Dirección:', c.cliente_direccion, M + 3, y, 95)
     fila('Fecha de emisión:', dd + '/' + mm + '/' + aa, 132, y0 + 5.5, 30)
     fila('Moneda:', 'SOLES', 132, y0 + 9.9, 30)
-    fila('Forma de pago:', 'CONTADO', 132, y0 + 14.3, 30)
+    if (c.tipo !== 'nota_credito') fila('Forma de pago:', 'CONTADO', 132, y0 + 14.3, 30)
     y = Math.max(y, y0 + 18.5)
     d.setDrawColor(150).setLineWidth(0.2).roundedRect(M, y0, DER - M, y - y0, 1.5, 1.5)
+
+    // --- la nota de crédito dice qué comprobante modifica y por qué
+    if (c.tipo === 'nota_credito') {
+      const y1 = y + 3
+      y = y1 + 5.5
+      y += 4.4 * fila('Documento que modifica:', TITULO[c.ref_tipo] + ' ' + c.ref_serie + '-' + c.ref_numero, M + 3, y, 120)
+      y += 4.4 * fila('Motivo:', (c.motivo_codigo || '01') + ' - ' + (MOTIVO_NC[c.motivo_codigo || '01'] || '') + (c.nota_motivo ? ': ' + c.nota_motivo : ''), M + 3, y, 150)
+      y += 0.5
+      d.setDrawColor(150).setLineWidth(0.2).roundedRect(M, y1, DER - M, y - y1, 1.5, 1.5)
+    }
 
     // --- el detalle
     y += 5
@@ -314,7 +329,7 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     const patch = {}
     const cola = String(c.id).replace(/-/g, '').slice(0, 10)   // para que la dirección no se pueda adivinar
     const base = 'comprobantes/' + c.ruc + (c.ambiente === 'produccion' ? '' : '/pruebas') + '/'
-      + c.ruc + '-' + (c.tipo === 'factura' ? '01' : '03') + '-' + c.serie + '-' + c.numero + '-' + cola
+      + c.ruc + '-' + (CODIGO[c.tipo] || '03') + '-' + c.serie + '-' + c.numero + '-' + cola
     if (!c.pdf_url) {
       try {
         const { data: p } = await supabase.from('projects').select('name, logo_url, fact_razon_social, fact_direccion, fact_logo_url, fact_color').eq('id', c.project_id).maybeSingle()
@@ -329,7 +344,8 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     if (!Object.keys(patch).length) return
     await upd(c.id, patch)
     Object.assign(c, patch)
-    if (patch.pdf_url && c.ambiente === 'produccion') {
+    // la nota de crédito NO es la boleta del pago: deshace la que tenía
+    if (patch.pdf_url && c.ambiente === 'produccion' && c.tipo !== 'nota_credito') {
       await supabase.from('daily_income').update({ receipt_url: patch.pdf_url, receipt_na: false, receipt_na_reason: null })
         .eq('comprobante_id', c.id).is('receipt_url', null)
     }
@@ -346,8 +362,14 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
       if (esDeClave(codigo)) unaVezAlDia('clave:' + c.ruc, '🧾 *EL FACTURADOR NO PUEDE ENTRAR A SUNAT*\nRUC ' + c.ruc + '\n' + mensaje + '\n\nLos cobros siguen normal; los comprobantes quedan en cola y salen solos cuando se arregle.')
       return
     }
+    // (si es una nota de crédito, la base deja el comprobante original vigente: sql/191)
     await upd(c.id, { estado: 'rechazado', codigo, mensaje, proximo_intento: new Date().toISOString() })
     log('FACTURADOR ✗', c.tipo, nombreDe(c), codigo, String(r.mensaje || '').slice(0, 120))
+    if (c.tipo === 'nota_credito') {
+      await avisa('🧾 *NOTA DE CRÉDITO RECHAZADA*\n' + nombreDe(c) + ' (anulaba la ' + c.ref_tipo + ' ' + c.ref_serie + '-' + c.ref_numero + ') · ' + soles(c.total) + '\n' + mensaje
+        + '\n\nLa ' + c.ref_tipo + ' sigue vigente. Está en Comprobantes.')
+      return
+    }
     await avisa('🧾 *COMPROBANTE RECHAZADO*\n' + c.tipo.toUpperCase() + ' ' + nombreDe(c) + ' · ' + soles(c.total) + '\n' + c.cliente_nombre + '\n' + mensaje
       + '\n\nEl cobro está registrado y no se toca. Falta el comprobante: se emite de nuevo desde la ficha del lote.')
   }
@@ -361,6 +383,11 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
         items: (c.items || []).map(i => ({ descripcion: i.descripcion, cantidad: 1, precio_con_igv: Number(i.monto) })),
         // si la suma de las líneas no da lo cobrado, el facturador se niega: mejor ahí que en SUNAT
         total_cobrado: Number(c.total),
+        // la nota de crédito: qué comprobante modifica y por qué (sql/191)
+        ...(c.tipo === 'nota_credito' ? {
+          referencia: { tipo: c.ref_tipo, serie: c.ref_serie, numero: String(c.ref_numero) },
+          motivo_codigo: c.motivo_codigo || '01', motivo: c.nota_motivo,
+        } : {}),
       })
       if (f.estado !== 'firmado' || !f.firma) return fallo(c, f)
       const firmado = {
@@ -371,9 +398,9 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
       Object.assign(c, firmado)
     }
 
-    if (c.tipo === 'boleta' && c.ambiente === 'produccion') {
+    if (vaEnResumen(c)) {
       await upd(c.id, { estado: 'firmado', codigo: null, mensaje: 'Firmada. Se informa a SUNAT en el resumen del día siguiente.', emitido_at: new Date().toISOString() })
-      log('FACTURADOR ✔ boleta', nombreDe(c), 'firmada ·', soles(c.total))
+      log('FACTURADOR ✔', c.tipo, nombreDe(c), 'firmada ·', soles(c.total))
     } else {
       const r = await pedir('enviar', base)
       if (r.estado !== 'aceptado') return fallo(c, r)
@@ -477,10 +504,12 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
   // Las que hay que ANULAR (ya informadas) no esperan: van con condición 3.
   async function resumenes(S) {
     const hoy = hoyLima()
-    const { data: bs } = await supabase.from('comprobantes').select('*').eq('tipo', 'boleta').eq('ambiente', 'produccion')
+    // las boletas y las notas de crédito de boletas (sql/191): viajan juntas
+    const { data: bs } = await supabase.from('comprobantes').select('*').in('tipo', ['boleta', 'nota_credito']).eq('ambiente', 'produccion')
       .in('estado', ['firmado', 'por_anular']).lte('proximo_intento', new Date().toISOString()).order('fecha_emision').order('numero').limit(1000)
     const grupos = new Map()
     for (const b of (bs || [])) {
+      if (b.tipo === 'nota_credito' && (b.ref_tipo !== 'boleta' || b.estado !== 'firmado')) continue
       if (b.estado === 'firmado' && b.fecha_emision >= hoy) continue
       if (!b.firma || !S.emisores[b.ruc] || S.emisores[b.ruc].ambiente !== 'produccion') continue
       const k = b.ruc + '|' + b.fecha_emision
@@ -503,6 +532,7 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
           serie: b.serie, numero: String(b.numero), total: dos(b.total),
           gravado: dos(b.gravadas), exonerado: dos(b.exoneradas), inafecto: dos(b.inafectas), igv: dos(b.igv),
           condicion: anula ? '3' : '1', cliente_tipo_doc: b.cliente_tipo_doc || '0', cliente_numero: b.cliente_numero || '-',
+          ...(b.tipo === 'nota_credito' ? { tipo_codigo: '07', referencia: { serie: b.ref_serie, numero: String(b.ref_numero), tipo_codigo: '03' } } : {}),
         })
       }
       await cerrarEnvio(e, await pedir('resumen', { ruc, fecha: dia, correlativo: String(e.correlativo), boletas: lineas }, 130000), 'el resumen de boletas')

@@ -6,7 +6,7 @@ import Paginador, { usePaginacion } from '../components/Paginador'
 import LoteLink from '../components/LoteLink'
 import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
-import { useComprobantes, ESTADOS, nombreComprobante, esPrueba, emisorDelServidor, emisorVisto } from '../lib/comprobantes'
+import { useComprobantes, ESTADOS, nombreComprobante, nombreTipo, esPrueba, emisorDelServidor, emisorVisto } from '../lib/comprobantes'
 import { ComprobanteDetalle, MarcaEmisor } from '../components/Comprobante'
 import PagosTabs from '../components/PagosTabs'
 
@@ -59,7 +59,8 @@ export default function Comprobantes() {
         .join(' ').toLowerCase().includes(w)))
   }, [lista, filtro, q, lotes])
   const pag = usePaginacion(visibles, 50)
-  const validos = lista.filter(c => ['firmado', 'en_sunat', 'aceptado', 'por_anular'].includes(c.estado) && !esPrueba(c))
+  // una nota de crédito no suma: deshace lo que ya figuraba (y lo que anula queda 'anulado')
+  const validos = lista.filter(c => ['firmado', 'en_sunat', 'aceptado', 'por_anular'].includes(c.estado) && !esPrueba(c) && c.tipo !== 'nota_credito')
   const totalValido = validos.reduce((s, c) => s + Number(c.total || 0), 0)
 
   if (!proyecto) return <p className="muted">Elige un proyecto.</p>
@@ -132,7 +133,8 @@ export default function Comprobantes() {
                 <tr key={c.id}>
                   <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(c.fecha_emision)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}><button className="link-btn" onClick={() => setVer(c)}>
-                    {c.tipo === 'factura' ? 'Factura' : 'Boleta'} <b>{c.numero != null ? nombreComprobante(c) : '(sin número aún)'}</b></button></td>
+                    {nombreTipo(c)} <b>{c.numero != null ? nombreComprobante(c) : '(sin número aún)'}</b></button>
+                    {c.tipo === 'nota_credito' && <div className="muted small" style={{ textTransform: 'none' }}>anula la {c.ref_tipo} {c.ref_serie}-{c.ref_numero}</div>}</td>
                   <td>{c.cliente_nombre}<div className="muted small" style={{ textTransform: 'none' }}>{c.cliente_numero || 'sin documento'}</div></td>
                   <td>{lotes[c.lot_id] ? <LoteLink lot={lotes[c.lot_id]} /> : '-'}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(c.total)}</b></td>

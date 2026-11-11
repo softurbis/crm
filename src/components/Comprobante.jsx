@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { logoProyecto } from '../context/ProjectContext'
 import { consultarDoc, rucConProblema } from '../lib/consultaDoc'
 import {
-  ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
+  ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, nombreTipo, anulaConNota, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
   pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
   enviarComprobanteWsp, envioWsp, celularesDe, celularBonito, wspDelProyecto, textoComprobanteWsp, enlaceWsp,
 } from '../lib/comprobantes'
@@ -37,7 +37,7 @@ export function ComprobanteChip({ c, onClick }) {
   const e = ESTADOS[c.estado] || ESTADOS.pendiente
   return (
     <button type="button" className={'cp-chip ' + e.c} onClick={onClick}
-      title={(c.tipo === 'factura' ? 'Factura ' : 'Boleta ') + nombreComprobante(c) + ' — ' + e.ayuda + (c.mensaje ? '\n' + c.mensaje : '')}>
+      title={nombreTipo(c) + ' ' + nombreComprobante(c) + ' — ' + e.ayuda + (c.mensaje ? '\n' + c.mensaje : '')}>
       {enCamino(c) && <span className="cp-gira" />}
       <b>{c.numero != null ? nombreComprobante(c) : c.tipo}</b> {e.t}{esPrueba(c) && estaVivo(c) ? ' · prueba' : ''}
     </button>
@@ -57,7 +57,7 @@ export function EnviarWsp({ c, proyecto }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const tocado = useRef(false)
-  const sirve = estaVivo(c) && !enCamino(c) && !!c.pdf_url && !esPrueba(c) && !c.motivo_baja
+  const sirve = estaVivo(c) && !enCamino(c) && !!c.pdf_url && !esPrueba(c) && !c.motivo_baja && c.tipo !== 'nota_credito'
 
   useEffect(() => {
     if (!sirve) return
@@ -382,18 +382,35 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
   }, [c.estado])   // eslint-disable-line
 
   async function anular() {
+    const conNota = anulaConNota(c)
     const motivo = await pedir('¿Por qué se anula ' + (c.tipo === 'factura' ? 'la factura ' : 'la boleta ') + nombreComprobante(c) + '?\n\n' +
-      'El motivo va a SUNAT. Ejemplo: "error en el documento del cliente". El pago NO se borra: queda sin comprobante para emitirle otro.',
-      { titulo: 'Anular comprobante', tipo: 'largo', obligatorio: true, peligro: true, aceptar: 'Anular' })
+      (conNota
+        ? 'Pasaron más de 7 días desde que se emitió: SUNAT ya no acepta la baja. Se emite una NOTA DE CRÉDITO por el total, a nombre del mismo cliente'
+          + (c.tipo === 'boleta' ? ' (SUNAT la recibe en el resumen del día siguiente)' : '') + '. Cuando SUNAT la acepte, '
+          + (c.tipo === 'factura' ? 'la factura' : 'la boleta') + ' queda anulada.\n\n'
+        : '')
+      + 'El motivo va a SUNAT. Ejemplo: "error en el documento del cliente". El pago NO se borra: queda sin comprobante para emitirle otro.',
+      { titulo: conNota ? 'Anular con nota de crédito' : 'Anular comprobante', tipo: 'largo', obligatorio: true, peligro: true, aceptar: conNota ? 'Emitir nota de crédito' : 'Anular' })
     if (motivo === null) return
     setBusy(true)
     try {
       const r = await anularComprobante(c.id, motivo)
       await releer()
-      avisar(r === 'pedido' ? 'Anulación pedida. El servidor le informa la baja a SUNAT; en unos minutos (la boleta, con el resumen del día) figura como anulada.' : 'Comprobante anulado.', { tono: 'ok' })
+      avisar(r === 'nota' ? 'Nota de crédito pedida. El servidor la emite en unos segundos' + (c.tipo === 'boleta' ? ' y SUNAT la recibe en el resumen de mañana' : '') + '; cuando la acepte, ' + (c.tipo === 'factura' ? 'la factura' : 'la boleta') + ' figura como anulada.'
+        : r === 'pedido' ? 'Anulación pedida. El servidor le informa la baja a SUNAT; en unos minutos (la boleta, con el resumen del día) figura como anulada.' : 'Comprobante anulado.', { tono: 'ok' })
     } catch (err) { avisar(err.message, { tono: 'error' }) }
     setBusy(false)
   }
+
+  // la nota de crédito de este comprobante, o el comprobante que anula esta nota
+  const [ligado, setLigado] = useState(null)
+  useEffect(() => {
+    const id = c.tipo === 'nota_credito' ? c.ref_id : c.nota_id
+    if (!id) { setLigado(null); return }
+    let vivo = true
+    supabase.from('comprobantes').select(COLS_COMPROBANTE).eq('id', id).maybeSingle().then(({ data }) => { if (vivo) setLigado(data || null) })
+    return () => { vivo = false }
+  }, [c.id, c.nota_id, c.ref_id, c.estado])   // eslint-disable-line
   async function reintentar() {
     setBusy(true)
     try { await reintentarComprobante(c.id); await releer() } catch (err) { avisar(err.message, { tono: 'error' }) }
@@ -414,18 +431,26 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
   const lotePago = pagos?.find(p => p.lot)?.lot || null
   const sinValor = !estaVivo(c)
 
-  const puedeAnular = esJefe && estaVivo(c) && !['emitiendo', 'por_anular'].includes(c.estado) && !c.motivo_baja
+  const esNota = c.tipo === 'nota_credito'
+  const puedeAnular = esJefe && estaVivo(c) && !['emitiendo', 'por_anular'].includes(c.estado) && !c.motivo_baja && !c.nota_id
+    && (!esNota || c.numero == null)
   return (
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal cp-modal" onClick={ev => ev.stopPropagation()}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>🧾 {c.tipo === 'factura' ? 'Factura' : 'Boleta'} {nombreComprobante(c)}</b>
+          <b style={{ flex: 1 }}>🧾 {nombreTipo(c)} {nombreComprobante(c)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
         {proyecto && <MarcaEmisor proyecto={proyecto} />}
         <p className={'cp-grande ' + e.c}>{enCamino(c) && <span className="cp-gira" />}{e.t}{esPrueba(c) ? ' · PRUEBA sin valor' : ''}</p>
         <p className="muted" style={{ textTransform: 'none' }}>{c.mensaje || e.ayuda}</p>
-        {c.motivo_baja && c.estado !== 'anulado' && <p className="cp-nota">Anulación pedida: “{c.motivo_baja}”.</p>}
+        {esNota && (
+          <p className="cp-nota">Anula la {c.ref_tipo === 'factura' ? 'factura' : 'boleta'} <b>{c.ref_serie}-{c.ref_numero}</b>
+            {ligado ? ' (' + (ESTADOS[ligado.estado] || ESTADOS.pendiente).t + ')' : ''}. Motivo: “{c.nota_motivo}”.</p>
+        )}
+        {c.motivo_baja && c.estado !== 'anulado' && <p className="cp-nota">Anulación pedida: “{c.motivo_baja}”.
+          {ligado && <> Va con la nota de crédito <b>{nombreComprobante(ligado) || 'en cola'}</b> ({(ESTADOS[ligado.estado] || ESTADOS.pendiente).t}).</>}</p>}
+        {!esNota && c.estado === 'anulado' && ligado && <p className="cp-nota">Anulada con la nota de crédito <b>{nombreComprobante(ligado)}</b>.{ligado.pdf_url && <> <a href={ligado.pdf_url} target="_blank" rel="noreferrer">Ver la nota</a></>}</p>}
         <div className="cp-datos">
           <span>Fecha</span><b>{fechaPe(c.fecha_emision)}</b>
           <span>A nombre de</span><b>{c.cliente_nombre}</b>
@@ -437,7 +462,7 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
         ))}
         {pagos && (
           <div className="cp-pago">
-            <p className="cp-sub">💵 El pago de {c.tipo === 'factura' ? 'esta factura' : 'esta boleta'}{lotePago ? ' · lote ' + lotePago.mz + '-' + lotePago.lt : ''}</p>
+            <p className="cp-sub">💵 El pago de {esNota ? 'lo que anula esta nota' : c.tipo === 'factura' ? 'esta factura' : 'esta boleta'}{lotePago ? ' · lote ' + lotePago.mz + '-' + lotePago.lt : ''}</p>
             {pagos.length === 0
               ? <p className="muted small">El pago ya no está en el sistema (fue borrado).</p>
               : pagos.map(p => (
@@ -447,7 +472,9 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
                 </div>
               ))}
             <p className="muted small" style={{ margin: '.4rem 0 0' }}>
-              {c.estado === 'por_anular' || (c.motivo_baja && c.estado !== 'anulado')
+              {esNota
+                ? 'Cuando SUNAT acepte esta nota, el comprobante que anula queda sin valor y el pago queda libre para su comprobante correcto.'
+                : c.estado === 'por_anular' || (c.motivo_baja && c.estado !== 'anulado')
                 ? 'Se está anulando. Cuando SUNAT confirme la baja, el pago queda sin comprobante y se le puede emitir otro.'
                 : sinValor
                   ? 'Este comprobante ya no vale: el pago quedó sin comprobante y se le puede emitir otro.'

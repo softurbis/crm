@@ -5,7 +5,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
-export const COLS_COMPROBANTE = 'id, project_id, lot_id, sale_id, client_id, tipo, ruc, serie, numero, ambiente, fecha_emision, cliente_tipo_doc, cliente_numero, cliente_nombre, cliente_direccion, items, total, estado, codigo, mensaje, firma, pdf_url, xml_url, cdr_url, motivo_baja, intentos, proximo_intento, creado_at, emitido_at'
+export const COLS_COMPROBANTE = 'id, project_id, lot_id, sale_id, client_id, tipo, ruc, serie, numero, ambiente, fecha_emision, cliente_tipo_doc, cliente_numero, cliente_nombre, cliente_direccion, items, total, estado, codigo, mensaje, firma, pdf_url, xml_url, cdr_url, motivo_baja, intentos, proximo_intento, creado_at, emitido_at, ref_id, ref_tipo, ref_serie, ref_numero, motivo_codigo, nota_motivo, nota_id'
+
+// "Boleta", "Factura" o "Nota de crédito" (sql/191)
+export const nombreTipo = c => c?.tipo === 'factura' ? 'Factura' : c?.tipo === 'nota_credito' ? 'Nota de crédito' : 'Boleta'
+// Pasados 7 días SUNAT ya no acepta la baja: "Anular" emite una nota de crédito (sql/191)
+export function anulaConNota(c) {
+  if (!c || c.ambiente !== 'produccion' || c.numero == null || c.tipo === 'nota_credito') return false
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+  const limite = new Date(hoy + 'T12:00:00Z'); limite.setUTCDate(limite.getUTCDate() - 7)
+  return String(c.fecha_emision) < limite.toISOString().slice(0, 10)
+}
 
 // En qué va un comprobante, dicho para quien cobra (no para un contador)
 export const ESTADOS = {
@@ -54,6 +64,9 @@ export function descripcionPago(p, lote, proyecto, totalCuotas) {
 export function comprobantePorPago(lista) {
   const m = new Map()
   for (const c of [...(lista || [])].sort((a, b) => String(a.creado_at).localeCompare(String(b.creado_at)))) {
+    // la nota de crédito lleva las mismas líneas que el comprobante que anula, pero
+    // no es el comprobante del pago
+    if (c.tipo === 'nota_credito') continue
     for (const it of (c.items || [])) {
       const antes = m.get(it.pago_id)
       if (!antes || !estaVivo(antes) || estaVivo(c)) m.set(it.pago_id, c)
@@ -87,7 +100,7 @@ export async function pedirComprobante({ pagos, tipo, cliente, descripciones }) 
 export async function anularComprobante(id, motivo) {
   const { data, error } = await supabase.rpc('anular_comprobante', { p_id: id, p_motivo: motivo })
   if (error) throw new Error(amable(error))
-  return data   // 'cancelado' | 'anulado' | 'pedido'
+  return data   // 'cancelado' | 'anulado' | 'pedido' | 'nota' (sql/191: pasados los 7 días)
 }
 export async function reintentarComprobante(id) {
   const { error } = await supabase.rpc('reintentar_comprobante', { p_id: id })
