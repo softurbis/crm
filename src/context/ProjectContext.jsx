@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
+import '../styles/empresas.css'
 
 const Ctx = createContext(null)
 
@@ -19,13 +20,40 @@ export const colorProyecto = (p, i = 0) => p?.color || PALETA_PROYECTOS[i % PALE
 const COLS_FACT = 'id, logo_url, fact_activo, fact_ruc, fact_razon_social, fact_direccion, fact_serie_boleta, fact_serie_factura, fact_logo_url, fact_color'
 async function marcaDe(ids) {
   if (!ids.length) return {}
-  let { data, error } = await supabase.from('projects').select(COLS_FACT).in('id', ids)
+  // la empresa (sql/200) y el registro directo de gastos viajan con la marca; sin el 197, sin ellos
+  let { data, error } = await supabase.from('projects').select(COLS_FACT + ', empresa, gasto_directo').in('id', ids)
+  if (error) ({ data, error } = await supabase.from('projects').select(COLS_FACT).in('id', ids))
   if (error) ({ data } = await supabase.from('projects').select('id, logo_url').in('id', ids))
   return Object.fromEntries((data || []).map(x => [x.id, x]))
 }
 // el logo que identifica al proyecto en el panel: el de quien factura si lo tiene
 // (Las Praderas de Pucallpa = Century), si no el del proyecto
 export const logoProyecto = p => p?.fact_logo_url || p?.logo_url || null
+
+// ---- EMPRESAS (11 nov 2026, pedido del dueño) ----
+// La lista de proyectos se separa por empresa: CENTURY (Las Praderas de Pucallpa) y
+// URBIS (los demás). Cada proyecto sigue siendo independiente (al mismo nivel dentro de
+// su empresa); "Todo Century" / "Todo Urbis" suman los de esa empresa en Hoy y el
+// Dashboard. La empresa sale de projects.empresa (sql/200); sin el 197, de quien factura.
+export const empresaDe = p => p?.empresa || (/century/i.test(p?.fact_razon_social || '') ? 'CENTURY' : 'URBIS')
+const ORDEN_EMPRESA = { CENTURY: 0, URBIS: 1 }
+export const nombreEmpresa = e => (e || '').charAt(0) + (e || '').slice(1).toLowerCase()
+// el valor del selector para "todo <empresa>"
+export const PID_EMPRESA = 'emp:'
+export const esPidTotal = v => v === 'general' || String(v || '').startsWith(PID_EMPRESA)
+// los proyectos agrupados por empresa, en orden; cada uno con su posición en la lista
+// completa (de ella sale su color de paleta)
+export function gruposPorEmpresa(projects) {
+  const m = new Map()
+  projects.forEach((p, i) => {
+    const e = empresaDe(p)
+    if (!m.has(e)) m.set(e, [])
+    m.get(e).push({ p, i })
+  })
+  return [...m.entries()]
+    .sort(([a], [b]) => (ORDEN_EMPRESA[a] ?? 9) - (ORDEN_EMPRESA[b] ?? 9) || a.localeCompare(b))
+    .map(([empresa, items]) => ({ empresa, items }))
+}
 
 export function ProjectProvider({ children }) {
   const { profile, role, esJefe } = useAuth()
@@ -63,16 +91,26 @@ export function ProjectProvider({ children }) {
     load()
   }, [profile, role, vuelta])
 
+  // los proyectos que suma la selección: todos ('general'), los de una empresa ('emp:CENTURY')
+  // o el proyecto elegido
+  const empresaSel = String(pid || '').startsWith(PID_EMPRESA) ? pid.slice(PID_EMPRESA.length) : null
+  const esTotal = esPidTotal(pid)
+  const idsSel = pid === 'general' ? projects.map(p => p.id)
+    : empresaSel ? projects.filter(p => empresaDe(p) === empresaSel).map(p => p.id)
+    : (pid ? [pid] : [])
+
   useEffect(() => {
-    if (pid !== 'general' && projects.length && !projects.some(p => p.id === pid)) {
-      select(projects[0]?.id || 'general')
-    }
+    if (!projects.length) return
+    // un proyecto que ya no está, o una empresa sin proyectos de este usuario
+    if (!esTotal && !projects.some(p => p.id === pid)) select(projects[0]?.id || 'general')
+    else if (empresaSel && !idsSel.length) select('general')
   }, [projects]) // eslint-disable-line
 
   function select(v) { setPid(v); localStorage.setItem('urbis.pid', v) }
   const current = projects.find(p => p.id === pid) || null
-  // proyecto efectivo para paginas operativas (nunca 'general')
-  const pidOp = pid !== 'general' ? pid : (projects[0]?.id || null)
+  // proyecto efectivo para paginas operativas (nunca un total): con "Todo Century", el
+  // primero de Century
+  const pidOp = !esTotal ? pid : (idsSel[0] || projects[0]?.id || null)
   // color del proyecto por id, respetando su posicion en la paleta
   const colorDe = id => {
     const i = projects.findIndex(p => p.id === id)
@@ -81,7 +119,7 @@ export function ProjectProvider({ children }) {
 
   const recargarProyectos = () => setVuelta(v => v + 1)
 
-  return <Ctx.Provider value={{ projects, pid, pidOp, select, current, colorDe, recargarProyectos }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ projects, pid, pidOp, select, current, colorDe, recargarProyectos, esTotal, idsSel, empresaSel }}>{children}</Ctx.Provider>
 }
 
 export const useProject = () => useContext(Ctx)
@@ -105,13 +143,31 @@ export function ProjectPicker({ withGeneral = false, generalLabel = 'GENERAL (to
 
   if (!projects.length) return null
 
-  const valor = withGeneral ? pid : (pid !== 'general' ? pid : pidOp || '')
+  const valor = withGeneral ? pid : (!esPidTotal(pid) ? pid : pidOp || '')
   const idx = projects.findIndex(p => p.id === valor)
   const sel = idx >= 0 ? projects[idx] : null
   const colorSel = sel ? colorProyecto(sel, idx) : '#9aa896'
-  const etiqueta = sel ? sel.name : (withGeneral ? generalLabel : '- elegir -')
+  const empTotal = String(valor || '').startsWith(PID_EMPRESA) ? valor.slice(PID_EMPRESA.length) : null
+  const etiqueta = sel ? sel.name : empTotal ? 'TODO ' + empTotal : (withGeneral ? generalLabel : '- elegir -')
+  // separados por empresa (CENTURY / URBIS) solo si hay más de una
+  const grupos = gruposPorEmpresa(projects)
+  const conGrupos = grupos.length > 1
 
   const elegir = v => { select(v); setOpen(false) }
+  const itemTotal = (v, texto) => (
+    <button type="button" key={v} className={`pp-item ${valor === v ? 'on' : ''}`} style={{ '--pc': '#9aa896' }}
+      onClick={() => elegir(v)}>
+      <span className="pp-dot" /> <span className="pp-label">{texto}</span>
+      {valor === v && <span className="pp-check">&#10003;</span>}
+    </button>
+  )
+  const itemProy = ({ p, i }) => (
+    <button type="button" key={p.id} className={`pp-item ${p.id === valor ? 'on' : ''}`}
+      style={{ '--pc': colorProyecto(p, i) }} onClick={() => elegir(p.id)}>
+      <span className="pp-dot" /> <span className="pp-label">{p.name}</span>
+      {p.id === valor && <span className="pp-check">&#10003;</span>}
+    </button>
+  )
 
   return (
     <div className="pp" ref={caja}>
@@ -123,19 +179,17 @@ export function ProjectPicker({ withGeneral = false, generalLabel = 'GENERAL (to
       </button>
       {open && (
         <div className="pp-menu glass">
-          {withGeneral && (
-            <button type="button" className={`pp-item ${pid === 'general' ? 'on' : ''}`} style={{ '--pc': '#9aa896' }}
-              onClick={() => elegir('general')}>
-              <span className="pp-dot" /> <span className="pp-label">{generalLabel}</span>
-            </button>
-          )}
-          {projects.map((p, i) => (
-            <button type="button" key={p.id} className={`pp-item ${p.id === valor ? 'on' : ''}`}
-              style={{ '--pc': colorProyecto(p, i) }} onClick={() => elegir(p.id)}>
-              <span className="pp-dot" /> <span className="pp-label">{p.name}</span>
-              {p.id === valor && <span className="pp-check">&#10003;</span>}
-            </button>
-          ))}
+          {withGeneral && itemTotal('general', generalLabel)}
+          {conGrupos
+            ? grupos.map(g => (
+              <div key={g.empresa} className="pp-grupo">
+                <div className="pp-empresa">{g.empresa}</div>
+                {/* "Todo Century": solo con dos o más proyectos (con uno es el mismo proyecto) */}
+                {withGeneral && g.items.length > 1 && itemTotal(PID_EMPRESA + g.empresa, 'TODO ' + g.empresa)}
+                {g.items.map(itemProy)}
+              </div>
+            ))
+            : projects.map((p, i) => itemProy({ p, i }))}
         </div>
       )}
     </div>

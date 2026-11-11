@@ -56,6 +56,44 @@ const ESQUEMA = {
   additionalProperties: false,
 }
 
+// ---------------------------------------------------------------- REGISTRO DIRECTO (sql/200)
+// En los proyectos que registran el gasto directo con el voucher (Las Praderas de
+// Pucallpa), un mismo voucher cubre VARIOS gastos, y a veces es una captura con varias
+// operaciones. Aquí todavía no hay solicitud con qué comparar: la IA lee cada operación
+// y el panel reparte el total en los gastos.
+const SISTEMA_DIRECTO = SISTEMA + `
+
+Este comprobante puede mostrar UNA operación de pago o VARIAS (por ejemplo una captura del historial del banco o de Yape con varias transferencias, o una hoja con varios depósitos). En "pagos" devuelve una entrada por CADA operación de pago que se vea, en el orden en que aparecen, con su monto, fecha, hora, número de operación y destinatario. Si es un voucher de una sola operación, "pagos" lleva un solo elemento. No sumes ni dividas importes: cada operación tal como está escrita. No cuentes como pago una comisión o un ITF que acompaña a una transferencia.`
+
+const PAGO = {
+  type: 'object',
+  properties: {
+    monto: nulo('number'),
+    fecha: { anyOf: [{ type: 'string', format: 'date' }, { type: 'null' }] },
+    hora: nulo('string'),
+    numero_operacion: nulo('string'),
+    destinatario_nombre: nulo('string'),
+    destinatario_cuenta: nulo('string'),
+  },
+  required: ['monto', 'fecha', 'hora', 'numero_operacion', 'destinatario_nombre', 'destinatario_cuenta'],
+  additionalProperties: false,
+}
+const ESQUEMA_DIRECTO = {
+  type: 'object',
+  properties: {
+    es_comprobante: { type: 'boolean' },
+    legible: { type: 'boolean' },
+    tipo: { type: 'string', enum: ['transferencia', 'yape', 'plin', 'deposito', 'efectivo', 'otro'] },
+    moneda: { anyOf: [{ type: 'string', enum: ['PEN', 'USD'] }, { type: 'null' }] },
+    banco_o_app: nulo('string'),
+    ordenante_nombre: nulo('string'),
+    pagos: { type: 'array', items: PAGO },
+    observaciones: { type: 'string' },
+  },
+  required: ['es_comprobante', 'legible', 'tipo', 'moneda', 'banco_o_app', 'ordenante_nombre', 'pagos', 'observaciones'],
+  additionalProperties: false,
+}
+
 // ---------------------------------------------------------------- validación (sin IA)
 const hoyLima = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ })
 const sumarDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
@@ -122,12 +160,68 @@ function limpiar(L) {
   }
 }
 
+// el voucher del registro directo, en limpio: cada operación con su monto, y arriba el
+// total (la suma) más los datos de la primera, para que se vea igual que una lectura simple
+function limpiarDirecto(L) {
+  const s = x => (x == null ? null : String(x).trim() || null)
+  const fechaOk = f => f && /^\d{4}-\d{2}-\d{2}$/.test(f) && !isNaN(new Date(f + 'T12:00:00Z')) ? f : null
+  const pagos = (Array.isArray(L.pagos) ? L.pagos : []).slice(0, 30).map(p => ({
+    monto: p.monto == null || isNaN(Number(p.monto)) ? null : Math.round(Number(p.monto) * 100) / 100,
+    fecha: fechaOk(s(p.fecha)), hora: s(p.hora), numero_operacion: s(p.numero_operacion),
+    destinatario_nombre: s(p.destinatario_nombre), destinatario_cuenta: s(p.destinatario_cuenta),
+  }))
+  const conMonto = pagos.filter(p => p.monto != null)
+  const total = conMonto.length ? Math.round(conMonto.reduce((t, p) => t + p.monto, 0) * 100) / 100 : null
+  const uno = pagos[0] || {}
+  return {
+    es_comprobante: !!L.es_comprobante, legible: !!L.legible, tipo: L.tipo || 'otro', moneda: L.moneda || null,
+    banco_o_app: s(L.banco_o_app), ordenante_nombre: s(L.ordenante_nombre),
+    pagos, monto: total, fecha: uno.fecha || null, hora: uno.hora || null,
+    numero_operacion: uno.numero_operacion || null, destinatario_nombre: uno.destinatario_nombre || null,
+    destinatario_cuenta: uno.destinatario_cuenta || null, observaciones: String(L.observaciones || '').trim(),
+  }
+}
+
+// sin solicitud con qué comparar: que sea un comprobante legible, en soles, con fecha
+// razonable y con operaciones que no se hayan registrado ya en otro gasto.
+// usados = { 'OP123': [request_number, …] }
+function validarDirecto(L, usados = {}, hoy = hoyLima()) {
+  const v = []
+  const ok = (campo, texto) => v.push({ nivel: 'ok', campo, texto })
+  const duda = (campo, texto) => v.push({ nivel: 'duda', campo, texto })
+  const mal = (campo, texto) => v.push({ nivel: 'mal', campo, texto })
+
+  if (!L.es_comprobante) mal('archivo', 'No parece un comprobante de pago')
+  if (!L.legible) mal('archivo', 'No se lee bien: puede estar borroso o cortado')
+  if (L.moneda === 'USD') mal('monto', 'El comprobante está en DÓLARES: los gastos van en soles')
+
+  const pagos = L.pagos || []
+  if (!pagos.length) mal('monto', 'No se ve ninguna operación de pago')
+  pagos.forEach((p, i) => {
+    const q = pagos.length > 1 ? 'Operación ' + (i + 1) + ': ' : ''
+    if (p.monto == null) mal('monto', q + 'no se ve el monto')
+    if (!p.fecha) duda('fecha', q + 'no se ve la fecha')
+    else if (p.fecha > hoy) mal('fecha', q + 'la fecha ' + dmy(p.fecha) + ' es posterior a hoy')
+    else if (p.fecha < sumarDias(hoy, -60)) duda('fecha', q + 'el pago es del ' + dmy(p.fecha) + ': tiene más de 60 días, ¿es el voucher correcto?')
+    if (!p.numero_operacion) duda('operacion', q + 'no se ve el número de operación')
+    else if ((usados[p.numero_operacion] || []).length) mal('operacion', q + 'la operación ' + p.numero_operacion + ' YA se registró en ' + usados[p.numero_operacion].map(sol).join(', '))
+  })
+  if (L.monto != null && pagos.length && pagos.every(p => p.monto != null)) {
+    ok('monto', pagos.length > 1
+      ? pagos.length + ' operaciones por un total de ' + soles(L.monto)
+      : 'Monto ' + soles(L.monto) + (L.fecha ? ' · pagado el ' + dmy(L.fecha) + (L.hora ? ' a las ' + L.hora : '') : '')
+        + (L.numero_operacion && !(usados[L.numero_operacion] || []).length ? ' · operación ' + L.numero_operacion + ', no usada antes' : ''))
+  }
+  if (String(L.observaciones || '').trim()) duda('observaciones', String(L.observaciones).trim())
+  return v
+}
+
 module.exports = function crearLector({ supabase, log }) {
   const CLAVE = process.env.ANTHROPIC_API_KEY || ''
   const ia = CLAVE ? new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 120000 }) : null
   let ocupado = false, avisoSinTabla = false, ultimoRescate = 0
 
-  async function leer(url) {
+  async function leer(url, directo = false) {
     if (!ia) throw new Error('el servidor no tiene la clave de Claude (ANTHROPIC_API_KEY)')
     let archivo
     if (/\.pdf(\?|#|$)/i.test(url)) {
@@ -144,17 +238,32 @@ module.exports = function crearLector({ supabase, log }) {
     const r = await ia.beta.messages.create({
       model: MODELO,
       max_tokens: 16000,
-      system: SISTEMA,
+      system: directo ? SISTEMA_DIRECTO : SISTEMA,
       // si los filtros de seguridad declinan, Anthropic reintenta con el modelo recomendado
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      output_config: { format: { type: 'json_schema', schema: ESQUEMA } },
-      messages: [{ role: 'user', content: [archivo, { type: 'text', text: 'Lee este comprobante de pago.' }] }],
+      output_config: { format: { type: 'json_schema', schema: directo ? ESQUEMA_DIRECTO : ESQUEMA } },
+      messages: [{ role: 'user', content: [archivo, { type: 'text', text: directo ? 'Lee este comprobante de pago y cada operación que tenga.' : 'Lee este comprobante de pago.' }] }],
     })
     if (r.stop_reason === 'refusal') throw new Error('la IA no pudo leer este archivo')
     if (r.stop_reason === 'max_tokens') throw new Error('la lectura quedó incompleta')
     const texto = r.content.filter(b => b.type === 'text').map(b => b.text).join('')
-    return limpiar(JSON.parse(texto))
+    return directo ? limpiarDirecto(JSON.parse(texto)) : limpiar(JSON.parse(texto))
+  }
+
+  // registro directo (sql/200): todavía no hay gasto; se valida el voucher solo
+  async function procesarDirecto(p) {
+    const L = await leer(p.url, true)
+    const ops = [...new Set(L.pagos.map(x => x.numero_operacion).filter(Boolean))]
+    const usados = {}
+    if (ops.length) {
+      const { data: otros } = await supabase.from('expenses').select('request_number, voucher_operacion').in('voucher_operacion', ops).limit(50)
+      for (const o of (otros || [])) (usados[o.voucher_operacion] = usados[o.voucher_operacion] || []).push(o.request_number)
+    }
+    const validacion = validarDirecto(L, usados)
+    const alertas = validacion.filter(x => x.nivel === 'mal').length
+    await supabase.from('comprobante_lecturas').update({ estado: 'listo', lectura: L, validacion, alertas, error: null, listo_at: new Date().toISOString() }).eq('id', p.id)
+    log('VOUCHER DE GASTOS IA ✔', L.pagos.length + ' operación(es)', soles(L.monto), alertas ? '→ ' + alertas + ' cosa(s) no cuadran' : '→ todo cuadra')
   }
 
   function explicar(e) {
@@ -176,8 +285,9 @@ module.exports = function crearLector({ supabase, log }) {
         await supabase.from('comprobante_lecturas').update({ estado: 'pendiente' })
           .eq('estado', 'leyendo').lt('tomado_at', new Date(Date.now() - 3 * 60000).toISOString())
       }
+      // '*' y no la lista de columnas: así este código corre igual antes y después de sql/200 (modo)
       const { data: pend, error } = await supabase.from('comprobante_lecturas')
-        .select('id, expense_id, url, intentos').eq('estado', 'pendiente').order('creado_at').limit(3)
+        .select('*').eq('estado', 'pendiente').order('creado_at').limit(3)
       if (error) { if (!avisoSinTabla) log('LECTOR COMPROBANTES:', error.message, '(¿falta correr sql/103?)'); avisoSinTabla = true; return }
       avisoSinTabla = false
       for (const p of (pend || [])) {
@@ -186,6 +296,7 @@ module.exports = function crearLector({ supabase, log }) {
           .eq('id', p.id).eq('estado', 'pendiente').select('id')
         if (!tomada || !tomada.length) continue
         try {
+          if (p.modo === 'directo' || !p.expense_id) { await procesarDirecto(p); continue }
           const { data: g } = await supabase.from('expenses').select('id, request_number, amount, recipient, issue_date').eq('id', p.expense_id).maybeSingle()
           if (!g) throw new Error('la solicitud ya no existe')
           const L = await leer(p.url)
@@ -212,3 +323,5 @@ module.exports = function crearLector({ supabase, log }) {
 module.exports.validar = validar
 module.exports.mismoNombre = mismoNombre
 module.exports.limpiar = limpiar
+module.exports.validarDirecto = validarDirecto
+module.exports.limpiarDirecto = limpiarDirecto

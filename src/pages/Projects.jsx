@@ -131,6 +131,7 @@ export default function Projects() {
     const base = {}
     for (const [k] of CAMPOS) base[k] = p?.[k] ?? ''
     base.color = p?.color ?? ''
+    base.empresa = p?.empresa ?? 'URBIS'
     base.copia_literal_expiry = p?.copia_literal_expiry ?? ''
     base.copia_literal_note = p?.copia_literal_note ?? ''
     base.bot_knowledge = p?.bot_knowledge ?? ''
@@ -181,6 +182,12 @@ export default function Projects() {
       payload.latitude = f.latitude ? Number(f.latitude) : null
       payload.longitude = f.longitude ? Number(f.longitude) : null
       payload.color = f.color || null        // color identificador (menu y selector)
+      // la empresa agrupa el selector (CENTURY / URBIS, sql/200): solo si la base ya la tiene
+      if ('empresa' in (p || projects[0] || {})) {
+        const emp = String(f.empresa || '').toUpperCase().trim() || 'URBIS'
+        if (emp.length < 2 || emp.length > 40) throw new Error('La empresa debe tener entre 2 y 40 letras (URBIS, CENTURY…).')
+        payload.empresa = emp
+      }
       payload.copia_literal_url = literalUrl
       payload.copia_literal_expiry = f.copia_literal_expiry || null
       payload.copia_literal_note = (f.copia_literal_note || '').trim() || null
@@ -248,6 +255,16 @@ export default function Projects() {
             {f.color && <button type="button" className="link-btn" onClick={() => setF(x => ({ ...x, color: '' }))}>quitar</button>}
           </div>
         </label>
+        {/* la empresa: separa la lista de proyectos del menú en CENTURY y URBIS (sql/200) */}
+        {'empresa' in (pcur || projects[0] || {}) && (
+          <label>Empresa <span className="muted small">(agrupa la lista de proyectos del menú)</span>
+            <input list="empresas-proyecto" value={f.empresa || ''} placeholder="URBIS"
+              onChange={e => setF(x => ({ ...x, empresa: e.target.value }))} />
+            <datalist id="empresas-proyecto">
+              {[...new Set(['URBIS', 'CENTURY', ...projects.map(x => x.empresa).filter(Boolean)])].map(e => <option key={e} value={e} />)}
+            </datalist>
+          </label>
+        )}
         <label>Partida / copia literal (PDF o foto) {edit === 'nuevo' && <b className="bad">*</b>}
           <input type="file" accept="image/*,.pdf" onChange={e => setFLiteral(e.target.files[0] || null)} />
           <input value={f.copia_literal_note || ''} placeholder="nota / comentario del documento"

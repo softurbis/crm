@@ -49,7 +49,8 @@ export const hojaListaParaSubir = g => {
   return !!g.requester_signed_at || !g.requester_id
 }
 
-export const numeroGasto = g => g.request_number ? 'SOL-' + String(g.request_number).padStart(5, '0')
+// los registrados directo con el voucher (sql/200) no son solicitudes: GAS-, mismo correlativo
+export const numeroGasto = g => g.request_number ? (g.voucher_grupo ? 'GAS-' : 'SOL-') + String(g.request_number).padStart(5, '0')
   : g.id ? String(g.id).slice(0, 8).toUpperCase() : '(se asigna al registrarla)'
 
 // `conFirmas`: abajo van las DOS firmas (receptor y remitente), así que la línea de

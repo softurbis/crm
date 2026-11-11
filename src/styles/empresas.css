@@ -1,0 +1,12 @@
+/* PROYECTOS SEPARADOS POR EMPRESA (CENTURY / URBIS), 11 nov 2026 — context/ProjectContext.jsx y el menú */
+
+/* el menú de la izquierda */
+.proj-empresa-grp { display: flex; flex-direction: column; gap: 2px; }
+.proj-empresa-grp + .proj-empresa-grp { margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(156, 203, 134, .18); }
+.proj-empresa { margin: 2px 0 2px .45rem; font-size: .66rem; font-weight: 800; letter-spacing: .14em; color: var(--muted); }
+.proj-head.actual { color: var(--text); background: color-mix(in srgb, var(--pc) 12%, transparent); }
+.proj-check { margin-left: auto; font-size: .8rem; color: var(--pc); }
+
+/* el selector de las pantallas (ProjectPicker) */
+.pp-grupo + .pp-grupo { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.pp-empresa { padding: 6px 10px 2px; font-size: .66rem; font-weight: 800; letter-spacing: .14em; color: var(--muted); }

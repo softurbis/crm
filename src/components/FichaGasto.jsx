@@ -39,7 +39,7 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
   // el recorrido del gasto, en orden
   const pasos = [
     cargado ? { t: 'Cargado al sistema', cuando: g.created_at, quien: 'gasto anterior, desde su constancia' }
-      : { t: 'Registrada', cuando: g.created_at, quien: g.registrado_por_nombre },
+      : { t: g.voucher_grupo ? 'Registrado con el voucher (sin solicitud)' : 'Registrada', cuando: g.created_at, quien: g.registrado_por_nombre },
     // una firma EN PAPEL (sql/183): la hora es la de la hoja subida, y se dice quién la subió
     (g.requester_id || g.requester_papel) && (g.requester_papel
       ? { t: 'Firmó a mano quien lo recibe (papel)', cuando: g.requester_signed_at, quien: (g.requester_name || g.recipient) + (g.hoja_izq_por_nombre ? ' · hoja subida por ' + g.hoja_izq_por_nombre : ''), cod: g.requester_code, espera: 'falta subir la hoja firmada por ' + (g.recipient || 'quien recibe') }

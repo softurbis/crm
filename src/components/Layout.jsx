@@ -1,7 +1,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useProject, colorProyecto, logoProyecto } from '../context/ProjectContext'
+import { useProject, colorProyecto, logoProyecto, gruposPorEmpresa, nombreEmpresa, PID_EMPRESA } from '../context/ProjectContext'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import Avatar from './Avatar'
@@ -146,7 +146,7 @@ export const PANELS = MENU.filter(m => !m.admin && !m.corrige && !m.cobranza && 
 
 export default function Layout() {
   const { profile, role, esSuper, puedeCorregir, esJefe, logout } = useAuth()
-  const { projects, pid, pidOp, select } = useProject()
+  const { projects, pid, pidOp, select, esTotal, empresaSel } = useProject()
   const [open, setOpen] = useState(false)
   const [eligiendoProy, setEligiendoProy] = useState(false)   // la lista de proyectos, desplegada
   const [gruposCerrados, setGruposCerrados] = useState({})   // grupos plegados (por defecto todos abiertos)
@@ -297,15 +297,18 @@ export default function Layout() {
   // el proyecto sobre el que trabajan las pantallas del menú (nunca "general")
   const iOp = projects.findIndex(p => p.id === pidOp)
   const proyOp = iOp >= 0 ? projects[iOp] : null
-  // "todos los proyectos" (el total del Dashboard y de Clientes): no es un proyecto
-  // más, así que el menú lo muestra aparte y en gris
-  const enTotal = pid === 'general' && projects.length > 1
+  // "todos los proyectos" (el total del Dashboard y de Clientes) o "Todo Century": no es
+  // un proyecto más, así que el menú lo muestra aparte y en gris
+  const enTotal = esTotal && projects.length > 1
+  // la lista separada por empresa, CENTURY y URBIS (11 nov), si hay más de una
+  const gruposEmp = gruposPorEmpresa(projects)
+  const conEmpresas = gruposEmp.length > 1
   // El total solo existe en Hoy y en el Dashboard. Las pantallas de UN proyecto
   // (mapa, pagos, ventas, gastos…) trabajan sobre el primero: al entrar a una de
   // ellas el menú pasa a ese proyecto, para no decir "todos" mientras se ve uno.
   const pantallaDeProyecto = MENU.some(m => m.proy && (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))
   useEffect(() => {
-    if (pid === 'general' && pidOp && pantallaDeProyecto) select(pidOp)
+    if (esTotal && pidOp && pantallaDeProyecto) select(pidOp)
   }, [pid, pidOp, pantallaDeProyecto])   // eslint-disable-line
 
   const Item = m => (
@@ -366,7 +369,9 @@ export default function Layout() {
                     <button type="button" className="proj-head on" title={projects.length > 1 ? 'Cambiar de proyecto' : proyOp.name}
                       onClick={e => { e.stopPropagation(); if (projects.length > 1) setEligiendoProy(a => !a) }}>
                       <span className="proj-dot" />
-                      <span className="proj-name" title={enTotal ? 'Todos los proyectos' : proyOp.name}>{enTotal ? <>Todos los <b>proyectos</b></> : nombreProy(proyOp.name)}</span>
+                      <span className="proj-name" title={enTotal ? (empresaSel ? 'Todo ' + nombreEmpresa(empresaSel) : 'Todos los proyectos') : proyOp.name}>
+                        {enTotal ? (empresaSel ? <>Todo <b>{nombreEmpresa(empresaSel)}</b></> : <>Todos los <b>proyectos</b></>) : nombreProy(proyOp.name)}
+                      </span>
                       {projects.length > 1 && <span className={`proj-caret ${eligiendoProy ? 'open' : ''}`}>&#9656;</span>}
                     </button>
                     {/* la marca del proyecto elegido: cada uno se identifica con su logo
@@ -376,31 +381,43 @@ export default function Layout() {
                         <img src={logoProyecto(proyOp)} alt={proyOp.fact_razon_social || proyOp.name} />
                       </div>
                     )}
-                    {/* Los demás proyectos van AL MISMO NIVEL, sin sangría: cada proyecto es
-                        independiente, ninguno cuelga de otro (pedido del dueño, 1 oct). */}
-                    {eligiendoProy && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
-                        <p className="menu-section" style={{ margin: '0 0 2px' }}>Cambiar a</p>
-                        {projects.filter(p => enTotal || p.id !== pidOp).map(p => {
-                          const i = projects.indexOf(p)
-                          return (
-                            <button type="button" key={p.id} className="proj-head" style={{ '--pc': colorProyecto(p, i) }}
-                              title={p.name} onClick={e => { e.stopPropagation(); select(p.id); setEligiendoProy(false) }}>
-                              <span className="proj-dot" />
-                              <span className="proj-name">{nombreProy(p.name)}</span>
-                            </button>
-                          )
-                        })}
-                        {!enTotal && (
-                          <button type="button" className="proj-head" style={{ '--pc': COLOR_TOTAL }}
-                            title="Ver el total de todos los proyectos (Hoy y Dashboard)"
-                            onClick={e => { e.stopPropagation(); select('general'); setEligiendoProy(false) }}>
-                            <span className="proj-dot" />
-                            <span className="proj-name">Todos los <b>proyectos</b></span>
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* Los proyectos van AL MISMO NIVEL, sin sangría: cada proyecto es
+                        independiente, ninguno cuelga de otro (pedido del dueño, 1 oct). Desde el
+                        11 nov se separan por EMPRESA: CENTURY (Praderas de Pucallpa) y URBIS
+                        (los demás), cada una con su total si tiene dos o más proyectos. */}
+                    {eligiendoProy && (() => {
+                      const ir = v => e => { e.stopPropagation(); select(v); setEligiendoProy(false) }
+                      const botonProy = (p, i) => (
+                        <button type="button" key={p.id} className={'proj-head' + (!enTotal && p.id === pidOp ? ' actual' : '')} style={{ '--pc': colorProyecto(p, i) }}
+                          title={p.name} onClick={ir(p.id)}>
+                          <span className="proj-dot" />
+                          <span className="proj-name">{nombreProy(p.name)}</span>
+                          {!enTotal && p.id === pidOp && <span className="proj-check">&#10003;</span>}
+                        </button>
+                      )
+                      const botonTotal = (v, texto, titulo) => pid === v ? null : (
+                        <button type="button" key={v} className="proj-head" style={{ '--pc': COLOR_TOTAL }} title={titulo} onClick={ir(v)}>
+                          <span className="proj-dot" />
+                          <span className="proj-name">{texto}</span>
+                        </button>
+                      )
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+                          <p className="menu-section" style={{ margin: '0 0 2px' }}>Cambiar a</p>
+                          {conEmpresas
+                            ? gruposEmp.map(g => (
+                              <div key={g.empresa} className="proj-empresa-grp">
+                                <p className="proj-empresa">{g.empresa}</p>
+                                {g.items.map(({ p, i }) => botonProy(p, i))}
+                                {g.items.length > 1 && botonTotal(PID_EMPRESA + g.empresa, <>Todo <b>{nombreEmpresa(g.empresa)}</b></>,
+                                  'Ver el total de los proyectos de ' + nombreEmpresa(g.empresa) + ' (Hoy y Dashboard)')}
+                              </div>
+                            ))
+                            : projects.filter(p => enTotal || p.id !== pidOp).map(p => botonProy(p, projects.indexOf(p)))}
+                          {botonTotal('general', <>Todos los <b>proyectos</b></>, 'Ver el total de todos los proyectos (Hoy y Dashboard)')}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 

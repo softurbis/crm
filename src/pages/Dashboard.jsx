@@ -59,7 +59,8 @@ function Ayuda({ titulo = '¿Cómo se lee?', margen = '6px 0 0', children }) {
 
 export default function Dashboard() {
   const { role } = useAuth()
-  const { projects, pid } = useProject()
+  // idsSel: todos, los de una empresa ("Todo Century") o el proyecto elegido
+  const { projects, pid, idsSel, empresaSel } = useProject()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'resumen'   // en la URL: al recargar o volver atrás se cae en la misma pestaña
@@ -71,7 +72,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const ids = pid === 'general' ? projects.map(p => p.id) : [pid]
+      const ids = idsSel
       if (!ids.length) return
       const COLS_GASTOS = 'id, project_id, amount, issue_date, reception_date, status, type, recipient, description, request_number, requester_id, requester_signed_at, approved_at, rejected_at, voucher_url, receipt_url'
       const hoy = new Date().toISOString().slice(0, 10)
@@ -558,7 +559,7 @@ export default function Dashboard() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Dashboard {pid === 'general' ? '- GENERAL' : ''}</h1>
+        <h1 style={{ margin: 0, flex: 1 }}>Dashboard {pid === 'general' ? '- GENERAL' : empresaSel ? '- ' + empresaSel : ''}</h1>
         <select value={fmes} onChange={e => verMes(e.target.value)}>
           <option value="todos">RESUMEN: TODO EL TIEMPO</option>
           {D.mesesOrden.map(ym => <option key={ym} value={ym}>{mesLbl(ym)}</option>)}

@@ -18,6 +18,7 @@ import FirmaPad from '../components/FirmaPad'
 import AprobarGasto from '../components/AprobarGasto'
 import RegistrarPago from '../components/RegistrarPago'
 import ReponerGasto from '../components/ReponerGasto'
+import GastoDirecto, { CorregirGastoDirecto } from '../components/GastoDirecto'
 import { useEsCelular } from '../lib/useEsCelular'
 
 // la fecha de HOY en Lima: con la hora UTC, después de las 7 pm salía la de mañana
@@ -49,6 +50,9 @@ const GASTO_BLOQUES = ['TABLA_DETALLE','FIRMA_RECEPTOR']
 // components/ConstanciaGasto (los usa también la pantalla de facturación, sql/145)
 // adelantado por alguien, sin devolver todavía y no rechazado (sql/125)
 const faltaReponer = g => !!g.adelanto_por && !g.reposicion_id && !g.rejected_at
+// algún documento marcado NO APLICA a propósito. La constancia de un gasto registrado
+// directo con el voucher (sql/200) no cuenta: ese proyecto no usa constancia
+const marcadoNA = g => (g.request_doc_na && !g.voucher_grupo) || g.receipt_na || g.voucher_na
 
 export default function Expenses() {
   // puedeCorregir = superusuario u operador (corregir, reemplazar, plantilla);
@@ -99,6 +103,11 @@ export default function Expenses() {
   // FIRMA EN PAPEL (sql/183, 5 nov): subir la hoja firmada a mano / cambiar cómo se firma
   const [hoja, setHoja] = useState(null)                // gasto al que se le sube la hoja firmada
   const [formaFirma, setFormaFirma] = useState(null)    // gasto al que se le cambia digital <-> papel
+  // REGISTRO DIRECTO (sql/200, 11 nov): proyectos donde el gasto no se solicita, se registra
+  // pagado con su voucher; un voucher puede cubrir varios gastos (voucher_grupo)
+  const [directoOpen, setDirectoOpen] = useState(false)
+  const [corrDirecto, setCorrDirecto] = useState(null)  // gasto directo al que se le corrigen los textos
+  const [fGrupo, setFGrupo] = useState(null)            // ver solo los gastos de UN voucher
 
   async function load() {
     if (!pidOp) return
@@ -111,7 +120,7 @@ export default function Expenses() {
     setHay125(!r.error); setReposiciones(Object.fromEntries((r.data || []).map(x => [x.id, x])))
     setTplText((p.data?.expense_template) || DEFAULT_GASTO_TEMPLATE)
   }
-  useEffect(() => { load() }, [pidOp])
+  useEffect(() => { load(); setFGrupo(null) }, [pidOp])
   // a quien se le puede pedir la firma de solicitante en este proyecto (sql/74).
   // Va por RPC y no por consulta a profiles: la secretaria no puede leer la
   // tabla de usuarios entera, y para elegir solo necesita los nombres.
@@ -132,6 +141,7 @@ export default function Expenses() {
   // Los motivos del panel se cuentan sobre lo que dejan el tipo y el estado.
   const porEstado = useMemo(() => {
     return list.filter(g => {
+      if (fGrupo && g.voucher_grupo !== fGrupo) return false
       if (ftipo !== 'todos' && g.type !== ftipo) return false
       if (fest === 'solicitado' && g.status !== 'solicitado') return false
       if (fest === 'confirmado' && g.status !== 'confirmado') return false
@@ -142,11 +152,11 @@ export default function Expenses() {
       if (fest === 'en_papel' && estadoGasto(g) !== 'en_papel') return false
       // un gasto marcado NO APLICA no es un faltante: no tiene que aparecer aqui
       if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na)) return false
-      if (fest === 'no_aplica' && !(g.request_doc_na || g.receipt_na || g.voucher_na)) return false
+      if (fest === 'no_aplica' && !marcadoNA(g)) return false
       if (fest === 'falta_reponer' && !faltaReponer(g)) return false
       return true
     })
-  }, [list, ftipo, fest])
+  }, [list, ftipo, fest, fGrupo])
   const filtrada = useMemo(() => filtrarGastos(porEstado, fb), [porEstado, fb])
   const pag = usePaginacion(filtrada, 100)
   const total = filtrada.reduce((s, g) => s + Number(g.amount), 0)
@@ -195,7 +205,7 @@ export default function Expenses() {
   const totalPorReponer = porReponer.reduce((x, g) => x + Number(g.amount || 0), 0)
   // suben la reposición la oficina y la socia del proyecto (cualquiera de las dos)
   const puedeReponer = hay125 && (['admin', 'secretary', 'superuser', 'operador'].includes(role) || esSocio)
-  const noAplican = list.filter(g => g.request_doc_na || g.receipt_na || g.voucher_na).length
+  const noAplican = list.filter(marcadoNA).length
   // FIRMA EN PAPEL (sql/183): la base ya tiene las columnas (sin gastos todavía no se sabe:
   // se ofrece igual y, si falta el SQL, el registro avisa y queda digital)
   const hay183 = list.length ? 'requester_papel' in list[0] : true
@@ -349,6 +359,28 @@ export default function Expenses() {
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
     setProyecto(p => ({ ...p, expense_approval: on }))
     setMsg({ ok: true, t: on ? 'DESDE AHORA LOS GASTOS DE ESTE PROYECTO NECESITAN LA FIRMA DE UN SOCIO ANTES DE PAGARSE' : 'APROBACIÓN DE SOCIO DESACTIVADA EN ESTE PROYECTO' })
+  }
+
+  // REGISTRO DIRECTO (sql/200): regla del proyecto, la decide el superusuario
+  async function toggleDirecto(on) {
+    if (on && !await preguntar('Desde ahora los gastos de ' + (proyecto?.name || 'este proyecto') + ' NO se solicitan: se registran directo con el voucher, ya pagados, sin constancia ni firmas. Un voucher puede tener varios gastos.\n\nLas solicitudes que ya están en trámite siguen su camino.\n\n¿Activar?')) return
+    const { error } = await supabase.from('projects').update({ gasto_directo: on }).eq('id', pidOp)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + (/gasto_directo/.test(error.message) ? 'falta correr sql/200 en la base.' : error.message) }); return }
+    setProyecto(p => ({ ...p, gasto_directo: on }))
+    setMsg({ ok: true, t: on ? 'DESDE AHORA LOS GASTOS DE ESTE PROYECTO SE REGISTRAN DIRECTO CON EL VOUCHER' : 'ESTE PROYECTO VUELVE A PEDIR LOS GASTOS CON SOLICITUD' })
+  }
+  const delVoucher = g => g.voucher_grupo ? list.filter(x => x.voucher_grupo === g.voucher_grupo) : [g]
+  async function anularVoucher(g) {
+    const hermanos = delVoucher(g)
+    const tot = hermanos.reduce((s, x) => s + Number(x.amount || 0), 0)
+    const motivo = await pedir('ANULAR el voucher de ' + soles(tot) + (hermanos.length > 1 ? ' con sus ' + hermanos.length + ' gastos' : ' y su gasto') + '.\n\n'
+      + 'Se borran de la lista (todo queda en la bitácora) y el voucher se puede volver a registrar bien.\n\n¿Por qué se anula?', { tipo: 'largo' })
+    if (motivo === null) return
+    const { data, error } = await supabase.rpc('anular_voucher_gastos', { vid: g.voucher_grupo, motivo })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setFGrupo(null)
+    setMsg({ ok: true, t: 'VOUCHER ANULADO: ' + (data?.gastos || hermanos.length) + ' GASTO(S) POR ' + soles(data?.monto ?? tot) + ' FUERA DE LA LISTA. QUEDA EN BITÁCORA.' })
+    load()
   }
 
   async function confirmar(g) {
@@ -507,6 +539,9 @@ export default function Expenses() {
 
   const UpBtn = ({ g, campo, carpeta, label, alerta }) => {
     const nota = g[campo.replace('_url', '_note')]
+    // el voucher de un registro directo es de todos los gastos del voucher (sql/200):
+    // no se cambia ni se quita en uno solo (se anula el voucher entero)
+    const fijo = campo === 'voucher_url' && !!g.voucher_grupo
     if (g[campo]) return (
       <>
         {/* "ver" abre el documento dentro del panel: un Word tambien, que antes
@@ -514,7 +549,7 @@ export default function Expenses() {
         <button className="link-btn" onClick={() => setVerDoc({ url: g[campo], titulo: label })}>VER</button>
         {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
         {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
-        {puedeCorregir && <>
+        {puedeCorregir && !fijo && <>
           {' '}<label className="link-btn" title="Reemplazar el documento por otro archivo" style={{ cursor: 'pointer' }}>&#128260;
             <input type="file" accept="image/*,.pdf,.docx" hidden
               onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
@@ -726,12 +761,14 @@ export default function Expenses() {
       reposicion: g.reposicion_id && reposiciones[g.reposicion_id] ? reposiciones[g.reposicion_id] : null,
     })}><b>{g.request_number ? numeroDe(g) : '—'}</b></button>
   )
+  // los registrados directo con el voucher (sql/200) no tienen constancia que imprimir
+  const imprimibles = filtrada.filter(g => !g.voucher_grupo)
   async function imprimirLote() {
-    if (filtrada.length > 60) { setMsg({ ok: false, t: 'Son ' + filtrada.length + ' constancias: busca o filtra por fecha (máximo 60 de una vez).' }); return }
+    if (imprimibles.length > 60) { setMsg({ ok: false, t: 'Son ' + imprimibles.length + ' constancias: busca o filtra por fecha (máximo 60 de una vez).' }); return }
     // cada firma con su verificación, igual que al imprimir una sola
-    const firmados = filtrada.filter(g => g.approved_at || g.requester_signed_at)
+    const firmados = imprimibles.filter(g => g.approved_at || g.requester_signed_at)
     const res = await Promise.all(firmados.map(g => supabase.rpc('verificar_gasto', { eid: g.id }).then(({ data }) => [g.id, data || null], () => [g.id, null])))
-    setPrtLote({ lista: filtrada, verifs: Object.fromEntries(res) })
+    setPrtLote({ lista: imprimibles, verifs: Object.fromEntries(res) })
   }
 
   // ---- LAS PIEZAS DE CADA GASTO ----
@@ -740,6 +777,7 @@ export default function Expenses() {
   // componentes: un componente definido aquí adentro se remontaría en cada render.
   const estadoDe = g => {
     const e = estadoGasto(g)
+    if (e === 'confirmado' && g.voucher_grupo) return <span className="ok" title="Registrado directo con el voucher, sin solicitud ni firmas">&#10004; PAGADO<br /><span className="muted small">con voucher</span></span>
     if (e === 'confirmado') return <span className="ok">&#10004; CONFIRMADO</span>
     if (e === 'aprobado') return pagoPendiente(g)
       ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar el pago' : 'falta comprobante'}</span></span>
@@ -781,7 +819,10 @@ export default function Expenses() {
   // con una firma en papel pendiente, la hoja va por "📄 subir hoja" (registrar_firma_papel,
   // sql/183): subida por el botón de siempre quedaría el archivo sin la firma
   const hojaPendiente = g => puedeSubirHoja && estadoGasto(g) === 'en_papel' && hojaListaParaSubir(g)
-  const docConstancia = g => <>
+  // registro directo (sql/200): no hay constancia ni firmas
+  const docConstancia = g => g.voucher_grupo
+    ? <span className="muted small" style={{ textTransform: 'none' }} title="Registrado directo con el voucher">— sin constancia<br />(registro directo)</span>
+    : <>
     <button className="link-btn" onClick={() => setPrt(g)}>imprimir</button>{' | '}
     {hojaPendiente(g) && !g.request_doc_url
       ? <button type="button" className="upload-btn" onClick={() => setHoja(g)}>📄 subir hoja</button>
@@ -799,6 +840,19 @@ export default function Expenses() {
   // lo impide, sql/147): antes la oficina podía subirlo mientras el gasto esperaba las
   // firmas y quedaba el archivo sin el pago (SOL-00353). La reposición va aparte.
   const docComprobante = g => {
+    // registro directo: el voucher puede ser de varios gastos; se dice de cuánto es y se
+    // pueden ver juntos
+    if (g.voucher_grupo) {
+      const hermanos = delVoucher(g)
+      const tot = hermanos.reduce((s, x) => s + Number(x.amount || 0), 0)
+      return <>
+        <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
+        {hermanos.length > 1 && <div className="small" style={{ textTransform: 'none' }}>
+          <span className="muted">{hermanos.findIndex(x => x.id === g.id) + 1} de {hermanos.length} gastos del voucher ({soles(tot)})</span>{' '}
+          {fGrupo !== g.voucher_grupo && <button type="button" className="link-btn small" onClick={() => setFGrupo(g.voucher_grupo)}>ver los {hermanos.length}</button>}
+        </div>}
+      </>
+    }
     if (proyecto?.expense_approval && g.status !== 'confirmado' && !g.rejected_at) {
       if (g.voucher_url) return <><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
         {pagoPendiente(g) && <div className="warn small" style={{ textTransform: 'none' }}>falta confirmar el pago</div>}</>
@@ -867,8 +921,13 @@ export default function Expenses() {
     load()
   }
 
-  const accionesOficina = g => <>
-    {!readOnly && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
+  // registro directo (sql/200): corregir los textos (no el monto) o anular el voucher entero
+  const accionesOficina = g => g.voucher_grupo ? <>
+    {esOficina && <><button className="btn-ghost" title="Corregir tipo, motivo o quién recibió (el monto no)" onClick={() => setCorrDirecto(g)}>corregir</button>{' '}</>}
+    {esJefe && <button className="link-btn bad" title="Borra este voucher con todos sus gastos (queda en bitácora) para registrarlo de nuevo" onClick={() => anularVoucher(g)}>anular voucher</button>}
+  </> : <>
+    {/* en un proyecto con registro directo ya no se crean solicitudes */}
+    {!readOnly && !proyecto?.gasto_directo && <><button className="btn-ghost" title="Crear una solicitud nueva con estos mismos datos (el gasto que se repite cada mes)"
       onClick={() => duplicar(g)}>duplicar</button>{' '}</>}
     {g.status === 'solicitado' && ['admin', 'secretary', 'superuser', 'operador'].includes(role) && (<>
       <button className="btn-ghost" onClick={() => abrirEditar(g)}>editar</button>{' '}
@@ -961,8 +1020,11 @@ export default function Expenses() {
           <option value="no_aplica">MARCADOS "NO APLICA"</option>
           {hay125 && <option value="falta_reponer">FALTA REPONER (lo adelantó alguien)</option>}
         </select>
-        {filtrada.length > 0 && <button className="btn-ghost" onClick={imprimirLote} title="Imprimir las constancias de lo que se está viendo, una por hoja">🖨 Imprimir {filtrada.length === 1 ? 'esta' : 'las ' + filtrada.length}</button>}
-        {!readOnly && <button className="btn-primary" onClick={() => show ? setShow(false) : abrirNueva()}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
+        {imprimibles.length > 0 && <button className="btn-ghost" onClick={imprimirLote} title="Imprimir las constancias de lo que se está viendo, una por hoja">🖨 Imprimir {imprimibles.length === 1 ? 'esta' : 'las ' + imprimibles.length}</button>}
+        {/* REGISTRO DIRECTO (sql/200): en estos proyectos el gasto no se solicita */}
+        {proyecto?.gasto_directo
+          ? esOficina && <button className="btn-primary" onClick={() => { setShow(false); setMsg(null); setDirectoOpen(true) }}>+ Registrar gasto con voucher</button>
+          : !readOnly && <button className="btn-primary" onClick={() => show ? setShow(false) : abrirNueva()}>{show ? 'Cerrar' : '+ Solicitar gasto'}</button>}
       </div>
       <BuscadorGastos base={porEstado} f={fb} setF={setFb} />
 
@@ -994,8 +1056,27 @@ export default function Expenses() {
       )}
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
+      {/* REGISTRO DIRECTO (sql/200): sin solicitud ni firmas; un voucher, varios gastos */}
+      {proyecto?.gasto_directo && (
+        <p className="hint" style={{ textTransform: 'none' }}>
+          📌 En <b>{proyecto.name}</b> los gastos no se solicitan: se registran directo con el voucher, ya pagados, sin constancia ni firmas.
+          Un voucher puede tener varios gastos. El RH o la factura se sube después en cada uno.
+        </p>
+      )}
+      {fGrupo && (
+        <p className="hint" style={{ textTransform: 'none' }}>
+          🧾 Mostrando solo los gastos de un voucher ({soles(list.filter(g => g.voucher_grupo === fGrupo).reduce((s, g) => s + Number(g.amount || 0), 0))}).{' '}
+          <button type="button" className="link-btn" onClick={() => setFGrupo(null)}>ver todos ✕</button>
+        </p>
+      )}
+      {esSuper && proyecto && 'gasto_directo' in proyecto && (
+        <label className="inline-check" style={{ display: 'block', margin: '0 0 6px' }}>
+          <input type="checkbox" checked={!!proyecto.gasto_directo} onChange={e => toggleDirecto(e.target.checked)} />
+          {' '}Este proyecto registra los gastos <b>directo con el voucher</b> (sin solicitud ni firmas)
+        </label>
+      )}
       {/* exigir o no la firma del socio es una regla del proyecto: la decide solo el superusuario */}
-      {esSuper && proyecto && 'expense_approval' in proyecto && (
+      {esSuper && proyecto && 'expense_approval' in proyecto && !proyecto.gasto_directo && (
         <label className="inline-check" style={{ display: 'block', margin: '0 0 10px' }}>
           <input type="checkbox" checked={!!proyecto.expense_approval} onChange={e => toggleAprobacion(e.target.checked)} />
           {' '}Este proyecto exige la <b>aprobación firmada de un socio</b> antes de confirmar el pago
@@ -1487,7 +1568,18 @@ export default function Expenses() {
       <Paginador {...pag} />
 
       {ficha && <FichaGasto g={ficha} proyecto={proyecto} onCerrar={() => setFicha(null)}
-        onImprimir={g => { setFicha(null); setPrt(list.find(x => x.id === g.id) || g) }} />}
+        onImprimir={ficha.voucher_grupo ? undefined : g => { setFicha(null); setPrt(list.find(x => x.id === g.id) || g) }} />}
+
+      {directoOpen && proyecto && (
+        <GastoDirecto proyecto={proyecto} opcionesPersonas={opcionesPersonas}
+          onCerrar={() => setDirectoOpen(false)}
+          onHecho={t => { setDirectoOpen(false); setMsg({ ok: true, t }); load() }} />
+      )}
+      {corrDirecto && (
+        <CorregirGastoDirecto gasto={corrDirecto} opcionesPersonas={opcionesPersonas} profile={profile}
+          onCerrar={() => setCorrDirecto(null)}
+          onHecho={t => { setCorrDirecto(null); setMsg({ ok: true, t }); load() }} />
+      )}
 
       {prtLote && (
         <div className="modal-bg" onClick={() => setPrtLote(null)}>

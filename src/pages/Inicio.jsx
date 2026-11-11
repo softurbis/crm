@@ -41,11 +41,12 @@ function waCobro({ nombre, phone, lote, n, deuda }) {
 // que les falta la boleta o el voucher, y sus tareas.
 export default function Inicio() {
   const { profile } = useAuth()
-  const { projects, pid } = useProject()
+  const { projects, pid, idsSel } = useProject()
   const irA = useNavigate()
   const esCelular = useEsCelular()
   const hoy = hoyPeru()
-  const ids = useMemo(() => (pid === 'general' ? projects.map(p => p.id) : [pid]).filter(Boolean), [pid, projects])
+  // todos, los de una empresa ("Todo Century") o el proyecto elegido
+  const ids = useMemo(() => idsSel.filter(Boolean), [pid, projects]) // eslint-disable-line
   const clave = ids.join(',')
   const nombreProy = id => projects.find(p => p.id === id)?.name || ''
   const varios = ids.length > 1

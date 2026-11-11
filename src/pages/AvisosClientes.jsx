@@ -96,14 +96,14 @@ export default function AvisosClientes() {
 
 export function ClientesYAvisos() {
   const { profile, role } = useAuth()
-  const { pid } = useProject()
+  const { pid, esTotal } = useProject()
   const puede = role === 'superuser' || (profile?.permisos || []).includes('cobranza')
   const ve = puede || role === 'admin'
   const [msg, setMsg] = useMsg(null)
   const [datos, setDatos] = useState(null)
   const [tipo, setTipo] = useState('todos')          // todos | clientes | leads
   const [recibe, setRecibe] = useState('todos')      // todos | si | no
-  const [proy, setProy] = useState(pid && pid !== 'general' ? pid : 'todos')
+  const [proy, setProy] = useState(pid && !esTotal ? pid : 'todos')
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(() => new Set())
   const [busy, setBusy] = useState(false)
@@ -164,7 +164,7 @@ export function ClientesYAvisos() {
     return () => clearInterval(t)
   }, [ve])
   // si cambian el proyecto arriba, la pantalla lo sigue
-  useEffect(() => { if (pid && pid !== 'general') setProy(pid) }, [pid])
+  useEffect(() => { if (pid && !esTotal) setProy(pid) }, [pid]) // eslint-disable-line
 
   // las dos listas en una, con la misma cara
   const filas = useMemo(() => {
