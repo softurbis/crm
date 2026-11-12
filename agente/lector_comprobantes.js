@@ -218,7 +218,7 @@ function validarDirecto(L, usados = {}, hoy = hoyLima()) {
 
 module.exports = function crearLector({ supabase, log }) {
   const CLAVE = process.env.ANTHROPIC_API_KEY || ''
-  const ia = CLAVE ? new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 120000 }) : null
+  const ia = CLAVE ? require('./uso_ia').envolver(new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 120000 }), { supabase, log, origen: 'comprobante' }) : null
   let ocupado = false, avisoSinTabla = false, ultimoRescate = 0
 
   async function leer(url, directo = false) {

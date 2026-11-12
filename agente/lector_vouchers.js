@@ -80,7 +80,7 @@ const dmy = iso => iso ? String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7
 // tg = { enviarBotones(phone, texto, botones) → {chat, msg} | null, editar(chat, msg, texto) }
 module.exports = function crearLectorVouchers({ supabase, log, tg }) {
   const CLAVE = process.env.ANTHROPIC_API_KEY || ''
-  const ia = CLAVE ? new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 90000 }) : null
+  const ia = CLAVE ? require('./uso_ia').envolver(new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 90000 }), { supabase, log, origen: 'voucher' }) : null
   let ocupado = false, avisoSinTabla = false, ultimoRescate = 0, enviando = false
 
   async function leer(url) {

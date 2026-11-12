@@ -424,6 +424,7 @@ async function responderInternoIA(jid, phone, texto, quien) {
     })
     clearTimeout(to)
     const j = await r.json()
+    require('./uso_ia').registrar({ supabase, log }, { origen: 'interno', modelo: j?.model || IA_MODEL, usage: j?.usage, error: j?.error ? (j.error.message || j.error.type) : null, ref: phone })
     const out = (j?.content || []).map(c => c.text || '').join('').trim()
     if (!out) { log('INTERNO IA sin texto:', JSON.stringify(j).slice(0, 200)); return false }
     await enviar(jid, out.slice(0, 1200), { tipo: 'interno' })

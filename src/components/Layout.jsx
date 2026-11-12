@@ -89,6 +89,8 @@ const MENU = [
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Configuración' },
   // el experimento del agente de ventas IA contra el supervisor (sql/91)
   { to: '/ventas-ia', label: 'Agente de ventas', icon: '🤖', admin: true, color: '#8ab4f8', grupo: 'Configuración' },
+  // cada llamada a Claude con su costo (sql/205): en qué se va el saldo de la API
+  { to: '/uso-ia', label: 'Uso de la IA', icon: '🧮', admin: true, color: '#8ab4f8', grupo: 'Configuración' },
   { to: '/probar-bot', label: 'Probar Bot', icon: '🧪', staff: true, color: '#c58ae0', grupo: 'Configuración' },
   { to: '/usuarios', label: 'Usuarios', icon: '🔐', admin: true, color: '#f08080', grupo: 'Configuración' },
   // sueldos, adelantos, descuentos y tardanzas (sql/131): de todo Urbis, no de un proyecto.

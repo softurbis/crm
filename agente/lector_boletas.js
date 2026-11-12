@@ -179,7 +179,7 @@ const NAVEGADOR = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) App
 
 module.exports = function crearLectorBoletas({ supabase, log }) {
   const CLAVE = process.env.ANTHROPIC_API_KEY || ''
-  const ia = CLAVE ? new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 120000 }) : null
+  const ia = CLAVE ? require('./uso_ia').envolver(new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 120000 }), { supabase, log, origen: 'boleta' }) : null
   let ocupado = false, avisoSinTabla = false, ultimoRescate = 0
 
   async function leer(url) {

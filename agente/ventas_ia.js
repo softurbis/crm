@@ -240,7 +240,7 @@ const HERRAMIENTAS = [
 module.exports = function crearVentasIA({ supabase, log }) {
   const CLAVE = process.env.VENTAS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || ''
   const CLAVE_PROPIA = !!process.env.VENTAS_ANTHROPIC_API_KEY
-  const ia = CLAVE ? new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 180000 }) : null
+  const ia = CLAVE ? require('./uso_ia').envolver(new Anthropic({ apiKey: CLAVE, maxRetries: 2, timeout: 180000 }), { supabase, log, origen: 'ventas' }) : null
 
   // ---------------------------------------------------------------- config
   let CFG = null, cfgAt = 0

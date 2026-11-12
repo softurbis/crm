@@ -47,7 +47,7 @@ const supabase = createClient(process.env.SUPABASE_URL, SB_KEY)
 // el asistente interno del bot. Si no esta, usa la general (y lo avisa).
 const CLAVE_IA = process.env.COBRANZA_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || ''
 const CLAVE_PROPIA = !!process.env.COBRANZA_ANTHROPIC_API_KEY
-const ia = CLAVE_IA ? new Anthropic({ apiKey: CLAVE_IA, maxRetries: 2, timeout: 60000 }) : null
+const ia = CLAVE_IA ? require('./uso_ia').envolver(new Anthropic({ apiKey: CLAVE_IA, maxRetries: 2, timeout: 60000 }), { supabase, log, origen: 'cobranza' }) : null
 const WA_LISTO = !!(process.env.WA_PHONE_NUMBER_ID && process.env.WA_TOKEN)
 const PUERTO = Number(process.env.COBRANZA_PUERTO || process.env.WA_PUERTO || 8090)
 const MODELO_POR_DEFECTO = 'claude-haiku-4-5'
