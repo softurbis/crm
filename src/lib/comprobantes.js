@@ -49,14 +49,18 @@ export function rucValido(ruc) {
 
 // La línea del comprobante que se propone para un pago (la secretaria la puede
 // cambiar). Es la misma que arma la base si no se le manda ninguna.
-export function descripcionPago(p, lote, proyecto, totalCuotas) {
+// La línea del comprobante, corta y en el orden que pidió el dueño (11 nov 2026):
+//   "CUOTA N° 12 - MZ B LT 16 DEL PROYECTO EL TRIUNFO DE NESHUYA"
+// Sin el "DE 60" del total de cuotas: totalCuotas ya no se usa; queda en la firma por
+// los que la llaman.
+export function descripcionPago(p, lote, proyecto, totalCuotas) {   // eslint-disable-line no-unused-vars
   const n = p.installment?.installment_number
-  const concepto = p.income_type === 'cuota' ? 'CUOTA N° ' + (n ?? '') + (totalCuotas ? ' DE ' + totalCuotas : '')
+  const concepto = p.income_type === 'cuota' ? ('CUOTA N° ' + (n ?? '')).trim()
     : p.income_type === 'inicial' ? 'CUOTA INICIAL'
     : p.income_type === 'separacion' ? 'SEPARACIÓN'
     : p.income_type === 'mora' ? 'MORA' : 'PAGO'
   const l = lote || p.lot
-  return (concepto + (l ? ' - LOTE ' + l.lt + ' MZ ' + l.mz : '') + (proyecto?.name ? ' - ' + proyecto.name : '')).toUpperCase()
+  return (concepto + (l ? ' - MZ ' + l.mz + ' LT ' + l.lt : '') + (proyecto?.name ? ' DEL PROYECTO ' + proyecto.name : '')).toUpperCase()
 }
 
 // De una lista de comprobantes, cuál le toca a cada pago: el vivo si lo hay, si no

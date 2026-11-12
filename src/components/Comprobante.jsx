@@ -182,20 +182,17 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
   useEffect(() => {
     if (cliente || !ventaId) return
     let vivo = true
-    Promise.all([
-      supabase.from('sales').select('client:clients!sales_client_id_fkey(full_name, doc_type, doc_number, address, district)').eq('id', ventaId).maybeSingle(),
-      supabase.from('installments').select('installment_number').eq('sale_id', ventaId).order('installment_number', { ascending: false }).limit(1),
-    ]).then(([v, q]) => {
-      if (!vivo) return
-      const c = v.data?.client
-      if (c) setB(x => x.numero || x.tipo_doc !== '0' ? x : {
-        tipo_doc: /^\d{8}$/.test(String(c.doc_number || '')) ? '1' : c.doc_type === 'CE' ? '4' : '0',
-        numero: /^PEND/i.test(String(c.doc_number || '')) ? '' : String(c.doc_number || ''),
-        nombre: x.nombre || c.full_name || '', direccion: x.direccion || [c.address, c.district].filter(Boolean).join(', '),
+    // (ya no se busca el total de cuotas: la línea dice solo "CUOTA 12")
+    supabase.from('sales').select('client:clients!sales_client_id_fkey(full_name, doc_type, doc_number, address, district)').eq('id', ventaId).maybeSingle()
+      .then(v => {
+        if (!vivo) return
+        const c = v.data?.client
+        if (c) setB(x => x.numero || x.tipo_doc !== '0' ? x : {
+          tipo_doc: /^\d{8}$/.test(String(c.doc_number || '')) ? '1' : c.doc_type === 'CE' ? '4' : '0',
+          numero: /^PEND/i.test(String(c.doc_number || '')) ? '' : String(c.doc_number || ''),
+          nombre: x.nombre || c.full_name || '', direccion: x.direccion || [c.address, c.district].filter(Boolean).join(', '),
+        })
       })
-      const n = q.data?.[0]?.installment_number
-      if (n) setLineas(x => Object.fromEntries(grupo.items.map(p => [p.id, x[p.id] === descripcionPago(p, lote, proyecto, null) ? descripcionPago(p, lote, proyecto, n) : x[p.id]])))
-    })
     return () => { vivo = false }
   }, [ventaId])   // eslint-disable-line
 
