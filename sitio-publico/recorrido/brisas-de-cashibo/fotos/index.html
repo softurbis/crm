@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fotos 360° del terreno · Las Brisas de Cashibo</title>
+<meta name="description" content="Mira el terreno real de Las Brisas de Cashibo en 360°: fotos tomadas con dron, con el trazo de las calles del proyecto encima.">
+<meta name="theme-color" content="#0e1110">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Las Brisas de Cashibo · Fotos 360° del terreno">
+<meta property="og:description" content="Fotos reales con dron, en 360°: gira la vista y mira dónde quedan las calles del proyecto.">
+<meta property="og:image" content="https://pub-04e0a91c024a4012960f304ed7528b55.r2.dev/recorridos/brisas-de-cashibo/og-fotos.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://urbisgroupinmobiliaria.com/recorrido/brisas-de-cashibo/fotos/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e1110'/%3E%3Ccircle cx='32' cy='32' r='17' fill='none' stroke='%23e8c37a' stroke-width='4'/%3E%3Cellipse cx='32' cy='32' rx='7' ry='17' fill='none' stroke='%23e8c37a' stroke-width='3'/%3E%3Cpath d='M15 32h34' stroke='%23e8c37a' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Jost:wght@400;500&display=swap">
+<style>
+  :root{color-scheme:dark;--panel:rgba(14,17,16,.74);--borde:rgba(255,255,255,.18);--texto:#f3f1ea;--suave:#c9c5b8;--acento:#e8c37a;--wa:#25d366}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#0e1110;color:var(--texto);font:14px/1.35 Jost,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  #gl.arrastra{cursor:grabbing}
+  #calles{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;transition:opacity .3s}
+  #calles path{fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #calles .sombra{stroke:rgba(0,0,0,.45);stroke-width:5}
+  #calles .linea{stroke:var(--acento);stroke-width:2.6}
+  body.sin-calles #calles{opacity:0}
+  button,a.btn{all:unset;cursor:pointer;box-sizing:border-box}
+  button:focus-visible,a.btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .caja{background:var(--panel);border:1px solid var(--borde);border-radius:12px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  #cab{position:fixed;left:max(14px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));padding:8px 13px;max-width:calc(100vw - 210px)}
+  #cab b{display:block;font:500 11.5px/1.2 Jost,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--acento)}
+  #cab span{display:block;font-size:14px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #cab small{display:block;color:var(--suave);font-size:11.5px;margin-top:1px}
+  #arriba{position:fixed;right:max(14px,env(safe-area-inset-right));top:max(12px,env(safe-area-inset-top));display:flex;gap:8px}
+  #arriba .btn,#arriba button{display:flex;align-items:center;gap:7px;height:40px;padding:0 13px;font-size:13.5px}
+  #arriba svg{width:18px;height:18px;flex:none}
+  #arriba .btn:hover,#arriba button:hover,#bCalles:hover{background:rgba(40,44,42,.88)}
+  #abajo{position:fixed;left:0;right:0;bottom:max(14px,env(safe-area-inset-bottom));display:flex;align-items:flex-end;justify-content:center;gap:10px;padding:0 14px;pointer-events:none}
+  #abajo>*{pointer-events:auto}
+  #galeria{display:flex;gap:8px;padding:7px;overflow-x:auto;scrollbar-width:none;max-width:100%}
+  #galeria::-webkit-scrollbar{display:none}
+  .mini{position:relative;flex:none;width:118px;height:66px;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#222 center/cover}
+  .mini.act{border-color:var(--acento)}
+  .mini span{position:absolute;left:0;right:0;bottom:0;padding:14px 6px 4px;font-size:11.5px;line-height:1.15;background:linear-gradient(transparent,rgba(0,0,0,.78))}
+  .mini:hover{filter:brightness(1.12)}
+  #bCalles{display:flex;align-items:center;gap:9px;height:46px;padding:0 13px;font-size:13px;line-height:1.15;white-space:nowrap}
+  #bCalles small{display:block;font-size:10.5px;color:var(--suave)}
+  #bCalles i{width:30px;height:17px;border-radius:9px;background:rgba(255,255,255,.25);position:relative;transition:background .2s}
+  #bCalles i::after{content:'';position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:transform .2s}
+  body:not(.sin-calles) #bCalles i{background:var(--acento)}
+  body:not(.sin-calles) #bCalles i::after{transform:translateX(13px)}
+  #wa{text-decoration:none;position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;height:48px;padding:0 18px 0 14px;border-radius:24px;background:var(--wa);color:#063b1d;font-weight:500;font-size:14.5px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+  #wa svg{width:22px;height:22px}
+  #wa:hover{filter:brightness(1.06)}
+  .ir{position:fixed;width:0;height:0;cursor:pointer;z-index:2}
+  .ir .aro{position:absolute;left:-23px;top:-23px;width:46px;height:46px;border-radius:50%;background:rgba(14,17,16,.55);border:2.5px solid #fff;display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.5);transition:transform .15s,background .15s}
+  .ir .aro svg{width:22px;height:22px}
+  .ir:hover .aro{transform:scale(1.14);background:var(--acento)}
+  .ir:hover .aro svg path{stroke:#1c1a14}
+  .ir .tx{position:absolute;left:0;top:30px;transform:translateX(-50%);white-space:nowrap;padding:4px 9px;border-radius:7px;background:rgba(14,17,16,.78);font-size:12.5px;line-height:1.2;text-align:center}
+  .ir .tx small{display:block;color:var(--suave);font-size:11px}
+  .ir.subir .aro{border-color:var(--acento)}
+  .ir.subir .tx{top:auto;bottom:30px}
+  .rot{position:fixed;width:0;height:0;pointer-events:none}
+  .rot i{position:absolute;left:-.5px;bottom:0;width:1px;height:var(--h,36px);background:linear-gradient(to top,rgba(255,255,255,.95),rgba(255,255,255,.35))}
+  .rot b{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.25),0 1px 4px rgba(0,0,0,.6)}
+  .rot span{position:absolute;left:0;bottom:calc(var(--h,36px) + 5px);transform:translateX(-50%);white-space:nowrap;font:500 11.5px/1 Jost,'Segoe UI',sans-serif;letter-spacing:.17em;text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.75),0 0 12px rgba(0,0,0,.5)}
+  .rot.prin span{font:italic 500 25px/1 'Cormorant Garamond',Georgia,serif;letter-spacing:.02em;text-transform:none;color:#f6e6bf;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 16px rgba(0,0,0,.55)}
+  .rot.prin i{background:linear-gradient(to top,#f6e6bf,rgba(246,230,191,.35))}
+  .rot.prin b{background:#f6e6bf;box-shadow:0 0 0 3px rgba(246,230,191,.3),0 1px 4px rgba(0,0,0,.6)}
+  #aviso{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);padding:9px 15px;font-size:13.5px;color:var(--texto);white-space:nowrap;transition:opacity .8s;pointer-events:none}
+  #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);padding:9px 15px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none}
+  #cargando{position:fixed;inset:0;display:grid;place-items:center;background:#0e1110;transition:opacity .6s;z-index:20}
+  #cargando div{text-align:center}
+  #cargando em{display:block;font:italic 500 34px/1.1 'Cormorant Garamond',Georgia,serif;color:#f6e6bf}
+  #cargando small{display:block;margin-top:10px;color:var(--suave);letter-spacing:.14em;text-transform:uppercase;font-size:11px}
+  #cargando i{display:block;width:150px;height:2px;margin:18px auto 0;background:rgba(255,255,255,.12);overflow:hidden;border-radius:2px}
+  #cargando i::after{content:'';display:block;width:40%;height:100%;background:var(--acento);animation:barra 1.1s ease-in-out infinite}
+  @keyframes barra{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+  #fila{display:flex;gap:8px}
+  .solo-ancho{display:inline}
+  @media (max-width:1180px){
+    #wa{bottom:auto;top:max(62px,calc(env(safe-area-inset-top) + 60px));height:42px;padding:0 15px 0 12px;font-size:13.5px}
+  }
+  @media (max-width:760px){
+    .solo-ancho{display:none}
+    #arriba .btn,#arriba button{padding:0 11px}
+    #cab{max-width:calc(100vw - 130px);padding:7px 11px}
+    #cab b{font-size:10.5px;letter-spacing:.09em}
+    #cab span{font-size:13px}
+    #cab small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #abajo{flex-direction:column;align-items:center;bottom:max(10px,env(safe-area-inset-bottom));gap:8px}
+    #wa{top:auto;bottom:max(136px,calc(env(safe-area-inset-bottom) + 126px))}
+    #galeria{gap:6px;padding:5px}
+    .mini{width:76px;height:50px}
+    .mini span{font-size:10.5px;padding:12px 4px 3px}
+    #toast{bottom:160px}
+    #aviso{white-space:normal;width:min(300px,calc(100vw - 40px));text-align:center}
+  }
+  @media (max-height:460px){ #abajo{flex-direction:row;align-items:flex-end} .mini{width:84px;height:48px} #bCalles small{display:none} }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="Foto 360° del terreno"></canvas>
+<svg id="calles" aria-hidden="true"><path class="sombra"/><path class="linea"/></svg>
+<div id="capa"></div>
+<header id="cab" class="caja"><b>Las Brisas de Cashibo</b><span id="nombre">Fotos 360° del terreno</span><small id="altura">Fotos reales con dron</small></header>
+<nav id="arriba">
+  <button class="caja" id="bCompartir" aria-label="Compartir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="18" cy="5.5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18.5" r="2.6"/><path d="m8.3 10.8 7.4-4M8.3 13.2l7.4 4"/></svg><span class="solo-ancho">Compartir</span></button>
+  <button class="caja" id="bPantalla" aria-label="Pantalla completa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+</nav>
+<div id="abajo">
+  <div id="galeria" class="caja" role="tablist" aria-label="Vistas"></div>
+  <div id="fila">
+    <button id="bCalles" class="caja" aria-pressed="true" title="Trazo de las calles según el plano del proyecto (referencial)"><i></i><span>Calles del proyecto<small>trazo referencial del plano</small></span></button>
+  </div>
+</div>
+<a id="wa" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2a9.7 9.7 0 0 0-8.4 14.6L2.3 21.8l5.1-1.3A9.7 9.7 0 1 0 12 2.2Zm0 17.7c-1.5 0-3-.4-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8 8 0 1 1 12 19.9Zm4.4-6c-.2-.1-1.4-.7-1.7-.8-.2-.1-.4-.1-.5.1l-.8 1c-.1.2-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 2s.9 2.3 1 2.5c.1.2 1.7 2.6 4.1 3.6 1.5.7 2.1.7 2.9.6.5-.1 1.4-.6 1.6-1.1.2-.6.2-1 .1-1.1l-.4-.4Z"/></svg>Quiero información</a>
+<div id="aviso" class="caja">Arrastra para mirar alrededor · toca los círculos para moverte</div>
+<div id="toast" class="caja"></div>
+<div id="cargando"><div><em>Las Brisas de Cashibo</em><small>Fotos 360° del terreno</small><i></i></div></div>
+<script>
+'use strict';
+const D = {"fotos":[{"id":"v1","x":539864.4,"y":9080157.8,"h":54.0,"centro":5.1},{"id":"v2","x":539871.1,"y":9080214.6,"h":61.0,"centro":4.5},{"id":"v3","x":539882.4,"y":9080296.1,"h":61.0,"centro":230.3}],"lugares":[{"t":"Laguna de Cashibococha","x":539130,"y":9080060},{"t":"C.N. San Salvador","x":540292.5,"y":9081110.7},{"t":"Hacia km 10 C.F.B.","x":540671.2,"y":9079568.6},{"t":"Las Brisas de Cashibo","x":539870.0,"y":9080415.0,"prin":1,"min":60},{"t":"Parque","x":539866.1,"y":9080610.8},{"t":"Losas deportivas","x":539858.3,"y":9080540.8}],"calles":{"x0":539000,"y0":9080000,"seg":[[840.4,138.6,840.7,143.5],[840.7,143.5,841.0,148.4],[841.0,148.4,841.4,153.3],[841.4,153.3,841.7,158.3],[841.7,158.3,842.0,163.2],[842.0,163.2,842.4,168.1],[842.4,168.1,842.7,173.0],[842.7,173.0,843.0,177.9],[843.0,177.9,843.4,182.9],[843.4,182.9,843.7,187.8],[843.7,187.8,844.0,192.7],[844.0,192.7,844.4,197.6],[844.4,197.6,844.7,202.5],[844.7,202.5,845.0,207.5],[845.0,207.5,845.4,212.4],[845.4,212.4,845.7,217.3],[845.7,217.3,846.0,222.2],[846.0,222.2,846.4,227.2],[846.4,227.2,846.7,232.1],[846.7,232.1,847.0,237.0],[847.0,237.0,847.4,241.9],[847.4,241.9,847.7,246.8],[847.7,246.8,848.0,251.8],[848.0,251.8,848.4,256.7],[848.4,256.7,848.7,261.6],[848.7,261.6,849.0,266.5],[849.0,266.5,849.4,271.4],[849.4,271.4,849.7,276.4],[849.7,276.4,850.0,281.3],[850.0,281.3,850.4,286.2],[850.4,286.2,850.7,291.1],[850.7,291.1,851.0,296.0],[851.0,296.0,851.4,301.0],[851.4,301.0,851.7,305.9],[851.7,305.9,852.0,310.8],[852.0,310.8,852.4,315.7],[852.4,315.7,852.7,320.6],[852.7,320.6,853.0,325.6],[853.0,325.6,853.4,330.5],[853.4,330.5,853.7,335.4],[853.7,335.4,854.0,340.3],[854.0,340.3,854.4,345.2],[854.4,345.2,854.7,350.2],[854.7,350.2,855.0,355.1],[855.0,355.1,855.4,360.0],[855.4,360.0,855.7,364.9],[855.7,364.9,856.0,369.8],[856.0,369.8,856.4,374.8],[856.4,374.8,856.7,379.7],[856.7,379.7,857.0,384.6],[857.0,384.6,857.4,389.5],[857.4,389.5,857.7,394.5],[857.7,394.5,858.0,399.4],[858.0,399.4,858.4,404.3],[858.4,404.3,858.7,409.2],[858.7,409.2,859.0,414.1],[859.0,414.1,859.4,419.1],[859.4,419.1,859.7,424.0],[859.7,424.0,860.0,428.9],[860.0,428.9,860.4,433.8],[860.4,433.8,860.7,438.7],[860.7,438.7,861.0,443.7],[861.0,443.7,861.3,448.6],[861.3,448.6,861.7,453.5],[861.7,453.5,862.0,458.4],[862.0,458.4,862.3,463.3],[862.3,463.3,862.7,468.3],[862.7,468.3,864.8,472.8],[864.8,472.8,866.9,477.3],[866.9,477.3,869.1,481.8],[869.1,481.8,871.2,486.3],[871.2,486.3,873.3,490.8],[873.3,490.8,875.5,495.3],[875.5,495.3,877.6,499.8],[877.6,499.8,879.7,504.3],[879.7,504.3,881.9,508.8],[881.9,508.8,884.0,513.3],[884.0,513.3,886.1,517.8],[886.1,517.8,886.4,522.7],[886.4,522.7,886.8,527.6],[886.8,527.6,887.1,532.5],[887.1,532.5,887.4,537.3],[887.4,537.3,887.8,542.2],[887.8,542.2,888.1,547.1],[888.1,547.1,888.4,552.0],[888.4,552.0,888.8,556.9],[888.8,556.9,889.1,561.8],[889.1,561.8,889.4,566.7],[889.4,566.7,889.8,571.5],[889.8,571.5,890.1,576.4],[890.1,576.4,890.4,581.3],[890.4,581.3,890.8,586.2],[890.8,586.2,891.1,591.1],[891.1,591.1,891.4,596.0],[891.4,596.0,891.8,600.8],[891.8,600.8,892.1,605.7],[892.1,605.7,892.4,610.6],[892.4,610.6,892.8,615.5],[892.8,615.5,893.1,620.4],[893.1,620.4,893.4,625.3],[893.4,625.3,893.8,630.2],[893.8,630.2,894.1,635.0],[894.1,635.0,894.4,639.9],[894.4,639.9,894.8,644.8],[894.8,644.8,895.1,649.7],[895.1,649.7,895.4,654.6],[895.4,654.6,895.8,659.5],[895.8,659.5,896.1,664.4],[896.1,664.4,896.4,669.2],[896.4,669.2,896.8,674.1],[896.8,674.1,897.1,679.0],[897.1,679.0,897.4,683.9],[897.4,683.9,897.8,688.8],[897.8,688.8,898.1,693.7],[893.7,130.0,894.0,134.9],[894.0,134.9,894.3,139.9],[894.3,139.9,894.7,144.8],[894.7,144.8,895.0,149.7],[895.0,149.7,895.3,154.6],[895.3,154.6,895.7,159.5],[895.7,159.5,896.0,164.5],[896.0,164.5,896.3,169.4],[896.3,169.4,896.7,174.3],[896.7,174.3,897.0,179.2],[897.0,179.2,897.3,184.1],[897.3,184.1,897.7,189.1],[897.7,189.1,898.0,194.0],[898.0,194.0,898.3,198.9],[898.3,198.9,898.7,203.8],[898.7,203.8,899.0,208.7],[899.0,208.7,899.3,213.7],[899.3,213.7,899.7,218.6],[899.7,218.6,900.0,223.5],[900.0,223.5,900.3,228.4],[900.3,228.4,900.7,233.3],[900.7,233.3,901.0,238.3],[901.0,238.3,901.3,243.2],[901.3,243.2,901.7,248.1],[901.7,248.1,902.0,253.0],[902.0,253.0,902.3,257.9],[902.3,257.9,902.7,262.9],[902.7,262.9,903.0,267.8],[903.0,267.8,903.3,272.7],[903.3,272.7,903.7,277.6],[903.7,277.6,904.0,282.5],[904.0,282.5,904.3,287.5],[904.3,287.5,904.7,292.4],[904.7,292.4,905.0,297.3],[905.0,297.3,905.3,302.2],[905.3,302.2,905.7,307.1],[905.7,307.1,906.0,312.1],[906.0,312.1,906.3,317.0],[906.3,317.0,906.7,321.9],[906.7,321.9,907.0,326.8],[907.0,326.8,907.3,331.7],[907.3,331.7,907.7,336.7],[907.7,336.7,908.0,341.6],[908.0,341.6,908.3,346.5],[908.3,346.5,908.7,351.4],[908.7,351.4,909.0,356.3],[909.0,356.3,909.3,361.3],[909.3,361.3,909.7,366.2],[909.7,366.2,910.0,371.1],[910.0,371.1,910.3,376.0],[910.3,376.0,910.7,380.9],[910.7,380.9,911.0,385.9],[911.0,385.9,911.3,390.8],[911.3,390.8,911.7,395.7],[911.7,395.7,912.0,400.6],[912.0,400.6,912.3,405.5],[912.3,405.5,912.7,410.5],[912.7,410.5,913.0,415.4],[913.0,415.4,913.3,420.3],[913.3,420.3,913.7,425.2],[913.7,425.2,914.0,430.1],[914.0,430.1,914.3,435.1],[914.3,435.1,914.7,440.0],[914.7,440.0,915.0,444.9],[915.0,444.9,915.3,449.8],[915.3,449.8,915.7,454.7],[915.7,454.7,916.0,459.7],[916.0,459.7,916.4,464.6],[916.4,464.6,916.7,469.6],[916.7,469.6,917.0,474.5],[917.0,474.5,917.4,479.5],[917.4,479.5,917.7,484.5],[917.7,484.5,918.0,489.4],[918.0,489.4,918.4,494.4],[918.4,494.4,918.7,499.4],[918.7,499.4,919.0,504.4],[919.0,504.4,919.4,509.3],[919.4,509.3,919.7,514.3],[919.7,514.3,920.1,519.3],[920.1,519.3,920.4,524.3],[920.4,524.3,920.7,529.2],[920.7,529.2,921.1,534.2],[921.1,534.2,921.4,539.2],[921.4,539.2,921.7,544.2],[921.7,544.2,922.1,549.1],[922.1,549.1,922.4,554.1],[922.4,554.1,922.8,559.1],[922.8,559.1,923.1,564.0],[923.1,564.0,923.4,569.0],[923.4,569.0,923.8,574.0],[923.8,574.0,924.1,579.0],[924.1,579.0,924.4,583.9],[924.4,583.9,924.8,588.9],[924.8,588.9,925.1,593.9],[925.1,593.9,925.5,598.9],[925.5,598.9,925.8,603.8],[925.8,603.8,926.1,608.8],[926.1,608.8,926.5,613.8],[926.5,613.8,926.8,618.8],[926.8,618.8,927.1,623.7],[927.1,623.7,927.5,628.7],[927.5,628.7,927.8,633.7],[927.8,633.7,928.1,638.6],[928.1,638.6,928.5,643.6],[928.5,643.6,928.8,648.6],[928.8,648.6,929.2,653.6],[929.2,653.6,929.5,658.5],[929.5,658.5,929.8,663.5],[929.8,663.5,930.2,668.5],[930.2,668.5,930.5,673.5],[930.5,673.5,930.8,678.4],[930.8,678.4,931.2,683.4],[931.2,683.4,931.5,688.4],[802.8,472.4,807.4,472.1],[807.4,472.1,812.0,471.7],[812.0,471.7,816.6,471.4],[816.6,471.4,821.2,471.1],[821.2,471.1,825.8,470.8],[825.8,470.8,830.4,470.5],[830.4,470.5,835.0,470.2],[835.0,470.2,839.6,469.8],[839.6,469.8,844.3,469.5],[844.3,469.5,848.9,469.2],[848.9,469.2,853.5,468.9],[853.5,468.9,858.1,468.6],[858.1,468.6,862.7,468.3],[862.7,468.3,867.6,467.9],[867.6,467.9,872.4,467.6],[872.4,467.6,877.3,467.3],[877.3,467.3,882.2,466.9],[882.2,466.9,887.1,466.6],[887.1,466.6,892.0,466.3],[892.0,466.3,896.8,465.9],[896.8,465.9,901.7,465.6],[901.7,465.6,906.6,465.2],[906.6,465.2,911.5,464.9],[911.5,464.9,916.4,464.6],[916.4,464.6,921.3,464.2],[921.3,464.2,926.2,463.9],[926.2,463.9,931.1,463.6],[931.1,463.6,936.0,463.2],[936.0,463.2,940.9,462.9],[940.9,462.9,945.8,462.6],[757.8,151.8,762.7,151.0],[762.7,151.0,767.5,150.3],[767.5,150.3,772.4,149.5],[772.4,149.5,777.2,148.7],[777.2,148.7,782.1,147.9],[782.1,147.9,786.9,147.1],[786.9,147.1,791.8,146.4],[791.8,146.4,796.7,145.6],[796.7,145.6,801.5,144.8],[801.5,144.8,806.4,144.0],[806.4,144.0,811.2,143.3],[811.2,143.3,816.1,142.5],[816.1,142.5,820.9,141.7],[820.9,141.7,825.8,140.9],[825.8,140.9,830.7,140.1],[830.7,140.1,835.5,139.4],[835.5,139.4,840.4,138.6],[840.4,138.6,845.2,137.8],[845.2,137.8,850.1,137.0],[850.1,137.0,854.9,136.2],[854.9,136.2,859.8,135.5],[859.8,135.5,864.6,134.7],[864.6,134.7,869.4,133.9],[869.4,133.9,874.3,133.1],[874.3,133.1,879.1,132.4],[879.1,132.4,884.0,131.6],[884.0,131.6,888.8,130.8],[888.8,130.8,893.7,130.0],[893.7,130.0,898.6,129.2],[898.6,129.2,903.5,128.5],[903.5,128.5,908.4,127.7],[908.4,127.7,913.4,126.9],[913.4,126.9,918.3,126.1],[918.3,126.1,923.2,125.3],[923.2,125.3,928.2,124.5],[928.2,124.5,933.1,123.7],[933.1,123.7,938.0,122.9],[938.0,122.9,942.9,122.1],[942.9,122.1,947.9,121.3],[947.9,121.3,952.8,120.6],[819.8,706.1,824.7,705.3],[824.7,705.3,829.6,704.5],[829.6,704.5,834.5,703.7],[834.5,703.7,839.4,703.0],[839.4,703.0,844.3,702.2],[844.3,702.2,849.2,701.4],[849.2,701.4,854.1,700.6],[854.1,700.6,859.0,699.9],[859.0,699.9,863.8,699.1],[863.8,699.1,868.7,698.3],[868.7,698.3,873.6,697.5],[873.6,697.5,878.5,696.8],[878.5,696.8,883.4,696.0],[883.4,696.0,888.3,695.2],[888.3,695.2,893.2,694.4],[893.2,694.4,898.1,693.7],[898.1,693.7,902.9,692.9],[902.9,692.9,907.7,692.2],[907.7,692.2,912.4,691.4],[912.4,691.4,917.2,690.6],[917.2,690.6,922.0,689.9],[922.0,689.9,926.7,689.1],[926.7,689.1,931.5,688.4],[931.5,688.4,936.2,687.6],[936.2,687.6,940.9,686.9],[940.9,686.9,945.7,686.1],[945.7,686.1,950.4,685.4],[950.4,685.4,955.1,684.6],[955.1,684.6,959.8,683.9],[847.8,248.9,852.7,248.5],[852.7,248.5,857.6,248.2],[857.6,248.2,862.5,247.9],[862.5,247.9,867.3,247.5],[867.3,247.5,872.2,247.2],[872.2,247.2,877.1,246.9],[877.1,246.9,882.0,246.5],[882.0,246.5,886.8,246.2],[886.8,246.2,891.7,245.9],[891.7,245.9,896.6,245.5],[896.6,245.5,901.5,245.2],[855.2,356.9,860.0,356.5],[860.0,356.5,864.9,356.2],[864.9,356.2,869.8,355.9],[869.8,355.9,874.7,355.5],[874.7,355.5,879.5,355.2],[879.5,355.2,884.4,354.9],[884.4,354.9,889.3,354.5],[889.3,354.5,894.2,354.2],[894.2,354.2,899.0,353.9],[899.0,353.9,903.9,353.5],[903.9,353.5,908.8,353.2]]}};
+// nombre de cada vista (el lugar del plano que queda debajo del dron) y hacia dónde mira al llegar
+const VISTAS = {
+  v1: {nombre: 'Ingreso del proyecto', yaw: 4, pit: -20},
+  v2: {nombre: 'Manzana A',            yaw: 4, pit: -18},
+  v3: {nombre: 'Manzana B',            yaw: 4, pit: -16},
+};
+const ORDEN = ['v1', 'v2', 'v3'];
+const WA = '51955238658', WA_TXT = 'Hola, vi las fotos 360° de Las Brisas de Cashibo y quiero información.';
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const BASE = (LOCAL ? '/r2' : 'https://pub-04e0a91c024a4012960f304ed7528b55.r2.dev') + '/recorridos/brisas-de-cashibo/fotos/';
+const VER = '1';
+
+const $ = id => document.getElementById(id), rad = a => a*Math.PI/180, grad = a => a*180/Math.PI;
+const porId = {}; D.fotos.forEach(f => { porId[f.id] = Object.assign(f, VISTAS[f.id]); });
+document.getElementById('wa').href = `https://wa.me/${WA}?text=${encodeURIComponent(WA_TXT)}`;
+
+// ---------- WebGL: una esfera dibujada en un solo triángulo de pantalla ----------
+const cv = $('gl'), gl = cv.getContext('webgl2', {antialias: false, preserveDrawingBuffer: false});
+if (!gl){ $('cargando').querySelector('small').textContent = 'Tu navegador no puede mostrar fotos 360°'; throw new Error('sin webgl2'); }
+const VS = `#version 300 es
+in vec2 p; out vec2 q; void main(){ q = p; gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float; in vec2 q; out vec4 o;
+uniform sampler2D t0, t1; uniform float yaw, pit, tf, asp, mixv, c0, c1, lod0, lod1;
+vec3 rayo(){
+  vec3 d = normalize(vec3(q.x*tf*asp, 1.0, q.y*tf));
+  float cp = cos(pit), sp = sin(pit); d = vec3(d.x, d.y*cp - d.z*sp, d.y*sp + d.z*cp);
+  float cy = cos(yaw), sy = sin(yaw); return vec3(d.x*cy + d.y*sy, -d.x*sy + d.y*cy, d.z);
+}
+vec3 mira(sampler2D t, vec3 v, float c, float l){
+  vec2 uv = vec2(fract(0.5 + (atan(v.x, v.y) - c)/6.2831853), 0.5 - asin(clamp(v.z, -1., 1.))/3.1415927);
+  return textureLod(t, uv, l).rgb;
+}
+void main(){ vec3 w = rayo(); vec3 a = mira(t0, w, c0, lod0); o = vec4(mixv > 0.001 ? mix(a, mira(t1, w, c1, lod1), mixv) : a, 1.); }`;
+function sh(tp, s){ const x = gl.createShader(tp); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; }
+const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr); gl.useProgram(pr);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const lp = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 2, gl.FLOAT, false, 0, 0);
+const u = {}; ['yaw', 'pit', 'tf', 'asp', 'mixv', 'c0', 'c1', 'lod0', 'lod1'].forEach(n => u[n] = gl.getUniformLocation(pr, n));
+gl.uniform1i(gl.getUniformLocation(pr, 't0'), 0); gl.uniform1i(gl.getUniformLocation(pr, 't1'), 1);
+const MAXTEX = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+const MOVIL = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700;
+const TAMS = ['2k', ...(MAXTEX >= 4096 ? ['4k'] : []), ...(!MOVIL && MAXTEX >= 8192 ? ['8k'] : [])];
+
+function textura(im, centro){                          // centro: rumbo hacia el que mira el centro de la foto
+  const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, gl.RGB, gl.UNSIGNED_BYTE, im); gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return {t, w: im.width, centro};
+}
+const cache = new Map();
+function imagen(id, tam){
+  const k = id + '-' + tam; if (cache.has(k)) return cache.get(k);
+  const pm = new Promise((res, rej) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.decoding = 'async';
+    im.onload = () => (im.decode ? im.decode().catch(() => {}) : Promise.resolve()).then(() => res(im)); im.onerror = () => { cache.delete(k); rej(new Error('no cargó ' + k)); };
+    im.src = `${BASE}${k}.webp?v=${VER}`; });
+  cache.set(k, pm); return pm;
+}
+
+// ---------- estado de la vista ----------
+const FOV0 = innerHeight > innerWidth ? 92 : 68, FOVMIN = 22, FOVMAX = innerHeight > innerWidth ? 112 : 96;
+const V = {yaw: 4, pit: -20, fov: FOV0};
+let actual = null, texA = null, texB = null, fundido = null, vel = {yaw: 0, pit: 0}, tocado = 0, sucio = true;
+let nivelTex = -1;                                    // índice en TAMS de la textura que se ve ahora
+
+function tam(){ const r = Math.min(devicePixelRatio || 1, 2); cv.width = Math.round(innerWidth*r); cv.height = Math.round(innerHeight*r); gl.viewport(0, 0, cv.width, cv.height); sucio = true; }
+addEventListener('resize', tam); tam();
+
+function proyecta(az, el){                            // rumbo/altura (grados) -> pixel en pantalla
+  const a = rad(az), e = rad(el), w = [Math.sin(a)*Math.cos(e), Math.cos(a)*Math.cos(e), Math.sin(e)];
+  const cy = Math.cos(rad(V.yaw)), sy = Math.sin(rad(V.yaw)); let d = [w[0]*cy - w[1]*sy, w[0]*sy + w[1]*cy, w[2]];
+  const cp = Math.cos(rad(V.pit)), sp = Math.sin(rad(V.pit)); d = [d[0], d[1]*cp + d[2]*sp, -d[1]*sp + d[2]*cp];
+  if (d[1] < 0.04) return null; const tf = Math.tan(rad(V.fov)/2), asp = innerWidth/innerHeight;
+  return [(d[0]/d[1]/(tf*asp)*0.5 + 0.5)*innerWidth, (0.5 - d[2]/d[1]/tf*0.5)*innerHeight];
+}
+function haciaSuelo(f, x, y){ const dx = x - f.x, dy = y - f.y, d = Math.hypot(dx, dy); return {az: grad(Math.atan2(dx, dy)), el: grad(Math.atan2(-f.h, d)), d}; }
+const angDif = (a, b) => ((a - b + 540) % 360) - 180;
+
+// ---------- lo que se dibuja encima: círculos para moverse, nombres de lugares y calles ----------
+const capa = $('capa'); let marcas = [], rotulos = [], callesVis = [];
+const flechaSVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M6 14.5 12 8.5l6 6" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function arma(){
+  capa.innerHTML = ''; marcas = []; rotulos = [];
+  const f = actual;
+  D.fotos.forEach(g => { if (g === f) return;
+    const m = document.createElement('div'); m.className = 'ir'; let az, el, sub;
+    if (g.id === 'alta'){                              // la vista alta queda en el cielo: botón para subir
+      const s = haciaSuelo(f, g.x, g.y); az = s.az; el = Math.min(grad(Math.atan2(g.h - f.h, s.d)), 16); m.classList.add('subir'); sub = `subir a ${g.h} m`;
+    } else { const s = haciaSuelo(f, g.x, g.y); az = s.az; el = s.el; sub = f.id === 'alta' ? `a ${g.h} m de altura` : `a ${Math.round(s.d)} m`; }
+    m.innerHTML = `<div class="aro">${flechaSVG}</div><div class="tx">${g.nombre}<small>${sub}</small></div>`;
+    m.setAttribute('role', 'button'); m.tabIndex = 0; m.setAttribute('aria-label', 'Ir a ' + g.nombre);
+    m.onclick = e => { e.stopPropagation(); ir(g.id); }; m.onkeydown = e => { if (e.key === 'Enter') ir(g.id); };
+    m._az = az; m._el = el; capa.appendChild(m); marcas.push(m); });
+  D.lugares.forEach(l => {
+    if (l.solo && l.solo !== f.id) return;
+    let az, el, d = 1e9;
+    if (l.rumbo !== undefined){ az = l.rumbo; el = l.el; } else { const s = haciaSuelo(f, l.x, l.y); az = s.az; el = s.el; d = s.d; }
+    if (l.min && d < l.min) return; if (l.max && d > l.max) return;
+    const r = document.createElement('div'); r.className = 'rot' + (l.prin ? ' prin' : ''); r.innerHTML = '<i></i><b></b><span></span>'; r.lastChild.textContent = l.t;
+    r._az = az; r._el = el; capa.appendChild(r); rotulos.push(r); });
+  const C = D.calles; callesVis = C.seg.map(s => [haciaSuelo(f, C.x0 + s[0], C.y0 + s[1]), haciaSuelo(f, C.x0 + s[2], C.y0 + s[3])]);
+}
+function pinta(){
+  marcas.forEach(m => { const q = proyecta(m._az, m._el); m.style.display = q ? '' : 'none'; if (q){ m.style.left = q[0] + 'px'; m.style.top = q[1] + 'px'; } });
+  const vis = [];
+  rotulos.forEach(r => { const q = proyecta(r._az, r._el); r.style.display = q ? '' : 'none'; if (q){ r.style.left = q[0] + 'px'; r.style.top = q[1] + 'px'; vis.push({r, x: q[0], y: q[1], w: r.lastChild.offsetWidth, a: r.lastChild.offsetHeight}); } });
+  vis.sort((p, q) => q.y - p.y); const puestos = [];
+  vis.forEach(v => { let h = 36, cabe = false; while (!cabe && h < 190){ const arriba = v.y - h - 5 - v.a; cabe = !puestos.some(o => Math.abs(o.x - v.x) < (o.w + v.w)/2 + 14 && arriba < o.arriba + o.a + 6 && arriba + v.a + 6 > o.arriba); if (!cabe) h += 8; } v.arriba = v.y - h - 5 - v.a; v.r.style.setProperty('--h', h + 'px'); puestos.push(v); });
+  let dd = '';
+  if (!document.body.classList.contains('sin-calles') && !fundido){
+    callesVis.forEach(([a, b]) => { if (a.el < -84 || b.el < -84) return; const p = proyecta(a.az, a.el), q = proyecta(b.az, b.el); if (p && q) dd += `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`; });
+  }
+  $('calles').querySelectorAll('path').forEach(p => p.setAttribute('d', dd));
+}
+
+// ---------- cambiar de vista ----------
+function textos(){
+  const f = actual; $('nombre').textContent = f.nombre; $('altura').textContent = `Foto con dron a ${f.h} m de altura · feb. 2026`;
+  document.querySelectorAll('.mini').forEach(m => { const on = m.dataset.id === f.id; m.classList.toggle('act', on); m.setAttribute('aria-selected', on); });
+  document.title = `${f.nombre} · Fotos 360° · Las Brisas de Cashibo`;
+}
+async function ir(id, inicial){
+  if (fundido || (actual && actual.id === id)) return;
+  const g = porId[id]; let im;
+  try { im = await imagen(id, '2k'); } catch (e){ toast('No se pudo cargar esta vista. Revisa tu conexión.'); return; }
+  const t = textura(im, g.centro);
+  if (!actual || inicial){
+    texA = t; actual = g; nivelTex = 0;
+    if (!inicial){ V.yaw = g.yaw; V.pit = g.pit; }
+    arma(); textos(); mejora(); sucio = true; return;
+  }
+  const de = actual, sube = id === 'alta', baja = de.id === 'alta';
+  texB = t; nivelTex = 0;
+  const yaw1 = sube ? g.yaw : baja ? V.yaw : V.yaw, pit1 = sube ? g.pit : baja ? -14 : V.pit;
+  fundido = {t0: performance.now(), largo: 900, y0: V.yaw, dy: angDif(yaw1, V.yaw), p0: V.pit, p1: pit1, f0: V.fov, f1: Math.min(FOV0, Math.max(V.fov, 50))};
+  actual = g; capa.innerHTML = ''; marcas = []; rotulos = []; textos(); guarda();
+}
+async function mejora(){                              // 2k -> 4k -> 8k sin mover la vista
+  const id = actual.id;
+  for (let i = nivelTex + 1; i < TAMS.length; i++){
+    let im; try { im = await imagen(id, TAMS[i]); } catch (e){ return; }
+    if (!actual || actual.id !== id || fundido) return;
+    const t = textura(im, actual.centro); gl.deleteTexture(texA.t); texA = t; nivelTex = i; sucio = true;
+  }
+  ORDEN.forEach(k => { if (k !== id) imagen(k, '2k').catch(() => {}); });    // las demás vistas, listas para el salto
+}
+
+// ---------- galería ----------
+ORDEN.forEach(id => { const f = porId[id], m = document.createElement('div'); m.className = 'mini'; m.dataset.id = id; m.setAttribute('role', 'tab'); m.tabIndex = 0;
+  m.style.backgroundImage = `url("${BASE}${id}-min.webp?v=${VER}")`; m.innerHTML = `<span>${f.nombre}</span>`;
+  m.onclick = () => ir(id); m.onkeydown = e => { if (e.key === 'Enter') ir(id); }; $('galeria').appendChild(m); });
+
+// ---------- mover la vista: arrastre con inercia, pellizco, rueda y teclado ----------
+const ptrs = new Map(); let pinch0 = 0, fov0 = V.fov;
+const nota = () => { tocado = performance.now(); ocultaAviso(); };
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); vel = {yaw: 0, pit: 0}; cv.classList.add('arrastra'); nota();
+  if (ptrs.size === 2){ const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); fov0 = V.fov; } });
+cv.addEventListener('pointermove', e => { if (!ptrs.has(e.pointerId)) return; const [x0, y0] = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); nota();
+  if (ptrs.size === 2){ const [a, b] = [...ptrs.values()]; V.fov = Math.min(FOVMAX, Math.max(FOVMIN, fov0*pinch0/Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])))); sucio = true; return; }
+  const k = V.fov/innerHeight; vel.yaw = -(e.clientX - x0)*k; vel.pit = (e.clientY - y0)*k; V.yaw += vel.yaw; V.pit += vel.pit; sucio = true; });
+const suelta = e => { ptrs.delete(e.pointerId); if (!ptrs.size) cv.classList.remove('arrastra'); };
+cv.addEventListener('pointerup', suelta); cv.addEventListener('pointercancel', suelta);
+cv.addEventListener('wheel', e => { e.preventDefault(); V.fov = Math.min(FOVMAX, Math.max(FOVMIN, V.fov*(1 + Math.sign(e.deltaY)*0.08))); sucio = true; nota(); }, {passive: false});
+const TECLAS = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1], KeyA: [-1, 0], KeyD: [1, 0], KeyW: [0, 1], KeyS: [0, -1]}, apretadas = new Set();
+addEventListener('keydown', e => { if (TECLAS[e.code]){ apretadas.add(e.code); e.preventDefault(); nota(); } else if (e.key === '+' || e.key === '='){ V.fov = Math.max(FOVMIN, V.fov*0.9); sucio = true; } else if (e.key === '-'){ V.fov = Math.min(FOVMAX, V.fov*1.1); sucio = true; } });
+addEventListener('keyup', e => apretadas.delete(e.code)); addEventListener('blur', () => apretadas.clear());
+
+// ---------- botones ----------
+$('bCalles').onclick = () => { const sin = document.body.classList.toggle('sin-calles'); $('bCalles').setAttribute('aria-pressed', !sin); sucio = true; };
+$('bPantalla').onclick = () => { const d = document; if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d); else { const el = d.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => toast('Tu celular no permite pantalla completa aquí'))).call(el); } };
+if (!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)) $('bPantalla').style.display = 'none';
+function enlace(){ return location.origin + location.pathname + '#' + [actual.id, Math.round(V.yaw), Math.round(V.pit)].join(','); }
+$('bCompartir').onclick = async () => { const url = enlace(), datos = {title: 'Las Brisas de Cashibo · Fotos 360°', text: `${actual.nombre} · Las Brisas de Cashibo en 360°`, url};
+  if (navigator.share){ try { await navigator.share(datos); return; } catch (e){ if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast('Enlace copiado: pégalo donde quieras'); } catch (e){ prompt('Copia este enlace:', url); } };
+let tToast = 0; function toast(t){ const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(tToast); tToast = setTimeout(() => el.style.opacity = 0, 2600); }
+let avisoVisto = true; function ocultaAviso(){ if (!avisoVisto) return; avisoVisto = false; setTimeout(() => $('aviso').style.opacity = 0, 1800); }
+setTimeout(ocultaAviso, 7000);
+let tGuarda = 0; function guarda(){ clearTimeout(tGuarda); tGuarda = setTimeout(() => { if (actual) history.replaceState(null, '', '#' + [actual.id, Math.round(V.yaw), Math.round(V.pit)].join(',')); }, 600); }
+
+// ---------- cuadro a cuadro ----------
+let tPrev = performance.now(), ultimo = '';
+function cuadro(){
+  const ahora = performance.now(), dt = Math.min(0.05, (ahora - tPrev)/1000); tPrev = ahora;
+  if (!ptrs.size && !fundido && (Math.abs(vel.yaw) > 0.002 || Math.abs(vel.pit) > 0.002)){ V.yaw += vel.yaw; V.pit += vel.pit; vel.yaw *= 0.92; vel.pit *= 0.92; sucio = true; }
+  if (apretadas.size){ let gx = 0, gy = 0; apretadas.forEach(c => { gx += TECLAS[c][0]; gy += TECLAS[c][1]; }); V.yaw += gx*V.fov*0.9*dt; V.pit += gy*V.fov*0.6*dt; sucio = true; }
+  if (!fundido && !ptrs.size && !apretadas.size && texA && ahora - tocado > 6000){ V.yaw += dt*2.4; sucio = true; }   // giro lento si nadie toca
+  let m = 0;
+  if (fundido){
+    const k = Math.min(1, (ahora - fundido.t0)/fundido.largo), z = k*k*(3 - 2*k); m = z;
+    V.yaw = fundido.y0 + fundido.dy*z; V.pit = fundido.p0 + (fundido.p1 - fundido.p0)*z; V.fov = fundido.f0 + (fundido.f1 - fundido.f0)*z + Math.sin(Math.PI*z)*-6;
+    if (k >= 1){ gl.deleteTexture(texA.t); texA = texB; texB = null; fundido = null; m = 0; arma(); mejora(); }
+    sucio = true;
+  }
+  V.pit = Math.max(-88, Math.min(88, V.pit)); V.yaw = (V.yaw % 360 + 360) % 360;
+  const firma = [V.yaw.toFixed(3), V.pit.toFixed(3), V.fov.toFixed(3), m.toFixed(3)].join();
+  if (texA && (sucio || firma !== ultimo)){
+    ultimo = firma; sucio = false;
+    const tf = Math.tan(rad(V.fov)/2), pxRad = cv.height/(2*tf), lod = t => Math.max(0, Math.log2((t.w/(2*Math.PI))/pxRad));
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texA.t); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (texB || texA).t);
+    gl.uniform1f(u.yaw, rad(V.yaw)); gl.uniform1f(u.pit, rad(V.pit)); gl.uniform1f(u.tf, tf); gl.uniform1f(u.asp, cv.width/cv.height); gl.uniform1f(u.mixv, m);
+    gl.uniform1f(u.c0, rad(texA.centro)); gl.uniform1f(u.c1, rad((texB || texA).centro));
+    gl.uniform1f(u.lod0, lod(texA)); gl.uniform1f(u.lod1, lod(texB || texA));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    pinta(); if (!fundido) guarda();
+  }
+  requestAnimationFrame(cuadro);
+}
+// ---------- arranque: #vista,rumbo,altura en el enlace abre ese mismo encuadre ----------
+(async function(){
+  const h = decodeURIComponent(location.hash.slice(1)).split(','), id = porId[h[0]] ? h[0] : 'v1';
+  const f = porId[id]; V.yaw = isFinite(+h[1]) && h[1] !== '' ? +h[1] : f.yaw; V.pit = isFinite(+h[2]) && h[2] !== '' ? +h[2] : f.pit;
+  await ir(id, true);
+  if (!texA){ $('cargando').querySelector('small').textContent = 'No se pudo cargar. Revisa tu conexión y recarga.'; return; }
+  $('cargando').style.opacity = 0; setTimeout(() => $('cargando').remove(), 700);
+  requestAnimationFrame(cuadro);
+})();
+</script>
+</body>
+</html>
