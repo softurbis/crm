@@ -21,6 +21,7 @@ import { soles, agruparPagos, textoReparto, COLS_PAGO, COLS_PAGO_NA, subirDocPag
 import DocsDeposito from '../components/DocsDeposito'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
+import { NOMBRES_BANCOS } from '../lib/bancos'
 
 // cierre economico de una expropiacion (sql/50)
 const COLS_CIERRE = 'expr_fecha_cierre, expr_monto_recuperado, expr_monto_devuelto, expr_saldo, expr_acuerdo_url, expr_notas, expr_cierre_at'
@@ -550,8 +551,11 @@ export default function FichaLote() {
     setPagoExpMsg(null); setPagoExpFile(null)
     setPagoExp({
       exp, cuotas: null,
-      f: { date: '', amount: '', operation_number: '', operation_type: 'TRANSFERENCIA', installment_id: '', observation: '' },
+      f: { date: '', amount: '', operation_number: '', operation_type: 'TRANSFERENCIA', installment_id: '', observation: '', banco_origen: '', financial_account_id: '' },
     })
+    // las cuentas destino del proyecto (dónde entró la plata)
+    supabase.from('financial_accounts').select('id, name, account_number').eq('active', true).eq('project_id', pidOp)
+      .then(({ data }) => setPagoExp(p => (p && p.exp.id === exp.id ? { ...p, cuentasDestino: data || [] } : p)))
     // el cronograma de la venta expropiada sigue existiendo: si el pago era de una
     // cuota concreta se puede enganchar ahi y la cuota queda saldada.
     const { data } = await supabase.from('installments')
@@ -581,6 +585,7 @@ export default function FichaLote() {
         installment_id: cuota?.id || null,
         date: f.date, amount: monto,
         operation_number: op, operation_type: f.operation_type,
+        banco_origen: f.banco_origen || null, financial_account_id: f.financial_account_id || null,
         income_type: cuota ? 'cuota' : 'otro',
         observation: ('PAGO DE VENTA EXPROPIADA REGISTRADO A MANO | ' + motivo.toUpperCase()).slice(0, 400),
         origin: 'sistema', voucher_url: voucherUrl,
@@ -1553,7 +1558,7 @@ export default function FichaLote() {
                           {g.notas && <div className="muted small fl-obs">{g.notas}</div>}</td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.total)}</b></td>
                         <td style={{ textTransform: 'none' }}>{r.operation_number}</td>
-                        <td>{r.account?.name || '-'}</td>
+                        <td title="origen → destino">{r.banco_origen ? r.banco_origen + ' → ' : ''}{r.account?.name || '-'}</td>
                         <td>{celdaDoc(g, 'voucher_url')}</td>
                         <td>{celdaDoc(g, 'receipt_url')}</td>
                       </tr>
@@ -1857,6 +1862,20 @@ export default function FichaLote() {
                 <select value={pagoExp.f.operation_type}
                   onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, operation_type: e.target.value } }))}>
                   {['TRANSFERENCIA', 'DEPOSITO', 'BILLETERA DIGITAL', 'EFECTIVO', 'POR CONFIRMAR'].map(v => <option key={v}>{v}</option>)}
+                </select>
+              </label>
+              <label>Banco de origen <span className="muted small">(con qué pagó el cliente)</span>
+                <select value={pagoExp.f.banco_origen}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, banco_origen: e.target.value } }))}>
+                  <option value="">- elegir -</option>
+                  {NOMBRES_BANCOS.map(v => <option key={v}>{v}</option>)}
+                </select>
+              </label>
+              <label>Cuenta destino <span className="muted small">(dónde entró la plata)</span>
+                <select value={pagoExp.f.financial_account_id}
+                  onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, financial_account_id: e.target.value } }))}>
+                  <option value="">- elegir -</option>
+                  {(pagoExp.cuentasDestino || []).map(a => <option key={a.id} value={a.id}>{a.name}{a.account_number ? ' · ' + a.account_number : ''}</option>)}
                 </select>
               </label>
               <label className="span2">¿A qué cuota va? <span className="muted small">(opcional — si la eliges, esa cuota queda saldada)</span>

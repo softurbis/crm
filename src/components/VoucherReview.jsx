@@ -10,7 +10,7 @@ const CAMPOS = [
   { k: 'fecha', label: 'Fecha', color: '#e8b04f', fmt: v => v.split('-').reverse().join('/') },
 ]
 
-export default function VoucherReview({ file, ocr, cuentaSugerida, montoActual, onAplicar, onAplicarTodo, onElegirMonto }) {
+export default function VoucherReview({ file, ocr, cuentaSugerida, bancoSugerido, montoActual, onAplicar, onAplicarTodo, onElegirMonto }) {
   const [url, setUrl] = useState(null)
   const [foco, setFoco] = useState(null)      // dato resaltado
   const [render, setRender] = useState({ w: 0, h: 0 })
@@ -117,11 +117,11 @@ export default function VoucherReview({ file, ocr, cuentaSugerida, montoActual, 
 
         {ocr.banco && (
           <button type="button" className="vr-fila" style={{ '--bc': '#c58ae0' }}
-            onClick={() => cuentaSugerida && onAplicar('cuenta')} disabled={!cuentaSugerida}>
+            onClick={() => (cuentaSugerida || bancoSugerido) && onAplicar('cuenta')} disabled={!cuentaSugerida && !bancoSugerido}>
             <span className="vr-pin" />
             <span className="vr-lbl">Banco</span>
-            <b className="vr-val">{ocr.banco}{ocr.tipoOperacion ? ` · ${ocr.tipoOperacion}` : ''}</b>
-            <span className="vr-usar">{cuentaSugerida ? 'usar cuenta' : 'sin cuenta'}</span>
+            <b className="vr-val">{bancoSugerido || ocr.banco}{ocr.tipoOperacion ? ` · ${ocr.tipoOperacion}` : ''}{cuentaSugerida ? ` → ${cuentaSugerida.name}` : ''}</b>
+            <span className="vr-usar">usar</span>
           </button>
         )}
 

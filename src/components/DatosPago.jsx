@@ -5,6 +5,7 @@ import { useProject } from '../context/ProjectContext'
 import { useAuth } from '../context/AuthContext'
 import { soles } from '../lib/pagos'
 import VoucherReview from './VoucherReview'
+import { normalizarBanco, opcionesBanco } from '../lib/bancos'
 
 // El voucher y los datos del deposito, igual para separacion, inicial, cuota y
 // cuadre. Lee el voucher y SUGIERE los datos: nunca pisa lo que ya se escribio,
@@ -12,7 +13,9 @@ import VoucherReview from './VoucherReview'
 // o PDF, sql/154); si la IA no está o falla, el OCR del navegador de siempre.
 // El voucher REPETIDO (mismo N° de operación y monto ya registrado) deja pago.bloqueo
 // hasta que el superusuario lo apruebe por Telegram: CobroModal no registra.
-//   pago      = { file, nota, fecha, monto, nroOp, cuentaId, opTipo, obs }
+//   pago      = { file, nota, fecha, monto, nroOp, cuentaId, bancoOrigen, opTipo, obs }
+//     cuentaId    = CUENTA DESTINO: la cuenta de cobro del proyecto donde entró la plata
+//     bancoOrigen = con qué pagó el cliente: la lista única de lib/bancos.js (sql/207)
 //   esperado  = { monto, n } la cuota que toca, para avisar si no coincide
 export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio = true, esperado, paso = 2, loteId = null, children }) {
   const { pidOp } = useProject()
@@ -43,12 +46,26 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
     if (t === turno.current) setOcrBusy(false)
   }
 
-  // "Banco / cuenta" = con qué pagó el cliente, según el voucher (YAPE, BCP...): se
-  // busca entre las cuentas del proyecto. La app primero (Yape, Plin) y luego el
-  // banco. Si ninguna lo menciona, no se inventa nada.
+  // BANCO DE ORIGEN = con qué pagó el cliente, según el voucher (la app primero:
+  // Yape, Plin; si no, el banco), llevado a un nombre de la lista única.
+  const bancoSugerido = useMemo(() => normalizarBanco(ocr?.banco), [ocr])
+
+  // CUENTA DESTINO = la cuenta del proyecto donde entró la plata. Primero por el
+  // N° de cuenta destino que se lee en el voucher; si el proyecto tiene una sola
+  // cuenta, esa; si no, como antes: la que se llama como el banco/app del voucher.
   const cuentaSugerida = useMemo(() => {
+    if (!ocr || ocr.vacio || ocr.error || !cuentas.length) return null
+    const dig = String(ocr.destinatarioCuenta || '').replace(/\D/g, '')
+    if (dig.length >= 4) {
+      const c = cuentas.find(a => {
+        const n = String(a.account_number || '').replace(/\D/g, '')
+        return n.length >= 4 && (n.endsWith(dig.slice(-4)) || dig.endsWith(n.slice(-4)))
+      })
+      if (c) return c
+    }
+    if (cuentas.length === 1) return cuentas[0]
     const posibles = (ocr?.bancosPosibles?.length ? ocr.bancosPosibles : [ocr?.banco]).filter(Boolean)
-    if (!posibles.length || !cuentas.length) return null
+    if (!posibles.length) return null
     const limpio = t => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     for (const banco of posibles) {
       const b = limpio(banco)
@@ -107,7 +124,7 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
     if (k === 'monto' && ocr?.monto != null) set('monto', String(ocr.monto))
     if (k === 'operacion' && ocr?.operacion) set('nroOp', ocr.operacion)
     if (k === 'fecha' && ocr?.fecha) set('fecha', ocr.fecha)
-    if (k === 'cuenta') setPago(p => ({ ...p, ...(cuentaSugerida ? { cuentaId: cuentaSugerida.id } : {}), ...(ocr?.tipoOperacion ? { opTipo: ocr.tipoOperacion } : {}) }))
+    if (k === 'cuenta') setPago(p => ({ ...p, ...(cuentaSugerida ? { cuentaId: cuentaSugerida.id } : {}), ...(bancoSugerido ? { bancoOrigen: bancoSugerido } : {}), ...(ocr?.tipoOperacion ? { opTipo: ocr.tipoOperacion } : {}) }))
   }
   const usarTodo = () => setPago(p => ({
     ...p,
@@ -116,6 +133,7 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
     ...(ocr?.fecha ? { fecha: ocr.fecha } : {}),
     ...(ocr?.tipoOperacion ? { opTipo: ocr.tipoOperacion } : {}),
     ...(cuentaSugerida ? { cuentaId: cuentaSugerida.id } : {}),
+    ...(bancoSugerido ? { bancoOrigen: bancoSugerido } : {}),
   }))
 
   return (
@@ -167,7 +185,7 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
             : <>⚠ <b>No coincide.</b> La cuota N° {cotejo.n} debe <b>{soles(cotejo.esperado)}</b> y el voucher dice <b>{soles(cotejo.leido)}</b> ({cotejo.leido > cotejo.esperado ? 'paga de más' : 'falta'} {soles(Math.abs(cotejo.leido - cotejo.esperado))}). Puedes registrarlo igual si es correcto.</>}
         </div>
       )}
-      <VoucherReview file={pago.file} ocr={ocr} cuentaSugerida={cuentaSugerida}
+      <VoucherReview file={pago.file} ocr={ocr} cuentaSugerida={cuentaSugerida} bancoSugerido={bancoSugerido}
         montoActual={pago.monto} onElegirMonto={v => set('monto', String(v))}
         onAplicar={aplicar} onAplicarTodo={usarTodo} />
 
@@ -179,10 +197,16 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
         <label>Fecha del pago <input type="date" value={pago.fecha} onChange={e => set('fecha', e.target.value)} /></label>
         <label>Monto S/ <input type="number" step="0.01" min="0.01" value={pago.monto} onChange={e => set('monto', e.target.value)} /></label>
         <label>N° de operación <input value={pago.nroOp} onChange={e => set('nroOp', e.target.value)} placeholder="del voucher" /></label>
-        <label>Banco / cuenta
+        <label>Banco de origen <span className="muted small">(con qué pagó el cliente)</span>
+          <select value={pago.bancoOrigen || ''} onChange={e => set('bancoOrigen', e.target.value)}>
+            <option value="">- elegir -</option>
+            {opcionesBanco(pago.bancoOrigen).map(b => <option key={b}>{b}</option>)}
+          </select>
+        </label>
+        <label>Cuenta destino <span className="muted small">(dónde entró la plata)</span>
           <select value={pago.cuentaId} onChange={e => set('cuentaId', e.target.value)}>
             <option value="">- elegir -</option>
-            {cuentas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {cuentas.map(a => <option key={a.id} value={a.id}>{a.name}{a.account_number ? ' · ' + a.account_number : ''}</option>)}
           </select>
         </label>
         <label>Tipo de operación

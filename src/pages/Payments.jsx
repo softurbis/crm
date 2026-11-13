@@ -378,7 +378,7 @@ export default function Payments() {
                     <td>{celdaDoc(g, 'receipt_url')}</td>
                     <td>{g.clientes}</td>
                     <td>{r.operation_number}</td>
-                    <td>{r.account?.name || '-'}</td>
+                    <td title="origen → destino">{r.banco_origen ? r.banco_origen + ' → ' : ''}{r.account?.name || '-'}</td>
                   </tr>
                   {abierto && g.items.map((p, i) => (
                     <tr key={p.id} style={{ background: 'rgba(255,255,255,.025)' }}>

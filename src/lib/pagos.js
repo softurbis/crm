@@ -9,7 +9,7 @@ import { confirmar, pedir, pedirDatos } from './dialogos'
 export const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 
 // columnas de un pago tal como las usan el historial y el detalle del pago
-export const COLS_PAGO = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, sale:sales(status), lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, account:financial_accounts(name)'
+export const COLS_PAGO = 'id, date, amount, operation_number, income_type, voucher_url, receipt_url, extra_url, voucher_note, receipt_note, extra_note, observation, installment_id, sale_id, sale:sales(status), lot:lots(mz,lt), client:clients(full_name), installment:installments(installment_number), financial_account_id, banco_origen, account:financial_accounts(name)'
 export const COLS_PAGO_NA = ', voucher_na, voucher_na_reason, receipt_na, receipt_na_reason'   // sql/49
 
 // El estado del pago sale PRIMERO de la venta a la que pertenece: un pago de una

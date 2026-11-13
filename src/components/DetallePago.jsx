@@ -6,6 +6,7 @@ import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import VisorDoc from './VisorDoc'
+import { opcionesBanco } from '../lib/bancos'
 import { reciboWspInfo, enviarReciboWsp, celularBonito, enlaceWsp } from '../lib/comprobantes'
 import { ListaValidacion, conAviso, nombreTipo } from './LecturaBoleta'
 import {
@@ -55,6 +56,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
   const [obsEdit, setObsEdit] = useState(notas)
   const [opEdit, setOpEdit] = useState(pago.operation_number || '')
   const [accEdit, setAccEdit] = useState(pago.financial_account_id || '')
+  const [origenEdit, setOrigenEdit] = useState(pago.banco_origen || '')
   const [amtEdit, setAmtEdit] = useState(String(total))
   const [busy, setBusy] = useState(false)
   const [cuentas, setCuentas] = useState(cuentasPadre || [])
@@ -174,13 +176,24 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
   async function guardarBanco() {
     const nuevo = accEdit || null
     const anterior = view.financial_account_id || null
-    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL BANCO/CUENTA' }); return }
+    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN LA CUENTA DESTINO' }); return }
     const { error } = await actualizar({ financial_account_id: nuevo })
     if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
     const nombreNuevo = cuentas.find(a => a.id === nuevo)?.name || '(sin cuenta)'
     await log({ cambio: 'financial_account', antes: view.account?.name || null, despues: nombreNuevo, lote, monto: total })
-    setMsg({ ok: true, t: 'BANCO/CUENTA CORREGIDO -> ' + nombreNuevo + ' (QUEDA EN BITACORA)' })
+    setMsg({ ok: true, t: 'CUENTA DESTINO CORREGIDA -> ' + nombreNuevo + ' (QUEDA EN BITACORA)' })
     cambio({ financial_account_id: nuevo, account: { name: nombreNuevo } })
+  }
+  // banco de origen = con qué pagó el cliente (lista única, sql/207)
+  async function guardarOrigen() {
+    const nuevo = String(origenEdit || '').trim().toUpperCase() || null
+    const anterior = view.banco_origen || null
+    if (nuevo === anterior) { setMsg({ ok: true, t: 'SIN CAMBIOS EN EL BANCO DE ORIGEN' }); return }
+    const { error } = await actualizar({ banco_origen: nuevo })
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    await log({ cambio: 'banco_origen', antes: anterior, despues: nuevo, lote, monto: total })
+    setMsg({ ok: true, t: 'BANCO DE ORIGEN CORREGIDO -> ' + (nuevo || '(sin banco)') + ' (QUEDA EN BITACORA)' })
+    cambio({ banco_origen: nuevo })
   }
   // El monto que se corrige es el del VOUCHER (el depósito entero). Si es de cuotas,
   // se vuelve a repartir: este pago y los que vienen después.
@@ -227,7 +240,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
           </h2>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
-        <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | {view.account?.name || '-'} | <EstadoChip r={view} /></p>
+        <p className="muted">{view.client?.full_name || '-'} | {view.date} | N OP: {view.operation_number} | ORIGEN: {view.banco_origen || '-'} → DESTINO: {view.account?.name || '-'} | <EstadoChip r={view} /></p>
         {deposito && reparto.length > 1 && (
           <div className="pago-reparto">
             <p>&#129534; <b>Es un solo pago de {soles(total)}</b> (lo que dice el voucher), repartido así:</p>
@@ -254,13 +267,22 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
                 <button type="button" className="btn-ghost" onClick={guardarNroOp}>Corregir N Op.</button>
               </span>
             </label>
-            <label className="span2">Banco / cuenta del pago (corregir si no coincide con el voucher - queda en bitacora)
+            <label className="span2">Banco de origen - con qué pagó el cliente (corregir si no coincide con el voucher - queda en bitacora)
+              <span style={{ display: 'flex', gap: '.4rem' }}>
+                <select value={origenEdit} onChange={e => setOrigenEdit(e.target.value)} style={{ flex: 1 }}>
+                  <option value="">(sin banco)</option>
+                  {opcionesBanco(origenEdit || view.banco_origen).map(b => <option key={b}>{b}</option>)}
+                </select>
+                <button type="button" className="btn-ghost" onClick={guardarOrigen}>Corregir origen</button>
+              </span>
+            </label>
+            <label className="span2">Cuenta destino - dónde entró la plata (corregir si no coincide con el voucher - queda en bitacora)
               <span style={{ display: 'flex', gap: '.4rem' }}>
                 <select value={accEdit} onChange={e => setAccEdit(e.target.value)} style={{ flex: 1 }}>
                   <option value="">(sin cuenta)</option>
                   {cuentas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
-                <button type="button" className="btn-ghost" onClick={guardarBanco}>Corregir banco</button>
+                <button type="button" className="btn-ghost" onClick={guardarBanco}>Corregir destino</button>
               </span>
             </label>
             <label className="span2">{deposito

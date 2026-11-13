@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import VisorDoc from '../components/VisorDoc'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ClientesYAvisos, motivoLegible } from './AvisosClientes'
+import { normalizarBanco, opcionesBanco } from '../lib/bancos'
 
 // ============================================================================
 // COBRANZA IA — la pantalla de la responsable de cobranza (sql/76)
@@ -429,7 +430,7 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
   const [f, setF] = useState(() => ({
     sale: r.sale_id || '', monto: r.monto ?? '', fecha: r.fecha || '', op: r.numero_operacion || '',
     tipo: /yape|plin|billetera|lemon/i.test(r.banco || '') ? 'BILLETERA DIGITAL' : 'TRANSFERENCIA',
-    cuenta: '', obs: '',
+    cuenta: '', origen: normalizarBanco(r.banco), obs: '',
     aviso: `Hola ${nombre || ''}, su pago${r.monto ? ' de ' + soles(r.monto) : ''} fue validado y registrado. ¡Muchas gracias! — Urbis Group`,
   }))
   const campo = k => e => setF(x => ({ ...x, [k]: e.target.value }))
@@ -484,6 +485,7 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
     const { data, error } = await supabase.rpc('validar_pago_reportado', {
       rid: r.id, p_sale: f.sale, p_monto: Number(f.monto), p_fecha: f.fecha, p_operacion: f.op,
       p_tipo_op: f.tipo, p_cuenta: f.cuenta || null, p_obs: f.obs || null, p_mensaje: avisar ? f.aviso.trim() : null,
+      p_banco_origen: f.origen || null,
     })
     setBusy(false)
     alTerminar(error ? { ok: false, t: 'ERROR: ' + error.message } : { ok: true, t: 'PAGO VALIDADO Y REGISTRADO EN CUOTAS' + (data?.cuotas ? ' (cuota ' + data.cuotas + ')' : '') + (avisar ? '. SE LE AVISA AL CLIENTE.' : '.') })
@@ -568,7 +570,13 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
             <label>Tipo
               <select value={f.tipo} onChange={campo('tipo')}>{TIPOS_OP.map(t => <option key={t}>{t}</option>)}</select>
             </label>
-            <label>Cuenta que recibió
+            <label>Banco de origen <span className="muted small">(con qué pagó)</span>
+              <select value={f.origen} onChange={campo('origen')}>
+                <option value="">- elegir -</option>
+                {opcionesBanco(f.origen).map(b => <option key={b}>{b}</option>)}
+              </select>
+            </label>
+            <label>Cuenta destino (la que recibió)
               <select value={f.cuenta} onChange={campo('cuenta')}>
                 <option value="">- sin especificar -</option>
                 {cuentas.map(c => <option key={c.id} value={c.id}>{c.name}{c.account_number ? ' · ' + c.account_number : ''}</option>)}

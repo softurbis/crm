@@ -181,7 +181,7 @@ function filaPago({ pidOp, loteId, clienteId, pago, profile, subida }) {
   return {
     project_id: pidOp, lot_id: loteId, client_id: clienteId, date: pago.fecha,
     operation_number: op, operation_type: pago.opTipo,
-    financial_account_id: pago.cuentaId || null, observation: String(pago.obs || '').toUpperCase(), origin: 'sistema',
+    financial_account_id: pago.cuentaId || null, banco_origen: String(pago.bancoOrigen || '').trim().toUpperCase() || null, observation: String(pago.obs || '').toUpperCase(), origin: 'sistema',
     voucher_url: voucherUrl, voucher_note: String(pago.nota || '').trim() || null,
     registered_by: profile?.id, approved: true, approved_at: new Date().toISOString(),
   }
@@ -224,7 +224,7 @@ export function validarPago(pago, { voucherObligatorio = true } = {}) {
   if (voucherObligatorio && !pago.file) return 'OBLIGATORIO: adjunta la foto del voucher del cliente.'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pago.fecha || '')) return 'Revisa la fecha del pago.'
   if (!(Number(pago.monto) > 0)) return 'El monto debe ser mayor a cero.'
-  if (!pago.cuentaId) return 'Elige el banco o cuenta donde entró la plata.'
+  if (!pago.cuentaId) return 'Elige la cuenta destino (donde entró la plata).'
   return null
 }
 

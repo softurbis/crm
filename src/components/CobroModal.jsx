@@ -58,7 +58,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const debePrimera = primera ? r2(Number(primera.amount) - Number(primera.amount_paid)) : null
 
   const [pago, setPago] = useState(() => ({
-    file: null, nota: '', fecha: hoyPe(), nroOp: '', cuentaId: '', opTipo: 'TRANSFERENCIA', obs: '',
+    file: null, nota: '', fecha: hoyPe(), nroOp: '', cuentaId: '', bancoOrigen: '', opTipo: 'TRANSFERENCIA', obs: '',
     monto: modo === 'cuota' && debePrimera ? debePrimera.toFixed(2) : esInicial ? String(lote.initial_payment_default ?? '') : '',
   }))
 
@@ -91,7 +91,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const [cuadreTipo, setCuadreTipo] = useState('inicial')
 
   useEffect(() => {
-    supabase.from('financial_accounts').select('id, name').eq('active', true).eq('project_id', pidOp)
+    supabase.from('financial_accounts').select('id, name, account_number').eq('active', true).eq('project_id', pidOp)
       .then(({ data }) => setCuentas(data || []))
     if (modo === 'separacion' || esInicial) cargarAsesores()
     if (modo === 'separacion') supabase.from('secretaries').select('id, full_name, user_id, tipo').eq('active', true).order('full_name')
@@ -401,7 +401,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               </DatosPago>
               <div className="cobro-caja">
                 {!pago2
-                  ? <button type="button" className="link-btn" onClick={() => setPago2({ file: null, nota: '', fecha: pago.fecha, nroOp: '', cuentaId: '', opTipo: 'TRANSFERENCIA', obs: '', monto: '' })}>+ Agregar segundo voucher (la inicial se pagó con dos depósitos)</button>
+                  ? <button type="button" className="link-btn" onClick={() => setPago2({ file: null, nota: '', fecha: pago.fecha, nroOp: '', cuentaId: '', bancoOrigen: '', opTipo: 'TRANSFERENCIA', obs: '', monto: '' })}>+ Agregar segundo voucher (la inicial se pagó con dos depósitos)</button>
                   : (<>
                     <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Segundo voucher de la inicial</p>
                     <DatosPago pago={pago2} setPago={setPago2} cuentas={cuentas} loteId={lote?.id} paso={4} />
