@@ -63,6 +63,30 @@ export function descripcionPago(p, lote, proyecto, totalCuotas) {   // eslint-di
   return (concepto + (l ? ' - MZ ' + l.mz + ' LT ' + l.lt : '') + (proyecto?.name ? ' DEL PROYECTO ' + proyecto.name : '')).toUpperCase()
 }
 
+// "Una sola línea" por todo el depósito (sql/206). Un depósito que el sistema partió
+// en dos (cierra la 36 y adelanta la 37) queda:
+//   "CUOTAS N° 36 Y 37 - MZ H LT 10 DEL PROYECTO LAS PRADERAS DE PUCALLPA"
+// Es solo lo que se propone: quien emite lo cambia como quiera.
+export function descripcionJunta(pagos, lote, proyecto) {
+  const lista = pagos || []
+  const y = l => l.length <= 1 ? String(l[0] ?? '') : l.slice(0, -1).join(', ') + ' Y ' + l[l.length - 1]
+  const nums = [...new Set(lista.filter(p => p.income_type === 'cuota' && p.installment?.installment_number != null)
+    .map(p => Number(p.installment.installment_number)))].sort((a, b) => a - b)
+  const partes = []
+  if (lista.some(p => p.income_type === 'separacion')) partes.push('SEPARACIÓN')
+  if (lista.some(p => p.income_type === 'inicial')) partes.push('CUOTA INICIAL')
+  if (nums.length) partes.push((nums.length > 1 ? 'CUOTAS N° ' : 'CUOTA N° ') + y(nums))
+  if (lista.some(p => p.income_type === 'mora')) partes.push('MORA')
+  if (!partes.length) partes.push('PAGO')
+  const l = lote || lista.find(p => p.lot)?.lot
+  return (y(partes) + (l ? ' - MZ ' + l.mz + ' LT ' + l.lt : '') + (proyecto?.name ? ' DEL PROYECTO ' + proyecto.name : '')).toUpperCase()
+}
+
+// Los pagos que cubre una línea: "pago_id" en la de siempre (una línea por pago);
+// "pagos" en las líneas a elección (sql/206), que cubren todo el depósito.
+export const pagosDeLinea = it => it?.pago_id ? [it.pago_id] : (it?.pagos || [])
+export const pagosDeComprobante = c => [...new Set((c?.items || []).flatMap(pagosDeLinea))]
+
 // De una lista de comprobantes, cuál le toca a cada pago: el vivo si lo hay, si no
 // el último (para mostrar "rechazada" o "anulada" con su motivo).
 export function comprobantePorPago(lista) {
@@ -71,9 +95,9 @@ export function comprobantePorPago(lista) {
     // la nota de crédito lleva las mismas líneas que el comprobante que anula, pero
     // no es el comprobante del pago
     if (c.tipo === 'nota_credito') continue
-    for (const it of (c.items || [])) {
-      const antes = m.get(it.pago_id)
-      if (!antes || !estaVivo(antes) || estaVivo(c)) m.set(it.pago_id, c)
+    for (const id of pagosDeComprobante(c)) {
+      const antes = m.get(id)
+      if (!antes || !estaVivo(antes) || estaVivo(c)) m.set(id, c)
     }
   }
   return m
@@ -96,12 +120,20 @@ const amable = e => {
 
 // fecha (sql/192): 'AAAA-MM-DD', hoy, ayer o anteayer y nunca antes del pago. Sin
 // ella sale con la de hoy (y así funciona aunque sql/192 no esté corrido).
-export async function pedirComprobante({ pagos, tipo, cliente, descripciones, fecha }) {
+// lineas (sql/206): [{ descripcion, monto }] cuando no se emite "como se pagó"; la
+// base revisa que sumen exacto lo cobrado. Sin ellas, una línea por pago, como antes
+// (y así "como se pagó" funciona aunque sql/206 no esté corrido).
+export async function pedirComprobante({ pagos, tipo, cliente, descripciones, fecha, lineas }) {
   const { data, error } = await supabase.rpc('pedir_comprobante', {
     p_pagos: pagos, p_tipo: tipo, p_cliente: cliente, p_descripciones: descripciones || null,
     ...(fecha ? { p_fecha: fecha } : {}),
+    ...(lineas?.length ? { p_items: lineas.map(l => ({ descripcion: l.descripcion, monto: Number(l.monto).toFixed(2) })) } : {}),
   })
-  if (error) throw new Error(amable(error))
+  if (error) {
+    if (lineas?.length && /PGRST202|Could not find the function/i.test(String(error.code) + ' ' + String(error.message)))
+      throw new Error('Para escribir las líneas a mano falta instalar sql/206 en la base. Mientras tanto se puede emitir con "Como se pagó".')
+    throw new Error(amable(error))
+  }
   return data
 }
 export async function anularComprobante(id, motivo) {

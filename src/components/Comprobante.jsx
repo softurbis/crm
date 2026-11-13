@@ -9,7 +9,7 @@ import { logoProyecto } from '../context/ProjectContext'
 import { consultarDoc, rucConProblema } from '../lib/consultaDoc'
 import {
   ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, nombreTipo, anulaConNota, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
-  pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
+  descripcionJunta, pagosDeComprobante, pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
   enviarComprobanteWsp, envioWsp, celularesDe, celularBonito, wspDelProyecto, textoComprobanteWsp, enlaceWsp,
 } from '../lib/comprobantes'
 
@@ -162,6 +162,43 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
   const total = grupo.items.reduce((s, p) => s + Number(p.amount || 0), 0)
   const items = useMemo(() => [...grupo.items].sort((x, y) => (x.installment?.installment_number || 0) - (y.installment?.installment_number || 0)), [grupo])
 
+  // LAS LÍNEAS DEL COMPROBANTE (sql/206). Un depósito que el sistema partió en dos
+  // (cierra la cuota 36 y adelanta la 37) puede salir:
+  //   auto    "Como se pagó": una línea por pedazo (lo de siempre)
+  //   una     "Una sola línea": una línea por el total, con el texto que se quiera
+  //   partir  "Partir": las líneas y los montos que se quieran; tienen que sumar el total
+  const [modo, setModo] = useState('auto')
+  const [una, setUna] = useState(() => descripcionJunta(grupo.items, lote, proyecto))
+  const [partes, setPartes] = useState(null)    // [{ desc, monto }]; null = todavía no se abrió "Partir"
+  const centavos = v => Math.round(Number(v || 0) * 100)
+  const montoValido = v => /^\d+(\.\d{1,2})?$/.test(String(v || '').trim()) && centavos(v) > 0
+  const sumaPartes = (partes || []).reduce((s, x) => s + (montoValido(x.monto) ? centavos(x.monto) : 0), 0)
+  const difPartes = centavos(total) - sumaPartes   // > 0 falta repartir · < 0 se pasa
+  function elegirModo(m) {
+    // "Partir" arranca con lo que propone el sistema: se cambian los montos y los textos
+    if (m === 'partir' && !partes) setPartes(items.map(p => ({ desc: lineas[p.id] || '', monto: Number(p.amount || 0).toFixed(2) })))
+    setModo(m)
+    setErr('')
+  }
+  const cambiarParte = (i, campo, v) => setPartes(l => l.map((x, k) => k === i ? { ...x, [campo]: v } : x))
+  const limpiarMonto = v => {
+    const s = String(v).replace(',', '.').replace(/[^\d.]/g, '')
+    const [ent, ...dec] = s.split('.')
+    return dec.length ? ent + '.' + dec.join('').slice(0, 2) : ent
+  }
+  // una línea nueva se lleva lo que falta repartir (si falta algo)
+  const agregarParte = () => setPartes(l => [...l, { desc: '', monto: difPartes > 0 ? (difPartes / 100).toFixed(2) : '' }])
+  const quitarParte = i => setPartes(l => l.filter((_, k) => k !== i))
+  // la diferencia la absorbe la última línea, mientras le quede algo
+  const cuadrarUltima = () => setPartes(l => l.map((x, k) => k === l.length - 1
+    ? { ...x, monto: ((centavos(montoValido(x.monto) ? x.monto : 0) + difPartes) / 100).toFixed(2) } : x))
+  const ultimaAbsorbe = partes?.length > 0 && centavos(montoValido(partes[partes.length - 1].monto) ? partes[partes.length - 1].monto : 0) + difPartes > 0
+  const opcionesModo = [
+    { k: 'auto', t: 'Como se pagó', s: items.length > 1 ? items.length + ' líneas, una por cuota' : 'una línea' },
+    ...(items.length > 1 ? [{ k: 'una', t: 'Una sola línea', s: 'por ' + soles(total) + ', texto libre' }] : []),
+    { k: 'partir', t: 'Partir', s: 'líneas y montos a mano' },
+  ]
+
   // LA FECHA DE EMISIÓN (sql/192): la del pago, si es de hoy, ayer o anteayer. Un
   // voucher que llegó anoche se boletea hoy con la fecha de ayer. SUNAT recibe el
   // comprobante hasta 3 días después de su fecha: más atrás no se deja.
@@ -252,15 +289,30 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
     if (tipo === 'factura') {
       if (!rucValido(f.numero)) return 'El RUC del cliente no es válido (11 dígitos).'
       if (f.nombre.trim().length < 3) return 'Falta la razón social del cliente.'
-      return ''
+      return revisarLineas()
     }
     if (b.nombre.trim().length < 3) return 'Falta el nombre del cliente.'
     if (b.tipo_doc === '1' && !/^\d{8}$/.test(b.numero.trim())) return 'El DNI tiene 8 dígitos.'
     if (['4', '7'].includes(b.tipo_doc) && b.numero.trim().length < 4) return 'Falta el número del documento.'
     if (b.tipo_doc === '0' && total > 700) return 'Una boleta de más de S/ 700 lleva el documento del cliente.'
-    if (Object.values(lineas).some(t => !t.trim())) return 'Ninguna línea puede quedar sin descripción.'
-    return ''
+    return revisarLineas()
   }
+  function revisarLineas() {
+    if (modo === 'una') return una.trim() ? '' : 'Escribe la descripción de la línea.'
+    if (modo === 'partir') {
+      if (!partes?.length) return 'Falta al menos una línea.'
+      if (partes.some(x => !x.desc.trim())) return 'Ninguna línea puede quedar sin descripción.'
+      const mala = partes.findIndex(x => !montoValido(x.monto))
+      if (mala >= 0) return 'El monto de la línea ' + (mala + 1) + ' no vale: mayor que cero y con 2 decimales como máximo.'
+      if (difPartes !== 0) return 'Las líneas suman ' + soles(sumaPartes / 100) + ' y lo cobrado es ' + soles(total) + ': tienen que dar lo mismo.'
+      return ''
+    }
+    return Object.values(lineas).some(t => !t.trim()) ? 'Ninguna línea puede quedar sin descripción.' : ''
+  }
+  // lo que se manda a la base: nada si es "como se pagó" (la base arma una por pago)
+  const lineasLibres = () => modo === 'una' ? [{ descripcion: una, monto: total }]
+    : modo === 'partir' ? partes.map(x => ({ descripcion: x.desc, monto: Number(x.monto) }))
+    : null
 
   async function emitir() {
     const falta = revisar()
@@ -273,7 +325,7 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
         : { tipo_doc: b.tipo_doc, numero: b.tipo_doc === '0' ? '' : b.numero.trim(), nombre: b.nombre, direccion: b.direccion }
       // solo se manda si no es hoy: así un panel nuevo funciona aunque la base aún no tenga sql/192
       const id = await pedirComprobante({ pagos: grupo.items.map(p => p.id), tipo, cliente: cli, descripciones: lineas,
-        fecha: fecha !== fechas.hoy ? fecha : undefined })
+        fecha: fecha !== fechas.hoy ? fecha : undefined, lineas: lineasLibres() })
       const { data } = await supabase.from('comprobantes').select(COLS_COMPROBANTE).eq('id', id).maybeSingle()
       setPedido(data || { id, estado: 'pendiente', tipo, serie: '', numero: null })
     } catch (e) { setErr(e.message) }
@@ -371,12 +423,55 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
             </div>
 
             <p className="cp-sub">Detalle <span className="muted small">(así sale en el comprobante; se puede corregir)</span></p>
-            {items.map(p => (
+            <div className="cp-tipo cp-modo" role="radiogroup" aria-label="Cómo salen las líneas del comprobante">
+              {opcionesModo.map(o => (
+                <button type="button" key={o.k} role="radio" aria-checked={modo === o.k} className={modo === o.k ? 'on' : ''}
+                  onClick={() => elegirModo(o.k)}>{o.t}<small>{o.s}</small></button>
+              ))}
+            </div>
+
+            {modo === 'auto' && items.map(p => (
               <div className="cp-linea" key={p.id}>
-                <input value={lineas[p.id] || ''} maxLength={240} onChange={e => setLineas(x => ({ ...x, [p.id]: e.target.value }))} />
+                <input value={lineas[p.id] || ''} maxLength={240} aria-label="Descripción de la línea"
+                  onChange={e => setLineas(x => ({ ...x, [p.id]: e.target.value }))} />
                 <b>{soles(p.amount)}</b>
               </div>
             ))}
+
+            {modo === 'una' && (
+              <div className="cp-linea">
+                <input value={una} maxLength={240} aria-label="Descripción de la única línea" autoFocus
+                  onChange={e => setUna(e.target.value)} />
+                <b>{soles(total)}</b>
+              </div>
+            )}
+
+            {modo === 'partir' && partes && <>
+              {partes.map((x, i) => (
+                <div className="cp-linea cp-parte" key={i}>
+                  <input value={x.desc} maxLength={240} placeholder={'Descripción de la línea ' + (i + 1)} aria-label={'Descripción de la línea ' + (i + 1)}
+                    onChange={e => cambiarParte(i, 'desc', e.target.value)} />
+                  <div className={'cp-monto' + (x.monto !== '' && !montoValido(x.monto) ? ' mal' : '')}>
+                    <span>S/</span>
+                    <input value={x.monto} inputMode="decimal" placeholder="0.00" aria-label={'Monto de la línea ' + (i + 1)}
+                      onChange={e => cambiarParte(i, 'monto', limpiarMonto(e.target.value))}
+                      onBlur={() => montoValido(x.monto) && cambiarParte(i, 'monto', Number(x.monto).toFixed(2))} />
+                  </div>
+                  <button type="button" className="btn-ghost cp-quitar" onClick={() => quitarParte(i)} disabled={partes.length < 2}
+                    aria-label={'Quitar la línea ' + (i + 1)} title="Quitar esta línea">&#10005;</button>
+                </div>
+              ))}
+              <div className="cp-partir-pie">
+                <button type="button" className="link-btn" onClick={agregarParte} disabled={partes.length >= 30}>+ Agregar línea</button>
+                {difPartes !== 0 && (
+                  <span className="cp-busca no">
+                    {difPartes > 0 ? 'Faltan ' + soles(difPartes / 100) + ' por repartir' : 'Se pasan por ' + soles(-difPartes / 100)}
+                    {ultimaAbsorbe && <> · <button type="button" className="link-btn" onClick={cuadrarUltima}>cuadrar con la última línea</button></>}
+                  </span>
+                )}
+                {difPartes === 0 && <span className="cp-busca ok">✓ Las líneas suman lo cobrado</span>}
+              </div>
+            </>}
             <div className="cp-linea cp-total"><span>Total, sin IGV</span><b>{soles(total)}</b></div>
 
             {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
@@ -453,7 +548,7 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
   // pago: lo deja sin comprobante, libre para emitirle otro.
   const [pagos, setPagos] = useState(null)
   useEffect(() => {
-    const ids = (c.items || []).map(i => i.pago_id).filter(Boolean)
+    const ids = pagosDeComprobante(c)
     if (!ids.length) { setPagos([]); return }
     let vivo = true
     supabase.from('daily_income').select('id, date, amount, operation_number, voucher_url, lot:lots(id, mz, lt)').in('id', ids).order('date')

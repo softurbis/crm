@@ -1430,6 +1430,22 @@ span.cp-chip { cursor: default; }
 .cp-linea input, .cp-linea span { flex: 1; min-width: 0; font-size: .82rem; }
 .cp-linea b { white-space: nowrap; }
 .cp-linea.cp-total { border-bottom: 0; font-size: .95rem; padding-top: .5rem; }
+/* cómo salen las líneas (sql/206): como se pagó · una sola · partir */
+.cp-tipo.cp-modo { margin-bottom: .45rem; }
+.cp-tipo.cp-modo button { padding: .4rem .5rem; font-size: .84rem; }
+.cp-linea .cp-monto { flex: 0 0 7.4rem; display: flex; align-items: center; gap: .3rem; }
+.cp-linea .cp-monto span { flex: none; color: var(--muted); font-size: .8rem; }
+.cp-linea .cp-monto input { flex: 1; width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+.cp-linea .cp-monto.mal input { border-color: #e0b23f; }
+.cp-linea .cp-quitar { flex: none; padding: .2rem .45rem; }
+.cp-partir-pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .8rem; padding: .4rem 0 .1rem; }
+.cp-partir-pie .link-btn { text-transform: none; font-size: .82rem; }
+.cp-partir-pie .cp-busca { margin-top: 0; }
+@media (max-width: 520px) {
+  .cp-linea.cp-parte { flex-wrap: wrap; }
+  .cp-linea.cp-parte > input { flex: 1 1 100%; }
+  .cp-linea.cp-parte .cp-monto { flex: 1; }
+}
 .cp-nota { padding: .5rem .7rem; border-radius: 8px; background: rgba(224,178,63,.12); color: #e6c36a; font-size: .82rem; margin: 0 0 .7rem; }
 .cp-grande { display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem; border-radius: 10px; font-size: 1rem; font-weight: 700; margin: .2rem 0 .5rem; }
 .cp-datos { display: grid; grid-template-columns: auto 1fr; gap: .2rem .9rem; margin: .7rem 0; font-size: .85rem; }
