@@ -1296,6 +1296,8 @@ export default function FichaLote() {
           <h1>Mz {sel.mz} · Lt {sel.lt}
             <span className="badge" style={{ background: COLORS[sel.status] }}>{LBL[sel.status] || sel.status}</span>
             {resumen?.vencidas.length > 0 && <span className="st-chip st-per">{resumen.vencidas.length} cuota{resumen.vencidas.length > 1 ? 's' : ''} vencida{resumen.vencidas.length > 1 ? 's' : ''}</span>}
+            {/* con 2 o más vencidas se le notifica con una carta (sql/155) */}
+            {sale && resumen?.vencidas.length > 1 && !readOnly && <Link className="st-chip st-firma" style={{ textDecoration: 'none' }} to={`/cartas?venta=${sale.id}`} title="Crear o ver la carta de cobranza de este cliente">📨 Carta de cobranza</Link>}
             {sale?.status === 'pagado' && <span className="st-chip st-ok">PAGADO 100%</span>}
           </h1>
           <p className="muted small">

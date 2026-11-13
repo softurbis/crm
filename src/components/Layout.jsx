@@ -66,6 +66,9 @@ const MENU = [
   // quién recibe avisos de cobranza (clientes y leads) y qué aviso le toca (sql/159)
   // lotes con deuda + Excel de cuotas vencidas (sql/156): la pantalla del facturador, también para el superusuario
   { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', admin: true, color: '#e05252', grupo: 'Cobranza' },
+  // cartas a los clientes con cuotas vencidas: la secretaria las crea, la socia las firma (sql/155).
+  // `siempre`: la ve todo el equipo aunque tenga los paneles recortados (la socia tiene que firmar)
+  { to: '/cartas', label: 'Cartas de cobranza', icon: '📨', color: '#e0b23f', proy: true, siempre: true, grupo: 'Cobranza' },
 
   // precios, iniciales y cuotas de cada lote para cotizar y mandar por WhatsApp (sql/181).
   // `siempre`: lo ve todo el equipo aunque tenga los paneles recortados; el asesor también
@@ -138,6 +141,7 @@ function TarjetasPendientes({ porFirmar, porPagar, esSocia, onIr }) {
 // (sql/145): lo ve todo, imprime y sube el voucher de los pagos de la socia.
 const MENU_FACTURACION = { to: '/facturacion', end: true, label: 'Boletas y facturas', icon: '🧾', color: '#4fc3a1' }
 const MENU_FACT_GASTOS = { to: '/facturacion/gastos', label: 'Gastos', icon: '💸', color: '#e0b23f' }
+const MENU_FACT_CARTAS = { to: '/facturacion/cartas', label: 'Cartas de cobranza', icon: '📨', color: '#e0b23f' }
 const MENU_FACT_DEUDORES = { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', color: '#e05252' }
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
@@ -287,6 +291,24 @@ export default function Layout() {
     return () => { vivo = false; clearInterval(t) }
   }, [esFacturacion])
 
+  // cartas de cobranza que esperan algo de esta persona (sql/155): la socia, las que le
+  // toca firmar; las secretarias, las firmadas por entregar y las de plazo vencido;
+  // facturación, las que esperan la firma. Sin sql/155 la función no existe y no se ve nada.
+  const [pendCartas, setPendCartas] = useState(0)
+  useEffect(() => {
+    if (!profile?.id || role === 'asesor') return
+    let vivo = true
+    const contar = () => supabase.rpc('cartas_pendientes').then(({ data, error }) => {
+      if (!vivo || error || !data) return
+      setPendCartas(role === 'socio' ? data.por_firmar
+        : role === 'facturacion' ? data.pendientes_firma_ver
+        : (data.por_entregar || 0) + (data.plazo_vencido || 0))
+    })
+    contar()
+    const t = setInterval(() => { if (!document.hidden) contar() }, 60000)
+    return () => { vivo = false; clearInterval(t) }
+  }, [role, profile?.id])
+
   const _loc = useLocation()
   const pathname = _loc.pathname
   // cada tabla, del alto que queda en la pantalla: su barra de costado siempre a la vista (14 oct)
@@ -342,7 +364,7 @@ export default function Layout() {
     return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', alVolver); window.removeEventListener('urbis-prospectos', contar) }
   }, [role, profile?.id])
 
-  const visibles = MENU.filter(verItem).map(delRol)
+  const visibles = MENU.filter(verItem).map(delRol).map(m => m.to === '/cartas' ? { ...m, badge: pendCartas } : m)
 
   // facturación no tiene otra pantalla: cualquier otra dirección la devuelve a la suya
   if (esFacturacion && !pathname.startsWith('/facturacion')) return <Navigate to="/facturacion" replace />
@@ -361,7 +383,7 @@ export default function Layout() {
           {role === 'asesor'
             ? ['/prospectos', '/whatsapp', '/vendedor'].map(to => MENU.find(m => m.to === to)).filter(Boolean)
                 .map(m => Item(m.to === '/prospectos' ? { ...m, label: 'Mis prospectos', badge: pendProsp } : m))
-            : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item(MENU_FACT_DEUDORES)}</>
+            : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item({ ...MENU_FACT_CARTAS, badge: pendCartas })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
                 {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
                     (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}

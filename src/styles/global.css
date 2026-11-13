@@ -343,6 +343,22 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
 .st-chip.st-per { background: rgba(224,82,82,.18); color: var(--error); }
 /* documento que NO se va a tener (cascada, cuadre): ni alerta ni todo bien */
 .st-chip.st-na { background: rgba(255,255,255,.07); color: #b9bcc2; font-weight: 600; }
+/* cartas de cobranza (sql/155): por firmar y firmada-por-entregar */
+.st-chip.st-firma { background: rgba(224,178,63,.18); color: #e0b23f; }
+.st-chip.st-info { background: rgba(123,167,247,.18); color: #8fb4f8; }
+
+/* ---- cartas de cobranza: la hoja como sale impresa ---- */
+.carta-hoja { background: #fff; color: #1d1d1d; border-radius: 6px; padding: 26px 30px; font: 13px/1.55 'Inter', 'Segoe UI', sans-serif;
+  text-transform: none; white-space: pre-wrap; max-height: 52vh; overflow-y: auto; box-shadow: 0 2px 12px rgba(0,0,0,.25); }
+.carta-hoja .carta-firma { text-align: center; margin-top: 22px; white-space: normal; }
+.carta-hoja .carta-firma img { height: 64px; display: block; margin: 0 auto; }
+.carta-hoja .carta-firma .raya { width: 220px; border-top: 1px solid #555; margin: 4px auto 3px; }
+.carta-hoja .carta-pie { font-size: 10.5px; color: #777; text-align: center; margin-top: 16px; white-space: normal; }
+.carta-texto { width: 100%; min-height: 46vh; font: 13px/1.5 'Inter', 'Segoe UI', sans-serif; text-transform: none; }
+.carta-pasos { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 12px; }
+.carta-pasos span { font-size: .72rem; padding: .2rem .5rem; border-radius: 10px; background: rgba(255,255,255,.06); color: #9aa0a8; }
+.carta-pasos span.hecho { background: rgba(134,181,126,.15); color: var(--ok); }
+.carta-pasos span.ahora { background: rgba(224,178,63,.2); color: #e0b23f; font-weight: 700; }
 
 /* Word convertido para verlo en el panel: se lee como una hoja, no como el resto
    de la interfaz (fondo claro, texto oscuro), porque es un documento. */
