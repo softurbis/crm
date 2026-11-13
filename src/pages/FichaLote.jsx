@@ -16,7 +16,7 @@ import ContratoModal from '../components/ContratoModal'
 import ContratoDeVenta from '../components/ContratoDeVenta'
 import EditarPersonaModal from '../components/EditarPersonaModal'
 import { COLORS, LBL, hoyPeru, fechaPe, cuotaVencida } from '../lib/lotes'
-import { repartirCuotas, textoCuotas } from '../lib/cronograma'
+import { repartirCuotas, textoCuotas, fechaCuota, textoDiaPago, FIN_DE_MES } from '../lib/cronograma'
 import { soles, agruparPagos, textoReparto, COLS_PAGO, COLS_PAGO_NA, subirDocPago, subirOtroDocPago, marcarNoAplica, quitarNoAplica } from '../lib/pagos'
 import DocsDeposito from '../components/DocsDeposito'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
@@ -31,14 +31,6 @@ const tieneCierre = e => !!(e.expr_fecha_cierre || e.expr_monto_recuperado != nu
 const r2 = n => Math.round(n * 100) / 100
 const esPend = c => !c?.doc_number || c.doc_type === 'PEND' || String(c.doc_number).toUpperCase().startsWith('PEND')
 const dniDe = c => c?.dni_url || c?.dni_front_url || null
-
-function sumarMeses(fecha, n) {
-  const d = new Date(fecha + 'T12:00:00')
-  const dia = d.getDate()
-  d.setMonth(d.getMonth() + n)
-  if (d.getDate() < dia) d.setDate(0)   // 31 de enero + 1 mes = 28/29 de febrero
-  return d.toISOString().slice(0, 10)
-}
 
 // Lo que le falta a una persona para firmar el contrato. Se muestra en la ficha
 // para que la secretaria lo complete antes de que el cliente venga a firmar.
@@ -634,6 +626,10 @@ export default function FichaLote() {
       campos: [
         { clave: 'meses', etiqueta: '¿En cuantas cuotas? (mira el contrato)', tipo: 'numero', valor: String(sale.installments_count || 48), obligatorio: true },
         { clave: 'fecha1', etiqueta: 'Fecha de vencimiento de la CUOTA 1', tipo: 'fecha', obligatorio: true, ayuda: 'Las demas se generan mes a mes desde esa fecha.' },
+        { clave: 'dia', etiqueta: 'Dia de pago de las cuotas', tipo: 'opcion', opciones: [
+          { valor: 'mismo', etiqueta: 'El mismo dia de la cuota 1, cada mes' },
+          { valor: 'finmes', etiqueta: 'Fin de mes (el ultimo dia de cada mes)' },
+        ] },
         { clave: 'motivo', etiqueta: '¿De donde salen estos datos? (queda en bitacora)', tipo: 'largo', obligatorio: true, placeholder: 'Ej: contrato fisico MZ A LT 19 firmado el 12/05/2026' },
       ],
     })
@@ -643,17 +639,20 @@ export default function FichaLote() {
     // cuotas redondeadas a 10 centimos y la ultima menor (lib/cronograma)
     const montos = repartirCuotas(financiado, meses)
     const cuotaAprox = montos[0]
-    const fecha1 = datos.fecha1
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha1)) { await avisar('Fecha invalida. Elige la fecha de vencimiento de la cuota 1.'); return }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha1)) { await avisar('Fecha invalida. Elige la fecha de vencimiento de la cuota 1.'); return }
+    // 31 = fin de mes: en los meses cortos cae el ultimo dia (lib/cronograma)
+    const dia = datos.dia === 'finmes' ? FIN_DE_MES : Number(datos.fecha1.slice(8, 10))
+    const fecha1 = fechaCuota(datos.fecha1, 0, dia)
+    const venceDe = i => fechaCuota(fecha1, i, dia)
     const motivo = datos.motivo
     if (!motivo || motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
     if (!await confirmar('Se crearan ' + textoCuotas(montos)
-      + '\nDesde el ' + fecha1 + ' hasta el ' + sumarMeses(fecha1, meses - 1)
+      + '\nDel ' + fechaPe(fecha1) + ' al ' + fechaPe(venceDe(meses - 1)) + ', ' + textoDiaPago(dia)
       + '\n\nLos pagos ya registrados NO se tocan.\n\n¿Confirmar?')) return
 
     const hoyStr = new Date().toISOString().slice(0, 10)
     const filas = montos.map((monto, i) => {
-      const vence = sumarMeses(fecha1, i)
+      const vence = venceDe(i)
       return { sale_id: sale.id, installment_number: i + 1, amount: monto, amount_paid: 0, due_date: vence, status: vence < hoyStr ? 'vencido' : 'pendiente' }
     })
     const { error } = await supabase.from('installments').insert(filas)
@@ -661,7 +660,7 @@ export default function FichaLote() {
     await supabase.from('sales').update({ installments_count: meses, monthly_amount: cuotaAprox, financed_amount: financiado }).eq('id', sale.id).then(() => {}, () => {})
     await logCambio('installments', sale.id, {
       cambio: 'generar_cronograma', lote: sel.mz + '-' + sel.lt,
-      cuotas: meses, financiado, cuota: cuotaAprox, desde: fecha1, hasta: sumarMeses(fecha1, meses - 1),
+      cuotas: meses, financiado, cuota: cuotaAprox, desde: fecha1, hasta: venceDe(meses - 1), dia_pago: dia,
       motivo: motivo.trim().toUpperCase(),
     })
     await avisar('✅ CRONOGRAMA CREADO: ' + meses + ' cuotas por S/ ' + financiado.toLocaleString('es-PE')
@@ -804,18 +803,72 @@ export default function FichaLote() {
     reload()
   }
 
-  // ---- EDITAR FECHA DE VENCIMIENTO de una cuota (superusuario) ----
+  // ---- EDITAR FECHA DE VENCIMIENTO (superusuario) ----
+  // Una sola cuota, o esta y TODAS las siguientes mes a mes: asi se cambia el dia
+  // de pago de un cronograma ya hecho (13 nov 2026: Campo Verde MZ O LT 3 quedo con
+  // la 1 y la 2 el 30 y el resto el 9; la secretaria pidio cuadrarlo a fin de mes).
+  // Los montos y los pagos no se tocan; las cuotas pagadas siguen pagadas.
   async function editarVence(q) {
-    const nueva = await pedir('Nueva fecha de VENCIMIENTO de la cuota ' + q.installment_number + ':', { tipo: 'fecha', valor: q.due_date || '', obligatorio: true })
-    if (nueva === null) return
+    const desde = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
+      .filter(i => i.installment_number >= q.installment_number)
+    const mas = desde.length - 1
+    const datos = await pedirDatos({
+      titulo: 'Vencimiento de la cuota ' + q.installment_number,
+      mensaje: q.due_date ? 'Hoy vence el ' + fechaPe(q.due_date) + '.' : undefined,
+      campos: [
+        { clave: 'fecha', etiqueta: 'Nueva fecha de vencimiento', tipo: 'fecha', valor: q.due_date || '', obligatorio: true },
+        ...(mas > 0 ? [{ clave: 'alcance', etiqueta: '¿A qué cuotas se aplica?', tipo: 'opcion', opciones: [
+          { valor: 'solo', etiqueta: 'Solo a la cuota ' + q.installment_number },
+          { valor: 'mismo', etiqueta: 'A esta y las ' + mas + ' siguientes: el mismo día de cada mes' },
+          { valor: 'finmes', etiqueta: 'A esta y las ' + mas + ' siguientes: a FIN DE MES (último día)' },
+        ] }] : []),
+      ],
+    })
+    if (datos === null) return
+    const nueva = datos.fecha
     if (!/^\d{4}-\d{2}-\d{2}$/.test(nueva)) { await avisar('Fecha inválida.'); return }
-    if (nueva === q.due_date) return
-    const hoyStr = new Date().toISOString().slice(0, 10)
+    const hoyStr = hoyPeru()
     // no se re-vence una cuota ya pagada; si no, se recalcula por la fecha nueva
-    const status = q.status === 'pagado' ? 'pagado' : (nueva < hoyStr ? 'vencido' : 'pendiente')
-    const { error } = await supabase.from('installments').update({ due_date: nueva, status }).eq('id', q.id)
-    if (error) { await avisar('ERROR: ' + error.message); return }
-    await logCambio('installments', detail.sale.id, { cambio: 'vence_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: q.due_date, despues: nueva })
+    const estado = (c, f) => (c.status === 'pagado' ? 'pagado' : f < hoyStr ? 'vencido' : 'pendiente')
+
+    if (!datos.alcance || datos.alcance === 'solo') {
+      if (nueva === q.due_date) return
+      const { error } = await supabase.from('installments').update({ due_date: nueva, status: estado(q, nueva) }).eq('id', q.id)
+      if (error) { await avisar('ERROR: ' + error.message); return }
+      await logCambio('installments', detail.sale.id, { cambio: 'vence_cuota', lote: sel.mz + '-' + sel.lt, cuota: q.installment_number, antes: q.due_date, despues: nueva })
+      reload()
+      return
+    }
+
+    // esta y las siguientes: cada una un mes despues, el dia de pago elegido
+    const dia = datos.alcance === 'finmes' ? FIN_DE_MES : Number(nueva.slice(8, 10))
+    const cambios = desde.map((c, k) => ({ c, f: fechaCuota(nueva, k, dia) })).filter(x => x.f !== x.c.due_date)
+    if (!cambios.length) { await avisar('Las fechas ya están así. No hay nada que cambiar.'); return }
+    const linea = x => 'Cuota ' + x.c.installment_number + ':  ' + (x.c.due_date ? fechaPe(x.c.due_date) : 'sin fecha') + '  →  ' + fechaPe(x.f) + (x.c.status === 'pagado' ? '  (pagada)' : '')
+    const lista = cambios.length <= 8 ? cambios.map(linea) : [...cambios.slice(0, 6).map(linea), '   …', linea(cambios[cambios.length - 1])]
+    const motivo = await pedir('CAMBIAR FECHAS desde la cuota ' + q.installment_number + ': ' + textoDiaPago(dia) + '.\n'
+      + 'Cambian ' + cambios.length + ' cuota' + (cambios.length > 1 ? 's' : '') + '. Los montos y los pagos NO se tocan.\n\n'
+      + lista.join('\n') + '\n\nMotivo del cambio (queda en bitácora):', { tipo: 'largo', obligatorio: true, placeholder: 'Ej: el cliente paga a fin de mes, lo pidió la secretaria' })
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { await avisar('MOTIVO OBLIGATORIO'); return }
+    // de 10 en 10 (cada cuota lleva su propia fecha)
+    for (let i = 0; i < cambios.length; i += 10) {
+      const res = await Promise.all(cambios.slice(i, i + 10).map(x =>
+        supabase.from('installments').update({ due_date: x.f, status: estado(x.c, x.f) }).eq('id', x.c.id)))
+      const err = res.find(r => r.error)?.error
+      if (err) {
+        await avisar('ERROR: ' + err.message + (i ? '\n\nOJO: ' + i + ' cuotas ya cambiaron. Repite el cambio desde la misma cuota para terminar.' : ''))
+        reload(); return
+      }
+    }
+    await logCambio('installments', detail.sale.id, {
+      cambio: 'vence_cuotas_desde', lote: sel.mz + '-' + sel.lt, desde_cuota: q.installment_number,
+      dia_pago: dia === FIN_DE_MES ? 'fin de mes' : dia, cuotas: cambios.length,
+      antes: cambios.map(x => x.c.installment_number + ':' + x.c.due_date).join(' '),
+      despues: cambios.map(x => x.c.installment_number + ':' + x.f).join(' '),
+      motivo: motivo.trim().toUpperCase(),
+    })
+    await avisar('FECHAS CAMBIADAS: ' + cambios.length + ' cuota' + (cambios.length > 1 ? 's' : '') + ', ' + textoDiaPago(dia) + '. MOTIVO EN BITÁCORA.', { tono: 'ok' })
     reload()
   }
 
@@ -1458,7 +1511,7 @@ export default function FichaLote() {
                 onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
             </>)}
           </div>
-          {puedeCorregir && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
+          {puedeCorregir && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En VENCE puedes cambiar solo esa cuota o esa y todas las siguientes (el mismo día o fin de mes). En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
           <div className="table-wrap fl-tabla">
             <table>
               <thead><tr><th>N°</th><th>Vence</th><th>Monto</th><th>Pagado</th><th>Debe</th><th>Estado</th><th>Pagada el</th></tr></thead>
@@ -1493,7 +1546,7 @@ export default function FichaLote() {
                     <tr key={q.id} className={esProx ? 'fl-fila-prox' : venc ? 'fl-fila-venc' : ''}>
                       <td>{q.installment_number}{esProx && <span className="fl-prox">próxima</span>}</td>
                       <td>{sup
-                        ? <button className="fecha-edit" onClick={() => editarVence(q)} title="Corregir vencimiento">{fechaPe(q.due_date)} <span>&#9998;</span></button>
+                        ? <button className="fecha-edit" onClick={() => editarVence(q)} title="Cambiar el vencimiento de esta cuota, o de esta y las siguientes">{fechaPe(q.due_date)} <span>&#9998;</span></button>
                         : fechaPe(q.due_date)}</td>
                       <td>{sup
                         ? <button className="fecha-edit" onClick={() => editarMontoCuotasDesde(q)} title="Cambiar el monto desde esta cuota">{soles(q.amount)} <span>&#9998;</span></button>

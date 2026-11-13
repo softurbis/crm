@@ -8,7 +8,7 @@
 // principal, despues la plata, al final el estado del lote.
 import { supabase } from './supabase'
 import { upload, subirRuta } from './archivos'
-import { repartirCuotas } from './cronograma'
+import { repartirCuotas, fechaCuota } from './cronograma'
 
 const r2 = n => Math.round(Number(n) * 100) / 100
 export const digitos = s => String(s || '').replace(/\D/g, '')
@@ -281,7 +281,7 @@ export async function registrarSeparacion({ pidOp, lote, clienteId, nuevaPersona
 // a la venta (asi sale en el estado de cuenta).
 
 export async function registrarInicial({
-  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, pago2 = null, subida2 = null, precio, meses, primeraCuota,
+  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, pago2 = null, subida2 = null, precio, meses, primeraCuota, diaPago = null,
   advisorId, comision, comUrbis, profile, leadId, telefonos = [],
 }) {
   subida = subida || await subirVoucher(pago)
@@ -302,7 +302,8 @@ export async function registrarInicial({
     monthly_amount: montos[0], sale_date: pago.fecha, status: 'en_proceso',
   }).select().single()
   if (e1) throw new Error('No se pudo crear la venta: ' + e1.message)
-  const filas = montos.map((amt, i) => ({ sale_id: sale.id, installment_number: i + 1, due_date: sumarMeses(primeraCuota, i), amount: amt }))
+  // cada cuota cae el dia de pago pactado (31 = fin de mes); sin dia, el de la primera
+  const filas = montos.map((amt, i) => ({ sale_id: sale.id, installment_number: i + 1, due_date: fechaCuota(primeraCuota, i, diaPago), amount: amt }))
   const { error: e2 } = await supabase.from('installments').insert(filas)
   if (e2) throw new Error('La venta se creó pero el cronograma NO: ' + e2.message + ' — genéralo desde la ficha (pestaña Cuotas).')
   const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })

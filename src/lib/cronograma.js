@@ -25,6 +25,44 @@ export function repartirCuotas(financiado, meses) {
   return Array.from({ length: n }, (_, i) => (i === n - 1 ? ultima : cuota))
 }
 
+// ------------------------------------------------------------------ fechas --
+// El DIA DE PAGO se elige en el contrato: el 1, el 15, fin de mes u otro día.
+// Se guarda como un número del 1 al 31, y 31 = FIN DE MES: en los meses cortos
+// cae en el último día (30 de abril, 28 o 29 de febrero). Con el día 30 pasa lo
+// mismo en febrero, y en marzo vuelve al 30: cada fecha sale del día elegido,
+// nunca de la cuota anterior.
+export const FIN_DE_MES = 31
+
+const ultimoDia = (anio, mes0) => new Date(Date.UTC(anio, mes0 + 1, 0)).getUTCDate()
+
+// fecha (AAAA-MM-DD) de la cuota que cae `k` meses después de `primera`, el día `dia`
+export function fechaCuota(primera, k, dia) {
+  const [a, m] = String(primera).slice(0, 10).split('-').map(Number)
+  const d = parseInt(dia) || Number(String(primera).slice(8, 10))
+  const t = new Date(Date.UTC(a, m - 1 + k, 1))
+  const y = t.getUTCFullYear(), mes0 = t.getUTCMonth()
+  const dd = Math.min(d, ultimoDia(y, mes0))
+  return y + '-' + String(mes0 + 1).padStart(2, '0') + '-' + String(dd).padStart(2, '0')
+}
+
+export const fechasCuotas = (primera, n, dia) => Array.from({ length: n }, (_, k) => fechaCuota(primera, k, dia))
+
+// "el último día de cada mes", "el día 15 de cada mes"
+export const textoDiaPago = dia => Number(dia) >= FIN_DE_MES ? 'el último día de cada mes' : 'el día ' + Number(dia) + ' de cada mes'
+
+// Los meses en que puede caer la primera cuota, desde el mes de `desde`:
+// [{ valor: '2026-12', etiqueta: 'Diciembre 2026 (al mes siguiente)' }, …]
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Setiembre', 'Octubre', 'Noviembre', 'Diciembre']
+export function mesesParaPrimera(desde, cuantos = 13) {
+  const [a, m] = String(desde).slice(0, 10).split('-').map(Number)
+  return Array.from({ length: cuantos }, (_, k) => {
+    const t = new Date(Date.UTC(a, m - 1 + k, 1))
+    const y = t.getUTCFullYear(), mes0 = t.getUTCMonth()
+    const cuando = k === 0 ? 'el mismo mes' : k === 1 ? 'al mes siguiente' : 'a ' + k + ' meses'
+    return { valor: y + '-' + String(mes0 + 1).padStart(2, '0'), etiqueta: MESES[mes0] + ' ' + y + ' (' + cuando + ')' }
+  })
+}
+
 // "47 cuotas de S/ 777.40 y la última de S/ 772.53"
 export function textoCuotas(cuotas) {
   if (!cuotas.length) return ''

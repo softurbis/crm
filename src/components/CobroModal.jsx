@@ -11,9 +11,9 @@ import { estaVivo, nombreComprobante } from '../lib/comprobantes'
 import FormPersona, { BuscarCliente } from './FormPersona'
 import { soles } from '../lib/pagos'
 import { fechaPe } from '../lib/lotes'
-import { repartirCuotas, textoCuotas } from '../lib/cronograma'
+import { repartirCuotas, textoCuotas, fechaCuota, mesesParaPrimera, textoDiaPago, FIN_DE_MES } from '../lib/cronograma'
 import {
-  hoyPe, sumarDias, sumarMeses, digitos, celularValido, esPendiente, faltanParaContrato,
+  hoyPe, sumarDias, digitos, celularValido, esPendiente, faltanParaContrato,
   buscarPorCelular, guardarPersona, validarPago, planCascada, subirVoucher, pagosParecidos,
   registrarSeparacion, registrarInicial, registrarCuota, registrarCuadre,
 } from '../lib/cobros'
@@ -83,7 +83,11 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const [leyendoDni, setLeyendoDni] = useState({})   // { titular, co }: mientras la IA lee un DNI no se registra
   const [precio, setPrecio] = useState(String(lote.total_price ?? ''))
   const [meses, setMeses] = useState(48)
-  const [primeraCuota, setPrimeraCuota] = useState(sumarMeses(hoyPe(), 1))
+  // dia de pago (el 1, el 15, fin de mes u otro) y a cuantos meses de la inicial
+  // cae la primera cuota: asi se pacta en el contrato
+  const [diaOpc, setDiaOpc] = useState('')           // '1' | '15' | '31' | 'otro'
+  const [diaOtro, setDiaOtro] = useState('')
+  const [aMeses, setAMeses] = useState(1)
   const [comision, setComision] = useState('')
   const [comUrbis, setComUrbis] = useState('')
 
@@ -142,6 +146,10 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const financiado = r2(Number(precio || 0) - montoInicial - sepMonto)
   const nMeses = parseInt(meses) || 0
   const montos = esInicial && financiado > 0 && nMeses >= 1 && nMeses <= 120 ? repartirCuotas(financiado, nMeses) : []
+  const diaPago = parseInt(diaOpc === 'otro' ? diaOtro : diaOpc) || 0
+  const diaOk = diaPago >= 1 && diaPago <= 31
+  const baseMes = /^\d{4}-\d{2}-\d{2}$/.test(pago.fecha || '') ? pago.fecha : hoyPe()
+  const primeraCuota = diaOk ? fechaCuota(baseMes, Number(aMeses) || 0, diaPago) : ''
   const plan = useMemo(() => (modo === 'cuota' ? planCascada(pendientes, pago.monto) : null), [modo, pendientes, pago.monto])
 
   const tocado = !!(pago.file || pago2 || cel || nombre || archTit || co)
@@ -182,7 +190,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       if (!(Number(precio) > 0)) return 'Revisa el precio de venta.'
       if (!(nMeses >= 1 && nMeses <= 120)) return 'Número de cuotas inválido (1 a 120).'
       if (!(financiado > 0)) return 'No queda saldo por financiar: revisa precio, inicial y separación.'
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha || (pago2 && primeraCuota <= pago2.fecha)) return 'La primera cuota tiene que vencer después de la fecha de la inicial.'
+      if (!diaOk) return 'Elige el día de pago de las cuotas: el 1, el 15, fin de mes u otro día (del 1 al 31).'
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha || (pago2 && primeraCuota <= pago2.fecha)) return 'La primera cuota tiene que vencer después de la fecha de la inicial: elige un mes más adelante.'
       if (!advisorId) return 'Elige el vendedor (asesor).'
     }
     if (modo === 'cuota') {
@@ -246,13 +255,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
         const r = await registrarInicial({
           pidOp, lote, sep, clienteId: cliente.id,
           clientePendienteId: sep && sep.client_id !== cliente.id ? sep.client_id : null,
-          coClienteId: coCli?.id || null, pago, subida, pago2, subida2, precio, meses: nMeses, primeraCuota,
+          coClienteId: coCli?.id || null, pago, subida, pago2, subida2, precio, meses: nMeses, primeraCuota, diaPago,
           advisorId, comision, comUrbis, profile, telefonos: [cliente.phone, cliente.phone2],
         })
         setHecho({
           titulo: 'Venta registrada', saleId: r.sale.id, cobro: { ...refPago(1), cliente },
           avisos: [...r.avisos, ...(pago2 && facturaAqui ? ['El botón de abajo emite el comprobante del PRIMER voucher. El del segundo se emite en la pestaña Pagos y documentos de la ficha.'] : [])],
-          texto: `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}.`,
+          texto: `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}, ${textoDiaPago(diaPago)}.`,
         })
       }
       if (modo === 'cuota') {
@@ -394,7 +403,21 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={2}>
                 <label>Precio de venta S/ <input type="number" step="0.01" value={precio} onChange={e => setPrecio(e.target.value)} /></label>
                 <label>N° de cuotas <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(e.target.value)} /></label>
-                <label>Primera cuota vence el <input type="date" value={primeraCuota} onChange={e => setPrimeraCuota(e.target.value)} /></label>
+                <label>Día de pago
+                  <select value={diaOpc} onChange={e => setDiaOpc(e.target.value)}>
+                    <option value="">— elige —</option>
+                    <option value="1">El 1 de cada mes</option>
+                    <option value="15">El 15 de cada mes</option>
+                    <option value={String(FIN_DE_MES)}>Fin de mes (último día)</option>
+                    <option value="otro">Otro día…</option>
+                  </select>
+                </label>
+                {diaOpc === 'otro' && <label>¿Qué día? (1 a 31) <input type="number" min="1" max="31" value={diaOtro} onChange={e => setDiaOtro(e.target.value)} placeholder="Ej: 5" /></label>}
+                <label>Primera cuota en
+                  <select value={aMeses} onChange={e => setAMeses(Number(e.target.value))}>
+                    {mesesParaPrimera(baseMes).map((o, k) => <option key={o.valor} value={k}>{o.etiqueta}</option>)}
+                  </select>
+                </label>
                 {Vendedor}
                 <label>Comisión asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
                 <label>Comisión Urbis S/ <input type="number" step="0.01" min="0" value={comUrbis} onChange={e => setComUrbis(e.target.value)} placeholder="0.00" /></label>
@@ -413,7 +436,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                   Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(montoInicial)}{pago2 ? <> ({soles(pago.monto)} + {soles(pago2.monto)})</> : null} = <b>{soles(financiado)}</b> a financiar
                 </p>
                 {montos.length > 0
-                  ? <p style={{ margin: '4px 0 0' }}>&#128197; <b>{textoCuotas(montos)}</b>, del {fechaPe(primeraCuota)} al {fechaPe(sumarMeses(primeraCuota, montos.length - 1))}. <span className="muted small">(cuotas redondeadas al sol; la última absorbe la diferencia)</span></p>
+                  ? (primeraCuota
+                    ? <p style={{ margin: '4px 0 0' }}>&#128197; <b>{textoCuotas(montos)}</b>, {textoDiaPago(diaPago)}: la primera el <b>{fechaPe(primeraCuota)}</b> y la última el {fechaPe(fechaCuota(primeraCuota, montos.length - 1, diaPago))}. <span className="muted small">(cuotas redondeadas al sol; la última absorbe la diferencia)</span></p>
+                    : <p className="warn" style={{ margin: '4px 0 0' }}>&#128197; {textoCuotas(montos)}. Elige el <b>día de pago</b> para ver las fechas.</p>)
                   : <p className="warn" style={{ margin: '4px 0 0' }}>Completa precio, inicial y cuotas para ver el cronograma.</p>}
               </div>
             </>)}
