@@ -23,3 +23,10 @@ Corre en una PC que quede prendida (o un servidor). Se conecta a TU WhatsApp esc
 ## IMPORTANTE
 - La carpeta `auth/` guarda la sesion de WhatsApp y `.env` la clave maestra: JAMAS se suben a GitHub (ya estan en .gitignore).
 - Si cierras sesion desde el telefono, borra la carpeta `auth/` y vuelve a escanear.
+
+## Reportero del panel de C-Soft (`panel_reporte.js`)
+Proceso aparte (pm2 `panel-reporte`) que cada minuto manda un latido a `panel.csoft.men` y cada 5 minutos un resumen de SOLO TOTALES (cobrado, cuotas vencidas, ventas, leads, estado del agente de cobranza). No lleva nombres, telefonos ni DNI; solo lee la base y no atiende ordenes del panel.
+- Se registra una vez: `cd /root/crm/agente && pm2 start panel_reporte.js --name panel-reporte && pm2 save`.
+- Sin `PANEL_REPORTE_CLAVE` en el `.env` no hace nada. La clave se pega con `nano .env` y se toma sola en un minuto (no hay que reiniciar).
+- Cuando un `git pull` trae una version nueva del archivo, el proceso se reinicia solo.
+- Probar a mano: `node panel_reporte.js --una-vez`. Errores: `pm2 logs panel-reporte` (prefijo `[panel-reporte]`).
