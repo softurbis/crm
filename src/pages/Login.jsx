@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
+import { aCorreo, mostrarUsuario } from '../lib/celular'
 
 // Usuarios que ya entraron en ESTE navegador (solo el correo, nunca la clave).
 // En la oficina se comparte la PC: elegir tu correo de una lista ahorra
@@ -45,18 +46,20 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault()
     setBusy(true); setError(''); setAviso('')
-    const { error } = await login(email.trim().toLowerCase(), password)
+    // los vendedores entran con su celular (lib/celular.js); el resto, con su correo
+    const usuario = aCorreo(email)
+    const { error } = await login(usuario, password)
     setBusy(false)
     if (error) {
       const m = (error.message || '').toLowerCase()
-      if (m.includes('invalid login')) setError('Correo o contraseña incorrectos')
+      if (m.includes('invalid login')) setError('Correo, celular o contraseña incorrectos')
       else if (m.includes('not confirmed')) setError('CORREO SIN CONFIRMAR: pide al administrador confirmar tu correo en Supabase')
       else if (m.includes('disabled') || m.includes('banned')) setError('USUARIO DESACTIVADO')
       else setError(error.message)
     } else {
       // entrar con contraseña quita cualquier bloqueo de PIN que quedara en esta PC
       try { localStorage.removeItem('uso_bloqueada') } catch {}
-      recordarUsuario(email.trim().toLowerCase())
+      recordarUsuario(usuario)
       nav('/')
     }
   }
@@ -81,15 +84,15 @@ export default function Login() {
               <span key={u} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <button type="button" className="chip" style={{ textTransform: 'none' }}
                   onClick={() => { setEmail(u); setError(''); setAviso('') }}
-                  title="Usar este correo">{u}</button>
+                  title="Usar este usuario">{mostrarUsuario(u)}</button>
                 <button type="button" className="link-btn muted" title="Quitar de la lista"
                   onClick={() => { olvidarUsuario(u); setRecordados(usuariosRecordados()) }}>✕</button>
               </span>
             ))}
           </div>
         )}
-        <label>Correo
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+        <label>Correo o celular
+          <input type="text" inputMode="email" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)}
             autoComplete="username" required autoFocus style={{ textTransform: 'none' }} />
         </label>
         <label>Contraseña

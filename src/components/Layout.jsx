@@ -7,6 +7,7 @@ import Logo from './Logo'
 import Avatar from './Avatar'
 import SaveFx from './SaveFx'
 import InstalarApp from './InstalarApp'
+import BarraVendedor from './BarraVendedor'
 import { useTablasAlAlto } from '../lib/tablasAlAlto'
 import { useNavigate as usarNavegacion } from 'react-router-dom'
 
@@ -74,6 +75,7 @@ const MENU = [
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
   { to: '/ventas', label: 'Ventas y contratos', icon: '📄', color: '#7bb6e0', proy: true, grupo: 'Ventas', tambien: ['/contratos'] },
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8', grupo: 'Ventas' },
+  { to: '/equipo-ventas', label: 'Vendedores', icon: '🧑‍💼', admin: true, color: '#f08fb0', grupo: 'Ventas' },
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
 
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos' },
@@ -346,7 +348,7 @@ export default function Layout() {
   if (esFacturacion && !pathname.startsWith('/facturacion')) return <Navigate to="/facturacion" replace />
 
   return (
-    <div className="shell">
+    <div className={role === 'asesor' ? 'shell shell-vend' : 'shell'}>
       <button className="menu-toggle" onClick={() => setOpen(!open)}>☰</button>
       <aside className={`sidebar glass ${open ? 'open' : ''}`}>
         <div className="brand">
@@ -522,6 +524,7 @@ export default function Layout() {
           <Outlet />
         </Suspense>
       </main>
+      {role === 'asesor' && <BarraVendedor pendientes={pendProsp} onCuenta={() => setOpen(o => !o)} />}
       <VolverArriba />
       <SaveFx />
     </div>

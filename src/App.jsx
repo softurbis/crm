@@ -42,6 +42,8 @@ const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Deudores = lazy(() => import('./pages/Deudores'))
 const Vendedor = lazy(() => import('./pages/Vendedor'))
 const Prospectos = lazy(() => import('./pages/Prospectos'))
+const EntrarVendedor = lazy(() => import('./pages/EntrarVendedor'))
+const EquipoVentas = lazy(() => import('./pages/EquipoVentas'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
@@ -108,6 +110,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/reset" element={<Reset />} />
+        {/* la entrada de los vendedores: celular + clave (12 nov) */}
+        <Route path="/vendedores" element={<EntrarVendedor />} />
         <Route path="/propiedades" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
         <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
         <Route path="/c/:token" element={SITIO_PUBLICO ? <AlSitioPublico /> : <ComprobantePublico />} />
@@ -132,6 +136,8 @@ export default function App() {
           <Route path="vendedor" element={<Vendedor />} />
           {/* seguimiento de leads: el vendedor ve solo los suyos, el equipo todos (sql/190) */}
           <Route path="prospectos" element={<Vedada para={a => ['socio', 'facturacion'].includes(a.role)}><Prospectos /></Vedada>} />
+          {/* alta de vendedores en un paso: nombre + celular (12 nov): solo el superusuario */}
+          <Route path="equipo-ventas" element={<Vedada para={a => !a.esSuper}><EquipoVentas /></Vedada>} />
           <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />
           <Route path="lotes/:id" element={<FichaLote />} />
           <Route path="ventas" element={<Contracts />} />
