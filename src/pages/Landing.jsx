@@ -213,9 +213,11 @@ export default function Landing() {
   // y traen textos y portada propios; un link de afuera (Panoraven, un modelo de dron) mantiene los de siempre
   const recPropio = u => (String(u || '').match(/^(?:https:\/\/(?:www\.)?urbisgroupinmobiliaria\.com)?\/recorrido\/([a-z0-9-]+)\//) || [])[1]
   const portadaRec = (u, cual) => recPropio(u) ? `${R2_PUBLICO}/recorridos/${recPropio(u)}/og-${cual}.jpg` : null
+  // lo que se ve en cada recorrido 3D propio (la laguna es de Praderas; El Encanto tiene la quebrada)
+  const lugares3d = { 'praderas-de-cashibo': 'sus calles, parques, la laguna y los lotes', 'encanto-de-campo-verde': 'sus calles, la quebrada y los lotes' }
   const modos = [
     p.visor_url && (recPropio(p.visor_url)
-      ? { id: '3d', nombre: 'Recorrido 3D', url: p.visor_url, boton: 'Caminar por el proyecto', portada: portadaRec(p.visor_url, '3d'), texto: 'Camina por el proyecto terminado: sus calles, parques, la laguna y los lotes, como si ya estuvieras ahí.' }
+      ? { id: '3d', nombre: 'Recorrido 3D', url: p.visor_url, boton: 'Caminar por el proyecto', portada: portadaRec(p.visor_url, '3d'), texto: `Camina por el proyecto terminado: ${lugares3d[recPropio(p.visor_url)] || 'sus calles, parques y lotes'}, como si ya estuvieras ahí.` }
       : { id: '3d', nombre: 'Modelo 3D', url: p.visor_url, boton: 'Abrir el visor 3D', texto: 'Modelo real del terreno levantado con dron: gira, acércate y míralo desde cualquier ángulo.' }),
     p.tour_url && (recPropio(p.tour_url)
       ? { id: '360', nombre: 'Fotos 360° reales', url: p.tour_url, boton: 'Ver las fotos 360°', portada: portadaRec(p.tour_url, 'fotos'), texto: 'Fotos reales del terreno tomadas con dron, con el trazo de las calles del proyecto encima: gira la vista con el dedo o el mouse.' }
