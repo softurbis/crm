@@ -212,6 +212,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
         </div>
         <div className="muted" style={{ fontSize: 12 }}>
           Las primeras fotos rotan en la portada (planos y mapas no entran). La foto cuya descripción diga <b>ruta</b>, <b>acceso</b> o <b>cómo llegar</b> se usa en la sección "Cómo llegar".
+          {' '}Marca <b>Render</b> en las imágenes que no son fotos reales: salen aparte, en "Así se verá", con la nota "Imagen referencial; las obras se ejecutan por etapas".
         </div>
         {galeria.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
@@ -220,9 +221,16 @@ export default function LandingEditor({ pr, setPub, avisar }) {
                 <div style={{ position: 'relative' }}>
                   <img src={g.s || g.url} alt="" loading="lazy" style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                   <span style={{ position: 'absolute', top: 4, left: 4, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 11, padding: '1px 6px', borderRadius: 10 }}>{l.foto_url === g.url ? '★ portada' : i + 1}</span>
+                  {g.video && <span style={{ position: 'absolute', top: 4, right: 4, background: '#1faa59', color: '#fff', fontSize: 11, padding: '1px 6px', borderRadius: 10 }}>▶ testimonio</span>}
                 </div>
                 <input value={g.titulo || ''} placeholder="Descripción (opcional)" onChange={e => set('galeria', galeria.map((x, j) => (j === i ? { ...x, titulo: e.target.value } : x)))}
                   style={{ width: '100%', fontSize: 12, padding: '4px 6px', borderRadius: 0 }} />
+                {!g.video && (
+                  <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 6px', cursor: 'pointer' }} title="Imagen 3D, no foto real: sale en &quot;Así se verá&quot; con la nota de imagen referencial">
+                    <input type="checkbox" checked={!!g.ref} onChange={e => guardarGaleria(galeria.map((x, j) => (j === i ? { ...x, ref: e.target.checked || undefined } : x)))} style={{ width: 'auto' }} />
+                    Render (imagen referencial)
+                  </label>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => mover(i, -1)} title="Mover antes">←</button>
                   <button type="button" className="btn-ghost" onClick={() => set('foto_url', g.url)} title="Usar de portada (luego Guardar)">★</button>

@@ -378,3 +378,45 @@
   .lp-gal img, .lp-cinta-item img, .lp-mapa img { transition: none; }
   .lp [data-reveal] { opacity: 1; transform: none; transition: none; }
 }
+
+/* ---------- 13 nov 2026: "Así se verá" (renders) y testimonios en video ----------
+   Fondo propio en cada una: así no importa qué sección les toque al lado. */
+.lp-ren-sec { background: linear-gradient(180deg, #0f1d17 0%, #142a20 100%); color: #fff; }
+.lp-ren-sec .lp-eyebrow { color: color-mix(in srgb, var(--lp-c) 45%, #fff); }
+.lp-ren-sec .lp-lead { color: rgba(255, 255, 255, .72); }
+.lp-ren { position: relative; margin-top: 30px; }
+.lp-ren-track { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 2px;
+  padding: 2px 2px 14px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .25) transparent; overscroll-behavior-x: contain; }
+.lp-ren-item { position: relative; flex: 0 0 min(620px, 72%); aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 16px; overflow: hidden;
+  background: #1b2e25; cursor: zoom-in; scroll-snap-align: start; box-shadow: 0 16px 40px rgba(0, 0, 0, .35); }
+.lp-ren-item img { width: 100%; height: 100%; object-fit: cover; transition: transform .7s ease; }
+.lp-ren-item:hover img { transform: scale(1.04); }
+.lp-ren-chip { position: absolute; top: 12px; left: 12px; padding: 5px 10px; border-radius: 999px; background: rgba(10, 18, 14, .62);
+  backdrop-filter: blur(4px); color: rgba(255, 255, 255, .92); font: 600 11.5px/1.2 'Inter', system-ui, sans-serif; letter-spacing: .04em; }
+.lp-ren-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 34px 16px 13px; text-align: left; color: #fff;
+  font: 700 16px/1.3 'Montserrat', 'Segoe UI', sans-serif; background: linear-gradient(transparent, rgba(0, 0, 0, .66)); }
+.lp-ren-nav { position: absolute; top: calc(50% - 7px); transform: translateY(-50%); display: grid; place-items: center; width: 46px; height: 46px;
+  padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .92); color: var(--lp-ink); font-size: 28px; line-height: 1; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .3); }
+.lp-ren-nav:hover { background: #fff; }
+.lp-ren-prev { left: -14px; }
+.lp-ren-next { right: -14px; }
+
+.lp-testi-sec { background: #fff; }
+.lp-testi { display: grid; grid-template-columns: 1.1fr .9fr; gap: clamp(28px, 5vw, 64px); align-items: center; }
+.lp-testi-vids { display: flex; justify-content: center; gap: 16px; }
+.lp-testi-video { width: min(330px, 100%); aspect-ratio: 9 / 16; border-radius: 22px; background: #0e1512; object-fit: cover;
+  border: 6px solid #fff; box-shadow: 0 22px 50px rgba(16, 32, 24, .2); }
+
+@media (max-width: 860px) {
+  .lp-testi { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .lp-ren-item { flex-basis: 84%; }
+  .lp-ren-nav { display: none; }             /* en celular se desliza con el dedo */
+  .lp-ren-cap { font-size: 14.5px; padding: 28px 12px 10px; }
+  .lp-testi-video { width: min(300px, 86%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-ren-item img { transition: none; }
+}

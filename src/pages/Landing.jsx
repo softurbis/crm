@@ -94,6 +94,7 @@ export default function Landing() {
   const slug = String(crudo || '').toLowerCase()
   const [p, setP] = useState(undefined)      // undefined = cargando · null = no existe
   const [foto, setFoto] = useState(null)     // índice abierto en el visor
+  const [render, setRender] = useState(null) // índice del render abierto en el visor ("Así se verá")
   const [modo, setModo] = useState(null)            // '360' | '3d' (null = el primero que haya)
   const [recorrido, setRecorrido] = useState(false) // el tour/visor incrustado (solo se carga si lo piden)
   // plano interactivo y calculadora (sql/195): se piden recién cuando la landing existe
@@ -163,7 +164,13 @@ export default function Landing() {
   )
 
   const nombre = bonito(p.nombre)
-  const galeria = (Array.isArray(p.galeria) ? p.galeria : []).filter(g => g?.url)
+  // la galería del panel trae también renders ({ ref: true }) y testimonios en video ({ video }):
+  // cada uno va en su propia sección ("Así se verá" con su nota, "Testimonio") y nunca se mezcla
+  // con las fotos reales de la portada, la galería y la cinta (13 nov 2026)
+  const todo = (Array.isArray(p.galeria) ? p.galeria : []).filter(g => g?.url)
+  const galeria = todo.filter(g => !g.ref && !g.video)
+  const renders = todo.filter(g => g.ref && !g.video)
+  const videos = todo.filter(g => g.video)
   const portada = p.portada_url || galeria[0]?.url
   const fotoPortada = galeria.find(g => g.url === portada) || (portada ? { url: portada } : null)
   // la portada rota entre las primeras fotos (sin planos ni mapas), empezando por la elegida
@@ -323,6 +330,9 @@ export default function Landing() {
         </div></section>
       )}
 
+      {renders.length > 0 && <AsiSera renders={renders} nombre={nombre} onAbrir={setRender} />}
+      {videos.length > 0 && <Testimonios videos={videos} nombre={nombre} linkWa={linkWa} />}
+
       {modoActual && (
         <section className="lp-sec" id="recorrido"><div className="lp-wrap">
           <div data-reveal>
@@ -474,7 +484,61 @@ export default function Landing() {
 
       {faq.length > 0 && <ChatDudas faq={faq} nombre={nombre} logo={p.logo_url} linkWa={linkWa} irContacto={() => ir('contacto')} />}
       {foto != null && <Visor fotos={galeria} i={foto} nombre={nombre} onNav={setFoto} onClose={() => setFoto(null)} />}
+      {render != null && <Visor fotos={renders} i={render} nombre={nombre} nota="Imagen referencial" onNav={setRender} onClose={() => setRender(null)} />}
     </div>
+  )
+}
+
+// "Así se verá": los renders en una tira que se desliza de costado, cada uno con su etiqueta
+// "Imagen referencial" y la nota de que las obras van por etapas (la misma frase del brochure)
+function AsiSera({ renders, nombre, onAbrir }) {
+  const pista = useRef(null)
+  const mover = d => { const el = pista.current; if (el) el.scrollBy({ left: d * el.clientWidth * 0.8, behavior: sinMovimiento() ? 'auto' : 'smooth' }) }
+  return (
+    <section className="lp-sec lp-ren-sec" id="asi-sera"><div className="lp-wrap">
+      <div data-reveal>
+        <div className="lp-eyebrow">El proyecto terminado</div>
+        <h2>Así se verá {nombre}</h2>
+        <p className="lp-lead">Imágenes referenciales del diseño del proyecto; las obras se ejecutan por etapas.</p>
+      </div>
+      <div className="lp-ren" data-reveal>
+        <div className="lp-ren-track" ref={pista}>
+          {renders.map((g, i) => (
+            <button key={g.url} type="button" className="lp-ren-item" onClick={() => onAbrir(i)} aria-label={'Ver en grande: ' + (g.titulo || 'imagen ' + (i + 1))}>
+              <img src={medianaDe(g)} srcSet={srcsetDe(g)} sizes="(max-width: 760px) 84vw, 620px" alt={(g.titulo || nombre) + ' (imagen referencial)'} loading="lazy" decoding="async" />
+              <span className="lp-ren-chip">Imagen referencial</span>
+              {g.titulo && <span className="lp-ren-cap">{g.titulo}</span>}
+            </button>
+          ))}
+        </div>
+        {renders.length > 1 && <>
+          <button type="button" className="lp-ren-nav lp-ren-prev" onClick={() => mover(-1)} aria-label="Ver anteriores">‹</button>
+          <button type="button" className="lp-ren-nav lp-ren-next" onClick={() => mover(1)} aria-label="Ver siguientes">›</button>
+        </>}
+      </div>
+    </div></section>
+  )
+}
+
+// testimonios en video (vertical, como se graban en el celular): el video baja recién al darle play
+function Testimonios({ videos, nombre, linkWa }) {
+  return (
+    <section className="lp-sec lp-testi-sec" id="testimonios"><div className="lp-wrap">
+      <div className="lp-testi" data-reveal>
+        <div>
+          <div className="lp-eyebrow">Testimonios</div>
+          <h2>Lo que dicen quienes ya compraron</h2>
+          <p className="lp-lead">{videos[0].titulo || 'Clientes de ' + nombre + ' cuentan su experiencia.'}</p>
+          {linkWa && <div className="lp-ctas"><a className="lp-btn lp-btn-line" href={linkWa} target="_blank" rel="noreferrer">Quiero mi lote también</a></div>}
+        </div>
+        <div className="lp-testi-vids">
+          {videos.map(v => (
+            <video key={v.video} className="lp-testi-video" src={v.video} poster={v.m || v.url} controls playsInline preload="none"
+              aria-label={v.titulo || 'Testimonio de un cliente de ' + nombre} />
+          ))}
+        </div>
+      </div>
+    </div></section>
   )
 }
 
@@ -626,7 +690,7 @@ function Formulario({ p, linkWa }) {
   )
 }
 
-function Visor({ fotos, i, nombre, onNav, onClose }) {
+function Visor({ fotos, i, nombre, nota, onNav, onClose }) {
   const n = fotos.length
   const toque = useRef(null)
   const mover = d => onNav((i + d + n) % n)
@@ -654,7 +718,7 @@ function Visor({ fotos, i, nombre, onNav, onClose }) {
         <button type="button" className="lp-lb-prev" onClick={e => { e.stopPropagation(); mover(-1) }} aria-label="Foto anterior">‹</button>
         <button type="button" className="lp-lb-next" onClick={e => { e.stopPropagation(); mover(1) }} aria-label="Foto siguiente">›</button>
       </>}
-      <div className="lp-lb-cap">{g.titulo ? g.titulo + ' · ' : ''}{i + 1} / {n}</div>
+      <div className="lp-lb-cap">{g.titulo ? g.titulo + ' · ' : ''}{nota ? nota + ' · ' : ''}{i + 1} / {n}</div>
     </div>
   )
 }
