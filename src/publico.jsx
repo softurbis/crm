@@ -5,6 +5,7 @@ import Portada from './pages/Portada'
 import Publico from './pages/Publico'
 import Landing from './pages/Landing'
 import ComprobantePublico from './pages/ComprobantePublico'
+import LibroReclamaciones from './pages/LibroReclamaciones'
 import './styles/global.css'
 
 // WEB PÚBLICA (urbisgroupinmobiliaria.com): portada con los proyectos (13 nov 2026),
@@ -31,6 +32,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/p/:slug" element={<Landing />} />
         {/* la boleta del cliente, el enlace corto del WhatsApp (sql/153) */}
         <Route path="/c/:token" element={<ComprobantePublico />} />
+        {/* el libro de reclamaciones virtual (sql/230): la hoja nueva y, con su clave, la ya enviada */}
+        <Route path="/libro-de-reclamaciones" element={<LibroReclamaciones />} />
+        <Route path="/libro-de-reclamaciones/:token" element={<LibroReclamaciones />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

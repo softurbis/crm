@@ -88,6 +88,9 @@ const MENU = [
   { to: '/secretarias', label: 'Tareas del equipo', icon: '🗓️', color: '#e8a0c8', grupo: 'Comercial' },
   { to: '/campanas', label: 'Campañas', icon: '📣', staff: true, color: '#f0a35c', grupo: 'Comercial' },
   { to: '/corretaje', label: 'Corretaje', icon: '🏘️', staff: true, color: '#6fd1c0', grupo: 'Comercial' },
+  // lo que los clientes registran en la web /libro-de-reclamaciones (sql/230). `siempre`: a admin y
+  // superusuario no se les recorta por paneles (el plazo legal de respuesta corre igual)
+  { to: '/reclamos', label: 'Libro de reclamaciones', icon: '📕', staff: true, siempre: true, color: '#e06c6c', grupo: 'Comercial' },
 
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6', grupo: 'Reportes' },
 
@@ -364,7 +367,20 @@ export default function Layout() {
     return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', alVolver); window.removeEventListener('urbis-prospectos', contar) }
   }, [role, profile?.id])
 
-  const visibles = MENU.filter(verItem).map(delRol).map(m => m.to === '/cartas' ? { ...m, badge: pendCartas } : m)
+  // libro de reclamaciones (sql/230): cuántas hojas esperan respuesta. Solo admin y superusuario
+  // (la tabla no le deja leer a nadie más). Sin sql/230 la tabla no existe y no se ve nada.
+  const [pendReclamos, setPendReclamos] = useState(0)
+  useEffect(() => {
+    if (!profile?.id || !['admin', 'superuser'].includes(role)) return
+    let vivo = true
+    const contar = () => supabase.from('libro_reclamaciones').select('id', { count: 'exact', head: true }).is('respuesta_at', null)
+      .then(({ count, error }) => { if (vivo && !error) setPendReclamos(count || 0) })
+    contar()
+    const t = setInterval(() => { if (!document.hidden) contar() }, 120000)
+    return () => { vivo = false; clearInterval(t) }
+  }, [role, profile?.id, pathname === '/reclamos'])   // eslint-disable-line
+
+  const visibles = MENU.filter(verItem).map(delRol).map(m => m.to === '/cartas' ? { ...m, badge: pendCartas } : m.to === '/reclamos' ? { ...m, badge: pendReclamos } : m)
 
   // facturación no tiene otra pantalla: cualquier otra dirección la devuelve a la suya
   if (esFacturacion && !pathname.startsWith('/facturacion')) return <Navigate to="/facturacion" replace />

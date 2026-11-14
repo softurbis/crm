@@ -263,9 +263,14 @@ export default function Portada() {
             </div>
           ))}
         </div>
+        {/* obligatorio para quien vende a consumidores (Ley 29571): el libro virtual, sql/230 */}
+        <Link to="/libro-de-reclamaciones" className="pt-libro">
+          <span className="pt-libro-ico"><IcoLibro /></span>
+          <span><b>Libro de Reclamaciones</b><small>Registra aquí tu reclamo o queja</small></span>
+        </Link>
         <div className="pt-pie-fin">
           <span>© {new Date().getFullYear()} Urbis Group · Century Proyectos Inmobiliarios. Cada proyecto pertenece a su propia empresa.</span>
-          <span><Link to="/propiedades">Propiedades</Link> · <a href="/privacidad">Política de privacidad</a></span>
+          <span><Link to="/propiedades">Propiedades</Link> · <Link to="/libro-de-reclamaciones">Libro de Reclamaciones</Link> · <a href="/privacidad">Política de privacidad</a></span>
         </div>
       </div></footer>
 
@@ -517,4 +522,7 @@ const IcoFb = () => (
 )
 const IcoIg = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.3" cy="6.7" r="1" fill="currentColor" stroke="none" /></svg>
+)
+const IcoLibro = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5z" /><path d="M12 6v13.5" /></svg>
 )

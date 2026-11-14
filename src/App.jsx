@@ -40,6 +40,7 @@ const Planilla = lazy(() => import('./pages/Planilla'))
 const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Cartas = lazy(() => import('./pages/Cartas'))
+const Reclamos = lazy(() => import('./pages/Reclamos'))
 const Deudores = lazy(() => import('./pages/Deudores'))
 const Vendedor = lazy(() => import('./pages/Vendedor'))
 const Prospectos = lazy(() => import('./pages/Prospectos'))
@@ -48,6 +49,7 @@ const EquipoVentas = lazy(() => import('./pages/EquipoVentas'))
 const Publico = lazy(() => import('./pages/Publico'))
 const Landing = lazy(() => import('./pages/Landing'))
 const ComprobantePublico = lazy(() => import('./pages/ComprobantePublico'))
+const LibroReclamaciones = lazy(() => import('./pages/LibroReclamaciones'))
 
 const Cargando = () => <div className="center-screen">Cargando…</div>
 
@@ -116,6 +118,9 @@ export default function App() {
         <Route path="/propiedades" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
         <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
         <Route path="/c/:token" element={SITIO_PUBLICO ? <AlSitioPublico /> : <ComprobantePublico />} />
+        {/* el libro de reclamaciones vive en la web pública (src/publico.jsx) */}
+        <Route path="/libro-de-reclamaciones" element={SITIO_PUBLICO ? <AlSitioPublico /> : <LibroReclamaciones />} />
+        <Route path="/libro-de-reclamaciones/:token" element={SITIO_PUBLICO ? <AlSitioPublico /> : <LibroReclamaciones />} />
         <Route path="/" element={<Protected><Layout /></Protected>}>
           <Route index element={<Home />} />
           <Route path="hoy" element={<Inicio />} />
@@ -129,6 +134,8 @@ export default function App() {
           {/* cada llamada a Claude con su costo (sql/205): solo el superusuario */}
           <Route path="uso-ia" element={<Vedada para={a => !a.esSuper}><UsoIA /></Vedada>} />
           <Route path="corretaje" element={<Vedada para={operador}><Corretaje /></Vedada>} />
+          {/* libro de reclamaciones de la web (sql/230): solo admin y superusuario */}
+          <Route path="reclamos" element={<Vedada para={a => !['admin', 'superuser'].includes(a.role)}><Reclamos /></Vedada>} />
           <Route path="campanas" element={<Vedada para={operador}><Campanas /></Vedada>} />
           <Route path="secretarias" element={<Secretarias />} />
           <Route path="visitas" element={<Visitas />} />
