@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 // Página PÚBLICA (sin login) de propiedades. Lee las vistas seguras pub_propiedades / pub_proyectos
@@ -32,8 +33,11 @@ export default function Publico() {
     <div style={{ minHeight: '100vh', background: '#f4f6f5', color: '#1a2420', fontFamily: 'system-ui, sans-serif' }}>
       {/* header */}
       <header style={{ background: V, color: '#fff', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ width: 38, height: 38, borderRadius: 9, background: '#fff', color: V, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 19 }}>U</div>
-        <div><div style={{ fontWeight: 800, fontSize: 18 }}>URBIS GROUP</div><div style={{ fontSize: 12, opacity: .85 }}>Propiedades en venta</div></div>
+        {/* vuelve a la portada (urbisgroupinmobiliaria.com, 13 nov 2026) */}
+        <Link to="/" title="Ir al inicio" style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#fff', textDecoration: 'none' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 9, background: '#fff', color: V, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 19 }}>U</div>
+          <div><div style={{ fontWeight: 800, fontSize: 18 }}>URBIS GROUP</div><div style={{ fontSize: 12, opacity: .85 }}>Propiedades en venta · ← Inicio</div></div>
+        </Link>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           {[['propiedades', '🏠 Propiedades'], ['proyectos', '📍 Proyectos']].map(([v, t]) => (
             <button key={v} onClick={() => setTab(v)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, background: tab === v ? '#fff' : 'rgba(255,255,255,.18)', color: tab === v ? V : '#fff' }}>{t}</button>

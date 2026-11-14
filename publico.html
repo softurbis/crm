@@ -1,13 +1,63 @@
 <!doctype html>
 <!-- Entrada de la WEB PÚBLICA (npm run build:publico). El panel usa index.html. -->
+<!-- Las etiquetas de abajo son las de la PORTADA (lo que ven Google y WhatsApp al compartir el link).
+     El sitio es una SPA: /p/<slug> y /propiedades reciben este mismo HTML y cada página cambia el
+     título al abrirse. og-portada.jpg vive en sitio-publico/ (1200×630). -->
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Proyectos y propiedades de Urbis Group Inmobiliaria." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Urbis Group · Century | Lotes en Ucayali con financiamiento directo</title>
+    <meta name="description" content="Lotes en Ucayali sobre la Carretera Federico Basadre: Las Praderas de Cashibo, Brisas de Cashibo, El Encanto de Campo Verde, El Triunfo de Neshuya y Las Praderas de Pucallpa. Financiamiento directo, hasta 48 cuotas sin intereses." />
+    <meta name="theme-color" content="#0c1f15" />
+    <!-- SIN canonical ni og:url: este HTML lo reciben también los landings y los mandaría a la portada -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230c1f15'/%3E%3Cg transform='translate(10 14) scale(.8)'%3E%3Cpolygon points='50,4 63,17 50,30 37,17' fill='%23b9c7a5'/%3E%3Cpolygon points='33,14 47,26 47,64 33,52' fill='%23b9c7a5'/%3E%3Cpolygon points='67,14 53,26 53,64 67,52' fill='%237f9a6c'/%3E%3Cpolygon points='8,50 30,50 44,64 22,64' fill='%23b9c7a5'/%3E%3Cpolygon points='92,50 70,50 56,64 78,64' fill='%237f9a6c'/%3E%3C/g%3E%3C/svg%3E" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_PE" />
+    <meta property="og:site_name" content="Urbis Group · Century" />
+    <meta property="og:title" content="Tu terreno propio, cerca de todo · Lotes en Ucayali" />
+    <meta property="og:description" content="Proyectos de lotes sobre la Carretera Federico Basadre, con financiamiento directo y hasta 48 cuotas sin intereses. Mira el plano y elige tu lote." />
+    <meta property="og:image" content="https://urbisgroupinmobiliaria.com/og-portada.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Atardecer en la laguna Cashibococha visto desde el dron" />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
-    <title>Urbis Group Inmobiliaria</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://pub-04e0a91c024a4012960f304ed7528b55.r2.dev" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@700&family=Montserrat:wght@700;800;900&family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "RealEstateAgent",
+      "name": "Urbis Group Inmobiliaria",
+      "url": "https://urbisgroupinmobiliaria.com/",
+      "image": "https://urbisgroupinmobiliaria.com/og-portada.jpg",
+      "areaServed": "Ucayali, Perú",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Jr. Augusto B. Leguía 482",
+        "addressLocality": "Callería, Pucallpa",
+        "addressRegion": "Ucayali",
+        "addressCountry": "PE"
+      },
+      "openingHoursSpecification": [
+        { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "09:00", "closes": "13:00" },
+        { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "15:00", "closes": "18:00" },
+        { "@type": "OpeningHoursSpecification", "dayOfWeek": "Saturday", "opens": "09:00", "closes": "13:00" }
+      ],
+      "sameAs": [
+        "https://www.facebook.com/laspraderasdecashibo",
+        "https://www.facebook.com/lasbrisasdecashibo",
+        "https://www.facebook.com/elencantodecampoverde",
+        "https://www.facebook.com/eltriunfodeneshuya",
+        "https://www.instagram.com/laspraderasdecashibo/"
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
