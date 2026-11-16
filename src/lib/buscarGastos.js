@@ -13,6 +13,9 @@ export const fechaGasto = g => String(g.issue_date || g.reception_date || '').sl
 
 // los grupos de motivos, en el orden en que se muestran (solo salen los que tienen gastos)
 export const MOTIVOS = [
+  // primero: el resumen del Dashboard se queda con el PRIMER grupo que coincide, y un
+  // "adelanto de dinero a cuenta de comisión" es un adelanto (el tipo también lo dice)
+  { k: 'adelanto', t: '💵 Adelantos de dinero', re: /ADELANTO DE DINERO/ },
   { k: 'comision', t: '🤝 Comisiones', re: /COMISION/ },
   { k: 'personal', t: '👥 Sueldos y personal', re: /SUELDO|REMUNERACION|QUINCEN|PLANILLA|HONORARIO|SECRETARI|SUPERVISOR|VENDEDOR|PERSONAL/ },
   { k: 'oficina', t: '🏢 Alquiler y servicios', re: /ALQUILER|OFICINA|\bAGUA\b|\bLUZ\b|INTERNET|SERVICIOS BASICOS|TELEFON/ },

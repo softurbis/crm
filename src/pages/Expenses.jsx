@@ -24,7 +24,10 @@ import { useEsCelular } from '../lib/useEsCelular'
 // la fecha de HOY en Lima: con la hora UTC, después de las 7 pm salía la de mañana
 const hoy = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
-const TIPOS = ['PAGO DE COMISION', 'GASTOS DE DESARROLLO', 'GASTOS ADMINISTRATIVOS', 'OTROS']
+// ADELANTO DE DINERO (16 nov 2026, pedido del dueño): dinero que se le adelanta a un socio
+// (Victor, Alex) o a quien sea. Mismo circuito que los demás: constancia, firma de quien
+// pide, aprobación de la socia y voucher. La base no limita el tipo (expenses.type es texto)
+const TIPOS = ['PAGO DE COMISION', 'GASTOS DE DESARROLLO', 'GASTOS ADMINISTRATIVOS', 'ADELANTO DE DINERO', 'OTROS']
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SETIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 // Documentos que se pueden dar por NO APLICABLES (sql/66), casillero por
@@ -606,12 +609,15 @@ export default function Expenses() {
     { t: '📅 Administrativos del mes', ej: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], f: { type: 'GASTOS ADMINISTRATIVOS', description: 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()], discount_from: 'URBIS GROUP', payment_method: 'EFECTIVO' } },
     { t: '📣 Publicidad (ADS)', ej: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO DEL MES DE ' + MESES[new Date().getMonth()], f: { type: 'GASTOS ADMINISTRATIVOS', description: 'PAGO DE PUBLICIDAD (ADS) DEL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'TRANSFERENCIA' } },
     { t: '🧰 Materiales u obra', ej: 'SERVICIO DE EXCAVADORA ORUGA PARA LA APERTURA DE CALLES', f: { type: 'GASTOS DE DESARROLLO', description: 'COMPRA DE MATERIALES PARA EL PROYECTO', discount_from: 'EL PROYECTO', payment_method: 'EFECTIVO' } },
+    // de dónde se descuenta y cómo se paga quedan como estaban: depende de cada adelanto
+    { t: '💵 Adelanto de dinero', ej: 'ADELANTO DE DINERO A CUENTA DE UTILIDADES', f: { type: 'ADELANTO DE DINERO', description: 'ADELANTO DE DINERO ' } },
     { t: '✏️ Otro', ej: 'MOVILIDAD PARA LA ENTREGA DE LOTES DEL SABADO', f: { type: 'OTROS', description: '' } },
   ]
   const EJEMPLO_TIPO = {
     'PAGO DE COMISION': 'PAGO DE COMISION POR LA VENTA DEL LOTE MZ B LT 7',
     'GASTOS ADMINISTRATIVOS': 'GASTOS ADMINISTRATIVOS CORRESPONDIENTE AL MES DE ' + MESES[new Date().getMonth()],
     'GASTOS DE DESARROLLO': 'SERVICIO DE EXCAVADORA ORUGA PARA LA APERTURA DE CALLES',
+    'ADELANTO DE DINERO': 'ADELANTO DE DINERO A CUENTA DE UTILIDADES',
     OTROS: 'MOVILIDAD PARA LA ENTREGA DE LOTES DEL SABADO',
   }
   // las socias del proyecto: en los proyectos con firma de socio, ELLA entrega el
@@ -1258,6 +1264,8 @@ export default function Expenses() {
                     <input list="personas-gasto" value={f.adelanto_por || ''} placeholder="vacío = lo paga Urbis o el proyecto"
                       disabled={!!(editId && list.find(x => x.id === editId)?.reposicion_id)}
                       onChange={e => setF(x => ({ ...x, adelanto_por: e.target.value }))} />
+                    {/* no confundir con el tipo ADELANTO DE DINERO: ahí Urbis le da el dinero a la persona */}
+                    {f.type === 'ADELANTO DE DINERO' && !f.adelanto_por && <span className="sg-ej">En un adelanto de dinero esto va vacío: es para cuando alguien puso plata suya y hay que devolvérsela.</span>}
                   </label>
                 )}
               </div>
