@@ -4,7 +4,9 @@ import { useMsg, savedFx } from '../lib/saveFx'
 import { upload } from '../lib/archivos'
 import { pedir } from '../lib/dialogos'
 import { useEsCelular } from '../lib/useEsCelular'
-import { filtrarGastos, FILTRO_VACIO } from '../lib/buscarGastos'
+import { useAuth } from '../context/AuthContext'
+import { filtrarGastos, FILTRO_VACIO, MOTIVOS } from '../lib/buscarGastos'
+import { descargarExcelGastos, pagadoEl } from '../lib/excelGastos'
 import VisorDoc from '../components/VisorDoc'
 import RegistrarPago from '../components/RegistrarPago'
 import BuscadorGastos from '../components/BuscadorGastos'
@@ -32,17 +34,15 @@ const ESTADOS = [
   ['falta_rh', 'Pagados sin RH / factura'],
   ['rechazados', 'Rechazados'],
 ]
-// el día del pago: si se pagó por el panel, cuándo se registró (hora de Lima); los gastos
-// cargados de las constancias tienen como confirmed_at el día de la carga: para ellos, la
-// fecha de la constancia
-const pagadoEl = g => g.confirmed_by && g.confirmed_at
-  ? new Date(new Date(g.confirmed_at).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10)
-  : (g.reception_date || g.issue_date || null)
+// el día del pago (pagadoEl, en lib/excelGastos): si se pagó por el panel, cuándo se
+// registró (hora de Lima); en los cargados de las constancias, la fecha de la constancia
 const MAX_LOTE = 60   // imprimir de una vez: más hojas que esto se cuelga el navegador
 
 export default function GastosFacturacion() {
+  const { profile } = useAuth()
   const [msg, setMsg] = useMsg(null)
   const esCelular = useEsCelular()
+  const [bajando, setBajando] = useState(false)
   const [datos, setDatos] = useState(null)        // { proyectos, gastos }
   const [proy, setProy] = useState('todos')
   const [fest, setFest] = useState('todos')        // de entrada TODOS, también los anteriores (13 oct)
@@ -164,6 +164,25 @@ export default function GastosFacturacion() {
     setPrt({ lista: filtrada })
   }
 
+  // EXCEL (16 nov): baja lo que está viendo, con el proyecto, el estado y la búsqueda puestos
+  async function excel() {
+    if (!filtrada.length) return
+    const sinIcono = t => String(t || '').replace(/^[^\p{L}]+/u, '')
+    const filtro = [
+      proy !== 'todos' && proyDe[proy]?.name,
+      fest !== 'todos' && sinIcono(ESTADOS.find(e => e[0] === fest)?.[1]),
+      f.q.trim() && 'búsqueda "' + f.q.trim() + '"',
+      f.motivo && sinIcono(MOTIVOS.find(m => m.k === f.motivo)?.t || 'otros'),
+      (f.desde || f.hasta) && 'del ' + (f.desde ? fechaPe(f.desde) : 'inicio') + ' al ' + (f.hasta ? fechaPe(f.hasta) : 'hoy'),
+    ].filter(Boolean).join(' · ')
+    setBajando(true)
+    try {
+      const r = await descargarExcelGastos(filtrada, { proyDe, usuario: profile?.full_name || '', filtro })
+      setMsg({ ok: true, t: 'EXCEL DESCARGADO: ' + r.gastos + ' gasto' + (r.gastos === 1 ? '' : 's') + (r.faltan ? ' · ' + r.faltan + ' pagado' + (r.faltan === 1 ? '' : 's') + ' sin RH o sin voucher' : '') })
+    } catch (e) { setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) }) }
+    setBajando(false)
+  }
+
   return (
     <>
       <div className="toolbar"><h1 style={{ margin: 0, flex: 1 }}>Gastos</h1></div>
@@ -227,6 +246,9 @@ export default function GastosFacturacion() {
           {ESTADOS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
         </select>
         {filtrada.length > 0 && <button className="btn-ghost" onClick={imprimirLista}>🖨 Imprimir {filtrada.length === 1 ? 'esta' : 'las ' + filtrada.length}</button>}
+        {filtrada.length > 0 && <button className="btn-primary" disabled={bajando} onClick={excel}
+          title="Baja en Excel los gastos que estás viendo: resumen por proyecto, tipo y mes; cada gasto con sus datos y montos; y los pagados sin RH o sin voucher (los documentos se ven solo en el sistema)">
+          {bajando ? 'Armando…' : '📥 Excel (' + filtrada.length + ')'}</button>}
       </div>
       <BuscadorGastos base={porEstado} f={f} setF={setF} />
 

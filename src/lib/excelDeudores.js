@@ -2,29 +2,10 @@
 // facturacion_deudores (sql/156) en un libro con una hoja de resumen por proyecto,
 // una hoja con todos los lotes con deuda y una hoja por proyecto con cada cuota
 // vencida y los datos del cliente. exceljs se carga solo cuando se pide el informe.
-const fechaPe = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : ''
-// la fecha como día puro (UTC): Excel la muestra sin hora, sin correrse por la zona horaria
-const fechaCelda = f => { if (!f) return null; const [y, m, d] = String(f).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)) }
-const num = n => (n === null || n === undefined || n === '') ? null : Number(n)
-const SOLES = '"S/ "#,##0.00'
-const FECHA = 'dd/mm/yyyy'
-const nombreHoja = s => String(s || 'Proyecto').replace(/[\\/*?:[\]]/g, ' ').slice(0, 31)
-
-function cabecera(ws, fila, cols) {
-  const r = ws.getRow(fila)
-  r.values = cols
-  r.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  r.alignment = { vertical: 'middle', wrapText: true }
-  r.height = 30
-  r.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E5E4E' } }; c.border = { bottom: { style: 'thin' } } })
-  return r
-}
+import { fechaCelda, num, SOLES, FECHA, nombreHoja, cabecera, libroNuevo, descargarLibro, hoyArchivo } from './excelComun'
 
 export async function descargarExcelDeudores(filas, { usuario = '', titulo = 'Cuotas vencidas' } = {}) {
-  const { default: ExcelJS } = await import('exceljs')
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'Urbis Control'
-  wb.created = new Date()
+  const wb = await libroNuevo()
   const hoy = new Date()
   const proyectos = [...new Set(filas.map(f => f.proyecto))].sort()
 
@@ -112,11 +93,5 @@ export async function descargarExcelDeudores(filas, { usuario = '', titulo = 'Cu
     }
   }
 
-  const buf = await wb.xlsx.writeBuffer()
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = 'cuotas-vencidas-' + fechaPe(new Date(Date.now() - 5 * 3600 * 1000).toISOString()).replace(/\//g, '-') + '.xlsx'   // fecha Perú
-  document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+  await descargarLibro(wb, 'cuotas-vencidas-' + hoyArchivo() + '.xlsx')   // fecha Perú
 }

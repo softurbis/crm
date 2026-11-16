@@ -9,6 +9,7 @@ import VisorDoc from '../components/VisorDoc'
 import BuscarLote from '../components/BuscarLote'
 import EstadoCuentaLote from '../components/EstadoCuentaLote'
 import { useLecturasBoleta, ChipLectura } from '../components/LecturaBoleta'
+import { descargarExcelPagos } from '../lib/excelPagos'
 
 // COMPROBANTES POR SUBIR (sql/133-134, 9 oct 2026): la pantalla del rol FACTURACIÓN,
 // la secretaria de la otra empresa que hace las boletas y facturas en su propio
@@ -64,6 +65,8 @@ export default function Facturacion() {
   const [verDoc, setVerDoc] = useState(null)
   const [subiendo, setSubiendo] = useState(null)
   const [loteVer, setLoteVer] = useState(null)   // estado de cuenta de un lote (sql/146), solo leer
+  const [exp, setExp] = useState(null)           // EXCEL (16 nov): { desde, hasta } mientras el panel está abierto
+  const [bajando, setBajando] = useState(false)
 
   async function cargar() {
     setFilas(null)
@@ -106,13 +109,62 @@ export default function Facturacion() {
   }, [])
   const totalPend = pendPorProy.reduce((s, [, n]) => s + n, 0)
 
+  // EXCEL DE PAGOS (16 nov): un rango de fechas libre, el proyecto que tenga elegido
+  const hoy = hoyPe()
+  const atajos = useMemo(() => {
+    const y = hoy.slice(0, 4), m = hoy.slice(0, 7)
+    const d = new Date(Date.UTC(Number(y), Number(hoy.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7)
+    return [['Este mes', m + '-01', hoy], ['Mes pasado', d + '-01', finDeMes(d)], ['Este año', y + '-01-01', hoy], ['Todo', '', '']]
+  }, [hoy])
+  const abrirExcel = () => setExp(exp ? null : vista === 'mes' ? { desde: mes + '-01', hasta: finDeMes(mes) < hoy ? finDeMes(mes) : hoy } : { desde: hoy.slice(0, 7) + '-01', hasta: hoy })
+  async function excel() {
+    if (exp.desde && exp.hasta && exp.desde > exp.hasta) { setMsg({ ok: false, t: 'La fecha DESDE es posterior a HASTA.' }); return }
+    setBajando(true)
+    try {
+      const { data, error } = await supabase.rpc('facturacion_pagos', { p_desde: exp.desde || null, p_hasta: exp.hasta || null })
+      if (error) throw error
+      const gs = agruparDepositos(data || []).filter(g => proy === 'todos' || g.r.proyecto === proy)
+      if (!gs.length) { setMsg({ ok: false, t: 'No hay pagos en ese rango' + (proy !== 'todos' ? ' en ' + proy : '') + '.' }); return }
+      const r = await descargarExcelPagos(gs, { ...exp, usuario: profile?.full_name || '', proyecto: proy !== 'todos' ? proy : '' })
+      setMsg({ ok: true, t: 'EXCEL DESCARGADO: ' + r.pagos + ' pago' + (r.pagos === 1 ? '' : 's') + ' · ' + r.pendientes + ' sin boleta o factura' })
+    } catch (e) { setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) }) } finally { setBajando(false) }
+  }
+
   return (
     <>
-      <div className="toolbar"><h1 style={{ margin: 0, flex: 1 }}>Comprobantes por subir</h1></div>
+      <div className="toolbar">
+        <h1 style={{ margin: 0, flex: 1 }}>Comprobantes por subir</h1>
+        <button className={exp ? 'btn-ghost' : 'btn-primary'} onClick={abrirExcel} title="Bajar los pagos de un rango de fechas en Excel">{exp ? '✕ Cerrar Excel' : '📥 Excel'}</button>
+      </div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem' }}>
         Los pagos de tus proyectos. A cada pago súbele su boleta o factura (una por pago). {profile?.full_name ? 'Usuario: ' + profile.full_name + '.' : ''}
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
+
+      {exp && (
+        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+          <p style={{ margin: '0 0 8px' }}><b>📥 PAGOS EN EXCEL</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — cada pago con su fecha, cliente, lote, concepto y monto, el resumen por proyecto y mes, y los que faltan de boleta o factura (los documentos se ven solo aquí en el sistema)</span></p>
+          <div className="chips">
+            {atajos.map(([t, d, h]) => <button key={t} className={`chip ${exp.desde === d && exp.hasta === h ? 'on' : ''}`} onClick={() => setExp({ desde: d, hasta: h })}>{t}</button>)}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label>Desde<input type="date" value={exp.desde} max={exp.hasta || hoy} onChange={e => setExp(x => ({ ...x, desde: e.target.value }))} /></label>
+            <label>Hasta<input type="date" value={exp.hasta} min={exp.desde || undefined} max={hoy} onChange={e => setExp(x => ({ ...x, hasta: e.target.value }))} /></label>
+            {proyectos.length > 1 && (
+              <label>Proyecto<select value={proy} onChange={e => setProy(e.target.value)}>
+                <option value="todos">Todos los proyectos</option>
+                {proyectos.map(p => <option key={p} value={p}>{p}</option>)}
+              </select></label>
+            )}
+            <button className="btn-primary" disabled={bajando} onClick={excel}>{bajando ? 'Armando…' : '📥 Descargar Excel'}</button>
+          </div>
+          <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+            {exp.desde || exp.hasta ? 'Del ' + (exp.desde ? fechaPe(exp.desde) : 'inicio') + ' al ' + (exp.hasta ? fechaPe(exp.hasta) : 'hoy') : 'Todos los pagos, desde el primero'}
+            {' · '}{proy === 'todos' ? 'todos tus proyectos' : proy}.
+          </p>
+        </div>
+      )}
 
       {/* ESTADO DE CUENTA DE UN LOTE (13 oct): el cliente con su documento y dirección, la
           venta, el cronograma y los pagos, para emitir la boleta con los datos correctos */}
