@@ -41,6 +41,7 @@ const Facturacion = lazy(() => import('./pages/Facturacion'))
 const GastosFacturacion = lazy(() => import('./pages/GastosFacturacion'))
 const Cartas = lazy(() => import('./pages/Cartas'))
 const Reclamos = lazy(() => import('./pages/Reclamos'))
+const VisitasWeb = lazy(() => import('./pages/VisitasWeb'))
 const Deudores = lazy(() => import('./pages/Deudores'))
 const Vendedor = lazy(() => import('./pages/Vendedor'))
 const Prospectos = lazy(() => import('./pages/Prospectos'))
@@ -136,6 +137,8 @@ export default function App() {
           <Route path="corretaje" element={<Vedada para={operador}><Corretaje /></Vedada>} />
           {/* libro de reclamaciones de la web (sql/230): solo admin y superusuario */}
           <Route path="reclamos" element={<Vedada para={a => !['admin', 'superuser'].includes(a.role)}><Reclamos /></Vedada>} />
+          {/* contador de visitas de la web pública (sql/231): solo admin y superusuario */}
+          <Route path="visitas-web" element={<Vedada para={a => !['admin', 'superuser'].includes(a.role)}><VisitasWeb /></Vedada>} />
           <Route path="campanas" element={<Vedada para={operador}><Campanas /></Vedada>} />
           <Route path="secretarias" element={<Secretarias />} />
           <Route path="visitas" element={<Visitas />} />

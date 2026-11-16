@@ -93,6 +93,8 @@ const MENU = [
   { to: '/reclamos', label: 'Libro de reclamaciones', icon: '📕', staff: true, siempre: true, color: '#e06c6c', grupo: 'Comercial' },
 
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6', grupo: 'Reportes' },
+  // cuánta gente entra a la portada, a cada landing y a los recorridos, y cuántos escriben (sql/231)
+  { to: '/visitas-web', label: 'Visitas de la web', icon: '🌐', staff: true, siempre: true, color: '#4a87c9', grupo: 'Reportes' },
 
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Configuración' },
   // el experimento del agente de ventas IA contra el supervisor (sql/91)

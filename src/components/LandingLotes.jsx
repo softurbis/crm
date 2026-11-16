@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import PlanoReal from './PlanoReal'
+import { contar } from '../lib/contador'
 import { tienePlano, categoriasDe, categoriaDe, cotizar, soles, textoCuotasVenta, centroDe } from '../lib/plano'
 
 // LOS LOTES EN EL LANDING (sql/195, pedido de Cesar el 11 nov 2026): el plano interactivo
@@ -120,7 +121,7 @@ export function PlanoLanding({ datos: crudos, nombre, tel, pdfUrl, onCalcular })
           pista={angosta ? 'Desliza de costado · + para acercar' : tactil ? 'Acerca con el botón + para ver los números' : 'Acerca con + o con Ctrl + rueda para ver los números'}
           relleno={colorDe}
           titulo={l => 'Lote ' + nombreLote(l) + ' · ' + m2(l.area_m2) + ' m²' + (l.estado === 'disponible' ? ' · ' + soles(l.total_price) : ' · ' + ESTADO[l.estado])}
-          onLote={setSel} elegido={sel?.id} />
+          onLote={l => { setSel(l); if (l) contar('plano', nombreLote(l)) }} elegido={sel?.id} />
 
         {sel ? (
           <div ref={ficha} className={'lpl-ficha' + (fichaDer ? ' lpl-der' : '')} role="dialog" aria-label={'Lote ' + nombreLote(sel)}>

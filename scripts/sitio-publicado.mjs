@@ -5,7 +5,8 @@
 // En Cloudflare cada cara es un Worker de solo archivos (wrangler.publico.jsonc /
 // wrangler.panel.jsonc) en modo SPA: /p/<slug> responde index.html con 200. Por
 // eso aquí no se crea 404.html.
-import { renameSync, copyFileSync, writeFileSync, appendFileSync, cpSync, existsSync } from 'node:fs'
+import { renameSync, copyFileSync, writeFileSync, appendFileSync, cpSync, existsSync, readFileSync } from 'node:fs'
+import { loadEnv } from 'vite'
 
 const cara = process.argv[2]
 const salida = { panel: 'dist-panel', publico: 'dist-publico' }[cara]
@@ -23,6 +24,16 @@ if (cara === 'publico') {
   // páginas públicas sueltas, tal cual: los recorridos 3D y las fotos 360° (/recorrido/<proyecto>/ y .../fotos/).
   // Sus imágenes están en R2 (recorridos/<proyecto>/), no en el repo.
   if (existsSync('sitio-publico')) cpSync('sitio-publico', salida, { recursive: true })
+  // el contador de visitas (sql/231) lo cargan publico.html y los recorridos: aquí recibe la API y la
+  // clave pública (las mismas que ya van dentro del JS de la web). Sin ellas, no cuenta nada.
+  const env = loadEnv('production', process.cwd(), 'VITE_')
+  const contador = `${salida}/contador.js`
+  if (existsSync(contador)) {
+    if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) console.warn('⚠ contador.js sin VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY: no va a contar')
+    writeFileSync(contador, readFileSync(contador, 'utf8')
+      .replace('%%SUPABASE_URL%%', String(env.VITE_SUPABASE_URL || '').replace(/\/+$/, ''))
+      .replace('%%ANON_KEY%%', env.VITE_SUPABASE_ANON_KEY || ''))
+  }
   cabeceras([...comunes, 'X-Frame-Options: SAMEORIGIN'])
   writeFileSync(`${salida}/robots.txt`, 'User-agent: *\nAllow: /\n')
 } else {

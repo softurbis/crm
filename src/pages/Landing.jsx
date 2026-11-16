@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { srcsetDe, medianaDe } from '../lib/imagenesWeb'
+import { contar } from '../lib/contador'
 import { useLotesLanding, hayPlanoLanding, libresDe, PlanoLanding, Calculadora } from '../components/LandingLotes'
 import '../styles/landing.css'
 
@@ -226,6 +227,7 @@ export default function Landing() {
   const modoActual = modos.find(m => m.id === modo) || modos[0]
   const fotoVisor = fotosHero[1] || fotoPortada
   const abrirRecorrido = () => {
+    contar('recorrido', modoActual.id)
     // en celular el visor captura el dedo y traba el scroll de la página: mejor en pestaña aparte
     // (el 3D siempre; nuestro tour de fotos también, porque se ve a pantalla completa)
     if ((modoActual.id === '3d' || recPropio(modoActual.url)) && matchMedia('(max-width: 860px)').matches) window.open(modoActual.url, '_blank', 'noopener')
@@ -234,7 +236,7 @@ export default function Landing() {
   const cambiarModo = id => { setModo(id); setRecorrido(false) }
   const hay360 = modos.some(m => m.id === '360')
   // el botón de arriba baja a la sección y deja el tour ya abierto
-  const irAl360 = () => { setModo('360'); setRecorrido(true); ir('recorrido') }
+  const irAl360 = () => { contar('recorrido', '360'); setModo('360'); setRecorrido(true); ir('recorrido') }
   const cuotas = p.cuotas_txt || p.cuota_desde
   const yt = idYoutube(p.video_url)
   const stats = [
@@ -472,7 +474,8 @@ export default function Landing() {
           <span>© {new Date().getFullYear()} {p.marca || nombre}</span>
           <Link to="/propiedades">Ver otros proyectos</Link>
         </div>
-        <a className="lp-credito" href={`https://wa.me/${CREDITO_WSP}?text=${encodeURIComponent(`Hola, vi la página de ${nombre} y quiero una así para mi empresa`)}`} target="_blank" rel="noreferrer">
+        {/* data-no-contar: es el WhatsApp de Urbis para vender landings, no un contacto del proyecto */}
+        <a className="lp-credito" data-no-contar href={`https://wa.me/${CREDITO_WSP}?text=${encodeURIComponent(`Hola, vi la página de ${nombre} y quiero una así para mi empresa`)}`} target="_blank" rel="noreferrer">
           <span className="lp-credito-ico"><IcoChispa /></span>
           <span><b>¿Quieres una página así para tu empresa?</b> Cotiza la tuya por WhatsApp →</span>
         </a>
@@ -668,6 +671,7 @@ function Formulario({ p, linkWa }) {
       tipo: 'proyecto', project_id: p.id, origen: 'landing',
       nombre: f.nombre.trim(), telefono: f.telefono.trim(), mensaje: f.mensaje.trim() || null,
     })
+    if (!error) contar('formulario', p.slug)
     setEstado(error ? 'error:No se pudo enviar. Inténtalo otra vez o escríbenos por WhatsApp.' : 'ok')
   }
 

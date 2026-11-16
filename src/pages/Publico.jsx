@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { contar } from '../lib/contador'
 
 // Página PÚBLICA (sin login) de propiedades. Lee las vistas seguras pub_propiedades / pub_proyectos
 // y el formulario de contacto inserta en corr_consultas (anon solo puede insertar).
@@ -172,6 +173,7 @@ function FormModal({ tipo, id, titulo, onClose }) {
     const row = { tipo, nombre: nombre.trim(), telefono: telefono.trim(), mensaje: mensaje.trim() }
     if (tipo === 'propiedad') row.propiedad_id = id; else row.project_id = id
     const { error } = await supabase.from('corr_consultas').insert(row)
+    if (!error) contar('formulario', tipo)
     setEstado(error ? 'error' : 'ok')
   }
   return (
