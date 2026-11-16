@@ -474,6 +474,12 @@ export default function Landing() {
           <span>© {new Date().getFullYear()} {p.marca || nombre}</span>
           <Link to="/propiedades">Ver otros proyectos</Link>
         </div>
+        {/* obligatorio para quien vende a consumidores (Ley 29571): el libro virtual (sql/230), con este
+            proyecto ya elegido, así la hoja sale a nombre de su empresa */}
+        <Link to={'/libro-de-reclamaciones?p=' + encodeURIComponent(slug)} className="lp-libro">
+          <span className="lp-libro-ico"><IcoLibro /></span>
+          <span><b>Libro de Reclamaciones</b><small>Registra aquí tu reclamo o queja</small></span>
+        </Link>
         {/* data-no-contar: es el WhatsApp de Urbis para vender landings, no un contacto del proyecto */}
         <a className="lp-credito" data-no-contar href={`https://wa.me/${CREDITO_WSP}?text=${encodeURIComponent(`Hola, vi la página de ${nombre} y quiero una así para mi empresa`)}`} target="_blank" rel="noreferrer">
           <span className="lp-credito-ico"><IcoChispa /></span>
@@ -757,6 +763,10 @@ const IcoTarjeta = ({ tipo }) => (
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {TRAZOS[tipo] || TRAZOS.estrella}
   </svg>
+)
+// el mismo libro abierto de la portada (Portada.jsx)
+const IcoLibro = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5z" /><path d="M12 6v13.5" /></svg>
 )
 const IcoChispa = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
