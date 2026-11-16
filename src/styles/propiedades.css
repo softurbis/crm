@@ -1,0 +1,161 @@
+/* PROPIEDADES de terceros (corretaje) en la web, 16 nov 2026: /propiedades, /propiedades/<ref>
+   y la sección de la portada (pages/Publico.jsx, components/TarjetaPropiedad.jsx).
+   Mismo lenguaje que la portada (.pt de portada.css): barra y cabecera verde oscuro, el
+   contenido sobre crema y las tarjetas blancas con la foto grande. */
+
+/* ---------- tarjeta ---------- */
+.pp-card { display: flex; flex-direction: column; border-radius: 20px; overflow: hidden; background: #fff; color: #14211a !important;
+  box-shadow: 0 10px 30px rgba(6, 20, 12, .14); transition: transform .2s ease, box-shadow .2s ease; text-decoration: none; }
+.pp-card:hover { transform: translateY(-3px); box-shadow: 0 18px 40px rgba(6, 20, 12, .2); }
+.pp-card-foto { position: relative; aspect-ratio: 4 / 3; background: #e6e9e2; overflow: hidden; }
+.pp-card-foto img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .6s ease; }
+.pp-card:hover .pp-card-foto img { transform: scale(1.04); }
+.pp-sinfoto { height: 100%; display: grid; place-items: center; color: #9fb09f; }
+.pp-estado { position: absolute; top: 12px; left: 12px; padding: 6px 11px; border-radius: 30px; font: 700 12px/1 'Inter', sans-serif; color: #fff; background: #1f8a4c; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
+.pp-e-reservado { background: #b7791f; }
+.pp-e-vendido { background: #3b5f8f; }
+.pp-nfotos { position: absolute; right: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 30px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px; font-weight: 600; }
+.pp-card-txt { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px 18px; flex: 1; }
+.pp-card-tipo { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #5d6b61; }
+.pp-card-precio { font: 800 24px/1.15 'Montserrat', sans-serif; color: #0c3b25; }
+.pp-card h3 { font: 600 16px/1.35 'Inter', sans-serif; margin: 2px 0 0; color: #14211a; }
+.pp-card-lugar { display: flex; gap: 6px; align-items: flex-start; font-size: 13.5px; color: #5d6b61; margin-top: 2px; }
+.pp-card-lugar svg { flex: none; margin-top: 2px; }
+.pp-card-datos { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; }
+.pp-card-datos li { font-size: 12.5px; font-weight: 600; padding: 4px 9px; border-radius: 8px; background: #eef1ea; color: #2c3a30; }
+.pp-card-ver { margin-top: auto; padding-top: 12px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; color: #0f6b4f; }
+.pp-card-vendida .pp-card-foto img { filter: grayscale(.6); }
+.pp-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
+/* una sola propiedad: tarjeta ancha, foto a la izquierda (si no, queda sola en un tercio) */
+@media (min-width: 760px) {
+  .pp-grid-1 { grid-template-columns: 1fr; }
+  .pp-grid-1 .pp-card { flex-direction: row; }
+  .pp-grid-1 .pp-card-foto { flex: 0 0 56%; aspect-ratio: auto; min-height: 340px; }
+  .pp-grid-1 .pp-card-txt { padding: 28px 30px; justify-content: center; gap: 6px; }
+  .pp-grid-1 .pp-card-txt .pp-card-ver { margin-top: 10px; }
+  .pp-grid-1 .pp-card-precio { font-size: 32px; }
+  .pp-grid-1 .pp-card h3 { font-size: 20px; }
+}
+
+/* ---------- páginas ---------- */
+.pp-nav-ir { display: inline-flex; }
+.pt-nav nav a.pp-activo { opacity: 1; color: var(--pt-am); }
+.pp-hero { padding: 104px 0 38px; background: radial-gradient(900px 420px at 88% 0%, rgba(255, 198, 68, .14), transparent 70%), var(--pt-bg); }
+.pp-hero h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.05; margin: 10px 0 12px; text-wrap: balance; }
+.pp-hero-cifra { margin-top: 18px; display: inline-flex; gap: 8px; align-items: baseline; padding: 8px 15px; border-radius: 30px; background: rgba(255, 255, 255, .08); font-size: 14px; }
+.pp-hero-cifra b { font: 800 18px/1 'Montserrat', sans-serif; color: var(--pt-am); }
+.pp-claro { background: var(--pt-crema); color: #14211a; padding: 34px 0 64px; }
+
+/* filtros */
+.pp-filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 22px; }
+.pp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pp .pp-chip { padding: 9px 15px; border-radius: 30px; border: 1.5px solid #cfd6cc; background: #fff; font-weight: 600; font-size: 14px; color: #2c3a30; }
+.pp .pp-chip.pp-on { background: #14211a; color: #fff; border-color: #14211a; }
+.pp-filtros select, .pp-filtros input[type=search] { padding: 10px 14px; border-radius: 30px; border: 1.5px solid #cfd6cc; background: #fff; color: #14211a; font: 500 14px/1.2 'Inter', sans-serif; text-transform: none; }
+.pp-filtros input[type=search] { flex: 1 1 200px; min-width: 0; }
+.pp-filtros label { display: inline-flex; flex-direction: row; gap: 7px; align-items: center; font-size: 14px; color: #44524a; cursor: pointer; }
+.pp-filtros input[type=checkbox] { width: 18px; height: 18px; padding: 0; accent-color: #0f6b4f; }
+.pp-cuenta { font-size: 14px; color: #5d6b61; margin: -8px 0 16px; }
+.pp-vacio { display: grid; justify-items: center; gap: 8px; text-align: center; padding: 46px 20px; color: #5d6b61; border: 2px dashed #d3d9cf; border-radius: 22px; }
+.pp-vacio svg { color: #a5b3a3; }
+.pp-vacio b { color: #14211a; font-size: 17px; }
+
+/* bandas de abajo */
+.pp-bandas { display: grid; gap: 18px; margin-top: 44px; }
+@media (min-width: 860px) { .pp-bandas { grid-template-columns: 1fr 1fr; } }
+.pp-banda { padding: 26px 24px; border-radius: 24px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.pp-banda h3 { font: 800 clamp(20px, 2.6vw, 24px)/1.2 'Montserrat', sans-serif; }
+.pp-banda p { opacity: .8; max-width: 46ch; }
+.pp-banda .pt-btn { margin-top: 6px; }
+.pp-banda-vender { background: #14211a; color: #f3f1ea; }
+.pp-banda-proy { background: #ffc644; color: #14211a; }
+/* con .pt delante: portada.css (.pt :where(a) { color: inherit }) se carga después y empata */
+.pt .pp-btn-osc { background: #14211a; color: #fff; }
+
+/* ---------- la página de una propiedad ---------- */
+.pp-ficha-sec { padding-top: 84px; }
+.pp-volver { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; color: #0f6b4f !important; margin-bottom: 14px; }
+.pp-ficha { display: grid; gap: 22px; }
+@media (min-width: 980px) { .pp-ficha { grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); align-items: start; } }
+
+.pp-gal { display: grid; gap: 10px; }
+.pp-gal-main { position: relative; aspect-ratio: 4 / 3; border-radius: 22px; overflow: hidden; background: #dfe3db; }
+@media (min-width: 980px) { .pp-gal-main { aspect-ratio: 16 / 11; } }
+.pp-gal-main > button.pp-gal-img { display: block; width: 100%; height: 100%; cursor: zoom-in; }
+.pp-gal-main img { width: 100%; height: 100%; object-fit: cover; }
+.pp .pp-flecha { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .92); color: #14211a; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
+.pp .pp-flecha:hover { background: #fff; }
+.pp-flecha.pp-izq { left: 12px; } .pp-flecha.pp-der { right: 12px; }
+.pp-gal-n { position: absolute; right: 12px; bottom: 12px; padding: 5px 10px; border-radius: 30px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 12.5px; font-weight: 600; }
+.pp-gal-main .pp-estado { top: 14px; left: 14px; font-size: 13px; }
+.pp-tiras { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.pp .pp-tira { flex: none; background: #dfe3db; width: 92px; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; opacity: .6; outline: 3px solid transparent; outline-offset: -3px; transition: opacity .2s; }
+.pp .pp-tira.pp-on { opacity: 1; outline-color: #ffc644; }
+.pp-tira img { width: 100%; height: 100%; object-fit: cover; }
+
+.pp-resumen { background: #fff; border-radius: 22px; padding: 22px; box-shadow: 0 10px 30px rgba(6, 20, 12, .1); display: grid; gap: 10px; }
+@media (min-width: 980px) { .pp-resumen { position: sticky; top: 84px; } }
+.pp-resumen .pp-estado { position: static; justify-self: start; box-shadow: none; }
+.pp-precio { font: 800 clamp(30px, 4vw, 38px)/1.1 'Montserrat', sans-serif; color: #0c3b25; }
+.pp-cuota { font-size: 14.5px; color: #44524a; margin-top: -4px; }
+.pp-resumen h1 { font: 700 clamp(20px, 2.4vw, 24px)/1.3 'Inter', sans-serif; color: #14211a; }
+.pp-lugar { display: flex; gap: 7px; align-items: flex-start; color: #44524a; font-size: 14.5px; }
+.pp-lugar svg { flex: none; margin-top: 3px; color: #0f6b4f; }
+.pp-codigo { font-size: 12.5px; color: #7a867d; }
+.pp-acciones { display: grid; gap: 9px; margin-top: 6px; }
+.pp-acciones .pt-btn { width: 100%; }
+.pp .pp-btn-linea { border: 1.5px solid #cfd6cc; color: #14211a; background: #fff; }
+
+.pp-cuerpo { display: grid; gap: 22px; margin-top: 26px; }
+@media (min-width: 980px) { .pp-cuerpo { grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); align-items: start; } }
+.pp-bloque { background: #fff; border-radius: 22px; padding: 22px; box-shadow: 0 6px 20px rgba(6, 20, 12, .06); }
+.pp-bloque + .pp-bloque { margin-top: 18px; }
+.pp-bloque h2 { font: 800 13px/1.2 'Inter', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #0f6b4f; margin-bottom: 14px; }
+.pp-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 18px; margin: 0; }
+.pp-datos div { display: grid; gap: 2px; }
+.pp-datos dt { font-size: 12.5px; color: #6b776e; }
+.pp-datos dd { margin: 0; font-weight: 700; font-size: 16px; color: #14211a; }
+.pp-texto { white-space: pre-line; line-height: 1.6; color: #2c3a30; }
+.pp-ubic p + p { margin-top: 6px; }
+.pp-ubic .pp-ref { color: #44524a; font-size: 14.5px; }
+
+/* formulario */
+.pp-form { display: grid; gap: 12px; }
+.pp-form h3 { font: 800 20px/1.25 'Montserrat', sans-serif; color: #14211a; }
+.pp-form > p { color: #5d6b61; font-size: 14.5px; margin-top: -4px; }
+.pp-form label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: #2c3a30; }
+.pp-form input, .pp-form textarea { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid #cfd6cc; background: #fff; color: #14211a;
+  font: 400 16px/1.4 'Inter', system-ui, sans-serif; text-transform: none; }
+.pp-form textarea { min-height: 90px; resize: vertical; }
+.pp-form input:focus, .pp-form textarea:focus { outline: none; border-color: #0f6b4f; box-shadow: 0 0 0 3px rgba(15, 107, 79, .18); }
+.pp-form .pt-btn { width: 100%; }
+.pp-form .pp-form-err { color: #b3261e; font-size: 14px; font-weight: 600; }
+.pp-form-ok { text-align: center; display: grid; justify-items: center; gap: 8px; padding: 10px 0; }
+.pp-form-ok i { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: #e3f3e9; color: #1f8a4c; font-size: 28px; font-style: normal; }
+.pp-trampa { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.pp-otras { margin-top: 46px; }
+.pp-otras h2 { font-size: clamp(26px, 4vw, 36px); margin-bottom: 18px; color: #14211a; }
+
+/* hoja (vender tu propiedad) */
+.pp-modal-fondo { position: fixed; inset: 0; z-index: 60; background: rgba(4, 12, 8, .6); display: grid; place-items: end center; padding: 0; }
+@media (min-width: 640px) { .pp-modal-fondo { place-items: center; padding: 16px; } }
+.pp-modal { position: relative; width: min(480px, 100%); max-height: 92vh; overflow: auto; background: #fff; color: #14211a; border-radius: 24px 24px 0 0; padding: 26px 22px 24px; }
+@media (min-width: 640px) { .pp-modal { border-radius: 24px; } }
+.pp .pp-x { position: absolute; top: 10px; right: 12px; width: 38px; height: 38px; border-radius: 50%; font-size: 26px; line-height: 1; color: #44524a; }
+
+/* visor de fotos a pantalla completa */
+.pp-visor { position: fixed; inset: 0; z-index: 70; background: rgba(5, 10, 7, .95); display: grid; place-items: center; touch-action: pan-y; }
+.pp-visor img { max-width: 94vw; max-height: 84vh; object-fit: contain; border-radius: 8px; }
+.pp-visor .pp-flecha { background: rgba(255, 255, 255, .16); color: #fff; box-shadow: none; }
+.pp-visor .pp-x { color: #fff; top: 14px; right: 16px; font-size: 34px; }
+.pp-visor-n { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: rgba(255, 255, 255, .8); font-size: 14px; }
+
+/* barra de abajo en el celular (WhatsApp + que me llamen) */
+.pp-mbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: rgba(255, 255, 255, .97); border-top: 1px solid #dfe3db; }
+.pp-mbar.pp-mbar-1 { grid-template-columns: 1fr; }
+.pp-mbar .pt-btn { width: 100%; padding: 12px 10px; }
+@media (min-width: 980px) { .pp-mbar { display: none; } }
+.pp-toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 80; background: #14211a; color: #fff; padding: 10px 16px; border-radius: 30px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); }

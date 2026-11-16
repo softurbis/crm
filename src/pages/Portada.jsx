@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { srcsetDe, medianaDe } from '../lib/imagenesWeb'
 import { cotizar } from '../lib/plano'
+import TarjetaPropiedad from '../components/TarjetaPropiedad'
+import { ordenar as ordenarPropiedades } from '../lib/propiedades'
 import '../styles/portada.css'
 
 // PORTADA de urbisgroupinmobiliaria.com (pedido de Cesar, 13 nov 2026): "nuestros proyectos
@@ -16,7 +18,7 @@ import '../styles/portada.css'
 //   · pub_landing (solo landings activas): foto, logo, "desde", inicial, lotes libres
 //   · pub_landing_lotes(slug): los lotes libres para "¿Cuánto puedes pagar al mes?",
 //     con la misma cuenta del landing y del contrato (lib/plano.js → cotizar)
-//   · pub_propiedades: cuántas propiedades de terceros hay (sección hacia /propiedades)
+//   · pub_propiedades: las propiedades de terceros (corretaje) a la vista, hasta 3 (16 nov 2026)
 // Un landing nuevo que se active aparece solo (al final si no está en RUTA).
 
 const R2 = 'https://pub-04e0a91c024a4012960f304ed7528b55.r2.dev/corretaje/proyectos/'
@@ -83,7 +85,7 @@ function abiertoAhora() {
 export default function Portada() {
   const [proys, setProys] = useState(null)        // null = cargando
   const [lotes, setLotes] = useState({})          // slug → pub_landing_lotes (o false)
-  const [nProps, setNProps] = useState(0)
+  const [props, setProps] = useState([])         // propiedades de terceros (corretaje)
   const [hoja, setHoja] = useState(false)         // "¿Qué proyecto te interesa?"
   const [solida, setSolida] = useState(false)     // barra de arriba con fondo
   const [fab, setFab] = useState(false)           // botón flotante de WhatsApp
@@ -99,10 +101,19 @@ export default function Portada() {
           .sort((a, b) => (a.ruta?.orden ?? 99) - (b.ruta?.orden ?? 99) || a.nombreBonito.localeCompare(b.nombreBonito))
         setProys(lista)
       })
-    supabase.from('pub_propiedades').select('id', { count: 'exact', head: true })
-      .then(({ count }) => { if (vivo) setNProps(count || 0) })
+    supabase.from('pub_propiedades').select('*')
+      .then(({ data, error }) => { if (vivo && !error) setProps(ordenarPropiedades((data || []).filter(p => p.estado !== 'vendido'))) })
     return () => { vivo = false }
   }, [])
+
+  // al llegar con /#proyectos, /#visitanos… (desde las páginas de propiedades) baja a esa sección
+  // cuando ya cargaron las tarjetas (antes, la página todavía no tiene su alto)
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (!hash || proys === null) return
+    const t = setTimeout(() => document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView(), 80)
+    return () => clearTimeout(t)
+  }, [hash, proys])
 
   // los lotes de cada proyecto se piden recién cuando la calculadora se acerca a la pantalla
   useEffect(() => {
@@ -210,18 +221,21 @@ export default function Portada() {
         </div>
       </div></section>
 
-      {nProps > 0 && (
-        <section className="pt-sec" style={{ paddingTop: 8 }}><div className="pt-wrap">
-          <div className="pt-terceros pt-aparece">
-            <div>
-              <div className="pt-eyebrow">Propiedades de terceros</div>
-              <h3>¿Buscas una casa, un local o un terreno ya listo?</h3>
-              <p className="pt-lead">También vendemos inmuebles de terceros en Pucallpa: {nProps === 1 ? 'hay 1 propiedad disponible' : `hay ${nProps} propiedades disponibles`} hoy.</p>
-            </div>
-            <Link className="pt-btn pt-btn-am" to="/propiedades">Ver propiedades →</Link>
+      {/* propiedades de terceros (corretaje) A LA VISTA, hasta 3 (16 nov 2026: "ponlo dentro de la web") */}
+      <section className="pt-sec" id="propiedades" style={{ paddingTop: 8, scrollMarginTop: 60 }}><div className="pt-wrap">
+        <div className="pt-props-cab pt-aparece">
+          <div>
+            <div className="pt-eyebrow">Propiedades en venta</div>
+            <h2 className="pt-serif">¿Buscas una casa, un local o un terreno ya listo?</h2>
+            <p className="pt-lead">También vendemos inmuebles de terceros en Pucallpa y alrededores. {props.length === 1 ? 'Hay 1 propiedad disponible hoy.' : props.length > 1 ? `Hay ${props.length} propiedades disponibles hoy.` : ''}</p>
           </div>
-        </div></section>
-      )}
+          <Link className="pt-btn pt-btn-am" to="/propiedades">{props.length > 3 ? `Ver las ${props.length} →` : 'Ver propiedades →'}</Link>
+        </div>
+        {props.length > 0
+          ? <div className={'pp-grid pt-props' + (props.length === 1 ? ' pp-grid-1' : '')}>{props.slice(0, 3).map(p => <TarjetaPropiedad key={p.id} p={p} />)}</div>
+          : <div className="pt-terceros"><div><h3>Pronto publicaremos nuevas propiedades</h3><p className="pt-lead">¿Tienes un inmueble para vender? Te ayudamos a venderlo.</p></div>
+              <Link className="pt-btn pt-btn-gh" to="/propiedades?vender=1">Quiero vender mi propiedad</Link></div>}
+      </div></section>
 
       <section className="pt-sec" id="visitanos" style={{ paddingTop: 8, scrollMarginTop: 60 }}><div className="pt-wrap">
         <div className="pt-aparece">
@@ -282,7 +296,7 @@ export default function Portada() {
   )
 }
 
-function Marcas() {
+export function Marcas() {
   return (
     <Link to="/" className="pt-marcas" aria-label="Urbis Group y Century Proyectos Inmobiliarios — inicio">
       <span className="pt-urbis"><LogoUrbis /><span>URBIS<small>GROUP</small></span></span>
@@ -503,7 +517,7 @@ const LogoUrbis = () => (
     <polygon points="92,50 70,50 56,64 78,64" fill="#7f9a6c" />
   </svg>
 )
-const IcoWa = ({ size = 18 }) => (
+export const IcoWa = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.5l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .2-1.2c-.1-.2-.3-.2-.5-.3Z" />
   </svg>
@@ -523,6 +537,6 @@ const IcoFb = () => (
 const IcoIg = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.3" cy="6.7" r="1" fill="currentColor" stroke="none" /></svg>
 )
-const IcoLibro = () => (
+export const IcoLibro = () => (
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5z" /><path d="M12 6v13.5" /></svg>
 )

@@ -51,6 +51,13 @@ export default function Corretaje() {
     catch { await pedir('Copia este link público:', { valor: LINK_PUBLICO, aceptar: 'Listo' }) }
   }
 
+  // el link de UNA propiedad en la web: /propiedades/<código en minúsculas> (o el id), 16 nov 2026
+  const copiarLinkProp = async p => {
+    const link = linkPublico('propiedades/' + String(p.codigo || p.id).trim().toLowerCase())
+    try { await navigator.clipboard.writeText(link); await avisar(`✅ Link de la propiedad copiado:\n\n${link}\n\nPégalo en WhatsApp, Facebook o donde quieras.`) }
+    catch { await pedir('Copia el link de la propiedad:', { valor: link, aceptar: 'Listo' }) }
+  }
+
   const cargarLista = async () => {
     const { data } = await supabase.from('corr_propiedades')
       .select('id, codigo, tipo, titulo, estado, precio, moneda, publicado, zona, copia_literal_vence, cri_vence, excl_fin')
@@ -264,6 +271,7 @@ export default function Corretaje() {
               <div className="corr-acc">
                 <button className={`corr-btn pub ${p.publicado ? 'on' : ''}`} title={p.publicado ? 'Publicada — clic para ocultar' : 'Oculta — clic para publicar'} onClick={() => togglePublicado(p)}>{p.publicado ? '🌐' : '🔒'}</button>
                 <button className="corr-btn edit" onClick={() => setSel(p)}>✏️ Editar</button>
+                {p.publicado && <button className="corr-btn" title="Copiar el link de esta propiedad en la web, para mandarlo por WhatsApp o redes" onClick={() => copiarLinkProp(p)}>🔗</button>}
                 <button className="corr-btn del" title="Eliminar propiedad" onClick={() => borrar(p)}>🗑️</button>
               </div>
             </div>
@@ -313,7 +321,8 @@ export default function Corretaje() {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 13 }}>{c.nombre || '—'}</b>
                 <a href={'https://wa.me/' + (c.telefono || '').replace(/\D/g, '')} target="_blank" rel="noreferrer" style={{ color: '#6fdd9b', fontSize: 13 }}>📱 {c.telefono}</a>
-                <span className="muted" style={{ fontSize: 12 }}>{c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{c.tipo === 'vender' ? '🏷️ Quiere VENDER su inmueble' : c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
+                {c.origen === 'web' && <span style={{ fontSize: 11, color: '#6fdd9b', border: '1px solid rgba(111,221,155,.4)', borderRadius: 10, padding: '0 7px' }}>🌐 web</span>}
                 {c.origen === 'landing' && <span style={{ fontSize: 11, color: '#6fdd9b', border: '1px solid rgba(111,221,155,.4)', borderRadius: 10, padding: '0 7px' }}>🌐 landing</span>}
                 <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleString('es-PE')}</span>
                 <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!c.atendido} onChange={() => toggleAtendido(c)} /> atendido</label>
@@ -367,6 +376,12 @@ export default function Corretaje() {
           </Campo>
           <Campo label="WhatsApp que recibe el lead">{inp('whatsapp_lead', { placeholder: '51 + número' })}</Campo>
           <Campo label="Condiciones">{inp('condiciones')}</Campo>
+        </Seccion>
+        {/* el texto de venta de la página de la propiedad en la web (sql/232) */}
+        <Seccion titulo="📝 Descripción (pública, va en la página de la propiedad)">
+          <textarea value={sel.descripcion ?? ''} onChange={e => set('descripcion', e.target.value)} rows={5}
+            placeholder="Ej.: Casa de material noble, 2 pisos, cochera para 2 autos, a 2 cuadras de la Av. Centenario. Agua, luz y desagüe."
+            style={{ width: '100%', textTransform: 'none', resize: 'vertical' }} />
         </Seccion>
 
         <Seccion titulo="📍 Ubicación">

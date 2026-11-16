@@ -29,6 +29,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Routes>
         <Route path="/" element={<Portada />} />
         <Route path="/propiedades" element={<Publico />} />
+        {/* la página de cada propiedad de terceros, para compartir (16 nov 2026, sql/232) */}
+        <Route path="/propiedades/:ref" element={<Publico />} />
         <Route path="/p/:slug" element={<Landing />} />
         {/* la boleta del cliente, el enlace corto del WhatsApp (sql/153) */}
         <Route path="/c/:token" element={<ComprobantePublico />} />

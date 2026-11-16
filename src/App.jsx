@@ -117,6 +117,7 @@ export default function App() {
         {/* la entrada de los vendedores: celular + clave (12 nov) */}
         <Route path="/vendedores" element={<EntrarVendedor />} />
         <Route path="/propiedades" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
+        <Route path="/propiedades/:ref" element={SITIO_PUBLICO ? <AlSitioPublico /> : <Publico />} />
         <Route path="/p/:slug" element={SITIO_PUBLICO ? <VistaPreviaLanding /> : <Landing />} />
         <Route path="/c/:token" element={SITIO_PUBLICO ? <AlSitioPublico /> : <ComprobantePublico />} />
         {/* el libro de reclamaciones vive en la web pública (src/publico.jsx) */}

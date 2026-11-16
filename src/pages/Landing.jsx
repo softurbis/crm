@@ -472,7 +472,8 @@ export default function Landing() {
       <footer className="lp-foot"><div className="lp-wrap">
         <div className="lp-foot-in">
           <span>© {new Date().getFullYear()} {p.marca || nombre}</span>
-          <Link to="/propiedades">Ver otros proyectos</Link>
+          {/* a la portada, donde están todos los proyectos (16 nov 2026; antes iba a /propiedades) */}
+          <Link to="/">Ver otros proyectos</Link>
         </div>
         {/* obligatorio para quien vende a consumidores (Ley 29571): el libro virtual (sql/230), con este
             proyecto ya elegido, así la hoja sale a nombre de su empresa */}

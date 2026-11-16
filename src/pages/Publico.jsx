@@ -1,208 +1,431 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { contar } from '../lib/contador'
+import { Marcas, IcoWa, IcoLibro } from './Portada'
+import TarjetaPropiedad, { IcoCasa, IcoPin } from '../components/TarjetaPropiedad'
+import {
+  TIPO, ESTADO, precioTxt, refDe, esUuid, tituloDe, lugarDe, nombrePropio, oracion, areaTxt,
+  linkWaPropiedad, ordenar,
+} from '../lib/propiedades'
+import '../styles/portada.css'
+import '../styles/propiedades.css'
 
-// Página PÚBLICA (sin login) de propiedades. Lee las vistas seguras pub_propiedades / pub_proyectos
-// y el formulario de contacto inserta en corr_consultas (anon solo puede insertar).
-const V = '#0f6b4f', VD = '#0b4733', AM = '#ffc644'
-const TIPO = { terreno_urbano: 'Terreno urbano', terreno_rural: 'Terreno rural', lote: 'Lote', casa: 'Casa', departamento: 'Departamento', local: 'Local comercial', oficina: 'Oficina', edificio: 'Edificio', almacen: 'Almacén', estacionamiento: 'Estacionamiento', aires: 'Aires', otro: 'Otro' }
-const money = (n, m) => n == null ? 'Consultar' : (m === 'PEN' ? 'S/ ' : 'US$ ') + Number(n).toLocaleString('es-PE')
-const colorEstado = e => e === 'vendido' ? '#3778c2' : e === 'reservado' ? '#c8901f' : '#0f9d63'
-const txtEstado = e => e === 'vendido' ? 'Vendido' : e === 'reservado' ? 'Reservado' : 'Disponible'
+// PROPIEDADES DE TERCEROS (corretaje) en urbisgroupinmobiliaria.com — rehecha el 16 nov 2026
+// ("la página de corretaje arregla, que ya empezaremos a usar; ponlo dentro de la web"):
+//   /propiedades         → la lista, con el diseño de la portada (antes: estilo viejo y una
+//                          pestaña de proyectos que ya vive en la portada)
+//   /propiedades/<ref>   → la página de CADA propiedad, para compartir por WhatsApp y redes
+// Lee solo la vista pública pub_propiedades (sql/232). El formulario inserta en
+// corr_consultas (anon solo puede insertar) y llega al panel: Corretaje → Consultas.
+// 'vender' = el dueño de un inmueble que quiere que lo vendamos.
 
 export default function Publico() {
-  const [tab, setTab] = useState('propiedades')
-  const [props, setProps] = useState([])
-  const [proys, setProys] = useState([])
-  const [fTipo, setFTipo] = useState(''); const [fZona, setFZona] = useState(''); const [q, setQ] = useState('')
-  const [lightbox, setLightbox] = useState(null)     // { fotos, i }
-  const [form, setForm] = useState(null)             // { tipo, id, titulo }
+  const { ref } = useParams()
+  return ref ? <Ficha refProp={String(ref).toLowerCase()} /> : <Lista />
+}
+
+// ---------------------------------------------------------------------------------------
+// barra de arriba y pie, iguales a los de la portada
+function Marco({ children, enLista }) {
+  return (
+    <div className="pt pp">
+      <header className="pt-nav pt-solida"><div className="pt-wrap">
+        <Marcas />
+        <nav aria-label="Secciones">
+          <Link to="/">Inicio</Link>
+          <Link to="/#proyectos">Proyectos</Link>
+          <Link to="/propiedades" className="pp-activo">Propiedades</Link>
+          <Link to="/#visitanos">Contacto</Link>
+        </nav>
+        {enLista
+          ? <Link className="pt-btn pt-btn-gh pt-btn-sm" to="/#proyectos">Proyectos</Link>
+          : <Link className="pt-btn pt-btn-gh pt-btn-sm" to="/propiedades">Todas</Link>}
+      </div></header>
+      {children}
+      <footer className="pt-pie"><div className="pt-wrap">
+        <Link to="/libro-de-reclamaciones" className="pt-libro">
+          <span className="pt-libro-ico"><IcoLibro /></span>
+          <span><b>Libro de Reclamaciones</b><small>Registra aquí tu reclamo o queja</small></span>
+        </Link>
+        <div className="pt-pie-fin">
+          <span>© {new Date().getFullYear()} Urbis Group · Century Proyectos Inmobiliarios. Las propiedades de esta sección son de terceros: Urbis Group las vende como corredor.</span>
+          <span><Link to="/">Inicio</Link> · <Link to="/libro-de-reclamaciones">Libro de Reclamaciones</Link> · <a href="/privacidad">Política de privacidad</a></span>
+        </div>
+      </div></footer>
+    </div>
+  )
+}
+
+const sinTildes = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const ORDEN_TIPOS = Object.keys(TIPO)
+
+// ---------------------------------------------------------------------------------------
+// LA LISTA
+function Lista() {
+  const [props, setProps] = useState(null)       // null = cargando
+  const [tipo, setTipo] = useState('')
+  const [distrito, setDistrito] = useState('')
+  const [q, setQ] = useState('')
+  const [vendidas, setVendidas] = useState(false)
+  // /propiedades?vender=1 (botón de la portada) abre de una vez el formulario para vender
+  const [qs] = useSearchParams()
+  const [vender, setVender] = useState(qs.get('vender') === '1')
 
   useEffect(() => {
-    supabase.from('pub_propiedades').select('*').then(({ data }) => setProps(data || []))
-    supabase.from('pub_proyectos').select('*').order('orden').then(({ data }) => setProys(data || []))
+    document.title = 'Propiedades en venta en Ucayali · Urbis Group'
+    let vivo = true
+    supabase.from('pub_propiedades').select('*').then(({ data, error }) => { if (vivo) setProps(error ? [] : ordenar(data || [])) })
+    return () => { vivo = false }
   }, [])
 
-  const zonas = [...new Set(props.map(p => p.zona).filter(Boolean))]
-  const tipos = [...new Set(props.map(p => p.tipo).filter(Boolean))]
-  const filtradas = props.filter(p =>
-    (!fTipo || p.tipo === fTipo) && (!fZona || p.zona === fZona) &&
-    (!q || (p.titulo || '').toLowerCase().includes(q.toLowerCase()) || (p.zona || '').toLowerCase().includes(q.toLowerCase())))
+  const todas = props || []
+  const activas = todas.filter(p => p.estado !== 'vendido')
+  const tipos = ORDEN_TIPOS.filter(t => todas.some(p => p.tipo === t))
+  const distritos = [...new Set(todas.map(p => nombrePropio(p.distrito)).filter(Boolean))].sort()
+  const hayVendidas = todas.length > activas.length
+  const filtradas = todas.filter(p =>
+    (vendidas || p.estado !== 'vendido') && (!tipo || p.tipo === tipo) && (!distrito || nombrePropio(p.distrito) === distrito) &&
+    (!q || sinTildes([p.titulo, p.zona, p.distrito, p.codigo, TIPO[p.tipo]].join(' ')).includes(sinTildes(q))))
+  const conFiltros = todas.length >= 4
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f4f6f5', color: '#1a2420', fontFamily: 'system-ui, sans-serif' }}>
-      {/* header */}
-      <header style={{ background: V, color: '#fff', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        {/* vuelve a la portada (urbisgroupinmobiliaria.com, 13 nov 2026) */}
-        <Link to="/" title="Ir al inicio" style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#fff', textDecoration: 'none' }}>
-          <div style={{ width: 38, height: 38, borderRadius: 9, background: '#fff', color: V, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 19 }}>U</div>
-          <div><div style={{ fontWeight: 800, fontSize: 18 }}>URBIS GROUP</div><div style={{ fontSize: 12, opacity: .85 }}>Propiedades en venta · ← Inicio</div></div>
-        </Link>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {[['propiedades', '🏠 Propiedades'], ['proyectos', '📍 Proyectos']].map(([v, t]) => (
-            <button key={v} onClick={() => setTab(v)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13, background: tab === v ? '#fff' : 'rgba(255,255,255,.18)', color: tab === v ? V : '#fff' }}>{t}</button>
-          ))}
+    <Marco enLista>
+      <section className="pp-hero"><div className="pt-wrap">
+        <div className="pt-eyebrow">Propiedades en venta</div>
+        <h1 className="pt-serif">Casas, terrenos y locales en Ucayali</h1>
+        <p className="pt-lead">Inmuebles de terceros que vendemos en Pucallpa y alrededores. Mira las fotos, elige y escríbenos: coordinamos tu visita.</p>
+        {props && activas.length > 0 && (
+          <div className="pp-hero-cifra"><b>{activas.length}</b> {activas.length === 1 ? 'propiedad disponible' : 'propiedades disponibles'} hoy</div>
+        )}
+      </div></section>
+
+      <section className="pp-claro"><div className="pt-wrap">
+        {conFiltros && (
+          <div className="pp-filtros">
+            <div className="pp-chips" role="group" aria-label="Tipo de inmueble">
+              <button type="button" className={'pp-chip' + (!tipo ? ' pp-on' : '')} onClick={() => setTipo('')}>Todas</button>
+              {tipos.map(t => <button key={t} type="button" className={'pp-chip' + (tipo === t ? ' pp-on' : '')} onClick={() => setTipo(t)}>{TIPO[t]}</button>)}
+            </div>
+            {distritos.length > 1 && (
+              <select value={distrito} onChange={e => setDistrito(e.target.value)} aria-label="Distrito">
+                <option value="">Todos los distritos</option>
+                {distritos.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+            <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por zona, código o palabra…" aria-label="Buscar" />
+            {hayVendidas && <label><input type="checkbox" checked={vendidas} onChange={e => setVendidas(e.target.checked)} /> Ver también las vendidas</label>}
+          </div>
+        )}
+
+        {props === null && <p className="pp-cuenta">Cargando propiedades…</p>}
+        {props && !filtradas.length && (
+          <div className="pp-vacio">
+            <IcoCasa size={46} />
+            <b>{todas.length ? 'No hay propiedades con esos filtros' : 'Pronto publicaremos nuevas propiedades'}</b>
+            <span>{todas.length ? 'Prueba con otro tipo o distrito.' : 'Mientras tanto, mira nuestros proyectos de lotes con financiamiento directo.'}</span>
+          </div>
+        )}
+        {filtradas.length > 0 && conFiltros && (tipo || distrito || q) && <p className="pp-cuenta">{filtradas.length} de {todas.length} propiedades</p>}
+        {filtradas.length > 0 && <div className={'pp-grid' + (filtradas.length === 1 ? ' pp-grid-1' : '')}>{filtradas.map(p => <TarjetaPropiedad key={p.id} p={p} />)}</div>}
+
+        <div className="pp-bandas">
+          <div className="pp-banda pp-banda-vender">
+            <div className="pt-eyebrow">¿Tienes un inmueble?</div>
+            <h3>Te ayudamos a venderlo</h3>
+            <p>Casa, terreno, local o departamento en Ucayali: déjanos tus datos y te llamamos para conocerlo.</p>
+            <button type="button" className="pt-btn pt-btn-am" onClick={() => setVender(true)}>Quiero vender mi propiedad</button>
+          </div>
+          <div className="pp-banda pp-banda-proy">
+            <div className="pt-eyebrow" style={{ color: '#14211a' }}>¿Prefieres un lote propio?</div>
+            <h3>Lotes con financiamiento directo</h3>
+            <p>Nuestros proyectos sobre la Carretera Federico Basadre, con cuotas sin intereses y sin bancos.</p>
+            <Link className="pt-btn pp-btn-osc" to="/#proyectos">Ver proyectos →</Link>
+          </div>
         </div>
-      </header>
+      </div></section>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px 40px' }}>
-        {tab === 'propiedades' && (<>
-          {/* filtros */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-            <select value={fTipo} onChange={e => setFTipo(e.target.value)} style={selSt}><option value="">Todos los tipos</option>{tipos.map(t => <option key={t} value={t}>{TIPO[t] || t}</option>)}</select>
-            <select value={fZona} onChange={e => setFZona(e.target.value)} style={selSt}><option value="">Todas las zonas</option>{zonas.map(z => <option key={z} value={z}>{z}</option>)}</select>
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar…" style={{ ...selSt, flex: 1, minWidth: 160 }} />
-          </div>
-
-          {!filtradas.length && <p style={{ color: '#5b6b63', textAlign: 'center', padding: 40 }}>No hay propiedades que coincidan.</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
-            {filtradas.map(p => <PropCard key={p.id} p={p} onZoom={(fotos, i) => setLightbox({ fotos, i })} onMas={() => setForm({ tipo: 'propiedad', id: p.id, titulo: p.titulo || TIPO[p.tipo] })} />)}
-          </div>
-
-          {/* leyenda */}
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 22, paddingTop: 14, borderTop: '1px solid #e2e8e4', fontSize: 12.5, color: '#5b6b63' }}>
-            <b style={{ color: '#1a2420' }}>Leyenda:</b>
-            {[['Disponible', '#0f9d63'], ['Reservado', '#c8901f'], ['Vendido', '#3778c2']].map(([t, c]) => (
-              <span key={t}><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 5, background: c, marginRight: 5 }} />{t}</span>
-            ))}
-          </div>
-        </>)}
-
-        {tab === 'proyectos' && (<>
-          {!proys.length && <p style={{ color: '#5b6b63', textAlign: 'center', padding: 40 }}>Pronto publicaremos nuestros proyectos aquí.</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {proys.map(pr => <ProyCard key={pr.id} pr={pr} onMas={() => setForm({ tipo: 'proyecto', id: pr.id, titulo: pr.nombre })} />)}
-          </div>
-        </>)}
-      </div>
-
-      {lightbox && <Lightbox {...lightbox} onClose={() => setLightbox(null)} onNav={i => setLightbox(l => ({ ...l, i }))} />}
-      {form && <FormModal {...form} onClose={() => setForm(null)} />}
-    </div>
+      {vender && (
+        <Modal onClose={() => setVender(false)}>
+          <Formulario tipo="vender" titulo="Quiero vender mi propiedad"
+            texto="Cuéntanos qué tienes y dónde. Te llamamos para conocerlo y explicarte cómo trabajamos."
+            placeholder="Ej.: casa de 2 pisos en Yarinacocha, 160 m², con título" />
+        </Modal>
+      )}
+    </Marco>
   )
 }
 
-const selSt = { padding: '9px 11px', borderRadius: 9, border: '1.5px solid #d8e2dc', fontSize: 14, background: '#fff', color: '#1a2420' }
-const cardSt = { background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 12px rgba(16,40,30,.08)', display: 'flex', flexDirection: 'column' }
-
-function PropCard({ p, onZoom, onMas }) {
-  const fotos = p.fotos || []
+// ---------------------------------------------------------------------------------------
+// LA PÁGINA DE UNA PROPIEDAD
+function Ficha({ refProp }) {
+  const [p, setP] = useState(undefined)          // undefined = cargando · null = no está publicada
+  const [otras, setOtras] = useState([])
   const [i, setI] = useState(0)
-  const cur = fotos[i]
-  const nav = (e, d) => { e.stopPropagation(); setI(x => (x + d + fotos.length) % fotos.length) }
+  const [visor, setVisor] = useState(false)
+  const [toast, setToast] = useState('')
+  const formRef = useRef(null)
+
+  useEffect(() => {
+    let vivo = true
+    setP(undefined); setI(0)
+    // el link lleva el código en minúsculas (o el id); ilike lo encuentra con o sin sql/232
+    const base = supabase.from('pub_propiedades').select('*')
+    ;(esUuid(refProp) ? base.eq('id', refProp) : base.ilike('codigo', refProp)).limit(1)
+      .then(({ data, error }) => { if (vivo) setP(!error && data?.[0] ? data[0] : null) })
+    supabase.from('pub_propiedades').select('*').then(({ data }) => {
+      if (vivo) setOtras(ordenar((data || []).filter(x => refDe(x) !== refProp && x.id !== refProp && x.estado !== 'vendido')).slice(0, 3))
+    })
+    return () => { vivo = false }
+  }, [refProp])
+
+  useEffect(() => {
+    if (p) document.title = `${tituloDe(p)} · ${precioTxt(p.precio, p.moneda)} · Urbis Group`
+    else if (p === null) document.title = 'Propiedad no disponible · Urbis Group'
+  }, [p])
+
+  const fotos = p?.fotos || []
+  const n = fotos.length
+  const mover = d => setI(x => (x + d + n) % n)
+  const linkWa = p ? linkWaPropiedad(p) : null
+  const datos = useMemo(() => p ? fichaDatos(p) : [], [p])
+
+  const compartir = async () => {
+    const url = location.origin + '/propiedades/' + refDe(p)
+    const info = { title: tituloDe(p), text: `${tituloDe(p)} · ${precioTxt(p.precio, p.moneda)}`, url }
+    if (navigator.share) { try { await navigator.share(info); return } catch (e) { if (e?.name === 'AbortError') return } }
+    try { await navigator.clipboard.writeText(url); avisar('Link copiado: pégalo donde quieras') } catch { window.prompt('Copia este link:', url) }
+  }
+  const avisar = t => { setToast(t); setTimeout(() => setToast(''), 2600) }
+  const irForm = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+  if (p === undefined) return <Marco><section className="pp-claro pp-ficha-sec" style={{ minHeight: '70vh' }}><div className="pt-wrap"><p className="pp-cuenta">Cargando…</p></div></section></Marco>
+  if (p === null) return (
+    <Marco>
+      <section className="pp-claro pp-ficha-sec" style={{ minHeight: '70vh' }}><div className="pt-wrap">
+        <div className="pp-vacio" style={{ marginTop: 20 }}>
+          <IcoCasa size={46} />
+          <b>Esta propiedad ya no está publicada</b>
+          <span>Puede que se haya vendido. Mira las que están disponibles hoy.</span>
+          <Link className="pt-btn pp-btn-osc" to="/propiedades" style={{ marginTop: 8 }}>Ver propiedades →</Link>
+        </div>
+      </div></section>
+    </Marco>
+  )
+
+  const lugar = lugarDe(p)
+  const region = [p.provincia, p.departamento].filter(Boolean).map(nombrePropio).join(', ')
+
   return (
-    <div style={cardSt}>
-      <div style={{ position: 'relative', height: 180, background: '#e7ede9', cursor: fotos.length ? 'zoom-in' : 'default' }} onClick={() => fotos.length && onZoom(fotos, i)}>
-        {cur ? <img src={cur} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: '#9fb3a8', fontSize: 40 }}>🏠</div>}
-        <span style={{ position: 'absolute', top: 10, left: 10, background: colorEstado(p.estado), color: '#fff', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>{txtEstado(p.estado)}</span>
-        {fotos.length > 0 && <span style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(0,0,0,.5)', color: '#fff', fontSize: 12, padding: '2px 8px', borderRadius: 20 }}>🔍 {fotos.length} 📷</span>}
-        {fotos.length > 1 && <>
-          <button onClick={e => nav(e, -1)} style={arrowSt('left')}>‹</button>
-          <button onClick={e => nav(e, 1)} style={arrowSt('right')}>›</button>
-          <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 5 }}>
-            {fotos.map((_, k) => <span key={k} style={{ width: 7, height: 7, borderRadius: 4, background: k === i ? '#fff' : 'rgba(255,255,255,.5)' }} />)}
+    <Marco>
+      <section className="pp-claro pp-ficha-sec"><div className="pt-wrap">
+        <Link to="/propiedades" className="pp-volver">← Todas las propiedades</Link>
+
+        <div className="pp-ficha">
+          <div className="pp-gal">
+            <div className="pp-gal-main">
+              {n > 0
+                ? <button type="button" className="pp-gal-img" onClick={() => setVisor(true)} aria-label="Ver la foto en grande">
+                    <img src={fotos[i]} alt={`${tituloDe(p)} — foto ${i + 1} de ${n}`} />
+                  </button>
+                : <div className="pp-sinfoto"><IcoCasa size={60} /></div>}
+              <span className={'pp-estado pp-e-' + (p.estado || 'disponible')}>{ESTADO[p.estado] || 'Disponible'}</span>
+              {n > 1 && <>
+                <button type="button" className="pp-flecha pp-izq" onClick={() => mover(-1)} aria-label="Foto anterior"><Flecha izq /></button>
+                <button type="button" className="pp-flecha pp-der" onClick={() => mover(1)} aria-label="Foto siguiente"><Flecha /></button>
+                <span className="pp-gal-n">{i + 1} / {n}</span>
+              </>}
+            </div>
+            {n > 1 && (
+              <div className="pp-tiras">
+                {fotos.map((f, k) => (
+                  <button key={f} type="button" className={'pp-tira' + (k === i ? ' pp-on' : '')} onClick={() => setI(k)} aria-label={`Foto ${k + 1}`}>
+                    <img src={f} alt="" loading="lazy" decoding="async" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </>}
-      </div>
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-        <div style={{ fontSize: 12, color: '#5b6b63' }}>{TIPO[p.tipo] || p.tipo}{p.zona ? ' · ' + p.zona : ''}</div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: VD }}>{money(p.precio, p.moneda)}</div>
-        {p.titulo && <div style={{ fontSize: 14, fontWeight: 600 }}>{p.titulo}</div>}
-        <div style={{ display: 'flex', gap: 14, fontSize: 13, color: '#5b6b63', flexWrap: 'wrap' }}>
-          {p.area != null && <span>📐 {p.area} {p.area_unidad === 'ha' ? 'ha' : 'm²'}</span>}
-          {p.dormitorios != null && <span>🛏️ {p.dormitorios} dorm</span>}
-          {p.cuota_ref && <span>💳 {p.cuota_ref}</span>}
+
+          <aside className="pp-resumen">
+            <span className={'pp-estado pp-e-' + (p.estado || 'disponible')}>{ESTADO[p.estado] || 'Disponible'}</span>
+            <div className="pp-precio">{precioTxt(p.precio, p.moneda)}</div>
+            {p.cuota_ref && <div className="pp-cuota">{oracion(p.cuota_ref)}</div>}
+            <h1>{tituloDe(p)}</h1>
+            {lugar && <p className="pp-lugar"><IcoPin size={17} /> <span>{lugar}{region ? <><br />{region}</> : null}</span></p>}
+            {p.codigo && <span className="pp-codigo">Código {p.codigo}</span>}
+            <div className="pp-acciones">
+              {linkWa && p.estado !== 'vendido' && <a className="pt-btn pt-btn-wa" href={linkWa} target="_blank" rel="noreferrer"><IcoWa /> Escribir por WhatsApp</a>}
+              {p.estado !== 'vendido' && <button type="button" className={'pt-btn ' + (linkWa ? 'pp-btn-linea' : 'pp-btn-osc')} onClick={irForm}>Quiero que me llamen</button>}
+              <button type="button" className="pt-btn pp-btn-linea" onClick={compartir}><IcoCompartir /> Compartir</button>
+            </div>
+          </aside>
         </div>
-        <button onClick={onMas} style={{ marginTop: 'auto', padding: '9px', borderRadius: 9, border: 'none', background: V, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>Ver más</button>
+
+        <div className="pp-cuerpo">
+          <div>
+            {datos.length > 0 && (
+              <section className="pp-bloque">
+                <h2>Características</h2>
+                <dl className="pp-datos">{datos.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+              </section>
+            )}
+            {p.descripcion && <section className="pp-bloque"><h2>Descripción</h2><p className="pp-texto">{oracion(p.descripcion)}</p></section>}
+            {p.condiciones && <section className="pp-bloque"><h2>Condiciones</h2><p className="pp-texto">{oracion(p.condiciones)}</p></section>}
+            {(lugar || region || p.referencias) && (
+              <section className="pp-bloque pp-ubic">
+                <h2>Ubicación</h2>
+                {lugar && <p><b>{lugar}</b></p>}
+                {region && <p>{region}</p>}
+                {p.referencias && <p className="pp-ref">Referencia: {oracion(p.referencias)}</p>}
+              </section>
+            )}
+          </div>
+          <div ref={formRef} id="contacto" className="pp-bloque">
+            {p.estado === 'vendido'
+              ? <div className="pp-form"><h3>Esta propiedad ya se vendió</h3><p>Mira las otras que tenemos disponibles.</p><Link className="pt-btn pp-btn-osc" to="/propiedades">Ver propiedades →</Link></div>
+              : <Formulario tipo="propiedad" p={p} titulo="¿Te interesa? Te llamamos"
+                  texto="Déjanos tu nombre y tu celular, y un asesor te contacta para resolver tus dudas y coordinar la visita."
+                  placeholder="Ej.: ¿se puede visitar este sábado?" linkWa={linkWa} />}
+          </div>
+        </div>
+
+        {otras.length > 0 && (
+          <section className="pp-otras">
+            <h2 className="pt-serif">Otras propiedades</h2>
+            <div className="pp-grid">{otras.map(x => <TarjetaPropiedad key={x.id} p={x} />)}</div>
+          </section>
+        )}
+      </div></section>
+
+      {p.estado !== 'vendido' && (
+        <div className={'pp-mbar' + (linkWa ? '' : ' pp-mbar-1')}>
+          {linkWa && <a className="pt-btn pt-btn-wa" href={linkWa} target="_blank" rel="noreferrer"><IcoWa /> WhatsApp</a>}
+          <button type="button" className="pt-btn pp-btn-osc" onClick={irForm}>Que me llamen</button>
+        </div>
+      )}
+      {visor && n > 0 && <Visor fotos={fotos} i={i} onNav={setI} onClose={() => setVisor(false)} titulo={tituloDe(p)} />}
+      {toast && <div className="pp-toast" role="status">{toast}</div>}
+    </Marco>
+  )
+}
+
+// lo que va en "Características": solo lo que está lleno
+function fichaDatos(p) {
+  const d = [['Tipo', TIPO[p.tipo] || 'Propiedad']]
+  const a = areaTxt(p); if (a) d.push(['Área', a])
+  if (p.frente) d.push(['Frente', Number(p.frente).toLocaleString('es-PE') + ' m'])
+  if (p.fondo) d.push(['Fondo', Number(p.fondo).toLocaleString('es-PE') + ' m'])
+  if (p.dormitorios) d.push(['Dormitorios', p.dormitorios])
+  if (p.banos) d.push(['Baños', p.banos])
+  const extra = p.caracteristicas
+  if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+    for (const [k, v] of Object.entries(extra)) if (v != null && String(v).trim() !== '') d.push([oracion(k), oracion(String(v))])
+  }
+  return d
+}
+
+// ---------------------------------------------------------------------------------------
+// FORMULARIO → corr_consultas (Corretaje → Consultas en el panel)
+function Formulario({ tipo, p, titulo, texto, placeholder, linkWa }) {
+  const [f, setF] = useState({ nombre: '', telefono: '', mensaje: '', empresa: '' })
+  const [estado, setEstado] = useState('')     // '' | 'enviando' | 'ok' | 'error:<texto>'
+  const set = (k, v) => { setF(x => ({ ...x, [k]: v })); if (estado.startsWith('error')) setEstado('') }
+
+  const enviar = async e => {
+    e.preventDefault()
+    if (f.empresa) { setEstado('ok'); return }                                  // campo trampa: solo lo llenan los robots
+    if (!f.nombre.trim()) { setEstado('error:Escribe tu nombre.'); return }
+    if (f.telefono.replace(/\D/g, '').length < 9) { setEstado('error:Escribe un celular válido (9 dígitos).'); return }
+    if (tipo === 'vender' && !f.mensaje.trim()) { setEstado('error:Cuéntanos qué inmueble quieres vender y dónde está.'); return }
+    setEstado('enviando')
+    const fila = { tipo, origen: 'web', nombre: f.nombre.trim(), telefono: f.telefono.trim(), mensaje: f.mensaje.trim() || null }
+    if (p) fila.propiedad_id = p.id
+    const { error } = await supabase.from('corr_consultas').insert(fila)
+    if (!error) contar('formulario', tipo === 'vender' ? 'vender' : refDe(p))
+    setEstado(error ? 'error:No se pudo enviar. Inténtalo otra vez' + (linkWa ? ' o escríbenos por WhatsApp.' : '.') : 'ok')
+  }
+
+  if (estado === 'ok') return (
+    <div className="pp-form pp-form-ok">
+      <i>✓</i>
+      <h3>¡Listo, {f.nombre.trim().split(/\s+/)[0] || 'gracias'}!</h3>
+      <p>Recibimos tus datos. Un asesor de Urbis Group te llamará pronto.</p>
+      {linkWa && <a className="pt-btn pt-btn-wa" href={linkWa} target="_blank" rel="noreferrer"><IcoWa /> Adelantar por WhatsApp</a>}
+    </div>
+  )
+  return (
+    <form className="pp-form" onSubmit={enviar} noValidate>
+      <h3>{titulo}</h3>
+      {texto && <p>{texto}</p>}
+      <label>Nombre<input value={f.nombre} onChange={e => set('nombre', e.target.value)} autoComplete="name" /></label>
+      <label>Celular / WhatsApp<input value={f.telefono} onChange={e => set('telefono', e.target.value)} autoComplete="tel" inputMode="tel" placeholder="987 654 321" /></label>
+      <label>{tipo === 'vender' ? '¿Qué quieres vender?' : 'Mensaje (opcional)'}<textarea value={f.mensaje} onChange={e => set('mensaje', e.target.value)} placeholder={placeholder} /></label>
+      <label className="pp-trampa" aria-hidden="true">Empresa<input tabIndex={-1} autoComplete="off" value={f.empresa} onChange={e => set('empresa', e.target.value)} /></label>
+      {estado.startsWith('error:') && <p className="pp-form-err" role="alert">{estado.slice(6)}</p>}
+      <button type="submit" className="pt-btn pt-btn-am" disabled={estado === 'enviando'}>{estado === 'enviando' ? 'Enviando…' : 'Enviar'}</button>
+    </form>
+  )
+}
+
+function Modal({ children, onClose }) {
+  useEffect(() => {
+    const tecla = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', tecla)
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', tecla); document.body.style.overflow = antes }
+  }, [onClose])
+  return (
+    <div className="pp-modal-fondo" onClick={onClose}>
+      <div className="pp-modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+        <button type="button" className="pp-x" onClick={onClose} aria-label="Cerrar">×</button>
+        {children}
       </div>
     </div>
   )
 }
 
-function ProyCard({ pr, onMas }) {
+// las fotos a pantalla completa: flechas, teclado y deslizar con el dedo
+function Visor({ fotos, i, onNav, onClose, titulo }) {
+  const n = fotos.length
+  const toque = useRef(null)
+  useEffect(() => {
+    const tecla = e => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowRight') onNav((i + 1) % n)
+      if (e.key === 'ArrowLeft') onNav((i - 1 + n) % n)
+    }
+    window.addEventListener('keydown', tecla)
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', tecla); document.body.style.overflow = antes }
+  }, [i, n, onNav, onClose])
   return (
-    <div style={cardSt}>
-      <div style={{ height: 170, background: '#e7ede9' }}>
-        {pr.foto_url ? <img src={pr.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: '#9fb3a8', fontSize: 40 }}>📍</div>}
-      </div>
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: VD }}>{pr.nombre}</div>
-        <div style={{ display: 'flex', gap: 12, fontSize: 13, color: '#5b6b63', flexWrap: 'wrap' }}>
-          {pr.precio_desde != null && <span>Desde <b style={{ color: '#1a2420' }}>{money(pr.precio_desde, 'PEN')}</b></span>}
-          {pr.cuota_desde && <span>💳 {pr.cuota_desde}</span>}
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Chip c="#0f9d63" t={`${pr.disponibles || 0} disponibles`} />
-          <Chip c="#c8901f" t={`${pr.reservados || 0} reservados`} />
-          <Chip c="#3778c2" t={`${pr.vendidos || 0} vendidos`} />
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-          {pr.pdf_url && <a href={pr.pdf_url} target="_blank" rel="noreferrer" style={{ flex: 1, textAlign: 'center', padding: '9px', borderRadius: 9, border: '1.5px solid ' + V, color: V, fontWeight: 600, textDecoration: 'none', fontSize: 14 }}>📄 Ver plano</a>}
-          <button onClick={onMas} style={{ flex: 1, padding: '9px', borderRadius: 9, border: 'none', background: V, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>Más info</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const Chip = ({ c, t }) => <span style={{ fontSize: 11.5, fontWeight: 600, color: c, background: c + '22', padding: '2px 9px', borderRadius: 20 }}>{t}</span>
-const arrowSt = side => ({ position: 'absolute', top: '50%', [side]: 8, transform: 'translateY(-50%)', width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,.45)', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 })
-
-function Lightbox({ fotos, i, onClose, onNav }) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.9)', zIndex: 100, display: 'grid', placeItems: 'center' }}>
-      <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 20, background: 'none', border: 'none', color: '#fff', fontSize: 34, cursor: 'pointer' }}>×</button>
-      <img src={fotos[i]} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '92vw', maxHeight: '86vh', objectFit: 'contain', borderRadius: 8 }} />
-      {fotos.length > 1 && <>
-        <button onClick={e => { e.stopPropagation(); onNav((i - 1 + fotos.length) % fotos.length) }} style={{ position: 'absolute', left: 20, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', fontSize: 40, width: 52, height: 52, borderRadius: '50%', cursor: 'pointer' }}>‹</button>
-        <button onClick={e => { e.stopPropagation(); onNav((i + 1) % fotos.length) }} style={{ position: 'absolute', right: 20, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', fontSize: 40, width: 52, height: 52, borderRadius: '50%', cursor: 'pointer' }}>›</button>
-        <div style={{ position: 'absolute', bottom: 20, color: '#fff', fontSize: 14 }}>{i + 1} / {fotos.length}</div>
+    <div className="pp-visor" role="dialog" aria-modal="true" aria-label={'Fotos de ' + titulo} onClick={onClose}
+      onTouchStart={e => { toque.current = e.touches[0].clientX }}
+      onTouchEnd={e => {
+        const dx = e.changedTouches[0].clientX - (toque.current ?? 0)
+        if (Math.abs(dx) > 45 && n > 1) onNav(dx < 0 ? (i + 1) % n : (i - 1 + n) % n)
+      }}>
+      <img src={fotos[i]} alt={`${titulo} — foto ${i + 1} de ${n}`} onClick={e => e.stopPropagation()} />
+      <button type="button" className="pp-x" onClick={onClose} aria-label="Cerrar">×</button>
+      {n > 1 && <>
+        <button type="button" className="pp-flecha pp-izq" onClick={e => { e.stopPropagation(); onNav((i - 1 + n) % n) }} aria-label="Foto anterior"><Flecha izq /></button>
+        <button type="button" className="pp-flecha pp-der" onClick={e => { e.stopPropagation(); onNav((i + 1) % n) }} aria-label="Foto siguiente"><Flecha /></button>
+        <div className="pp-visor-n">{i + 1} / {n}</div>
       </>}
     </div>
   )
 }
 
-function FormModal({ tipo, id, titulo, onClose }) {
-  const [nombre, setNombre] = useState(''); const [telefono, setTelefono] = useState(''); const [mensaje, setMensaje] = useState('')
-  const [estado, setEstado] = useState('') // '', 'enviando', 'ok', 'error'
-  const enviar = async () => {
-    if (!nombre.trim() || !telefono.trim()) { setEstado('faltan'); return }
-    setEstado('enviando')
-    const row = { tipo, nombre: nombre.trim(), telefono: telefono.trim(), mensaje: mensaje.trim() }
-    if (tipo === 'propiedad') row.propiedad_id = id; else row.project_id = id
-    const { error } = await supabase.from('corr_consultas').insert(row)
-    if (!error) contar('formulario', tipo)
-    setEstado(error ? 'error' : 'ok')
-  }
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,15,.5)', zIndex: 100, display: 'grid', placeItems: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 22, width: 'min(420px, 100%)', color: '#1a2420' }}>
-        {estado === 'ok' ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 40 }}>✅</div>
-            <h3 style={{ margin: '8px 0' }}>¡Gracias!</h3>
-            <p style={{ color: '#5b6b63', fontSize: 14 }}>Recibimos tus datos. Un asesor de Urbis te contactará pronto.</p>
-            <button onClick={onClose} style={btnV}>Cerrar</button>
-          </div>
-        ) : (<>
-          <h3 style={{ margin: '0 0 4px' }}>Quiero más información</h3>
-          <p style={{ color: '#5b6b63', fontSize: 13, margin: '0 0 14px' }}>Sobre: <b>{titulo}</b></p>
-          <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre *" style={inSt} />
-          <input value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="Tu WhatsApp / teléfono *" style={inSt} />
-          <textarea value={mensaje} onChange={e => setMensaje(e.target.value)} placeholder="Mensaje (opcional)" style={{ ...inSt, minHeight: 70 }} />
-          {estado === 'faltan' && <p style={{ color: '#c0392b', fontSize: 13, margin: '4px 0' }}>Completa tu nombre y teléfono.</p>}
-          {estado === 'error' && <p style={{ color: '#c0392b', fontSize: 13, margin: '4px 0' }}>No se pudo enviar. Intenta de nuevo.</p>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button onClick={onClose} style={{ ...btnV, flex: 1, background: '#eef3f0', color: V }}>Cancelar</button>
-            <button onClick={enviar} disabled={estado === 'enviando'} style={{ ...btnV, flex: 2 }}>{estado === 'enviando' ? 'Enviando…' : 'Enviar'}</button>
-          </div>
-        </>)}
-      </div>
-    </div>
-  )
-}
-
-const inSt = { width: '100%', padding: '10px 12px', borderRadius: 9, border: '1.5px solid #d8e2dc', fontSize: 14, marginBottom: 9, boxSizing: 'border-box' }
-const btnV = { padding: '11px', borderRadius: 9, border: 'none', background: V, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14, marginTop: 6 }
+const Flecha = ({ izq }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={izq ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} />
+  </svg>
+)
+const IcoCompartir = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+  </svg>
+)

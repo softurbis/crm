@@ -53,7 +53,9 @@ function nombrePagina(p) {
   if (p.seccion === 'recorrido') return p.sub === 'fotos'
     ? { t: n, s: 'fotos 360° del dron', ruta: '/recorrido/' + p.proyecto + '/fotos/' }
     : { t: n, s: 'recorrido 3D', ruta: '/recorrido/' + p.proyecto + '/' }
-  if (p.seccion === 'propiedades') return { t: 'Propiedades', s: 'corretaje', ruta: '/propiedades' }
+  if (p.seccion === 'propiedades') return { t: 'Propiedades', s: 'corretaje: la lista', ruta: '/propiedades' }
+  // la página de una propiedad de terceros (sql/232): el "proyecto" es su código
+  if (p.seccion === 'propiedad') return { t: 'Propiedad ' + String(p.proyecto || '').toUpperCase(), s: 'corretaje', ruta: '/propiedades/' + p.proyecto }
   if (p.seccion === 'libro') return { t: 'Libro de reclamaciones', s: '', ruta: '/libro-de-reclamaciones' }
   return { t: 'Otras páginas', s: '', ruta: null }
 }

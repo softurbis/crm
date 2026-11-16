@@ -196,6 +196,10 @@
   background: radial-gradient(600px 300px at 100% 0%, rgba(255, 198, 68, .14), transparent 70%), var(--pt-bg2); }
 @media (min-width: 760px) { .pt-terceros { grid-template-columns: 1fr auto; padding: 34px 38px; } }
 .pt-terceros h3 { font: 800 clamp(22px, 3vw, 28px)/1.2 'Montserrat', sans-serif; margin: 6px 0 6px; }
+/* las propiedades a la vista (16 nov 2026): título + botón arriba, tarjetas de components/TarjetaPropiedad */
+.pt-props-cab { display: grid; gap: 14px; align-items: end; margin-bottom: 22px; }
+@media (min-width: 860px) { .pt-props-cab { grid-template-columns: 1fr auto; } }
+.pt-props-cab h2 { font-size: clamp(30px, 4.6vw, 46px); }
 
 /* ---------- visítanos ---------- */
 .pt-visita { display: grid; gap: 16px; margin-top: 24px; }
