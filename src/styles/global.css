@@ -1559,6 +1559,9 @@ span.cp-chip { cursor: default; }
 .docs-dep small { font-size: .7em; }
 .docs-otro { margin-left: .45rem; font-size: .72rem; opacity: .75; cursor: pointer; }
 .docs-otro:hover { opacity: 1; }
+/* 🖨 del voucher: hoja A4 con su referencia (BotonImprimirVoucher) */
+.voucher-imp { margin-left: .3rem; font-size: .85em; text-transform: none; opacity: .85; }
+.voucher-imp:hover { opacity: 1; }
 
 /* ---- el texto de UNA constancia, editable en la vista previa (Expenses.jsx, sql/143) ---- */
 .sg-texto { margin: .5rem 0 .4rem; padding: .7rem .8rem; border-radius: 10px; border: 1px dashed rgba(232,176,79,.5); background: rgba(232,176,79,.06); }

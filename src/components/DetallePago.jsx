@@ -6,6 +6,7 @@ import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import VisorDoc from './VisorDoc'
+import BotonImprimirVoucher from './BotonImprimirVoucher'
 import { opcionesBanco } from '../lib/bancos'
 import { reciboWspInfo, enviarReciboWsp, celularBonito, enlaceWsp } from '../lib/comprobantes'
 import { ListaValidacion, conAviso, nombreTipo } from './LecturaBoleta'
@@ -332,6 +333,9 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
             return (
               <div key={t} className="doc-panel">
                 <p><b>{t}</b>{u && <> | <a href={u} target="_blank" rel="noreferrer">abrir aparte</a></>}
+                  {/* la hoja A4 con lote, cliente y monto; con varios vouchers, el de sus cuotas */}
+                  {u && campo === 'voucher_url' && <> | <BotonImprimirVoucher url={u} nota={f?.voucher_note} conTexto
+                    items={new Set(filas.map(x => x.voucher_url).filter(Boolean)).size > 1 ? filas.filter(x => x.voucher_url === u) : filas} /></>}
                   {u && !readOnly && <> | <button className="link-btn" onClick={() => notaDoc(campo)}>&#128221; nota</button></>}</p>
                 {f?.[campoNota(campo)] && <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{f[campoNota(campo)]}</p>}
                 {!u
