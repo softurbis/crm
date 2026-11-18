@@ -11,6 +11,7 @@ import {
   ESTADOS, COLS_COMPROBANTE, TIPO_DOC, nombreComprobante, nombreTipo, anulaConNota, esPrueba, estaVivo, enCamino, rucValido, descripcionPago,
   descripcionJunta, pagosDeComprobante, pedirComprobante, anularComprobante, reintentarComprobante, emisorDelServidor, emisorVisto,
   enviarComprobanteWsp, envioWsp, celularesDe, celularBonito, wspDelProyecto, textoComprobanteWsp, enlaceWsp,
+  esDeGasto, gastosDeComprobante, numeroDeGasto,
 } from '../lib/comprobantes'
 
 // La boleta o factura electrónica de un cobro (sql/113). Tres piezas:
@@ -516,7 +517,8 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
           + (c.tipo === 'boleta' ? ' (SUNAT la recibe en el resumen del día siguiente)' : '') + '. Cuando SUNAT la acepte, '
           + (c.tipo === 'factura' ? 'la factura' : 'la boleta') + ' queda anulada.\n\n'
         : '')
-      + 'El motivo va a SUNAT. Ejemplo: "error en el documento del cliente". El pago NO se borra: queda sin comprobante para emitirle otro.',
+      + 'El motivo va a SUNAT. Ejemplo: "error en el documento del cliente". '
+      + (esDeGasto(c) ? 'El gasto NO se borra: queda sin factura, para emitirle otra o subirle su RH.' : 'El pago NO se borra: queda sin comprobante para emitirle otro.'),
       { titulo: conNota ? 'Anular con nota de crédito' : 'Anular comprobante', tipo: 'largo', obligatorio: true, peligro: true, aceptar: conNota ? 'Emitir nota de crédito' : 'Anular' })
     if (motivo === null) return
     setBusy(true)
@@ -547,7 +549,22 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
   // El pago (o los pagos, si fue una cascada) de este comprobante. Anular no borra el
   // pago: lo deja sin comprobante, libre para emitirle otro.
   const [pagos, setPagos] = useState(null)
+  // la factura de un GASTO (sql/233): no tiene pago; cubre uno o más gastos
+  const deGasto = esDeGasto(c)
+  const [gastos, setGastos] = useState(null)
+  const [quienEmite, setQuienEmite] = useState(null)
   useEffect(() => {
+    if (!deGasto) return
+    let vivo = true
+    const ids = gastosDeComprobante(c)
+    if (ids.length) supabase.from('expenses').select('id, request_number, voucher_grupo, issue_date, description, type, amount, recipient').in('id', ids).order('issue_date')
+      .then(({ data }) => { if (vivo) setGastos(data || []) })
+    else setGastos([])
+    supabase.from('fact_emisores_gasto').select('nombre, razon_social').eq('ruc', c.ruc).maybeSingle().then(({ data }) => { if (vivo) setQuienEmite(data || null) })
+    return () => { vivo = false }
+  }, [c.id])   // eslint-disable-line
+  useEffect(() => {
+    if (deGasto) { setPagos(null); return }
     const ids = pagosDeComprobante(c)
     if (!ids.length) { setPagos([]); return }
     let vivo = true
@@ -579,6 +596,7 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
           {ligado && <> Va con la nota de crédito <b>{nombreComprobante(ligado) || 'en cola'}</b> ({(ESTADOS[ligado.estado] || ESTADOS.pendiente).t}).</>}</p>}
         {!esNota && c.estado === 'anulado' && ligado && <p className="cp-nota">Anulada con la nota de crédito <b>{nombreComprobante(ligado)}</b>.{ligado.pdf_url && <> <a href={ligado.pdf_url} target="_blank" rel="noreferrer">Ver la nota</a></>}</p>}
         <div className="cp-datos">
+          {deGasto && <><span>Emite</span><b>{quienEmite ? quienEmite.nombre + ' · ' + quienEmite.razon_social : ''} (RUC {c.ruc})</b></>}
           <span>Fecha</span><b>{fechaPe(c.fecha_emision)}</b>
           <span>A nombre de</span><b>{c.cliente_nombre}</b>
           <span>{TIPO_DOC[c.cliente_tipo_doc] || 'Documento'}</span><b>{c.cliente_numero || '—'}</b>
@@ -610,6 +628,25 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
             </p>
           </div>
         )}
+        {deGasto && gastos && (
+          <div className="cp-pago">
+            <p className="cp-sub">💸 {gastos.length === 1 ? 'El gasto' : 'Los ' + gastos.length + ' gastos'} de {esNota ? 'lo que anula esta nota' : 'esta factura'}</p>
+            {gastos.length === 0
+              ? <p className="muted small">El gasto ya no está en el sistema.</p>
+              : gastos.map(g => (
+                <div className="cp-linea" key={g.id}>
+                  <span>{numeroDeGasto(g)} · {fechaPe(g.issue_date)} · {g.description || g.type}{g.recipient ? ' · ' + g.recipient : ''}</span>
+                  <b>{soles(g.amount)}</b>
+                </div>
+              ))}
+            <p className="muted small" style={{ margin: '.4rem 0 0' }}>
+              {sinValor
+                ? 'Esta factura ya no vale: el gasto quedó sin factura y se le puede emitir otra o subirle su RH.'
+                : 'Si se anula, el gasto NO se borra: queda sin factura. Mientras tenga factura, el gasto no se puede borrar ni cambiar de monto.'}
+              {' '}<Link to="/gastos" onClick={onCerrar}>Ir a Gastos →</Link>
+            </p>
+          </div>
+        )}
         <div className="acc-row" style={{ marginTop: 14 }}>
           {c.pdf_url && <a className="btn-primary btn-link" href={c.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
           {c.xml_url && <a className="btn-ghost btn-link" href={c.xml_url} target="_blank" rel="noreferrer" title="El archivo firmado: es el comprobante de verdad">XML</a>}
@@ -617,7 +654,8 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
           {c.estado === 'error' && <button className="btn-ghost" onClick={reintentar} disabled={busy}>↻ Reintentar ahora</button>}
           {puedeAnular && <button className="btn-ghost cp-anular" onClick={anular} disabled={busy}>Anular</button>}
         </div>
-        <EnviarWsp c={c} proyecto={proyecto} />
+        {/* la factura de un gasto no se le manda a ningún cliente: es para el dueño del proyecto */}
+        {!deGasto && <EnviarWsp c={c} proyecto={proyecto} />}
       </div>
     </div>
   )

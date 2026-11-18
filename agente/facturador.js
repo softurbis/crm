@@ -58,6 +58,26 @@ const DOC = { 0: 'Doc.', 1: 'DNI', 4: 'C.E.', 6: 'RUC', 7: 'Pasaporte' }
 const rgb = hex => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : null }
 const claro = (c, cuanto) => c.map(v => Math.round(v + (255 - v) * cuanto))
 
+// EL LOGO DE URBIS GROUP, en vectores (los mismos 5 polígonos de components/Logo.jsx,
+// en una caja de 100 x 100). Va en las facturas que Victor o Alex le emiten a un
+// proyecto por un gasto (sql/233).
+const URBIS_COLOR = '#3B4A32'
+const URBIS_POLIGONOS = [
+  [[50, 4], [63, 17], [50, 30], [37, 17], '#8C9B7A'],
+  [[33, 14], [47, 26], [47, 64], [33, 52], '#8C9B7A'],
+  [[67, 14], [53, 26], [53, 64], [67, 52], '#3B4A32'],
+  [[8, 50], [30, 50], [44, 64], [22, 64], '#8C9B7A'],
+  [[92, 50], [70, 50], [56, 64], [78, 64], '#3B4A32'],
+]
+function logoUrbis(d, x, y, lado) {
+  const k = lado / 100
+  for (const pol of URBIS_POLIGONOS) {
+    const pts = pol.slice(0, 4), color = rgb(pol[4])
+    const tramos = pts.slice(1).map((p, i) => [(p[0] - pts[i][0]) * k, (p[1] - pts[i][1]) * k])
+    d.setFillColor(...color).lines(tramos, x + pts[0][0] * k, y + pts[0][1] * k, [1, 1], 'F', true)
+  }
+}
+
 // Lo que dice SUNAT, en castellano de oficina. Lo que no se conoce va tal cual.
 function explicar(codigo, mensaje) {
   const c = String(codigo || ''), n = (c.match(/(\d{3,4})\s*$/) || [])[1] || ''
@@ -205,8 +225,13 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
 
     // --- cabecera: emisor a la izquierda, recuadro del comprobante a la derecha
     let x = M
-    const logo = await logoDe(p.fact_logo_url || p.logo_url)
-    if (logo) {
+    // la factura de un gasto (sql/233) la emite Victor o Alex con la marca de Urbis:
+    // el logo se dibuja (es el mismo de components/Logo.jsx), no se baja de ningún lado
+    const logo = p.logoUrbis ? null : await logoDe(p.fact_logo_url || p.logo_url)
+    if (p.logoUrbis) {
+      logoUrbis(d, M, 12, 24)
+      x = M + 24 + 5
+    } else if (logo) {
       try {
         const pr = d.getImageProperties(logo.data)
         // entra en un recuadro de 40 x 26 mm sin deformarse
@@ -323,8 +348,21 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     return Buffer.from(d.output('arraybuffer'))
   }
 
+  // Los datos de QUIEN EMITE para la hoja impresa. Un cobro lo factura el proyecto
+  // (su dueño, con su marca). La factura de un gasto (sql/233) la emite Victor o Alex
+  // con su RUC 10 y la marca de Urbis: sus datos están en fact_emisores_gasto.
+  async function quienEmite(c) {
+    if (c.origen === 'gasto') {
+      const { data: e } = await supabase.from('fact_emisores_gasto').select('razon_social, direccion, marca').eq('ruc', c.ruc).maybeSingle()
+      return { fact_razon_social: e?.razon_social || '', fact_direccion: e?.direccion || '', name: e?.marca || 'URBIS GROUP', fact_color: URBIS_COLOR, logoUrbis: true }
+    }
+    const { data: p } = await supabase.from('projects').select('name, logo_url, fact_razon_social, fact_direccion, fact_logo_url, fact_color').eq('id', c.project_id).maybeSingle()
+    return p || {}
+  }
+
   // PDF + copia del XML y de la constancia. Se puede llamar las veces que haga
-  // falta: solo sube lo que falta. Con el PDF real, el pago queda con su boleta.
+  // falta: solo sube lo que falta. Con el PDF real, el pago queda con su boleta
+  // (la factura de un gasto se pega sola a su gasto: lo hace la base, sql/233).
   async function papeles(c) {
     const patch = {}
     const cola = String(c.id).replace(/-/g, '').slice(0, 10)   // para que la dirección no se pueda adivinar
@@ -332,8 +370,7 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
       + c.ruc + '-' + (CODIGO[c.tipo] || '03') + '-' + c.serie + '-' + c.numero + '-' + cola
     if (!c.pdf_url) {
       try {
-        const { data: p } = await supabase.from('projects').select('name, logo_url, fact_razon_social, fact_direccion, fact_logo_url, fact_color').eq('id', c.project_id).maybeSingle()
-        const url = await subirAR2(base + '.pdf', await armarPdf(c, p || {}), 'application/pdf', log)
+        const url = await subirAR2(base + '.pdf', await armarPdf(c, await quienEmite(c)), 'application/pdf', log)
         if (url) patch.pdf_url = url
       } catch (e) { log('FACTURADOR: no se pudo armar el PDF de', nombreDe(c), String(e.message || e)) }
     }
@@ -368,6 +405,11 @@ module.exports = function crearFacturador({ supabase, log, avisar = async () => 
     if (c.tipo === 'nota_credito') {
       await avisa('🧾 *NOTA DE CRÉDITO RECHAZADA*\n' + nombreDe(c) + ' (anulaba la ' + c.ref_tipo + ' ' + c.ref_serie + '-' + c.ref_numero + ') · ' + soles(c.total) + '\n' + mensaje
         + '\n\nLa ' + c.ref_tipo + ' sigue vigente. Está en Comprobantes.')
+      return
+    }
+    if (c.origen === 'gasto') {
+      await avisa('🧾 *FACTURA DE GASTO RECHAZADA*\n' + nombreDe(c) + ' (RUC ' + c.ruc + ') · ' + soles(c.total) + '\nA nombre de ' + c.cliente_nombre + '\n' + mensaje
+        + '\n\nEl gasto está registrado y no se toca. Falta su factura: se emite de nuevo desde Gastos.')
       return
     }
     await avisa('🧾 *COMPROBANTE RECHAZADO*\n' + c.tipo.toUpperCase() + ' ' + nombreDe(c) + ' · ' + soles(c.total) + '\n' + c.cliente_nombre + '\n' + mensaje

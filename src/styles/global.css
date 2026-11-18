@@ -1483,6 +1483,20 @@ span.cp-chip { cursor: default; }
 .cp-kpi { display: flex; flex-direction: column; align-items: flex-end; text-transform: none; }
 .cp-kpi span, .cp-kpi small { color: var(--muted); font-size: .75rem; }
 .cp-kpi b { font-size: 1.25rem; }
+/* LA FACTURA DEL GASTO (sql/233): juntar gastos en una factura y la pantalla Facturas de gastos */
+.fg-juntar { margin: .2rem 0 .8rem; padding: .45rem .7rem; border: 1px solid var(--line); border-radius: 10px; font-size: .84rem; text-transform: none; }
+.fg-juntar summary { cursor: pointer; font-weight: 600; }
+.fg-juntar > .link-btn { margin: .35rem 0 .1rem; }
+.fg-juntar .link-btn { text-transform: none; }
+.fg-otro { display: flex; flex-direction: row; align-items: center; gap: .55rem; padding: .3rem 0; margin: 0; border-bottom: 1px solid var(--line); cursor: pointer; font-weight: 400; }
+.fg-otro:last-child { border-bottom: 0; }
+.fg-otro input { flex: none; width: auto; margin: 0; }
+.fg-otro span { flex: 1; min-width: 0; font-size: .8rem; }
+.fg-otro b { white-space: nowrap; font-size: .82rem; }
+.fg-emisores { display: flex; flex-wrap: wrap; gap: .7rem; align-items: stretch; margin: .2rem 0 1rem; }
+.fg-emisor { display: flex; flex-direction: column; gap: .3rem; align-items: flex-start; padding: .7rem .9rem; min-width: 240px; flex: 0 1 320px; text-transform: none; }
+.fg-emisor.apagado { opacity: .6; }
+.fg-emisores > .btn-ghost { align-self: center; }
 .cp-envios { margin-top: 1rem; padding: .7rem 1rem; }
 .cp-envios summary { cursor: pointer; font-weight: 600; text-transform: none; }
 

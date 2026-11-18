@@ -17,6 +17,7 @@ const FichaLote = lazy(() => import('./pages/FichaLote'))
 const Payments = lazy(() => import('./pages/Payments'))
 const Clients = lazy(() => import('./pages/Clients'))
 const Expenses = lazy(() => import('./pages/Expenses'))
+const FacturasGastos = lazy(() => import('./pages/FacturasGastos'))
 const Bitacora = lazy(() => import('./pages/Bitacora'))
 const Users = lazy(() => import('./pages/Users'))
 const Projects = lazy(() => import('./pages/Projects'))
@@ -157,6 +158,8 @@ export default function App() {
           <Route path="comprobantes" element={<Comprobantes />} />
           <Route path="clientes" element={<Clients />} />
           <Route path="gastos" element={<Expenses />} />
+          {/* las facturas que Victor y Alex emiten por gastos (sql/233): admin, superusuario y operador */}
+          <Route path="facturas-gastos" element={<Vedada para={a => !a.esJefe}><FacturasGastos /></Vedada>} />
           <Route path="facturacion" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><Facturacion /></Vedada>} />
           <Route path="facturacion/gastos" element={<Vedada para={a => a.role !== 'facturacion' && !a.esSuper}><GastosFacturacion /></Vedada>} />
           {/* cartas de cobranza (sql/155): facturación las ve en su propia dirección */}

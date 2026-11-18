@@ -20,6 +20,10 @@ import RegistrarPago from '../components/RegistrarPago'
 import ReponerGasto from '../components/ReponerGasto'
 import GastoDirecto, { CorregirGastoDirecto } from '../components/GastoDirecto'
 import { useEsCelular } from '../lib/useEsCelular'
+import { Link } from 'react-router-dom'
+import { EmitirFacturaGasto, gastoFacturable } from '../components/FacturaGasto'
+import { ComprobanteChip, ComprobanteDetalle } from '../components/Comprobante'
+import { emisoresGasto, COLS_FACTURA_GASTO, enCamino, estaVivo, nombreComprobante } from '../lib/comprobantes'
 
 // la fecha de HOY en Lima: con la hora UTC, después de las 7 pm salía la de mañana
 const hoy = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -111,6 +115,11 @@ export default function Expenses() {
   const [directoOpen, setDirectoOpen] = useState(false)
   const [corrDirecto, setCorrDirecto] = useState(null)  // gasto directo al que se le corrigen los textos
   const [fGrupo, setFGrupo] = useState(null)            // ver solo los gastos de UN voucher
+  // FACTURA DEL GASTO (sql/233, 18 nov): Victor o Alex le facturan el gasto al dueño del proyecto
+  const [emisores, setEmisores] = useState(null)        // null = sql/233 sin correr
+  const [facturas, setFacturas] = useState({})          // comprobante_id -> la factura
+  const [emitirFact, setEmitirFact] = useState(null)    // el gasto al que se le está pidiendo
+  const [verFact, setVerFact] = useState(null)          // la factura abierta
 
   async function load() {
     if (!pidOp) return
@@ -124,6 +133,32 @@ export default function Expenses() {
     setTplText((p.data?.expense_template) || DEFAULT_GASTO_TEMPLATE)
   }
   useEffect(() => { load(); setFGrupo(null) }, [pidOp])
+  useEffect(() => { emisoresGasto().then(setEmisores) }, [])
+  // las facturas de los gastos que tienen una; mientras alguna esté saliendo, se
+  // vuelve a mirar cada 4 segundos (y al llegar el PDF, se recargan los gastos)
+  const idsFactura = useMemo(() => [...new Set(list.map(g => g.comprobante_id).filter(Boolean))].sort().join(','), [list])
+  async function cargarFacturas() {
+    if (!idsFactura) { setFacturas({}); return {} }
+    const { data, error } = await supabase.from('comprobantes').select(COLS_FACTURA_GASTO).in('id', idsFactura.split(','))
+    if (error) return {}
+    const m = Object.fromEntries((data || []).map(c => [c.id, c]))
+    setFacturas(m)
+    return m
+  }
+  useEffect(() => { cargarFacturas() }, [idsFactura])   // eslint-disable-line
+  const facturaEnCamino = Object.values(facturas).some(c => enCamino(c) || (c.estado === 'aceptado' && c.ambiente === 'produccion' && !c.pdf_url))
+  useEffect(() => {
+    if (!facturaEnCamino) return
+    const t = setInterval(async () => {
+      if (document.hidden) return
+      const m = await cargarFacturas()
+      // ya tiene su PDF: la base lo pegó al gasto, hay que traerlo
+      if (Object.values(m).some(c => c.pdf_url && c.ambiente === 'produccion' && c.estado === 'aceptado')) load()
+    }, 4000)
+    return () => clearInterval(t)
+  }, [facturaEnCamino, idsFactura])   // eslint-disable-line
+  const facturaViva = g => { const c = g.comprobante_id && facturas[g.comprobante_id]; return estaVivo(c) ? c : null }
+  const puedeFacturar = esJefe && !!emisores?.some(e => e.activo)
   // a quien se le puede pedir la firma de solicitante en este proyecto (sql/74).
   // Va por RPC y no por consulta a profiles: la secretaria no puede leer la
   // tabla de usuarios entera, y para elegir solo necesita los nombres.
@@ -154,12 +189,12 @@ export default function Expenses() {
       if (fest === 'rechazado' && estadoGasto(g) !== 'rechazado') return false
       if (fest === 'en_papel' && estadoGasto(g) !== 'en_papel') return false
       // un gasto marcado NO APLICA no es un faltante: no tiene que aparecer aqui
-      if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na)) return false
+      if (fest === 'falta_rh' && (g.status !== 'confirmado' || g.receipt_url || g.receipt_na || facturaViva(g))) return false
       if (fest === 'no_aplica' && !marcadoNA(g)) return false
       if (fest === 'falta_reponer' && !faltaReponer(g)) return false
       return true
     })
-  }, [list, ftipo, fest, fGrupo])
+  }, [list, ftipo, fest, fGrupo, facturas])   // eslint-disable-line
   const filtrada = useMemo(() => filtrarGastos(porEstado, fb), [porEstado, fb])
   const pag = usePaginacion(filtrada, 100)
   const total = filtrada.reduce((s, g) => s + Number(g.amount), 0)
@@ -196,7 +231,8 @@ export default function Expenses() {
   // el socio registra su firma apenas entra, aunque no haya nada pendiente:
   // cuando llegue la primera solicitud no tiene que aprender dos cosas a la vez
   const meToca = esSocio || miasPorFirmar > 0
-  const faltaRH = list.filter(g => g.status === 'confirmado' && !g.receipt_url && !g.receipt_na).length
+  // una factura de Victor/Alex que está saliendo ya cuenta como "tiene comprobante"
+  const faltaRH = list.filter(g => g.status === 'confirmado' && !g.receipt_url && !g.receipt_na && !facturaViva(g)).length
   // lo que alguien adelantó con su dinero y todavía no se le devolvió, por persona
   const porReponer = list.filter(faltaReponer)
   const deudaPorPersona = Object.values(porReponer.reduce((m, g) => {
@@ -542,6 +578,21 @@ export default function Expenses() {
 
   const UpBtn = ({ g, campo, carpeta, label, alerta }) => {
     const nota = g[campo.replace('_url', '_note')]
+    // FACTURA DEL GASTO (sql/233): con una factura de Victor/Alex viva, el documento es
+    // ella (no se sube ni se reemplaza a mano: primero se anula)
+    const fc = campo === 'receipt_url' && g.comprobante_id ? facturas[g.comprobante_id] : null
+    if (fc && estaVivo(fc)) return (
+      <>
+        <ComprobanteChip c={fc} onClick={() => setVerFact(fc)} />
+        {g[campo] && <div><button className="link-btn" onClick={() => setVerDoc({ url: g[campo], titulo: 'Factura ' + nombreComprobante(fc) })}>VER</button>
+          {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a></div>}
+      </>
+    )
+    const emitirFactura = campo === 'receipt_url' && puedeFacturar && gastoFacturable(g, facturas) && (
+      <div><button type="button" className="link-btn small" title="Victor o Alex le facturan este gasto al dueño del proyecto (sale sola a SUNAT)"
+        onClick={() => setEmitirFact(g)}>🧾 emitir factura</button>
+        {fc && <span className="muted small" title={fc.mensaje || ''}> ({nombreComprobante(fc)} {fc.estado === 'anulado' ? 'anulada' : 'rechazada'})</span>}</div>
+    )
     // el voucher de un registro directo es de todos los gastos del voucher (sql/200):
     // no se cambia ni se quita en uno solo (se anula el voucher entero)
     const fijo = campo === 'voucher_url' && !!g.voucher_grupo
@@ -595,6 +646,7 @@ export default function Expenses() {
           <input type="file" accept="image/*,.pdf,.docx" hidden
             onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
         </label>
+        {emitirFactura}
         {puedeNA && <div><button className="link-btn muted small" title="Este gasto nunca va a tener este documento"
           onClick={() => marcarNoAplica(g, campo)}>no aplica</button></div>}
       </>
@@ -983,6 +1035,8 @@ export default function Expenses() {
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Gastos</h1>
         <ProjectPicker />
+        {/* las facturas que Victor y Alex emitieron por gastos, de todos los proyectos (sql/233) */}
+        {esJefe && emisores !== null && <Link className="btn-ghost btn-link" to="/facturas-gastos">🧾 Facturas de gastos</Link>}
         {puedeCorregir && (
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
             {tplOpen ? 'Cerrar plantilla' : 'Plantilla de constancia (superusuario)'}
@@ -1577,6 +1631,14 @@ export default function Expenses() {
 
       {ficha && <FichaGasto g={ficha} proyecto={proyecto} onCerrar={() => setFicha(null)}
         onImprimir={ficha.voucher_grupo ? undefined : g => { setFicha(null); setPrt(list.find(x => x.id === g.id) || g) }} />}
+
+      {emitirFact && proyecto && (
+        <EmitirFacturaGasto gasto={emitirFact} proyecto={proyecto} emisores={emisores}
+          candidatos={list.filter(x => gastoFacturable(x, facturas))}
+          onListo={() => { load() }}
+          onCerrar={() => { setEmitirFact(null); load() }} />
+      )}
+      {verFact && <ComprobanteDetalle comprobante={verFact} onCerrar={() => { setVerFact(null); load(); cargarFacturas() }} onCambio={() => cargarFacturas()} />}
 
       {directoOpen && proyecto && (
         <GastoDirecto proyecto={proyecto} opcionesPersonas={opcionesPersonas}

@@ -81,7 +81,7 @@ const MENU = [
   { to: '/equipo-ventas', label: 'Vendedores', icon: '🧑‍💼', admin: true, color: '#f08fb0', grupo: 'Ventas' },
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
 
-  { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos' },
+  { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos', tambien: ['/facturas-gastos'] },
 
   { to: '/whatsapp', label: 'WhatsApp', icon: '💬', color: '#58c482', grupo: 'Comercial' },   // bandeja para todo el equipo (RLS filtra los chats)
   { to: '/visitas', label: 'Visitas', icon: '📅', color: '#7ba7f7', grupo: 'Comercial' },

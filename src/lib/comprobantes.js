@@ -216,8 +216,11 @@ export function useComprobantes(filtro, activo = true) {
     if (f.desde) q = q.gte('fecha_emision', f.desde)
     const { data, error } = await q
     if (error || !vivo.current) return []   // sql/113 sin correr: como si no hubiera ninguno
-    setLista(data || [])
-    return data || []
+    // las facturas que Victor/Alex le emiten al proyecto por un gasto (sql/233) no son
+    // comprobantes de cobro: no van en Pagos, la ficha del lote ni Boletas y facturas
+    const deCobro = (data || []).filter(c => !esDeGasto(c))
+    setLista(deCobro)
+    return deCobro
   }, [clave, activo])
   useEffect(() => {
     vivo.current = true
@@ -244,6 +247,46 @@ export async function emisorDelServidor(ruc) {
 }
 // más de 4 minutos sin noticias = el facturador del servidor no está corriendo
 export const emisorVisto = e => !!e && (Date.now() - new Date(e.visto_at).getTime()) < 4 * 60000
+
+// ---- LA FACTURA DEL GASTO (sql/233, 18 nov 2026) ----
+// Los gastos que Urbis hace por un proyecto se sustentan a veces con una factura de
+// Victor o de Alex (RUC 10) a nombre del dueño del proyecto. Sale por la misma cola
+// que las boletas (comprobantes, origen 'gasto') y el gasto apunta a ella
+// (expenses.comprobante_id). Cada línea guarda los gastos que cubre ("gastos"): así
+// se reconoce aunque se lea sin la columna origen.
+export const esDeGasto = c => c?.origen === 'gasto' || (c?.items || []).some(i => Array.isArray(i?.gastos))
+export const COLS_FACTURA_GASTO = COLS_COMPROBANTE + ', origen'
+export const gastosDeComprobante = c => [...new Set((c?.items || []).flatMap(i => i?.gastos || []))]
+
+// Quién puede emitirlas (fact_emisores_gasto). null = sql/233 sin correr.
+export async function emisoresGasto() {
+  const { data, error } = await supabase.from('fact_emisores_gasto').select('*').order('nombre')
+  return error ? null : (data || [])
+}
+export async function guardarEmisorGasto(datos) {
+  const { data, error } = await supabase.rpc('guardar_emisor_gasto', { p: datos })
+  if (error) throw new Error(/PGRST20[25]|Could not find/i.test(String(error.code) + ' ' + String(error.message)) ? 'Falta correr sql/233 en la base.' : error.message)
+  return data
+}
+
+// La línea que se propone para un gasto (la misma que arma la base si no se le manda
+// ninguna): "SERVICIO DE GESTIÓN DEL PROYECTO <proyecto> - <motivo> (<número>)"
+export const numeroDeGasto = g => g?.request_number ? (g.voucher_grupo ? 'GAS-' : 'SOL-') + String(g.request_number).padStart(5, '0')
+  : String(g?.id || '').slice(0, 8).toUpperCase()
+export const descripcionGasto = (g, proyecto) => ('SERVICIO DE GESTIÓN DEL PROYECTO ' + (proyecto?.name || '') + ' - '
+  + (String(g?.description || '').replace(/\s+/g, ' ').trim() || g?.type || '') + ' (' + numeroDeGasto(g) + ')').toUpperCase().slice(0, 240)
+
+// gastos: ids · emisor: RUC · lineas: [{descripcion, monto}] (opcional; tienen que
+// sumar exacto los gastos) · fecha: 'AAAA-MM-DD' hoy, ayer o anteayer (opcional)
+export async function pedirFacturaGasto({ gastos, emisor, lineas, fecha }) {
+  const { data, error } = await supabase.rpc('pedir_factura_gasto', {
+    p_gastos: gastos, p_emisor: emisor,
+    p_items: lineas?.length ? lineas.map(l => ({ descripcion: l.descripcion, monto: Number(l.monto).toFixed(2) })) : null,
+    p_fecha: fecha || null,
+  })
+  if (error) throw new Error(/PGRST20[25]|Could not find/i.test(String(error.code) + ' ' + String(error.message)) ? 'La factura de gastos todavía no está instalada en la base (falta correr sql/233).' : error.message)
+  return data
+}
 
 // ---- la boleta o factura que SUBIÓ facturación (daily_income.receipt_url, sql/148) ----
 // Mismo camino que la electrónica: sale sola por el WhatsApp del proyecto; si el
