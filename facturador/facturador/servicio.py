@@ -58,6 +58,11 @@ class Estado:
         return self
 
     def cargar(self):
+        # La firma se toma ANTES de leer: si un archivo cambia mientras se carga
+        # (agregar-emisor.sh copia el certificado y después escribe el .json), la
+        # próxima consulta ve la diferencia y vuelve a cargar. Tomada al final, el
+        # 18 nov 2026 el .json de un RUC nuevo quedó escrito pero sin cargar.
+        firma = mod_config.firma_de_la_carpeta(self.carpeta)
         configs, errores = mod_config.cargar_emisores(self.carpeta, self.general)
         emisores = {}
         for ruc, cfg in configs.items():
@@ -67,7 +72,7 @@ class Estado:
             except Exception as err:
                 errores[ruc] = str(err)
         self.emisores, self.errores = emisores, errores
-        self.firma = mod_config.firma_de_la_carpeta(self.carpeta)
+        self.firma = firma
         for ruc, e in emisores.items():
             log.info("emisor %s", e["config"].resumen())
             if e["certificado"].dias_para_vencer < 30:
