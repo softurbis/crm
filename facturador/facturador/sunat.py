@@ -168,7 +168,14 @@ def _fault(raiz, crudo):
         # 0100-0999 son de infraestructura (autenticación, límites, servicio
         # no disponible) y se reintentan; de 2000 para arriba, del documento.
         # El 0306 es la excepción: "no se puede parsear" es culpa nuestra.
-        reintentable = (
+        #
+        # Un fault SIN número ("env:Server" / "soap:Server", "Internal Error
+        # (from server)") es SUNAT que se cayó por dentro: tampoco es un rechazo.
+        # El 18 nov 2026 se tomó como rechazo al preguntar por el ticket de un
+        # resumen que SUNAT sí procesó; sus 3 boletas se reenviaron cada 6 h y
+        # SUNAT contestó 2282 ("ya informado") durante días.
+        caido = not numero.isdigit() and "server" in codigo.lower()
+        reintentable = caido or (
             numero.isdigit() and int(numero) < 1000 and int(numero) != 306
         )
         return Respuesta(
@@ -259,7 +266,8 @@ def consultar_ticket(config, ticket, timeout=45):
         if nombre == "content" and el.text:
             contenido = base64.b64decode(el.text)
 
-    if estado_sunat == "98":
+    # SUNAT lo escribe "98" o "0098" (así contestó el 21 nov 2026)
+    if estado_sunat.lstrip("0") == "98":
         # Sigue en la cola de SUNAT. No es un error: hay que volver más tarde.
         return Respuesta("esperando", "98", "SUNAT todavía lo está procesando",
                          reintentable=True)
