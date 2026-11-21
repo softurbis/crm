@@ -14,6 +14,7 @@ import FichaGasto from '../components/FichaGasto'
 import Paginador, { usePaginacion } from '../components/Paginador'
 import { estadoGasto, numeroGasto, HojaConstancia, firmasEnPapelFaltan, hojaListaParaSubir } from '../components/ConstanciaGasto'
 import { SubirHojaFirmada } from '../components/FirmaPapelGasto'
+import AnexosGasto, { AnexosChip } from '../components/AnexosGasto'
 
 // GASTOS PARA FACTURACIÓN (sql/145-146, 13 oct 2026): la secretaria de la socia ve TODO
 // Gastos de sus proyectos (también los anteriores), busca, abre la ficha de cada gasto,
@@ -52,6 +53,7 @@ export default function GastosFacturacion() {
   const [ficha, setFicha] = useState(null)
   const [pagar, setPagar] = useState(null)
   const [hoja, setHoja] = useState(null)           // gasto al que se le sube la hoja firmada a mano (sql/183)
+  const [anexosId, setAnexosId] = useState(null)   // ANEXOS (sql/234): ella también los ve y agrega
 
   async function cargar() {
     const { data, error } = await supabase.rpc('facturacion_gastos')
@@ -137,6 +139,8 @@ export default function GastosFacturacion() {
     </label>
   )
   const extrasRH = g => (Array.isArray(g.receipt_docs) ? g.receipt_docs : [])
+  // ANEXOS (sql/234): opcionales; sin el SQL corrido el gasto no trae la columna y no sale
+  const chipAnexos = g => 'anexos' in g && <AnexosChip g={g} puedeAgregar onClick={() => setAnexosId(g.id)} />
   const docRH = g => g.receipt_url ? <>
       {doc(g.receipt_url, 'RH / factura · ' + numeroGasto(g), g.receipt_note)}
       {extrasRH(g).map((d, i) => <div key={i} className="small"><button className="link-btn" onClick={() => setVerDoc({ url: d.url, titulo: 'RH ' + (i + 2) + ' · ' + numeroGasto(g) })}>VER RH {i + 2}</button>{d.note && <span className="muted"> {d.note}</span>}</div>)}
@@ -276,6 +280,7 @@ export default function GastosFacturacion() {
                 <div className="gc-doc"><span className="muted">RH / factura</span><span>{docRH(g)}</span></div>
                 <div className="gc-doc"><span className="muted">Voucher del pago</span><span>{docVoucher(g)}</span></div>
                 <div className="gc-doc"><span className="muted">Reposición</span><span>{docRepo(g)}</span></div>
+                {'anexos' in g && <div className="gc-doc"><span className="muted">Anexos</span><span>{chipAnexos(g)}</span></div>}
               </div>
             </div>
           ))}
@@ -294,7 +299,7 @@ export default function GastosFacturacion() {
                   <td className="small">{g.type}</td>
                   <td title={g.description}>{g.recipient || '—'}<div className="muted small" style={{ textTransform: 'none' }}>{(g.description || '').slice(0, 60)}</div></td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.amount)}</b></td>
-                  <td>{docConstancia(g)}</td>
+                  <td>{docConstancia(g)}<div>{chipAnexos(g)}</div></td>
                   <td>{docRH(g)}</td>
                   <td>{docVoucher(g)}</td>
                   <td>{docRepo(g)}</td>
@@ -339,6 +344,12 @@ export default function GastosFacturacion() {
         <SubirHojaFirmada gasto={hoja} onCerrar={() => setHoja(null)}
           onImprimir={g => { setHoja(null); setPrt({ lista: [g] }) }}
           onHecho={t => { setHoja(null); setMsg({ ok: true, t }); savedFx(); cargar() }} />
+      )}
+
+      {anexosId && (datos?.gastos || []).find(x => x.id === anexosId) && (
+        <AnexosGasto g={datos.gastos.find(x => x.id === anexosId)} numero={numeroGasto(datos.gastos.find(x => x.id === anexosId))}
+          puedeAgregar puedeQuitarTodo={false} miId={profile?.id}
+          onCerrar={() => setAnexosId(null)} onCambio={cargar} />
       )}
 
       {verDoc && (

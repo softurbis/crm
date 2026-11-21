@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { upload, subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
@@ -19,6 +19,7 @@ import AprobarGasto from '../components/AprobarGasto'
 import RegistrarPago from '../components/RegistrarPago'
 import ReponerGasto from '../components/ReponerGasto'
 import GastoDirecto, { CorregirGastoDirecto } from '../components/GastoDirecto'
+import AnexosGasto, { AnexosChip, anexosDe, subirAnexo } from '../components/AnexosGasto'
 import { useEsCelular } from '../lib/useEsCelular'
 import { Link } from 'react-router-dom'
 import { EmitirFacturaGasto, gastoFacturable } from '../components/FacturaGasto'
@@ -120,19 +121,32 @@ export default function Expenses() {
   const [facturas, setFacturas] = useState({})          // comprobante_id -> la factura
   const [emitirFact, setEmitirFact] = useState(null)    // el gasto al que se le está pidiendo
   const [verFact, setVerFact] = useState(null)          // la factura abierta
+  // ANEXOS (sql/234, 21 nov): opcionales en todo gasto; se ven y se suben con 📎
+  const [anexosId, setAnexosId] = useState(null)        // gasto con la ventana de anexos abierta
+  const [anexosNuevos, setAnexosNuevos] = useState([])  // [{ file, nota }] elegidos en el formulario: se suben al guardar
 
+  // EL PROYECTO QUE NO SE JALABA (21 nov, SOL-00424): al cambiar de proyecto, la carga del
+  // proyecto anterior podía llegar DESPUÉS que la del nuevo y pisarla. La constancia salía
+  // con el nombre y la plantilla del otro proyecto (o en blanco) y Cami tuvo que escribir
+  // "LAS PRADERAS DE CASHIBO" a mano. Ahora cada carga lleva su número y solo vale la última.
+  const cargaRef = useRef(0)
   async function load() {
     if (!pidOp) return
+    const yo = ++cargaRef.current
     const [g, p, r] = await Promise.all([
       supabase.from('expenses').select('*').eq('project_id', pidOp).order('issue_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
       supabase.from('expense_reposiciones').select('*').eq('project_id', pidOp).order('fecha', { ascending: false }),
     ])
+    if (yo !== cargaRef.current) return   // llegó tarde: ya se pidió otra (otro proyecto)
     setList(g.data || []); setProyecto(p.data || null)
     setHay125(!r.error); setReposiciones(Object.fromEntries((r.data || []).map(x => [x.id, x])))
     setTplText((p.data?.expense_template) || DEFAULT_GASTO_TEMPLATE)
   }
-  useEffect(() => { load(); setFGrupo(null) }, [pidOp])
+  // al cambiar de proyecto, nada del anterior queda a la vista mientras carga el nuevo
+  useEffect(() => { setProyecto(null); setList([]); load(); setFGrupo(null) }, [pidOp])
+  // el proyecto cargado ES el elegido (si no, todavía está cargando)
+  const proyectoListo = !!proyecto && proyecto.id === pidOp
   useEffect(() => { emisoresGasto().then(setEmisores) }, [])
   // las facturas de los gastos que tienen una; mientras alguna esté saliendo, se
   // vuelve a mirar cada 4 segundos (y al llegar el PDF, se recargan los gastos)
@@ -268,10 +282,24 @@ export default function Expenses() {
       plantilla_propia: g.plantilla_propia || '',
       requester_papel: !!g.requester_papel, approval_papel: !!g.approval_papel,
     })
-    setEditTexto(false)
+    setEditTexto(false); setAnexosNuevos([])
     setEditId(g.id); setShow(true); setMsg(null)
     setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // ANEXOS (sql/234): los elegidos en el formulario se suben cuando el gasto ya existe
+  // (necesitan su id). Si uno falla, el gasto igual queda: se sube después con 📎.
+  async function subirAnexosNuevos(gid) {
+    if (!gid || !anexosNuevos.length) return { ok: true, t: '' }
+    let n = 0
+    for (const a of anexosNuevos) {
+      try { await subirAnexo(gid, a.file, a.nota); n++ }
+      catch (err) {
+        return { ok: false, t: (n ? ' ' + n + ' ANEXO(S) SUBIDO(S).' : '') + ' OJO: ' + (anexosNuevos.length - n) + ' anexo(s) NO se subieron (' + err.message + '): súbelos con 📎 en la lista.' }
+      }
+    }
+    return { ok: true, t: ' ' + n + (n === 1 ? ' ANEXO SUBIDO.' : ' ANEXOS SUBIDOS.') }
   }
 
   async function guardar(e) {
@@ -279,6 +307,8 @@ export default function Expenses() {
     // por pasos: Enter o "Siguiente" en los pasos 1 a 3 solo avanza
     if (paso < 4) { irAPaso(paso + 1); return }
     for (const n of [1, 2, 3]) { const t = faltaEn(n); if (t) { setPaso(n); setFaltaPaso(t); return } }
+    // sin el proyecto cargado, la constancia saldría con otro nombre o en blanco
+    if (!proyectoListo) { setFaltaPaso('Espera un segundo: todavía se está cargando el proyecto.'); return }
     setBusy(true); setMsg(null)
     try {
       const up = x => (x || '').toUpperCase().trim() || null
@@ -352,14 +382,16 @@ export default function Expenses() {
         if (error && faltaPapel(error)) ({ error } = await supabase.from('expenses').update({ ...sinColPapel(campos), ...reinicio }).eq('id', editId))
         if (error && faltaCol(error)) ({ error } = await supabase.from('expenses').update({ ...sinDni(campos), ...reinicio }).eq('id', editId))
         if (error) throw new Error(error.message)
-        setMsg({ ok: !sinTexto && !sinPapel, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : '') + avisoPapel() })
+        const ax = await subirAnexosNuevos(editId)
+        setMsg({ ok: !sinTexto && !sinPapel && ax.ok, t: 'SOLICITUD CORREGIDA \u2014 se mantiene el mismo correlativo. Ya puedes imprimirla.' + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : '') + avisoPapel() + ax.t })
       } else {
         const base = { project_id: pidOp, company: 'URBIS GROUP', status: 'solicitado', registered_by: profile?.id }
-        const insertar = c => supabase.from('expenses').insert({ ...base, ...c }).select('request_number').single()
+        const insertar = c => supabase.from('expenses').insert({ ...base, ...c }).select('id, request_number').single()
         let { data: creado, error } = await insertar(campos)
         if (error && faltaPapel(error)) ({ data: creado, error } = await insertar(sinColPapel(campos)))
         if (error && faltaCol(error)) ({ data: creado, error } = await insertar(sinDni(campos)))
         if (error) throw new Error(error.message)
+        const ax = await subirAnexosNuevos(creado?.id)
         // qu\u00E9 sigue, seg\u00FAn c\u00F3mo firma cada lado (sql/183)
         const p1 = s => String(s || '').trim().split(/\s+/)[0] || ''
         const izqPapel = papelIzq && !sinPapel, derPapel = papelDer && !sinPapel
@@ -369,14 +401,14 @@ export default function Expenses() {
                   : 'IMPRIME LA CONSTANCIA Y HAZLA FIRMAR.')
             + (derPapel ? ' DESPU\u00C9S ' + p1(f.sender) + ' FIRMA A MANO LA HOJA IMPRESA Y SE SUBE CON "\uD83D\uDCC4 SUBIR HOJA".' : '')
         setMsg({
-          ok: !sinPapel,
+          ok: !sinPapel && ax.ok,
           t: 'SOLICITUD ' + (creado?.request_number ? 'N\u00B0 SOL-' + String(creado.request_number).padStart(5, '0') + ' ' : '') + 'REGISTRADA. '
             + sigue
             + (sinTexto ? ' OJO: el texto propio de la constancia NO se guard\u00F3 (falta correr sql/143).' : '')
-            + avisoPapel(),
+            + avisoPapel() + ax.t,
         })
       }
-      setF({}); setEditId(null); setShow(false); load()
+      setF({}); setEditId(null); setShow(false); setAnexosNuevos([]); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + err.message }) }
     setBusy(false)
   }
@@ -706,7 +738,7 @@ export default function Expenses() {
   const elegirQue = a => { setF(x => ({ ...x, ...a.f })); setFaltaPaso('') }
   const atajoActivo = a => a.f.type === f.type && (!a.f.description || String(f.description || '').startsWith(a.f.description.slice(0, 15)))
   const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
-  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setFilasEd(null); setEditTexto(false); setMsg(null) }
+  const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setFilasEd(null); setEditTexto(false); setAnexosNuevos([]); setMsg(null) }
 
   // ---- LA SOLICITUD POR PASOS (10 oct 2026, pedido del dueño: "más práctico de
   // entender, con ejemplos") ----
@@ -752,7 +784,7 @@ export default function Expenses() {
       plantilla_propia: g.plantilla_propia || '',
       requester_papel: !!g.requester_papel, approval_papel: !!g.approval_papel,
     })
-    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null); setEditTexto(false)
+    setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(!!g.detail); setFilasEd(null); setEditTexto(false); setAnexosNuevos([])
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -892,6 +924,13 @@ export default function Expenses() {
     {(g.requester_papel_por || g.approval_papel_por) && <div className="muted small" style={{ textTransform: 'none' }}>firmada a mano{nombreDe(g.approval_papel_por || g.requester_papel_por) ? ' · subió ' + primerNombre(nombreDe(g.approval_papel_por || g.requester_papel_por)) : ''}</div>}
   </>
 
+  // ANEXOS (sql/234): en todo gasto, también los de registro directo. Antes de correr el
+  // SQL la columna no viene y el botón no sale. Agregan la oficina y la socia; quitar,
+  // el jefe o quien lo subió (la base lo vuelve a revisar)
+  const hay234 = !list.length || 'anexos' in list[0]
+  const puedeAnexar = role !== 'manager'
+  const chipAnexos = g => hay234 && <AnexosChip g={g} puedeAgregar={puedeAnexar} onClick={() => setAnexosId(g.id)} />
+
   // el comprobante de un pago lo sube la socia (o su secretaria, sql/145) con el botón de
   // pago, y queda PAGADO al subirlo. En los proyectos con firma de socia, SIN LAS DOS
   // FIRMAS NO SE SUBE (14 oct, "sin ambas firmas no se sube comprobante"; la base también
@@ -1025,6 +1064,7 @@ export default function Expenses() {
         <div className="gc-doc"><span className="muted">RH / factura</span><span><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></span></div>
         <div className="gc-doc"><span className="muted">Comprobante de pago</span><span>{docComprobante(g)}</span></div>
         {hay125 && <div className="gc-doc"><span className="muted">Reposición</span><span>{docReposicion(g)}</span></div>}
+        {hay234 && (puedeAnexar || anexosDe(g).length > 0) && <div className="gc-doc"><span className="muted">Anexos</span><span>{chipAnexos(g)}</span></div>}
       </div>
       {!readOnly && <div className="gc-oficina">{accionesOficina(g)}</div>}
     </div>
@@ -1163,7 +1203,9 @@ export default function Expenses() {
       {show && !readOnly && (
         <form className="glass form-card sg" style={{ maxWidth: 'none' }} onSubmit={guardar} noValidate>
           <div className="sg-cab">
-            <b>{editId ? 'CORREGIR LA SOLICITUD ' + numeroDe(list.find(g => g.id === editId) || {}) : 'NUEVA SOLICITUD DE GASTO'}</b>
+            <b>{editId ? 'CORREGIR LA SOLICITUD ' + numeroDe(list.find(g => g.id === editId) || {}) : 'NUEVA SOLICITUD DE GASTO'}
+              {/* a qué proyecto va: si alguien cambia de proyecto con el formulario abierto, lo ve */}
+              {' · '}<span style={{ color: 'var(--accent, #c9a24a)' }}>{proyectoListo ? proyecto.name : 'cargando el proyecto…'}</span></b>
             <span className="muted small" style={{ textTransform: 'none' }}>
               {editId ? 'Se mantiene el mismo número. Si ya tenía firmas, hay que volver a firmarla.' : 'Cuatro pasos. Al final ves la constancia tal como se va a firmar.'}
             </span>
@@ -1525,6 +1567,31 @@ export default function Expenses() {
                 <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
                   Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
                 </p>
+                {/* ANEXOS (sql/234): opcionales; se suben al registrar (necesitan el gasto
+                    ya creado). Los que ya tiene una solicitud se manejan con 📎 en la lista. */}
+                {hay234 && (
+                  <div className="sg-texto" style={{ marginTop: 12 }}>
+                    <b style={{ fontSize: 13 }}>📎 ANEXOS <span className="muted small" style={{ textTransform: 'none', fontWeight: 400 }}>(opcional: fotos, boletas, cotizaciones… no cambian las firmas)</span></b>
+                    {editId && anexosDe(list.find(g => g.id === editId)).length > 0 && (
+                      <p className="muted small" style={{ textTransform: 'none', margin: '4px 0' }}>
+                        Ya tiene {anexosDe(list.find(g => g.id === editId)).length} anexo(s): se ven y se quitan con 📎 en la lista. Los de aquí se agregan a esos.
+                      </p>
+                    )}
+                    {anexosNuevos.map((a, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                        <span className="small" style={{ textTransform: 'none', minWidth: 0, flex: '0 1 40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.file.name}>{i + 1}. {a.file.name}</span>
+                        <input value={a.nota} placeholder="nota (opcional): de qué es" maxLength={140} style={{ flex: 1, textTransform: 'none' }}
+                          onChange={e => setAnexosNuevos(xs => xs.map((x, j) => j === i ? { ...x, nota: e.target.value } : x))} />
+                        <button type="button" className="btn-ghost" title="Sacar este archivo" onClick={() => setAnexosNuevos(xs => xs.filter((_, j) => j !== i))}>✕</button>
+                      </div>
+                    ))}
+                    <label className="upload-btn" style={{ marginTop: 8, display: 'inline-block', cursor: 'pointer' }}>
+                      + {anexosNuevos.length ? 'Otro anexo' : 'Agregar anexo'}
+                      <input type="file" accept="image/*,.pdf,.docx,.doc,.xlsx" multiple hidden
+                        onChange={e => { const fs = [...e.target.files]; e.target.value = ''; setAnexosNuevos(xs => [...xs, ...fs.map(file => ({ file, nota: '' }))]) }} />
+                    </label>
+                  </div>
+                )}
               </div>
             )
           })()}
@@ -1614,7 +1681,7 @@ export default function Expenses() {
                 <td>{g.type}</td>
                 <td title={g.description}>{g.recipient || '-'}</td>
                 <td>{soles(g.amount)}</td>
-                <td>{docConstancia(g)}</td>
+                <td>{docConstancia(g)}<div>{chipAnexos(g)}</div></td>
                 <td><UpBtn g={g} campo="receipt_url" carpeta="rh" label="subir" alerta={g.status === 'confirmado' && !g.receipt_url} /></td>
                 <td>{docVouchers(g)}</td>
                 {/* los botones de firma viven en la columna "Firma", adelante:
@@ -1714,6 +1781,13 @@ export default function Expenses() {
         <ReponerGasto pidOp={pidOp} gastos={list} inicial={reponer} opcionesPersonas={opcionesPersonas}
           onCerrar={() => setReponer(null)}
           onHecho={t => { setReponer(null); setMsg({ ok: true, t }); load() }} />
+      )}
+
+      {/* ANEXOS (sql/234): se busca el gasto en la lista recargada, así se ve lo recién subido */}
+      {anexosId && list.find(x => x.id === anexosId) && (
+        <AnexosGasto g={list.find(x => x.id === anexosId)} numero={numeroDe(list.find(x => x.id === anexosId))}
+          puedeAgregar={puedeAnexar} puedeQuitarTodo={esJefe} miId={profile?.id}
+          onCerrar={() => setAnexosId(null)} onCambio={load} />
       )}
 
       {verDoc && (

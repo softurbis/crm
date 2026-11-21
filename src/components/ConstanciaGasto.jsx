@@ -1,4 +1,5 @@
 import { letras, fechaLetras } from '../lib/letras'
+import { AnexosImpresos } from './AnexosGasto'
 
 // ---- LA CONSTANCIA DE UN GASTO, EN UN SOLO LUGAR ----
 // La arman igual la VISTA PREVIA de la solicitud, la ventana de imprimir de Gastos
@@ -66,7 +67,8 @@ export function constanciaGasto(g, proyecto, { conFirmas = false } = {}) {
     MONTO: 'S/. ' + Number(g.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 }),
     MONTO_LETRAS: letras(Number(g.amount || 0)),
     MOTIVO: g.description || g.type || '____________________',
-    TIPO: g.type || '', PROYECTO: proyecto?.name || '',
+    // sin proyecto, la raya se ve (antes salía 'del proyecto ""' y pasaba de largo)
+    TIPO: g.type || '', PROYECTO: proyecto?.name || '____________________',
     DESCUENTO: g.discount_from || 'URBIS GROUP',
     NUMERO: numeroGasto(g),
   }
@@ -168,5 +170,7 @@ export function HojaConstancia({ g, proyecto, verif }) {
     )}
     {constanciaGasto(g, proyecto, { conFirmas: true })}
     <FirmasConstancia g={g} verif={verif} />
+    {/* los anexos (sql/234): la lista, y cada foto en su hoja después de la constancia */}
+    <AnexosImpresos g={g} />
   </>
 }

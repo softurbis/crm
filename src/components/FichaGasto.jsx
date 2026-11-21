@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import VisorDoc from './VisorDoc'
 import { estadoGasto, numeroGasto, fechaHora } from './ConstanciaGasto'
+import { anexosDe } from './AnexosGasto'
 
 // LA FICHA DE UN GASTO (13 oct 2026): todo lo del gasto en una ventana, como el
 // detalle de un pago de lote. Solo muestra: no cambia nada. La abren la pantalla de
@@ -26,6 +27,8 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
     ...extras.map((d, i) => ({ url: d.url, t: 'RH ' + (i + 2), nota: d.note })),
     g.voucher_url && { url: g.voucher_url, t: 'Voucher del pago', nota: g.voucher_note },
     g.reposicion?.voucher_url && { url: g.reposicion.voucher_url, t: 'Reposición', nota: 'a ' + g.reposicion.persona + ' · ' + fechaPe(g.reposicion.fecha) },
+    // los anexos opcionales (sql/234)
+    ...anexosDe(g).map((a, i) => ({ url: a.url, t: '📎 Anexo ' + (i + 1), nota: [a.note, a.por_nombre].filter(Boolean).join(' · ') })),
   ].filter(Boolean)
   const [doc, setDoc] = useState(docs[0] || null)
   const items = (g.detail || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 2)
