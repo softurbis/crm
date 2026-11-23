@@ -7,8 +7,8 @@ import {
   descripcionGasto, numeroDeGasto, pedirFacturaGasto,
 } from '../lib/comprobantes'
 
-// LA FACTURA DEL GASTO (sql/233, 18 nov 2026). Pedido del dueño: con el gasto ya
-// pagado, la secretaria de la oficina elige quién lo factura —Victor o Alex, con su
+// LA FACTURA DEL GASTO (sql/233, 18 nov 2026). Pedido del dueño: con el gasto creado
+// (desde sql/235 no espera firmas ni pago), la secretaria de la oficina elige quién lo factura —Victor o Alex, con su
 // RUC 10— y la factura sale sola a SUNAT a nombre del DUEÑO DEL PROYECTO, exonerada.
 // Una factura puede cubrir un gasto o varios del mismo proyecto. Si el comprobante es
 // un RH o la factura de otra persona, se sigue SUBIENDO como siempre.
@@ -18,8 +18,11 @@ const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00Z'); d.setUTCDate
 const nombreDia = (f, hoy) => f === hoy ? 'Hoy' : f === sumarDias(hoy, -1) ? 'Ayer' : f === sumarDias(hoy, -2) ? 'Anteayer' : fechaPe(f)
 const centavos = v => Math.round(Number(v || 0) * 100)
 
-// Un gasto al que se le puede sacar factura: pagado, sin RH/factura y sin factura viva
-export const gastoFacturable = (g, facturas) => g.status === 'confirmado' && !g.rejected_at && !g.receipt_url
+// Un gasto al que se le puede sacar factura: no rechazado, sin RH/factura y sin factura
+// viva. Desde sql/235 (23 nov) no espera las firmas ni el pago: se emite apenas se crea.
+// El RH/factura subido a mano (por ejemplo la factura sacada por el PORTAL de SUNAT)
+// cierra la puerta: así no salen dos facturas del mismo gasto.
+export const gastoFacturable = (g, facturas) => !g.rejected_at && !g.receipt_url
   && !(g.comprobante_id && facturas?.[g.comprobante_id] && !['rechazado', 'anulado'].includes(facturas[g.comprobante_id].estado))
 
 // el emisor que corresponde de entrada: si el gasto se le pagó a Victor o a Alex, ese
@@ -128,6 +131,11 @@ export function EmitirFacturaGasto({ gasto, candidatos, proyecto, emisores, onCe
                   ? <p className="cp-nota">{em?.nombre} está en el ambiente de <b>pruebas</b> de SUNAT: lo que se emita no tiene valor.</p>
                   : null
             )}
+
+            <p className="cp-nota">
+              ¿Ya la sacaste por el <b>portal de SUNAT</b>? Entonces no la emitas aquí: cierra esto y sube ese PDF en <b>RH / factura</b> del gasto.
+              Con el PDF subido el sistema ya no deja emitir otra, y así no sale dos veces.
+            </p>
 
             <div className="cp-datos">
               <span>A nombre de</span><b>{proyecto.fact_razon_social}</b>

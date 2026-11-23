@@ -112,7 +112,7 @@ export default function FacturasGastos() {
       <p><Link to="/gastos">← Volver a Gastos</Link></p>
       <p className="hint" style={{ textTransform: 'none' }}>
         Las facturas que Victor o Alex le emiten al dueño de cada proyecto por un gasto. Se piden en <b>Gastos</b>, columna RH/Factura,
-        botón <b>🧾 emitir factura</b>, cuando el gasto ya está pagado. Si el comprobante es un RH o la factura de otra persona, se sigue subiendo.
+        botón <b>🧾 emitir factura</b>, apenas se crea el gasto (no espera las firmas). Si la factura salió por el portal de SUNAT, se sube su PDF en el gasto y el sistema ya no deja emitir otra. Si el comprobante es un RH o la factura de otra persona, se sigue subiendo.
       </p>
 
       <div className="fg-emisores">
