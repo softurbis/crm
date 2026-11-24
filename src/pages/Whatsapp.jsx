@@ -1005,7 +1005,7 @@ export default function Whatsapp() {
           {esAdminW && <button className="btn-ghost" onClick={() => setVerSes(!verSes)} title="Números de WhatsApp: el oficial (API) y los apagados">📱 MIS NÚMEROS ({sesiones.length || 1})</button>}
           {esAdminW && <button className="btn-ghost" onClick={reiniciarBot} title="Si el agente dejó de responder, reinícialo desde aquí (el número no se desconecta)">🔁 REINICIAR</button>}
           {cobChats.length > 0 && <Link className="btn-ghost" to="/cobranza-ia?tab=envios" title="Resumen del envío de avisos: cuántos salieron, llegaron, se leyeron y quién respondió, por día y proyecto">📨 ENVÍOS DEL DÍA</Link>}
-          <a className="btn-ghost" href="https://github.com/softurbis/crm/blob/main/docs/MANUAL-BANDEJA-WHATSAPP.md" target="_blank" rel="noreferrer" title="Manual de la bandeja: etiquetas, ventana de 24 h, estado de entrega, cliente o lead">📖 MANUAL</a>
+          <a className="btn-ghost" href="/manual-bandeja-whatsapp.html" target="_blank" rel="noreferrer" title="Manual de la bandeja: etiquetas, ventana de 24 h, estado de entrega, cliente o lead">📖 MANUAL</a>
           {role === 'superuser' && <button className="btn-ghost" onClick={() => setVerAvisos(v => !v)}
             title="Números que reciben copia de cada lead y pedido de asesor">📢 COPIA AVISOS{listaAvisos.length ? ' (' + listaAvisos.length + ')' : ''}</button>}
           {role === 'superuser' && <button className="btn-ghost" onClick={cambiarAdmin} title="Número que recibe avisos, reportes y resúmenes">👑 ADMIN{adminPhone ? ': +' + adminPhone : ''}</button>}

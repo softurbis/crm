@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Manual de la Bandeja de WhatsApp — Urbis Control</title>
+<!--
+  Copia en HTML de docs/MANUAL-BANDEJA-WHATSAPP.md para el botón 📖 MANUAL de la
+  Bandeja (antes abría el archivo en GitHub, que dejó de ser público el 24 nov
+  2026). Si cambias el .md, vuelve a generar esta página.
+-->
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1512; color: #eef3ea; margin: 0; padding: 2rem 1rem 3rem; line-height: 1.6; }
+  main { max-width: 780px; margin: 0 auto; }
+  h1 { color: #bfe3a6; font-size: 1.6rem; }
+  h2 { color: #9ccb86; font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #26352d; padding-bottom: .3rem; }
+  h3 { color: #9ccb86; font-size: 1.05rem; }
+  a { color: #bfe3a6; }
+  code { background: #15201b; padding: .1rem .35rem; border-radius: 4px; }
+  pre { background: #15201b; padding: .8rem; border-radius: 8px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .95rem; }
+  th, td { border: 1px solid #26352d; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #15201b; color: #9ccb86; }
+  blockquote { border-left: 3px solid #f3d27a; margin: 1rem 0; padding: .2rem 1rem; color: #d8dccf; background: #15201b; }
+</style>
+</head>
+<body>
+<main>
+<h1>💬 Manual: la bandeja de WhatsApp sobre el número oficial</h1>
+<p><em>Actualizado: 27 oct 2026 · Panel: menú <strong>WhatsApp</strong> · Número: <strong>+51 960 487 000</strong> (API oficial de Meta)</em></p>
+<hr />
+<h2>Qué cambió el 27 de octubre</h2>
+<p>Hasta ese día el panel hablaba con un <strong>celular</strong> (Baileys, un WhatsApp "vinculado" con QR).
+Desde el 27 de octubre todo sale por el <strong>número oficial +51 960 487 000</strong>, conectado a la
+<strong>API oficial de Meta</strong> (Cloud API) a través del conector de C-Soft. Ya no hay celular que
+vincular, ni QR, ni "re-vincular": el número vive en la nube de Meta.</p>
+<p>Lo que eso significa para la bandeja:</p>
+<table>
+<thead>
+<tr>
+<th>Antes (celular)</th>
+<th>Ahora (API oficial)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Varios números, uno por proyecto, cada uno con su QR</td>
+<td><strong>Un solo número</strong> para leads, clientes y lo que escribes desde el panel. Los otros números quedaron <strong>apagados</strong>; sus chats siguen aquí como historial.</td>
+</tr>
+<tr>
+<td>Etiquetas del WhatsApp Business del celular</td>
+<td><strong>Etiquetas propias del panel</strong> (se crean aquí, con color, varias por chat). No viajan a WhatsApp.</td>
+</tr>
+<tr>
+<td>Editar un mensaje ya enviado (hasta 15 min)</td>
+<td><strong>No existe</strong> en la API. Si te equivocaste, manda otro mensaje.</td>
+</tr>
+<tr>
+<td>"Guardar en el celular" (tarjeta de contacto)</td>
+<td><strong>No existe</strong>. El nombre se edita en la ficha del lead o del cliente.</td>
+</tr>
+<tr>
+<td>Se podía escribir cuando sea</td>
+<td><strong>Ventana de 24 h</strong>: texto libre solo hasta 24 h después del último mensaje de la persona. Después, solo plantilla aprobada.</td>
+</tr>
+<tr>
+<td>No sabías si llegó</td>
+<td><strong>Palomitas</strong>: enviado ✓, entregado ✓✓, leído ✓✓ azul, o ⚠️ con el motivo si no se entregó.</td>
+</tr>
+</tbody>
+</table>
+<p>Lo que <strong>sigue igual</strong>: responder desde el panel (el bot se calla y el chat pasa a 👤 EN HUMANO),
+adjuntar imagen / video / audio / PDF, respuestas rápidas ⚡, reenviar ↪, asignar el chat a un
+asesor ⭐, el proyecto del chat 📁, el directorio 📇 y los interruptores del bot.</p>
+<hr />
+<h2>El chip de estado (arriba a la derecha)</h2>
+<ul>
+<li>🟢 <strong>EN LÍNEA · ☁️ API OFICIAL +51 960 487 000</strong> → el agente del servidor está vivo y la API responde.</li>
+<li>🔴 <strong>SIN LATIDO</strong> → el agente lleva más de 2 minutos sin reportarse. Primero <strong>🔁 REINICIAR</strong>;
+  si sigue rojo, revisar el droplet (<code>pm2 ls</code>). El número <strong>no se desconecta</strong> por esto: lo que
+  la gente escriba queda guardado en Meta y entra cuando el agente vuelva.</li>
+<li>⚪ <strong>SIN DATOS</strong> → el agente nunca reportó (¿no está corriendo en modo API?).</li>
+</ul>
+<p>No hay botón de vincular ni QR: no hacen falta.</p>
+<p><strong>En la ficha de cada proyecto</strong> (menú Proyectos) tampoco hay ya QR, "vincular otro celular", reiniciar ni
+quitar número. Cada proyecto dice que sale por el <strong>+51 960 487 000</strong>. En el proyecto del 960 (Praderas) queda
+el interruptor <strong>🤖 LEADS ON/OFF</strong> del bot de ventas; los números anteriores de los demás proyectos figuran
+como <strong>apagados</strong>, con sus chats como historial.</p>
+<hr />
+<h2>Cliente o lead</h2>
+<p>La regla es una sola, la misma que usa el agente del servidor:</p>
+<blockquote>
+<p><strong>Si el teléfono está en la ficha de algún cliente (celular principal o secundario), es CLIENTE. Si no, es LEAD.</strong></p>
+</blockquote>
+<p>En la lista cada chat de cliente lleva el chip <strong>CLIENTE</strong>. Los filtros <strong>💵 CLIENTES</strong> y
+<strong>🆕 LEADS</strong> separan la bandeja por esa regla. A los clientes les contesta el agente de cobranza
+(menú <strong>Cobranza IA</strong>); a los leads, el bot de ventas con el flujo del proyecto. Cuando tú
+escribes en un chat, los dos se callan ahí.</p>
+<p>Si un cliente aparece como lead, es que su celular <strong>no está en su ficha</strong>: corrígelo en
+<strong>Clientes</strong> y en máximo 5 minutos la bandeja lo refleja.</p>
+<hr />
+<h2>Etiquetas (🏷️)</h2>
+<p>Son <strong>del panel</strong>: sirven para ordenar la bandeja, no se ven en WhatsApp ni en el celular.</p>
+<ul>
+<li><strong>Poner una</strong>: en la cabecera del chat, selector <strong>🏷️ + ETIQUETA</strong>. Un chat puede tener varias.</li>
+<li><strong>Quitar una</strong>: ✕ sobre la etiqueta en la cabecera del chat.</li>
+<li><strong>Crear una</strong>: en el selector, <strong>➕ CREAR ETIQUETA…</strong> (administrador u operador), o en <strong>🏷️ EDITAR</strong>
+  junto al filtro de etiquetas, donde también se <strong>cambia el color</strong> y se <strong>elimina</strong> una etiqueta
+  (se quita de todos los chats que la tenían).</li>
+<li><strong>Filtrar</strong>: el selector <strong>🏷️ TODAS</strong> encima de la lista, o el <strong>📊 CONTEO</strong> (clic en una etiqueta = filtrar).</li>
+</ul>
+<p>El bot sigue poniendo <strong>CALIFICADO</strong> solo cuando un lead termina el flujo; esa etiqueta se suma a las
+que ya tenga el chat.</p>
+<hr />
+<h2>La ventana de 24 h (🕒 / 🔒)</h2>
+<p>Meta deja escribir <strong>texto libre y archivos solo durante las 24 h siguientes al último mensaje
+de la persona</strong>. Pasadas, el único camino es una <strong>plantilla aprobada por Meta</strong>.</p>
+<ul>
+<li>En la cabecera del chat: <strong>🕒 VENTANA ABIERTA · quedan 5 h 20 min</strong> (verde) o
+  <strong>🔒 VENTANA CERRADA · solo plantilla</strong> (naranja). En la lista, un 🔒 chiquito junto a la hora.</li>
+<li>Con la ventana cerrada la caja de texto y el clip quedan <strong>bloqueados</strong> y un aviso lo explica.
+  No es una falla del panel: es la regla de Meta.</li>
+<li>Qué hacer:</li>
+<li><strong>Cliente</strong> → el agente de cobranza le manda una plantilla desde <strong>Cobranza IA</strong> (recordatorio,
+    vencida, etc.). Cuando la persona responde, la ventana se abre otra vez y puedes escribirle normal.</li>
+<li><strong>Lead</strong> → esperar a que vuelva a escribir, o llamarlo. (Las plantillas para leads no existen todavía.)</li>
+<li>Filtro <strong>🕒 VENTANA ABIERTA</strong>: solo los chats a los que se les puede escribir ahora mismo.</li>
+</ul>
+<p>Si un envío salió "a tiempo" pero Meta igual lo rechaza, llega como ⚠️ con el motivo
+(por ejemplo <em>131047: pasaron más de 24 h</em>).</p>
+<hr />
+<h2>Las palomitas (estado de entrega)</h2>
+<p>Lo avisa Meta por el webhook, igual que en el celular, para los mensajes que salen <strong>desde el panel</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Marca</th>
+<th>Significa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✓ gris tenue</td>
+<td>salió hacia Meta, todavía no avisa</td>
+</tr>
+<tr>
+<td>✓</td>
+<td><strong>enviado</strong> (una palomita)</td>
+</tr>
+<tr>
+<td>✓✓</td>
+<td><strong>entregado</strong> al celular de la persona</td>
+</tr>
+<tr>
+<td>✓✓ azul</td>
+<td><strong>leído</strong></td>
+</tr>
+<tr>
+<td>⚠️ + motivo</td>
+<td><strong>no se entregó</strong> (número sin WhatsApp, ventana cerrada, bloqueado…)</td>
+</tr>
+</tbody>
+</table>
+<p>Los mensajes del <strong>bot</strong> (flujo de leads) no llevan palomitas: el agente no guarda su id de Meta.
+Los que la secretaria escribe <strong>desde la app del celular</strong> (coexistencia) aparecen como 📲 CELULAR.</p>
+<hr />
+<h2>29 oct: una sola bandeja — también los chats de COBRANZA (sql/165)</h2>
+<p>Hasta el 28 de octubre la bandeja mostraba solo los chats del <strong>bot de ventas</strong> (leads e historial).
+Los chats de los <strong>clientes</strong> (los que atiende el agente de cobranza por el mismo 960) vivían aparte, en
+Cobranza IA → Conversaciones. Por eso el día del primer envío masivo "no se veía el chat".</p>
+<p>Ahora entran a la misma lista, con el distintivo <strong>💵 COBRANZA</strong>:</p>
+<ul>
+<li><strong>Lo que se ve en el hilo</strong>: el aviso que salió (<strong>📨 AVISO (PLANTILLA)</strong>, con el texto tal cual le llegó
+  y sus palomitas), lo que contestó el cliente, lo que respondió el <strong>🤖 AGENTE IA</strong>, lo que escribió la
+  secretaria desde el panel (<strong>👩</strong>) o desde la app del celular (<strong>📲 CELULAR</strong>). Si ese celular ya tenía un
+  chat viejo con el bot (antes del 27 oct), ese historial aparece debajo marcado con 🗄️.</li>
+<li><strong>Filtro 📨 COBRANZA</strong> (arriba de la lista): solo los chats de clientes de cobranza. El filtro
+  <strong>💵 CLIENTES</strong> los incluye; <strong>🆕 LEADS</strong> los excluye.</li>
+<li><strong>No leídos</strong>: el número verde viene de la base (lo que el cliente escribió y nadie abrió). Se limpia al
+  abrir el chat.</li>
+<li><strong>Quién atiende</strong>: el botón <strong>🤖 AGENTE DE COBRANZA ATIENDE · tomar yo</strong> deja el chat con la secretaria
+  (el agente se calla ahí); <strong>👩 SECRETARIA · devolver al agente</strong> lo regresa. Si el agente está apagado para
+  ese cliente o para su proyecto (Cobranza IA → Clientes y avisos), el chat ya viene con la secretaria y dice por qué.</li>
+<li><strong>Escribirle</strong>: solo texto, y solo con la <strong>ventana de 24 h abierta</strong>. Sale por el 960 en segundos y el
+  agente se calla en ese chat. Con la ventana cerrada, el aviso con plantilla lo manda el agente a su hora.
+  Escribir a un cliente de cobranza requiere el permiso <strong>cobranza</strong> (Usuarios); los demás solo leen.</li>
+<li>Un chat de cobranza <strong>no</strong> lleva etiquetas, asignación ni clasificación del directorio: su proyecto es el
+  del lote de la ficha. El enlace <strong>↗ COBRANZA IA</strong> abre la pantalla de cobranza (vouchers, promesas, seguimiento).</li>
+<li><strong>📨 ENVÍOS DEL DÍA</strong> (arriba): el resumen de lo que salió ese día, por proyecto; desde ahí "💬 chat" vuelve aquí.</li>
+</ul>
+<hr />
+<h2>Preguntas frecuentes</h2>
+<p><strong>¿Por qué veo chats de "BRISAS" u otro número apagado?</strong> Son historial. Con el filtro de números
+(arriba de la lista) los separas. El ⏸ indica que ese número ya no atiende.</p>
+<p><strong>¿Puedo escribirle a alguien que nunca escribió al 960?</strong> No con texto libre: Meta exige
+plantilla para iniciar. Si es cliente, Cobranza IA. Si es lead, la landing o el link de WhatsApp
+del proyecto hacen que <strong>él</strong> escriba primero.</p>
+<p><strong>¿Y los mensajes que mando desde la app del celular del 960?</strong> Sí llegan a la bandeja
+(📲 CELULAR) y el bot se calla en ese chat.</p>
+<p><strong>¿Qué pasó con las etiquetas que ya tenía?</strong> Se migraron tal cual, con su color (sql/158).</p>
+<hr />
+<p><em>Técnico: etiquetas en <code>wa_etiquetas</code> + <code>whatsapp_conversations.etiquetas</code>; ventana en
+<code>whatsapp_conversations.ultimo_entrante_at</code> (trigger); entrega en <code>scheduled_messages.entrega</code>
+vía <code>wa_marcar_entrega()</code> que llama <code>agente/cobranza.js</code> con cada status del webhook; regla
+cliente/lead en <code>wa_telefonos_clientes()</code> = <code>agente/quien_escribe.js</code>. Todo en <code>sql/158_bandeja_cloud_api.sql</code>.</em></p>
+</main>
+</body>
+</html>
