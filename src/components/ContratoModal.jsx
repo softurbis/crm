@@ -251,7 +251,11 @@ export default function ContratoModal({ saleId, onClose }) {
   // a quien en adelante se denominará EL VENDEDOR". Va donde la plantilla diga
   // {{REPRESENTACION}} o, si no lo dice, antes de esa frase la primera vez que aparece.
   // En el formato de siempre {{REPRESENTACION}} no deja nada.
-  const representacion = poder ? ', debidamente representada por ' + (p.representante_texto || p.representante_nombre) : ''
+  // "representada" (Yomaira) o "representado" (Junior, Brisas): según diga la línea de
+  // EL VENDEDOR de la plantilla, "identificada" o "identificado" (modelo único, 25 nov).
+  const lineaVendedor = tpl.split('\n').find(l => /EL VENDEDOR:/.test(l)) || ''
+  const representad = /identificado\b/i.test(lineaVendedor) ? 'representado' : 'representada'
+  const representacion = poder ? ', debidamente ' + representad + ' por ' + (p.representante_texto || p.representante_nombre) : ''
   const FRASE_VENDEDOR = /,?\s*(a quien en adelante se denominar[aá] EL VENDEDOR)/i
   let representado = !poder
   const lineas = []

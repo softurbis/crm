@@ -17,7 +17,9 @@ import { normalizarBanco, opcionesBanco } from '../lib/bancos'
 //     cuentaId    = CUENTA DESTINO: la cuenta de cobro del proyecto donde entró la plata
 //     bancoOrigen = con qué pagó el cliente: la lista única de lib/bancos.js (sql/207)
 //   esperado  = { monto, n } la cuota que toca, para avisar si no coincide
-export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio = true, esperado, paso = 2, loteId = null, children }) {
+//   onOtros   = (archivos) si se puede pagar con varios vouchers (inicial y cuota, 25 nov):
+//               se eligen todos a la vez y del segundo en adelante pasan a sus recuadros
+export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio = true, esperado, paso = 2, loteId = null, onOtros = null, children }) {
   const { pidOp } = useProject()
   const { role } = useAuth()
   const [ocr, setOcr] = useState(null)
@@ -45,6 +47,9 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
     }
     if (t === turno.current) setOcrBusy(false)
   }
+  // el voucher que llega ya elegido (del segundo en adelante, elegidos junto con el
+  // primero): la IA lo lee al aparecer el recuadro
+  useEffect(() => { if (pago.file) analizar(pago.file) }, [])
 
   // BANCO DE ORIGEN = con qué pagó el cliente, según el voucher (la app primero:
   // Yape, Plin; si no, el banco), llevado a un nombre de la lista única.
@@ -142,8 +147,13 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
         <span className="paso-n">{paso}</span>
         <label className={voucherObligatorio && !pago.file ? 'req-file' : ''} style={{ flex: 1 }}>
           Voucher del cliente {voucherObligatorio ? <b className="bad">(obligatorio)</b> : <span className="muted">(opcional)</span>}
-          <input type="file" accept="image/*,.pdf"
-            onChange={e => { const f = e.target.files[0] || null; set('file', f); analizar(f) }} />
+          <input type="file" accept="image/*,.pdf" multiple={!!onOtros}
+            onChange={e => {
+              const [f = null, ...resto] = Array.from(e.target.files || [])
+              set('file', f); analizar(f)
+              if (resto.length && onOtros) onOtros(resto)
+            }} />
+          {onOtros && <span className="muted small" style={{ textTransform: 'none' }}>¿Pagó en varias operaciones? Elige todos los vouchers a la vez y la IA lee cada uno.</span>}
         </label>
         <label style={{ flex: 1 }}>Nota del voucher <span className="muted small">(opcional)</span>
           <input value={pago.nota} placeholder="ej: lo mandó por WhatsApp" style={{ textTransform: 'none' }}

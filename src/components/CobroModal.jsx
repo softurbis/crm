@@ -14,11 +14,12 @@ import { fechaPe } from '../lib/lotes'
 import { repartirCuotas, textoCuotas, fechaCuota, mesesParaPrimera, textoDiaPago, FIN_DE_MES } from '../lib/cronograma'
 import {
   hoyPe, sumarDias, digitos, celularValido, esPendiente, faltanParaContrato,
-  buscarPorCelular, guardarPersona, validarPago, planCascada, subirVoucher, pagosParecidos,
+  buscarPorCelular, guardarPersona, validarPago, planCascada, planCascadaVarios, MAX_VOUCHERS, subirVoucher, pagosParecidos,
   registrarSeparacion, registrarInicial, registrarCuota, registrarCuadre,
 } from '../lib/cobros'
 
 const r2 = n => Math.round(Number(n) * 100) / 100
+let uidVoucher = 0   // para los recuadros de los vouchers del 2 en adelante
 // el bot a veces guarda como "nombre" del lead el primer mensaje entero: eso no se copia
 const pareceNombre = t => { const x = String(t || '').trim(); return x.length >= 5 && x.length <= 60 && !/\d/.test(x) && x.split(/\s+/).length <= 6 }
 const TITULO = { separacion: 'Separar', inicial: 'Cobrar inicial', directa: 'Vender directo', cuota: 'Cobrar cuota', cuadre: 'Cuadre de inicial / separación' }
@@ -62,8 +63,35 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     monto: modo === 'cuota' && debePrimera ? debePrimera.toFixed(2) : esInicial ? String(lote.initial_payment_default ?? '') : '',
   }))
 
-  // la inicial pagada con dos depositos: null = un solo voucher
-  const [pago2, setPago2] = useState(null)
+  // la inicial o la cuota pagada con VARIOS depositos (25 nov: Yape deja máximo S/ 500
+  // por operación, o el cliente trae 3 vouchers para varias cuotas): los vouchers
+  // del 2 en adelante. [] = un solo voucher. Cada uno con su uid: cuando le llega un
+  // archivo elegido desde el primero (todos a la vez), cambia el uid y su recuadro se
+  // vuelve a armar para que la IA lo lea.
+  const [extras, setExtras] = useState([])
+  const nuevoExtra = (file = null, monto = '') => ({ uid: ++uidVoucher, file, nota: '', fecha: pago.fecha, nroOp: '', cuentaId: '', bancoOrigen: '', opTipo: 'TRANSFERENCIA', obs: '', monto })
+  function agregarVouchers(files = []) {
+    // los recuadros vacíos se llenan primero; el resto entra hasta el máximo
+    if (files.length > MAX_VOUCHERS - 1 - extras.filter(x => x.file).length) avisar('Máximo ' + MAX_VOUCHERS + ' vouchers por cobro: los demás regístralos en otro cobro.')
+    setExtras(xs => {
+      const lista = [...xs]
+      if (!files.length) {
+        // un recuadro vacío; en la cuota propone lo que falta para cerrar la cuota que toca
+        const suma = r2(Number(pago.monto || 0) + lista.reduce((s, x) => s + Number(x.monto || 0), 0))
+        const falta = modo === 'cuota' && debePrimera ? r2(debePrimera - suma) : 0
+        return 1 + lista.length < MAX_VOUCHERS ? [...lista, nuevoExtra(null, falta > 0 ? falta.toFixed(2) : '')] : lista
+      }
+      for (const f of files) {
+        const vacio = lista.findIndex(x => !x.file)
+        if (vacio >= 0) lista[vacio] = { ...lista[vacio], file: f, uid: ++uidVoucher }
+        else if (1 + lista.length < MAX_VOUCHERS) lista.push(nuevoExtra(f))
+      }
+      return lista
+    })
+  }
+  const setExtra = uid => fn => setExtras(xs => xs.map(x => (x.uid === uid ? (typeof fn === 'function' ? fn(x) : fn) : x)))
+  const quitarExtra = uid => setExtras(xs => xs.filter(x => x.uid !== uid))
+  const todos = [pago, ...extras]
 
   // ---- separacion ----
   const [cel, setCel] = useState('')
@@ -142,7 +170,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
 
   // ---- numeros de la inicial ----
   const sepMonto = sep ? Number(sep.amount) : 0
-  const montoInicial = r2(Number(pago.monto || 0) + Number(pago2?.monto || 0))
+  const montoInicial = r2(todos.reduce((s, x) => s + Number(x.monto || 0), 0))
   const financiado = r2(Number(precio || 0) - montoInicial - sepMonto)
   const nMeses = parseInt(meses) || 0
   const montos = esInicial && financiado > 0 && nMeses >= 1 && nMeses <= 120 ? repartirCuotas(financiado, nMeses) : []
@@ -150,13 +178,31 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const diaOk = diaPago >= 1 && diaPago <= 31
   const baseMes = /^\d{4}-\d{2}-\d{2}$/.test(pago.fecha || '') ? pago.fecha : hoyPe()
   const primeraCuota = diaOk ? fechaCuota(baseMes, Number(aMeses) || 0, diaPago) : ''
-  const plan = useMemo(() => (modo === 'cuota' ? planCascada(pendientes, pago.monto) : null), [modo, pendientes, pago.monto])
+  // la cuota: con varios vouchers se reparte la suma (lo que se ve) y al registrar cada
+  // voucher guarda su parte (planCascadaVarios)
+  const montoCobro = montoInicial
+  const plan = useMemo(() => (modo === 'cuota' ? planCascada(pendientes, montoCobro) : null), [modo, pendientes, montoCobro])
+  const sumaTexto = todos.map(x => soles(x.monto || 0)).join(' + ')
 
-  const tocado = !!(pago.file || pago2 || cel || nombre || archTit || co)
+  const tocado = !!(pago.file || extras.length || cel || nombre || archTit || co)
   const cerrar = async () => {
     if (hecho) { onListo(); return }
     if (tocado && !await confirmar('¿Cerrar sin registrar? Se pierde lo que llenaste.', { aceptar: 'Sí, cerrar', cancelar: 'Seguir llenando' })) return
     onClose()
+  }
+
+  // los vouchers del 2 en adelante (inicial o cuota): completos, sin repetidos y con
+  // N° de operación distinto entre todos
+  function validarExtras() {
+    for (const [k, x] of extras.entries()) {
+      const e = validarPago(x)
+      if (e) return 'Voucher ' + (k + 2) + ': ' + e
+      if (x.bloqueo) return 'El voucher ' + (k + 2) + ' ya está registrado (mismo N° de operación y monto). Pide la aprobación del superusuario con el botón rojo.'
+    }
+    const ops = todos.map(x => String(x.nroOp || '').trim().toUpperCase()).filter(o => o && o !== 'SIN-REF')
+    const rep = ops.find((o, i) => ops.indexOf(o) !== i)
+    if (rep) return 'Dos vouchers tienen el mismo N° de operación (' + rep + '): revisa que no sea el mismo depósito.'
+    return null
   }
 
   function validar() {
@@ -180,22 +226,19 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
         if (String(co.doc_number).toUpperCase() === String(titular.doc_number).toUpperCase()) return 'El co-comprador no puede tener el mismo documento que el titular.'
       }
       if (ePago) return ePago
-      if (pago2) {
-        const ePago2 = validarPago(pago2)
-        if (ePago2) return 'Segundo voucher: ' + ePago2
-        if (pago2.bloqueo) return 'El segundo voucher ya está registrado (mismo N° de operación y monto). Pide la aprobación del superusuario con el botón rojo.'
-        const op1 = String(pago.nroOp || '').trim().toUpperCase()
-        if (op1 && op1 === String(pago2.nroOp || '').trim().toUpperCase()) return 'Los dos vouchers tienen el mismo N° de operación: revisa que no sea el mismo depósito.'
-      }
+      const e2 = validarExtras()
+      if (e2) return e2
       if (!(Number(precio) > 0)) return 'Revisa el precio de venta.'
       if (!(nMeses >= 1 && nMeses <= 120)) return 'Número de cuotas inválido (1 a 120).'
       if (!(financiado > 0)) return 'No queda saldo por financiar: revisa precio, inicial y separación.'
       if (!diaOk) return 'Elige el día de pago de las cuotas: el 1, el 15, fin de mes u otro día (del 1 al 31).'
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha || (pago2 && primeraCuota <= pago2.fecha)) return 'La primera cuota tiene que vencer después de la fecha de la inicial: elige un mes más adelante.'
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(primeraCuota) || primeraCuota <= pago.fecha || extras.some(x => primeraCuota <= x.fecha)) return 'La primera cuota tiene que vencer después de la fecha de la inicial: elige un mes más adelante.'
       if (!advisorId) return 'Elige el vendedor (asesor).'
     }
     if (modo === 'cuota') {
       if (ePago) return ePago
+      const e2 = validarExtras()
+      if (e2) return e2
       if (!plan?.parts.length) return 'Monto inválido.'
       if (plan.sobra > 0.01) return 'El monto pasa lo que debe el lote en ' + soles(plan.sobra) + '.'
     }
@@ -205,17 +248,22 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
 
   // Las filas del pago que se acaba de registrar: se buscan por lote, fecha y N° de
   // operación (las más nuevas), igual que las agrupa la ficha.
-  const refPago = n => ({ op: (String(pago.nroOp || '').trim() || 'SIN-REF').toUpperCase(), fecha: pago.fecha, n })
+  const refDe = (x, n) => ({ op: (String(x.nroOp || '').trim() || 'SIN-REF').toUpperCase(), fecha: x.fecha, n })
+  const refPago = n => refDe(pago, n)
   async function abrirEmitir() {
     const c = hecho?.cobro
     if (!c) return
     setBuscandoPago(true)
-    const { data, error } = await supabase.from('daily_income')
+    const buscar = r => supabase.from('daily_income')
       .select('id, date, amount, income_type, installment_id, installment:installments(installment_number)')
-      .eq('lot_id', lote.id).eq('date', c.fecha).eq('operation_number', c.op)
-      .order('created_at', { ascending: false }).limit(c.n)
+      .eq('lot_id', lote.id).eq('date', r.fecha).eq('operation_number', r.op)
+      .order('created_at', { ascending: false }).limit(r.n)
+    // el cobro pagado con varios vouchers sale en UN comprobante por el total
+    const rs = await Promise.all([c, ...(c.otros || [])].map(buscar))
     setBuscandoPago(false)
-    if (error || !data?.length) { avisar('No encontré el pago recién registrado. Emite el comprobante desde la pestaña Pagos y documentos de la ficha.', { tono: 'error' }); return }
+    // (vouchers sin N° de operación el mismo día se encuentran más de una vez: una sola fila por pago)
+    const data = [...new Map(rs.flatMap(r => r.data || []).map(x => [x.id, x])).values()]
+    if (rs.some(r => r.error || !r.data?.length)) { avisar('No encontré el pago recién registrado. Emite el comprobante desde la pestaña Pagos y documentos de la ficha.', { tono: 'error' }); return }
     setEmitirDe({ items: data })
   }
 
@@ -231,8 +279,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       if (esInicial && !['disponible', 'separado'].includes(ahora?.status)) throw new Error('Este lote ya no se puede vender (ahora figura ' + (ahora?.status || '?').toUpperCase() + '). Recarga la ficha.')
       // ¿ya está registrado? (mismo día y monto en el lote, o el mismo N° de operación)
       if (modo === 'cuota' || modo === 'cuadre') {
-        const dup = await pagosParecidos({ pidOp, loteId: lote.id, fecha: pago.fecha, monto: pago.monto, op: pago.nroOp })
-        if (dup.length && !await confirmar('⚠ ¿ESTE PAGO YA ESTÁ REGISTRADO?\n\n' + dup.join('\n') +
+        const avisosDup = await pagosParecidos({ pidOp, loteId: lote.id, fecha: pago.fecha, monto: pago.monto, op: pago.nroOp })
+        // los demás vouchers de la cuota también se revisan
+        if (modo === 'cuota') for (const [k, x] of extras.entries()) {
+          const d = await pagosParecidos({ pidOp, loteId: lote.id, fecha: x.fecha, monto: x.monto, op: x.nroOp })
+          avisosDup.push(...d.map(t => 'Voucher ' + (k + 2) + ': ' + t))
+        }
+        if (avisosDup.length && !await confirmar('⚠ ¿ESTE PAGO YA ESTÁ REGISTRADO?\n\n' + avisosDup.join('\n') +
           '\n\nSi es el MISMO voucher, no lo registres otra vez: ábrelo en la pestaña "Pagos y documentos" y corrígele el N° de operación.',
           { aceptar: 'Es un pago nuevo, registrarlo', cancelar: 'No, revisar primero', peligro: true })) { setBusy(false); return }
       }
@@ -249,24 +302,35 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
       if (esInicial) {
         // el voucher primero: si no sube, no se toca ninguna ficha ni se crea la venta
         const subida = await subirVoucher(pago)
-        const subida2 = pago2 ? await subirVoucher(pago2) : null
+        const subidasExtra = []
+        for (const x of extras) subidasExtra.push(await subirVoucher(x))
         const { cliente } = await guardarPersona(titular, archTit)
         const coCli = co ? (await guardarPersona(co, archCo)).cliente : null
         const r = await registrarInicial({
           pidOp, lote, sep, clienteId: cliente.id,
           clientePendienteId: sep && sep.client_id !== cliente.id ? sep.client_id : null,
-          coClienteId: coCli?.id || null, pago, subida, pago2, subida2, precio, meses: nMeses, primeraCuota, diaPago,
+          coClienteId: coCli?.id || null, pago, subida, extras, subidasExtra, precio, meses: nMeses, primeraCuota, diaPago,
           advisorId, comision, comUrbis, profile, telefonos: [cliente.phone, cliente.phone2],
         })
         setHecho({
-          titulo: 'Venta registrada', saleId: r.sale.id, cobro: { ...refPago(1), cliente },
-          avisos: [...r.avisos, ...(pago2 && facturaAqui ? ['El botón de abajo emite el comprobante del PRIMER voucher. El del segundo se emite en la pestaña Pagos y documentos de la ficha.'] : [])],
-          texto: `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}, ${textoDiaPago(diaPago)}.`,
+          titulo: 'Venta registrada' + (extras.length ? ` (${todos.length} vouchers)` : ''), saleId: r.sale.id,
+          // cada voucher de la inicial es una fila: el comprobante sale por todos juntos
+          cobro: { ...refPago(1), cliente, otros: extras.map(x => refDe(x, 1)) },
+          avisos: r.avisos,
+          texto: (extras.length ? `Inicial: ${sumaTexto} = ${soles(montoInicial)}. ` : '')
+            + `${cliente.full_name}${coCli ? ' y ' + coCli.full_name : ''} · MZ ${lote.mz} LT ${lote.lt} · ${textoCuotas(montos)}, desde el ${fechaPe(primeraCuota)}, ${textoDiaPago(diaPago)}.`,
         })
       }
       if (modo === 'cuota') {
-        await registrarCuota({ pidOp, lote, sale, pago, plan, profile })
-        setHecho({ titulo: 'Pago registrado', cobro: { ...refPago(plan.parts.length), cliente: sale.client || null }, texto: plan.parts.map(p => `Cuota N° ${p.q.installment_number}: ${soles(p.take)}${p.resto > 0.004 ? ' (queda debiendo ' + soles(p.resto) + ')' : ' — pagada'}`).join(' · ') })
+        // varios vouchers: el primero desde la cuota más antigua y cada uno sigue donde quedó el anterior
+        const planes = planCascadaVarios(pendientes, todos.map(x => x.monto))
+        await registrarCuota({ pidOp, lote, sale, cobros: todos.map((x, k) => ({ pago: x, plan: planes[k] })), profile })
+        setHecho({
+          titulo: 'Pago registrado' + (extras.length ? ` (${todos.length} vouchers)` : ''),
+          cobro: { ...refPago(planes[0].parts.length), cliente: sale.client || null, otros: extras.map((x, k) => refDe(x, planes[k + 1].parts.length)) },
+          texto: (extras.length ? `Vouchers: ${sumaTexto} = ${soles(montoCobro)}. ` : '')
+            + plan.parts.map(p => `Cuota N° ${p.q.installment_number}: ${soles(p.take)}${p.resto > 0.004 ? ' (queda debiendo ' + soles(p.resto) + ')' : ' — pagada'}`).join(' · '),
+        })
       }
       if (modo === 'cuadre') {
         await registrarCuadre({ pidOp, lote, sale, pago, tipo: cuadreTipo, profile })
@@ -276,6 +340,22 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     } catch (x) { setErr(x.message || String(x)) }
     setBusy(false)
   }
+
+  // los vouchers del 2 en adelante (inicial y cuota): cada uno con su lectura de la IA
+  const otrosVouchers = (pasoBase, de, ayuda) => (
+    <div className="cobro-caja">
+      {extras.map((x, k) => (
+        <div key={x.uid} style={{ marginBottom: 10 }}>
+          <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Voucher {k + 2} {de}</p>
+          <DatosPago pago={x} setPago={setExtra(x.uid)} cuentas={cuentas} loteId={lote?.id} paso={pasoBase + 2 * k} />
+          <button type="button" className="link-btn small" onClick={() => quitarExtra(x.uid)}>quitar voucher {k + 2}</button>
+        </div>
+      ))}
+      {todos.length < MAX_VOUCHERS
+        ? <button type="button" className="link-btn" onClick={() => agregarVouchers()}>+ Agregar {extras.length ? 'otro' : 'segundo'} voucher ({ayuda})</button>
+        : <p className="muted small">Máximo {MAX_VOUCHERS} vouchers por cobro.</p>}
+    </div>
+  )
 
   const Vendedor = (
     <label>Vendedor (asesor) <button type="button" className="link-btn" onClick={nuevoAsesor} title="Registrar un vendedor nuevo, también externo">+ nuevo</button>
@@ -400,7 +480,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 </>)}
               </div>
 
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={2}>
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={2} onOtros={agregarVouchers}>
                 <label>Precio de venta S/ <input type="number" step="0.01" value={precio} onChange={e => setPrecio(e.target.value)} /></label>
                 <label>N° de cuotas <input type="number" min="1" max="120" value={meses} onChange={e => setMeses(e.target.value)} /></label>
                 <label>Día de pago
@@ -422,18 +502,10 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 <label>Comisión asesor S/ <input type="number" step="0.01" min="0" value={comision} onChange={e => setComision(e.target.value)} placeholder="0.00" /></label>
                 <label>Comisión Urbis S/ <input type="number" step="0.01" min="0" value={comUrbis} onChange={e => setComUrbis(e.target.value)} placeholder="0.00" /></label>
               </DatosPago>
-              <div className="cobro-caja">
-                {!pago2
-                  ? <button type="button" className="link-btn" onClick={() => setPago2({ file: null, nota: '', fecha: pago.fecha, nroOp: '', cuentaId: '', bancoOrigen: '', opTipo: 'TRANSFERENCIA', obs: '', monto: '' })}>+ Agregar segundo voucher (la inicial se pagó con dos depósitos)</button>
-                  : (<>
-                    <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Segundo voucher de la inicial</p>
-                    <DatosPago pago={pago2} setPago={setPago2} cuentas={cuentas} loteId={lote?.id} paso={4} />
-                    <button type="button" className="link-btn small" onClick={() => setPago2(null)}>quitar segundo voucher</button>
-                  </>)}
-              </div>
+              {otrosVouchers(4, 'de la inicial', 'la inicial se pagó con varios depósitos')}
               <div className="cobro-resumen">
                 <p style={{ margin: 0 }}>
-                  Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(montoInicial)}{pago2 ? <> ({soles(pago.monto)} + {soles(pago2.monto)})</> : null} = <b>{soles(financiado)}</b> a financiar
+                  Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(montoInicial)}{extras.length ? <> ({sumaTexto})</> : null} = <b>{soles(financiado)}</b> a financiar
                 </p>
                 {montos.length > 0
                   ? (primeraCuota
@@ -449,11 +521,20 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 Cliente: <b>{sale.client?.full_name}</b>
                 {primera ? <> · toca la cuota N° {primera.installment_number}: <b>{soles(debePrimera)}</b>, vence {fechaPe(primera.due_date)}</> : ' · no tiene cuotas pendientes'}
               </p>
-              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={1}
-                esperado={primera ? { monto: debePrimera, n: primera.installment_number } : null} />
+              {/* con varios vouchers el cotejo de la cuota va abajo, con la suma de todos */}
+              <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={1} onOtros={agregarVouchers}
+                esperado={primera && !extras.length ? { monto: debePrimera, n: primera.installment_number } : null} />
+              {otrosVouchers(3, 'de este pago', 'pagó en varias operaciones, ej. Yape de máximo S/ 500')}
+              {extras.length > 0 && primera && extras.some(x => Number(x.monto) > 0) && (
+                Math.abs(montoCobro - debePrimera) < 0.05
+                  ? <div className="cotejo ok">✓ <b>Los {todos.length} vouchers suman {soles(montoCobro)}</b> ({sumaTexto}): coincide con la cuota N° {primera.installment_number}.</div>
+                  : montoCobro > debePrimera
+                    ? <div className="cotejo ok">✓ <b>Los {todos.length} vouchers suman {soles(montoCobro)}</b> ({sumaTexto}): cubren la cuota N° {primera.installment_number} ({soles(debePrimera)}) y lo demás sigue con las cuotas siguientes. Abajo ves cómo se aplica.</div>
+                    : <div className="cotejo dif">⚠ <b>Los {todos.length} vouchers suman {soles(montoCobro)}</b> ({sumaTexto}) y la cuota N° {primera.installment_number} debe <b>{soles(debePrimera)}</b>: falta {soles(debePrimera - montoCobro)}. Puedes registrarlo igual si es correcto.</div>
+              )}
               {plan?.parts.length > 0 && (
                 <div className="cobro-resumen">
-                  <p style={{ margin: '0 0 4px' }}>Se aplicará así (de la cuota más antigua a la más nueva):</p>
+                  <p style={{ margin: '0 0 4px' }}>Se aplicará así (de la cuota más antigua a la más nueva){extras.length ? <>, con los {todos.length} vouchers: <b>{soles(montoCobro)}</b></> : null}:</p>
                   {plan.parts.map(p => (
                     <p key={p.q.id} style={{ margin: '2px 0' }}>
                       &#8594; Cuota N° {p.q.installment_number} (vence {fechaPe(p.q.due_date)}): {soles(p.take)}

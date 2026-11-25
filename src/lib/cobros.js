@@ -244,6 +244,22 @@ export function planCascada(pendientes, monto) {
   return { parts, sobra: rest }
 }
 
+// Un cobro pagado con VARIOS vouchers (25 nov 2026: Yape deja máximo S/ 500 por
+// operación; o el cliente trae 3 vouchers de S/ 1,500 para varias cuotas). El
+// primero se aplica de la cuota más antigua a la más nueva y cada uno sigue donde
+// quedó el anterior. Cada voucher guarda sus propias filas, con su N° de operación
+// y su foto. Devuelve un plan por voucher, en el mismo orden.
+export const MAX_VOUCHERS = 10
+export function planCascadaVarios(pendientes, montos) {
+  let pend = pendientes
+  return montos.map(m => {
+    const p = planCascada(pend, m)
+    const tomado = new Map(p.parts.map(x => [x.q.id, x.take]))
+    pend = pend.map(q => tomado.has(q.id) ? { ...q, amount_paid: r2(Number(q.amount_paid) + tomado.get(q.id)) } : q)
+    return p
+  })
+}
+
 // --------------------------------------------------------------- separacion --
 
 // clienteId de alguien ya registrado, o nuevaPersona = { nombre, celular } (queda pendiente de DNI)
@@ -281,13 +297,14 @@ export async function registrarSeparacion({ pidOp, lote, clienteId, nuevaPersona
 // a la venta (asi sale en el estado de cuenta).
 
 export async function registrarInicial({
-  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, pago2 = null, subida2 = null, precio, meses, primeraCuota, diaPago = null,
+  pidOp, lote, sep, clienteId, clientePendienteId, coClienteId, pago, subida, extras = [], subidasExtra = [], precio, meses, primeraCuota, diaPago = null,
   advisorId, comision, comUrbis, profile, leadId, telefonos = [],
 }) {
   subida = subida || await subirVoucher(pago)
-  if (pago2) subida2 = subida2 || await subirVoucher(pago2)
-  // la inicial puede venir en dos depositos: cada uno es su propio pago, con su voucher
-  const precioN = r2(precio), inicial = r2(Number(pago.monto) + Number(pago2?.monto || 0)), sepMonto = sep ? r2(sep.amount) : 0
+  // la inicial puede venir en varios depositos (extras): cada uno es su propio pago, con su voucher
+  const subidas = []
+  for (const [k, x] of extras.entries()) subidas.push(subidasExtra[k] || await subirVoucher(x))
+  const precioN = r2(precio), inicial = r2(Number(pago.monto) + extras.reduce((s, x) => s + Number(x.monto || 0), 0)), sepMonto = sep ? r2(sep.amount) : 0
   const financiado = r2(precioN - inicial - sepMonto)
   const montos = repartirCuotas(financiado, meses)
   if (!montos.length) throw new Error('No queda saldo por financiar: revisa el precio, la inicial y la separación.')
@@ -309,10 +326,10 @@ export async function registrarInicial({
   const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })
   const { error: e3 } = await supabase.from('daily_income').insert({ ...base, amount: r2(pago.monto), income_type: 'inicial', sale_id: sale.id })
   if (e3) throw new Error('Venta y cronograma creados, pero el pago de la inicial NO se registró: ' + e3.message)
-  if (pago2) {
-    const base2 = filaPago({ pidOp, loteId: lote.id, clienteId, pago: pago2, profile, subida: subida2 })
-    const { error: e3b } = await supabase.from('daily_income').insert({ ...base2, amount: r2(pago2.monto), income_type: 'inicial', sale_id: sale.id })
-    if (e3b) throw new Error('Venta y primer voucher registrados, pero el SEGUNDO voucher NO: ' + e3b.message + ' — regístralo con el cuadre de la ficha.')
+  for (const [k, x] of extras.entries()) {
+    const baseX = filaPago({ pidOp, loteId: lote.id, clienteId, pago: x, profile, subida: subidas[k] })
+    const { error: e3b } = await supabase.from('daily_income').insert({ ...baseX, amount: r2(x.monto), income_type: 'inicial', sale_id: sale.id })
+    if (e3b) throw new Error(`Venta y vouchers 1${k ? ' a ' + (k + 1) : ''} registrados, pero el voucher ${k + 2} NO: ` + e3b.message + ' — regístralo con el cuadre de la ficha.')
   }
   await supabase.from('lots').update({ status: 'vendido' }).eq('id', lote.id)
   if (sep) {
@@ -337,13 +354,20 @@ export async function registrarInicial({
 
 // -------------------------------------------------------------------- cuota --
 
-export async function registrarCuota({ pidOp, lote, sale, pago, plan, profile }) {
-  if (!plan?.parts?.length) throw new Error('Monto inválido.')
-  if (plan.sobra > 0.01) throw new Error('El monto excede la deuda total del lote en S/ ' + plan.sobra.toFixed(2) + '.')
-  const base = filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago, profile, subida: await subirVoucher(pago) })
-  for (const p of plan.parts) {
-    const { error } = await supabase.from('daily_income').insert({ ...base, amount: p.take, income_type: 'cuota', sale_id: sale.id, installment_id: p.q.id })
-    if (error) throw new Error('Error al aplicar a la cuota ' + p.q.installment_number + ': ' + error.message)
+// cobros = [{ pago, plan }]: un voucher o varios del mismo cobro (planCascadaVarios)
+export async function registrarCuota({ pidOp, lote, sale, cobros, profile }) {
+  if (!cobros?.length || cobros.some(c => !c.plan?.parts?.length)) throw new Error(cobros?.length > 1 ? 'Revisa el monto de cada voucher.' : 'Monto inválido.')
+  const sobra = r2(cobros.reduce((s, c) => s + (c.plan.sobra || 0), 0))
+  if (sobra > 0.01) throw new Error('El monto excede la deuda total del lote en S/ ' + sobra.toFixed(2) + '.')
+  // los vouchers primero: si uno no sube, no se registra nada
+  const subidas = []
+  for (const c of cobros) subidas.push(await subirVoucher(c.pago))
+  for (const [k, c] of cobros.entries()) {
+    const base = filaPago({ pidOp, loteId: lote.id, clienteId: sale.client_id, pago: c.pago, profile, subida: subidas[k] })
+    for (const p of c.plan.parts) {
+      const { error } = await supabase.from('daily_income').insert({ ...base, amount: p.take, income_type: 'cuota', sale_id: sale.id, installment_id: p.q.id })
+      if (error) throw new Error((k ? `Los vouchers 1${k > 1 ? ' a ' + k : ''} SÍ quedaron registrados, pero el voucher ${k + 1} no — ` : '') + 'error al aplicar a la cuota ' + p.q.installment_number + ': ' + error.message)
+    }
   }
 }
 

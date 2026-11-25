@@ -168,7 +168,13 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
   //   auto    "Como se pagó": una línea por pedazo (lo de siempre)
   //   una     "Una sola línea": una línea por el total, con el texto que se quiera
   //   partir  "Partir": las líneas y los montos que se quieran; tienen que sumar el total
-  const [modo, setModo] = useState('auto')
+  // el cobro pagado con varios vouchers (25 nov): si dos pagos son de la MISMA cuota (o
+  // los dos son la inicial) sale de entrada en una sola línea: "CUOTA N° 5 …" por el
+  // total, no dos líneas de la cuota 5
+  const [modo, setModo] = useState(() => {
+    const conceptos = grupo.items.map(p => p.installment_id || p.income_type)
+    return new Set(conceptos).size < conceptos.length ? 'una' : 'auto'
+  })
   const [una, setUna] = useState(() => descripcionJunta(grupo.items, lote, proyecto))
   const [partes, setPartes] = useState(null)    // [{ desc, monto }]; null = todavía no se abrió "Partir"
   const centavos = v => Math.round(Number(v || 0) * 100)
