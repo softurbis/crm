@@ -36,7 +36,7 @@ async function todas(armar) {
 async function traerDatos(pids, desde, hasta) {
   // 1) las cuotas que vencen en el mes, de ventas vivas (no expropiadas ni anuladas)
   const cuotas = await todas(() => supabase.from('installments')
-    .select('id, installment_number, due_date, amount, amount_paid, paid_date, status, sale:sales!inner(id, status, installments_count, lot:lots!inner(mz, lt, project_id), client:clients(full_name, doc_type, doc_number, phone))')
+    .select('id, installment_number, due_date, amount, amount_paid, paid_date, status, sale:sales!inner(id, status, installments_count, lot:lots!inner(mz, lt, project_id), client:clients!sales_client_id_fkey(full_name, doc_type, doc_number, phone))')
     .gte('due_date', desde).lte('due_date', hasta)
     .in('sale.lot.project_id', pids).in('sale.status', ['en_proceso', 'pagado'])
     .order('due_date').order('id'))
