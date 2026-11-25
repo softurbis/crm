@@ -20,6 +20,9 @@ import {
 } from '../lib/pagos'
 
 
+// el mes de hoy en Perú, 'aaaa-mm'
+const hoyMes = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 7)
+
 export default function Payments() {
   const { profile, role, puedeCorregir } = useAuth()   // puedeCorregir = superusuario u operador
   const { pidOp, projects } = useProject()
@@ -46,6 +49,21 @@ export default function Payments() {
   const [repartoBusy, setRepartoBusy] = useState(false)
   const [naOk, setNaOk] = useState(true)   // false = sql/49 sin correr: sin "no aplica"
   const readOnly = ['manager', 'socio'].includes(role)
+
+  // EXCEL DEL MES (24 nov 2026): superusuario y operador; cuotas que vencen en el mes
+  // y pagos que entraron, con el link al voucher (lib/excelCuotasMes)
+  const [exc, setExc] = useState(null)
+  const [bajandoExc, setBajandoExc] = useState(false)
+  async function excelMes() {
+    const proys = exc.todos ? projects : projects.filter(p => p.id === pidOp)
+    if (!proys.length) return
+    setBajandoExc(true)
+    try {
+      const { descargarExcelCuotasMes } = await import('../lib/excelCuotasMes')
+      const r = await descargarExcelCuotasMes({ mes: exc.mes, proyectos: proys, usuario: profile?.full_name || '' })
+      setMsg({ ok: true, t: 'EXCEL DESCARGADO: ' + r.cuotas + ' cuota' + (r.cuotas === 1 ? '' : 's') + ' del mes · ' + r.pagos + ' pago' + (r.pagos === 1 ? '' : 's') + ' recibido' + (r.pagos === 1 ? '' : 's') })
+    } catch (e) { setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) }) } finally { setBajandoExc(false) }
+  }
 
   // Trae TODOS los pagos del proyecto por paginas. Supabase corta en 1000 filas
   // por request, asi que sin esto en proyectos grandes (Pucallpa ~2200) el
@@ -300,9 +318,28 @@ export default function Payments() {
     <>
       <div className="toolbar">
         <h1 style={{ margin: 0, flex: 1 }}>Pagos</h1>
+        {puedeCorregir && <button className={exc ? 'btn-ghost' : 'btn-primary'} onClick={() => setExc(exc ? null : { mes: hoyMes(), todos: false })}
+          title="Bajar en Excel las cuotas que vencen en un mes y los pagos que entraron, con el link de cada voucher">{exc ? '✕ Cerrar Excel' : '📥 Excel del mes'}</button>}
         <ProjectPicker />
       </div>
       <PagosTabs />
+
+      {exc && (
+        <div className="glass form-card" style={{ maxWidth: 'none', margin: '0 0 14px' }}>
+          <p style={{ margin: '0 0 8px' }}><b>📥 CUOTAS DEL MES EN EXCEL</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — cada cuota que vence en el mes (pagada, parcial, vencida o por vencer) con cliente, lote, monto, N° de operación y el link a su voucher y boleta; además todos los pagos que entraron en el mes</span></p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label>Mes<input type="month" value={exc.mes} onChange={e => e.target.value && setExc(x => ({ ...x, mes: e.target.value }))} /></label>
+            {projects.length > 1 && (
+              <label>Proyecto<select value={exc.todos ? 'todos' : 'este'} onChange={e => setExc(x => ({ ...x, todos: e.target.value === 'todos' }))}>
+                <option value="este">{proyFact?.name || 'Este proyecto'}</option>
+                <option value="todos">Todos los proyectos ({projects.length})</option>
+              </select></label>
+            )}
+            <button className="btn-primary" disabled={bajandoExc} onClick={excelMes}>{bajandoExc ? 'Armando…' : '📥 Descargar Excel'}</button>
+          </div>
+        </div>
+      )}
 
       {!readOnly && (
         <div className="glass" style={{ padding: '12px 14px', margin: '0 0 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid var(--accent)' }}>
