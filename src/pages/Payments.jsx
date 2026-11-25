@@ -61,7 +61,7 @@ export default function Payments() {
     try {
       const { descargarExcelCuotasMes } = await import('../lib/excelCuotasMes')
       const r = await descargarExcelCuotasMes({ mes: exc.mes, proyectos: proys, usuario: profile?.full_name || '' })
-      setMsg({ ok: true, t: 'EXCEL DESCARGADO: ' + r.cuotas + ' cuota' + (r.cuotas === 1 ? '' : 's') + ' del mes · ' + r.pagos + ' pago' + (r.pagos === 1 ? '' : 's') + ' recibido' + (r.pagos === 1 ? '' : 's') })
+      setMsg({ ok: true, t: 'EXCEL DESCARGADO · ENTRÓ EN EL MES ' + soles(r.entro) + ' (' + r.pagos + ' pagos) · COBRADO DE LAS ' + r.cuotas + ' CUOTAS DEL MES ' + soles(r.cobrado) })
     } catch (e) { setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) }) } finally { setBajandoExc(false) }
   }
 
@@ -326,8 +326,13 @@ export default function Payments() {
 
       {exc && (
         <div className="glass form-card" style={{ maxWidth: 'none', margin: '0 0 14px' }}>
-          <p style={{ margin: '0 0 8px' }}><b>📥 CUOTAS DEL MES EN EXCEL</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — cada cuota que vence en el mes (pagada, parcial, vencida o por vencer) con cliente, lote, monto, N° de operación y el link a su voucher y boleta; además todos los pagos que entraron en el mes</span></p>
+          <p style={{ margin: '0 0 8px' }}><b>📥 COBRANZA DEL MES EN EXCEL</b>
+            <span className="muted small" style={{ textTransform: 'none' }}> — trae dos cifras distintas y explica por qué no coinciden:</span></p>
+          <ul className="small" style={{ margin: '0 0 10px', paddingLeft: 18, textTransform: 'none', lineHeight: 1.5 }}>
+            <li><b>💰 Dinero que entró en el mes:</b> todo lo depositado ese mes (cuotas del mes, atrasadas, adelantos, iniciales y separaciones).</li>
+            <li><b>✅ Cobrado de las cuotas que vencían en el mes:</b> lo pagado de esas cuotas en cualquier fecha (antes, en el mes o después con atraso).</li>
+            <li className="muted">Hojas: Resumen · Leyenda · Cuotas del mes · Pagos del mes (con filtros ▼ y link al voucher y boleta).</li>
+          </ul>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <label>Mes<input type="month" value={exc.mes} onChange={e => e.target.value && setExc(x => ({ ...x, mes: e.target.value }))} /></label>
             {projects.length > 1 && (
