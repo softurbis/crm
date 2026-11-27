@@ -1,0 +1,18 @@
+/* Siluetas de carga (components/Silueta.jsx): bloques grises con un brillo que pasa */
+.sil {
+  display: block; height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,.05) 0%, rgba(255,255,255,.11) 45%, rgba(255,255,255,.05) 90%);
+  background-size: 300% 100%;
+  animation: sil-brillo 1.4s ease-in-out infinite;
+}
+@keyframes sil-brillo { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.sil-tabla { display: flex; flex-direction: column; gap: 0; padding: .4rem .9rem .6rem; }
+.sil-fila { display: flex; gap: 18px; align-items: center; padding: 13px 0; border-bottom: 1px solid rgba(127,148,118,.1); }
+.sil-fila:last-child { border-bottom: none; }
+.sil-fila .sil { flex: 1; max-width: 160px; }
+.sil-cab .sil { height: 9px; opacity: .7; }
+.sil-pagina { display: flex; flex-direction: column; gap: 14px; padding-top: .2rem; }
+.sil-titulo { width: 220px; height: 26px; border-radius: 8px; }
+.sil-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.sil-chip { height: 30px; border-radius: 99px; }
+@media (prefers-reduced-motion: reduce) { .sil { animation: none; } }

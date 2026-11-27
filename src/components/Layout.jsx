@@ -10,6 +10,8 @@ import SaveFx from './SaveFx'
 import InstalarApp from './InstalarApp'
 import BarraVendedor from './BarraVendedor'
 import SubidasEnCurso from './SubidasEnCurso'
+import { SiluetaPagina } from './Silueta'
+import Atajos from './Atajos'
 import BuscadorGeneral from './BuscadorGeneral'
 import { useTablasAlAlto } from '../lib/tablasAlAlto'
 import { useNavigate as usarNavegacion } from 'react-router-dom'
@@ -623,7 +625,7 @@ export default function Layout() {
               </>
         )}
         {/* cada pantalla se baja al abrirla (App.jsx): mientras llega, el menu queda quieto */}
-        <Suspense fallback={<p className="muted" style={{ padding: '1rem 0' }}>Cargando…</p>}>
+        <Suspense fallback={<SiluetaPagina />}>
           <Outlet />
         </Suspense>
       </main>
@@ -631,6 +633,7 @@ export default function Layout() {
       <VolverArriba />
       <SubidasEnCurso />
       {!esFacturacion && role !== 'asesor' && <BuscadorGeneral pantallas={visibles} />}
+      {!esFacturacion && role !== 'asesor' && <Atajos pantallasProyecto={secProy} />}
       <SaveFx />
     </div>
   )

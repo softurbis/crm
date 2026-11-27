@@ -289,7 +289,7 @@ export default function BuscadorGeneral({ pantallas = [] }) {
           <span><kbd>↑</kbd><kbd>↓</kbd> moverse</span>
           <span><kbd>Enter</kbd> abrir</span>
           <span><kbd>Esc</kbd> cerrar</span>
-          <span className="bus-pie-der"><kbd>Ctrl</kbd>+<kbd>K</kbd> desde cualquier pantalla</span>
+          <span className="bus-pie-der"><kbd>?</kbd> todos los atajos</span>
         </div>
       </div>
     </div>

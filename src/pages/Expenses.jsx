@@ -22,6 +22,8 @@ import GastoDirecto, { CorregirGastoDirecto } from '../components/GastoDirecto'
 import AnexosGasto, { AnexosChip, anexosDe, subirAnexo } from '../components/AnexosGasto'
 import { useEsCelular } from '../lib/useEsCelular'
 import { Link, useSearchParams } from 'react-router-dom'
+import { todasLasFilas } from '../lib/todasLasFilas'
+import { SiluetaTabla } from '../components/Silueta'
 import { EmitirFacturaGasto, gastoFacturable } from '../components/FacturaGasto'
 import { ComprobanteChip, ComprobanteDetalle } from '../components/Comprobante'
 import { emisoresGasto, COLS_FACTURA_GASTO, enCamino, estaVivo, nombreComprobante } from '../lib/comprobantes'
@@ -134,7 +136,10 @@ export default function Expenses() {
     if (!pidOp) return
     const yo = ++cargaRef.current
     const [g, p, r] = await Promise.all([
-      supabase.from('expenses').select('*').eq('project_id', pidOp).order('issue_date', { ascending: false }).order('created_at', { ascending: false }),
+      // todas, de a 1000 (fase 3): el servidor corta en 1000 sin avisar y el proyecto que
+      // pasara de mil gastos "perdería" los más viejos de la lista. El id desempata el orden.
+      todasLasFilas(() => supabase.from('expenses').select('*').eq('project_id', pidOp)
+        .order('issue_date', { ascending: false }).order('created_at', { ascending: false }).order('id')),
       supabase.from('projects').select('*').eq('id', pidOp).single(),
       supabase.from('expense_reposiciones').select('*').eq('project_id', pidOp).order('fecha', { ascending: false }),
     ])
@@ -147,6 +152,7 @@ export default function Expenses() {
   useEffect(() => { setProyecto(null); setList([]); load(); setFGrupo(null) }, [pidOp])
   // el proyecto cargado ES el elegido (si no, todavía está cargando)
   const proyectoListo = !!proyecto && proyecto.id === pidOp
+  const cargandoGastos = !!pidOp && !proyectoListo      // la silueta de la tabla (fase 3)
   useEffect(() => { emisoresGasto().then(setEmisores) }, [])
   // las facturas de los gastos que tienen una; mientras alguna esté saliendo, se
   // vuelve a mirar cada 4 segundos (y al llegar el PDF, se recargan los gastos)
@@ -739,6 +745,19 @@ export default function Expenses() {
   const atajoActivo = a => a.f.type === f.type && (!a.f.description || String(f.description || '').startsWith(a.f.description.slice(0, 15)))
   const primerNombre = s => String(s || '').trim().split(/\s+/)[0] || ''
   const abrirNueva = () => { setEditId(null); setF(porDefecto()); setShow(true); setPaso(1); setFaltaPaso(''); setConDetalle(false); setFilasEd(null); setEditTexto(false); setAnexosNuevos([]); setMsg(null) }
+  // atajo N (components/Atajos.jsx, fase 3): lo mismo que el botón de arriba — "Registrar gasto
+  // con voucher" en los proyectos de registro directo, "Solicitar gasto" en los demás
+  const nuevoRef = useRef(null)
+  nuevoRef.current = () => {
+    if (!proyectoListo || show || directoOpen) return
+    if (proyecto?.gasto_directo) { if (esOficina) { setMsg(null); setDirectoOpen(true) } }
+    else if (!readOnly) { abrirNueva(); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  }
+  useEffect(() => {
+    const alNuevo = () => nuevoRef.current?.()
+    window.addEventListener('urbis-nuevo', alNuevo)
+    return () => window.removeEventListener('urbis-nuevo', alNuevo)
+  }, [])
 
   // ---- LA SOLICITUD POR PASOS (10 oct 2026, pedido del dueño: "más práctico de
   // entender, con ejemplos") ----
@@ -1140,7 +1159,7 @@ export default function Expenses() {
       <BuscadorGastos base={porEstado} f={fb} setF={setFb} />
 
       <p className="hint">
-        {filtrada.length} gastos | TOTAL: <b>{soles(total)}</b>
+        {!cargandoGastos ? <>{filtrada.length} gastos | TOTAL: <b>{soles(total)}</b></> : 'Cargando los gastos…'}
         {porFirmar > 0 && <span className="warn"> | ✍ ESPERAN LA FIRMA DEL SOLICITANTE: {porFirmar}</span>}
         {proyecto?.expense_approval && porAprobar > 0 && <span className="warn"> | ✍ POR APROBAR: {porAprobar}</span>}
         {hojasPorSubir.length > 0 && <span className="warn"> | 📄 FALTAN HOJAS FIRMADAS: {hojasPorSubir.length}</span>}
@@ -1670,8 +1689,9 @@ export default function Expenses() {
       )}
 
       {/* En el celular cada gasto es una TARJETA: la tabla de 11 columnas obligaba
-          a correr la pantalla de costado y los botones no se alcanzaban. */}
-      {esCelular ? (
+          a correr la pantalla de costado y los botones no se alcanzaban.
+          Mientras carga el proyecto: la silueta de la tabla (fase 3), no una lista vacía. */}
+      {cargandoGastos ? <SiluetaTabla filas={8} columnas={esCelular ? 3 : 8} /> : esCelular ? (
         <div className="gastos-cards">
           {filtrada.length === 0 && <p className="muted" style={{ padding: 12 }}>No hay gastos con estos filtros.</p>}
           {pag.pagina.map(tarjetaGasto)}

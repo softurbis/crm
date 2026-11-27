@@ -79,3 +79,14 @@
 .buscar-btn svg { width: 15px; height: 15px; flex: none; }
 .buscar-btn span { flex: 1; text-align: left; }
 .buscar-btn kbd { font-family: inherit; font-size: .66rem; color: #8b9886; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 5px; padding: 0 5px; }
+
+/* la ayuda de los atajos (components/Atajos.jsx), con la misma caja del buscador */
+.at-caja { width: min(480px, 100%); }
+.at-cab { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(127,148,118,.18); }
+.at-cab b { font-size: 1rem; color: var(--text); }
+.shell .at-cab button { background: none; border: none; color: var(--muted); font-size: .9rem; padding: 2px 6px; }
+.at-cuerpo { overflow-y: auto; padding: 6px 16px 14px; }
+.at-sec { font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #78866f; margin: 12px 0 6px; }
+.at-fila { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: .88rem; color: #d2dccd; }
+.at-teclas { flex: none; width: 92px; display: inline-flex; gap: 4px; }
+.at-nota { margin-top: 12px; font-size: .76rem; color: #78866f; }
