@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useMsg } from '../lib/saveFx'
 import { confirmar, pedir } from '../lib/dialogos'
 import { correoDeCelular, soloCelular, mostrarUsuario, esCorreoDeCelular } from '../lib/celular'
+import CampoDni, { dniValido } from '../components/CampoDni'
 
 // VENDEDORES (12 nov 2026, pedido del dueño: "un panel de usuarios aparte, con un ingreso más
 // fácil"). Aquí se da de alta a un vendedor EN UN SOLO PASO: nombre + celular. Antes eran
@@ -17,7 +18,7 @@ const signupClient = createClient(
 )
 const claveNueva = () => 'Urbis' + Math.floor(1000 + Math.random() * 9000)
 const DIRECCION = () => window.location.origin + import.meta.env.BASE_URL + 'vendedores'
-const VACIO = { nombre: '', cel: '', clave: '', proys: [] }
+const VACIO = { nombre: '', dni: '', cel: '', clave: '', proys: [] }
 
 export default function EquipoVentas() {
   const { esSuper } = useAuth()
@@ -65,6 +66,8 @@ export default function EquipoVentas() {
     const nombre = form.nombre.trim().replace(/\s+/g, ' ').toUpperCase()
     const cel = soloCelular(form.cel)
     const clave = form.clave.trim()
+    const dni = String(form.dni || '').replace(/\D/g, '')
+    if (!dniValido(dni)) return setMsg({ ok: false, t: 'FALTA EL DNI: todo usuario nuevo se registra con su DNI (8 dígitos).' })
     if (nombre.length < 3) return setMsg({ ok: false, t: 'ESCRIBE EL NOMBRE COMPLETO DEL VENDEDOR' })
     if (!cel) return setMsg({ ok: false, t: 'EL CELULAR TIENE 9 DÍGITOS Y EMPIEZA CON 9' })
     if (clave.length < 8) return setMsg({ ok: false, t: 'LA CLAVE DEBE TENER AL MENOS 8 CARACTERES' })
@@ -72,8 +75,11 @@ export default function EquipoVentas() {
     try {
       // 1. la cuenta: su celular es su usuario
       const { data, error } = await signupClient.auth.signUp({
-        email: correoDeCelular(cel), password: clave, options: { data: { full_name: nombre } },
+        email: correoDeCelular(cel), password: clave, options: { data: { full_name: nombre, dni } },
       })
+      if (error && /database error saving new user/i.test(error.message)) {
+        throw new Error('LA BASE NO CREÓ LA CUENTA: revisa el DNI (8 dígitos).')
+      }
       if (error && /already registered|already been registered/i.test(error.message)) {
         throw new Error('ESE CELULAR YA TIENE USUARIO. Búscalo en la lista de abajo; si olvidó su clave, usa "Clave nueva".')
       }
@@ -82,7 +88,7 @@ export default function EquipoVentas() {
       if (!uid) throw new Error('No se pudo crear la cuenta.')
       // 2. rol VENDEDOR + nombre + celular de avisos (Telegram)
       const tel = '51' + cel
-      const { error: e2 } = await supabase.from('profiles').update({ role: 'asesor', full_name: nombre, phone: tel }).eq('id', uid)
+      const { error: e2 } = await supabase.from('profiles').update({ role: 'asesor', full_name: nombre, phone: tel, dni }).eq('id', uid)
       if (e2) throw new Error('La cuenta se creó, pero no se le pudo poner el rol VENDEDOR: ' + e2.message + '. Corrígelo en Usuarios.')
       // su número no es un cliente: que el bot no lo trate como lead (igual que en Usuarios)
       await supabase.from('whatsapp_numbers').upsert({ phone: tel, tipo: 'desactivado', note: 'VENDEDOR: ' + nombre })
@@ -203,12 +209,14 @@ export default function EquipoVentas() {
       {form && (
         <form className="glass" style={{ padding: 16, marginBottom: 14, display: 'grid', gap: 10, maxWidth: 520 }} onSubmit={guardar}>
           <b>{form.ficha ? 'Dar acceso a ' + form.ficha.full_name : 'Nuevo vendedor'}</b>
+          <CampoDni valor={form.dni} autoFocus
+            onCambio={v => setForm(f => ({ ...f, dni: v }))} onNombre={n => setForm(f => ({ ...f, nombre: n }))} />
           <label>Nombre completo
-            <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required autoFocus={!form.ficha} />
+            <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required />
           </label>
           <label>Celular (será su usuario)
             <input type="tel" inputMode="numeric" placeholder="987 654 321" value={form.cel}
-              onChange={e => setForm({ ...form, cel: e.target.value })} required autoFocus={!!form.ficha} />
+              onChange={e => setForm({ ...form, cel: e.target.value })} required />
           </label>
           <label>Clave para empezar (él la puede cambiar)
             <input className="u-tt-n" value={form.clave} onChange={e => setForm({ ...form, clave: e.target.value })} required />

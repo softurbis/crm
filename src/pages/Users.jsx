@@ -8,6 +8,7 @@ import { avisar, confirmar, pedir } from '../lib/dialogos'
 import { PANELS } from '../components/Layout'
 import Avatar from '../components/Avatar'
 import FirmaPad from '../components/FirmaPad'
+import CampoDni, { dniValido } from '../components/CampoDni'
 
 const signupClient = createClient(
   import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -192,12 +193,18 @@ export default function Users() {
 
   async function crearUsuario(e) {
     e.preventDefault()
+    // sql/242: sin DNI la base no crea la cuenta
+    const dni = String(nu.dni || '').replace(/\D/g, '')
+    if (!dniValido(dni)) { setMsg({ ok: false, t: 'FALTA EL DNI: todo usuario nuevo se registra con su DNI (8 dígitos).' }); return }
     setBusy(true); setMsg(null)
     try {
       const { data, error } = await signupClient.auth.signUp({
         email: nu.email, password: nu.pass,
-        options: { data: { full_name: (nu.name || '').toUpperCase() } },
+        options: { data: { full_name: (nu.name || '').toUpperCase(), dni } },
       })
+      if (error && /database error saving new user/i.test(error.message)) {
+        throw new Error('LA BASE NO CREÓ LA CUENTA: revisa el DNI (8 dígitos).')
+      }
       // el correo ya tiene cuenta: no se crea de nuevo, se arregla desde su fila
       if (error && /already registered|already been registered/i.test(error.message)) {
         throw new Error('ESE CORREO YA TIENE CUENTA. No hay que crearla de nuevo: búscala en la lista de abajo y cámbiale ahí el ROL, los PROYECTOS y su WhatsApp.')
@@ -210,7 +217,7 @@ export default function Users() {
         // creado en auth: callarlo dejaba una cuenta con el rol equivocado y el
         // segundo intento solo decia "ya registrado", sin explicar nada.
         const { error: e2 } = await supabase.from('profiles')
-          .update({ role: nu.role, full_name: (nu.name || '').toUpperCase(), ...(nu.role === 'socio' ? { panels: SOCIO_PANELS } : {}) })
+          .update({ role: nu.role, full_name: (nu.name || '').toUpperCase(), dni, ...(nu.role === 'socio' ? { panels: SOCIO_PANELS } : {}) })
           .eq('id', data.user.id)
         if (e2) {
           throw new Error('LA CUENTA SE CREÓ, PERO NO SE LE PUDO PONER EL ROL ' + String(nu.role).toUpperCase() + ': ' + e2.message
@@ -232,7 +239,8 @@ export default function Users() {
   async function guardarDni(u, dni) {
     const d = String(dni || '').replace(/\D/g, '')
     if (d === String(u.dni || '')) return
-    if (d && (d.length < 8 || d.length > 12)) { setMsg({ ok: false, t: 'EL DNI TIENE 8 DÍGITOS (o el número del carné de extranjería)' }); return }
+    if (!d) { setMsg({ ok: false, t: 'EL DNI ES OBLIGATORIO: se puede corregir, pero no dejar vacío.' }); return }
+    if (d.length < 8 || d.length > 12) { setMsg({ ok: false, t: 'EL DNI TIENE 8 DÍGITOS (o el número del carné de extranjería)' }); return }
     const { error } = await supabase.from('profiles').update({ dni: d || null }).eq('id', u.id)
     if (error) { setMsg({ ok: false, t: /dni|column|schema cache/i.test(error.message) ? 'FALTA CORRER sql/87 EN LA BASE.' : 'ERROR: ' + error.message }); return }
     setMsg({ ok: true, t: d ? 'DNI DE ' + (u.full_name || u.email) + ' GUARDADO' : 'DNI QUITADO A ' + (u.full_name || u.email) })
@@ -435,6 +443,7 @@ export default function Users() {
         <div className="form-grid">
           <label>Correo <input className="u-tt-n" type="email" value={nu.email || ''} onChange={e => setNu(x => ({ ...x, email: e.target.value }))} required /></label>
           <label>Contrasena <input className="u-tt-n" type="text" value={nu.pass || ''} onChange={e => setNu(x => ({ ...x, pass: e.target.value }))} required minLength="6" /></label>
+          <CampoDni valor={nu.dni} onCambio={v => setNu(x => ({ ...x, dni: v }))} onNombre={n => setNu(x => ({ ...x, name: n }))} />
           <label>Nombre completo <input value={nu.name || ''} onChange={e => setNu(x => ({ ...x, name: e.target.value }))} required /></label>
           <label>Rol
             <select value={nu.role} onChange={e => setNu(x => ({ ...x, role: e.target.value }))}>
