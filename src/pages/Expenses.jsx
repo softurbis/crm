@@ -765,6 +765,8 @@ export default function Expenses() {
   // Lo que falta en cada paso se dice ahí mismo, antes de pasar al siguiente.
   const PASOS = ['¿Qué se paga?', '¿Quién pide y quién recibe?', '¿Cuánto y cómo?', 'Revisa y registra']
   const solicitante = firmantes.find(p => p.id === f.requester_id) || null
+  // para la constancia, el nombre como figura en el DNI si está en personas_gasto (sql/240)
+  const nombreCompleto = p => (p && personas.find(x => x.id === p.id)?.full_name) || p?.full_name || ''
   function faltaEn(n) {
     if (n === 1) {
       if (!f.type) return 'Elige qué se paga (o "Otro").'
@@ -810,12 +812,20 @@ export default function Expenses() {
   // ---- NOMBRES CONOCIDOS con su DNI ----
   // Las personas del sistema (sql/87) y quienes ya recibieron o entregaron en
   // gastos anteriores. Al elegir uno, su DNI se llena solo.
+  // Una persona, un nombre (sql/240): de los gastos viejos NO se sugiere el
+  // nombre corto de alguien que ya está con su nombre completo ("ALEXANDER
+  // PULGAR" si está "ROYER ALEXANDER PULGAR MAIZ"), ni otro nombre con su DNI.
   const opcionesPersonas = useMemo(() => {
+    const palabras = n => String(n || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ'`´’]/g, '').split(/\s+/).filter(Boolean)
+    const delSistema = personas.filter(p => p.full_name).map(p => ({ dni: p.dni || '', w: new Set(palabras(p.full_name)) }))
+    const yaEsta = (nombre, dni) => delSistema.some(p => (dni && p.dni === dni) ||
+      (!dni && p.dni && palabras(nombre).every(x => p.w.has(x))))
     const m = new Map()
     for (const p of personas) if (p.full_name) m.set(String(p.full_name).toUpperCase(), p.dni || '')
+    const sumar = (nombre, dni) => { if (nombre && !m.has(nombre) && !yaEsta(nombre, dni || '')) m.set(nombre, dni || '') }
     for (const g of list) {
-      if (g.recipient && !m.has(g.recipient)) m.set(g.recipient, g.recipient_dni || '')
-      if (g.sender && !m.has(g.sender)) m.set(g.sender, g.sender_dni || '')
+      sumar(g.recipient, g.recipient_dni)
+      sumar(g.sender, g.sender_dni)
     }
     return [...m.entries()]
   }, [personas, list])
@@ -1375,9 +1385,9 @@ export default function Expenses() {
                       setF(x => ({ ...x, recipient: v, ...(d ? { recipient_dni: d } : {}) }))
                     }} />
                   <span className="sg-ej">Ej.: el vendedor que cobra su comisión, o el proveedor (el dueño de la excavadora).</span>
-                  {solicitante && String(f.recipient || '').trim().toUpperCase() !== String(solicitante.full_name || '').toUpperCase() && (
+                  {solicitante && String(f.recipient || '').trim().toUpperCase() !== String(nombreCompleto(solicitante)).toUpperCase() && (
                     <button type="button" className="link-btn small u-ta-l"
-                      onClick={() => setF(x => ({ ...x, recipient: solicitante.full_name, recipient_dni: solicitante.dni || dniDe(solicitante.full_name) || x.recipient_dni || '' }))}>
+                      onClick={() => setF(x => ({ ...x, recipient: nombreCompleto(solicitante), recipient_dni: solicitante.dni || dniDe(nombreCompleto(solicitante)) || x.recipient_dni || '' }))}>
                       👤 lo recibe {primerNombre(solicitante.full_name)}, el mismo que lo pide
                     </button>
                   )}
