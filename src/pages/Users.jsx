@@ -243,7 +243,16 @@ export default function Users() {
     if (d.length < 8 || d.length > 12) { setMsg({ ok: false, t: 'EL DNI TIENE 8 DÍGITOS (o el número del carné de extranjería)' }); return }
     const { error } = await supabase.from('profiles').update({ dni: d || null }).eq('id', u.id)
     if (error) { setMsg({ ok: false, t: /dni|column|schema cache/i.test(error.message) ? 'FALTA CORRER sql/87 EN LA BASE.' : 'ERROR: ' + error.message }); return }
-    setMsg({ ok: true, t: d ? 'DNI DE ' + (u.full_name || u.email) + ' GUARDADO' : 'DNI QUITADO A ' + (u.full_name || u.email) })
+    // el nombre sale del DNI (sql/243): la base lo pone sola cuando llega la consulta; se espera
+    // unos segundos a que llegue para mostrarlo ya cambiado
+    let nombre = ''
+    for (let i = 0; i < 20; i++) {
+      const { data: c } = await supabase.from('consultas_doc').select('estado, nombre').eq('doc', d).maybeSingle()
+      if (c?.estado === 'listo') { nombre = String(c.nombre || '').replace(/`/g, "'").toUpperCase(); break }
+      if (!c || c.estado === 'error') break
+      await new Promise(r => setTimeout(r, 750))
+    }
+    setMsg({ ok: true, t: 'DNI DE ' + (u.full_name || u.email) + ' GUARDADO' + (nombre ? ' · NOMBRE SEGÚN EL DNI: ' + nombre : '') })
     load()
   }
 
@@ -478,7 +487,9 @@ export default function Users() {
                 </td>
                 <td>{u.email}{u.id === profile?.id && <b className="accent"> (TU)</b>}</td>
                 <td>
-                  <input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} />
+                  {/* el nombre sale del DNI (sql/243); el key lo refresca cuando cambia en la base */}
+                  <input key={u.id + '|' + (u.full_name || '')} defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }}
+                    title="Sale solo del DNI. Se puede corregir a mano; si se cambia el DNI, vuelve a salir del DNI." />
                   {/* el DNI sale solo en las constancias de gastos (sql/87) */}
                   <div className="u-mt-4">
                     <CampoConBoton valor={u.dni} placeholder="DNI"

@@ -827,7 +827,8 @@ export default function Expenses() {
       sumar(g.recipient, g.recipient_dni)
       sumar(g.sender, g.sender_dni)
     }
-    return [...m.entries()]
+    // pedido del dueño (27 nov): en la lista solo nombres CON su DNI
+    return [...m.entries()].filter(([, d]) => String(d || '').trim())
   }, [personas, list])
   const dniDe = nombre => opcionesPersonas.find(([n]) => n === String(nombre || '').toUpperCase())?.[1] || ''
 
@@ -1346,12 +1347,13 @@ export default function Expenses() {
                         // es esta misma persona: es lo que pasa casi siempre
                         setF(x => ({
                           ...x, requester_id: id,
-                          ...(p && !x.recipient ? { recipient: p.full_name, recipient_dni: p.dni || x.recipient_dni || '' } : {}),
+                          ...(p && !x.recipient ? { recipient: nombreCompleto(p), recipient_dni: p.dni || x.recipient_dni || '' } : {}),
                         }))
                       }}>
                       <option value="">{proyecto?.expense_approval ? '- elegir -' : '- nadie / se firma en papel -'}</option>
+                      {/* nombre como figura en el DNI y su DNI (pedido del dueño, 27 nov) */}
                       {firmantes.map(p => (
-                        <option key={p.id} value={p.id}>{p.full_name}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
+                        <option key={p.id} value={p.id}>{nombreCompleto(p)}{p.dni ? ' · DNI ' + p.dni : ' — SIN DNI (cargarlo en Usuarios)'}{p.tiene_firma ? '' : ' — sin firma registrada'}</option>
                       ))}
                     </select>
                   ) : (
