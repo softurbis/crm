@@ -40,6 +40,15 @@ function comoSolicitud(q) {
   return m ? Number(m[1]) : null
 }
 
+// "B001-16", "f001 5", "BP01-00007" → { serie: 'B001', numero: 16 }
+function comoComprobante(q) {
+  const m = String(q || '').trim().toUpperCase().match(/^([BF][A-Z0-9]{3})\s*-?\s*0*(\d{1,8})$/)
+  return m ? { serie: m[1], numero: Number(m[2]) } : null
+}
+const TIPOS = { factura: 'Factura', boleta: 'Boleta', nota_credito: 'Nota de crédito', nota_debito: 'Nota de débito' }
+const nombreTipo = c => TIPOS[c.tipo] || (/^F/.test(c.serie) ? 'Factura' : 'Boleta')
+const fechaCorta = f => f ? String(f).slice(0, 10).split('-').reverse().join('/') : ''
+
 function leerRecientes() { try { const v = JSON.parse(localStorage.getItem(RECIENTES) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 
 export default function BuscadorGeneral({ pantallas = [] }) {
@@ -116,9 +125,22 @@ export default function BuscadorGeneral({ pantallas = [] }) {
       pedidos.push(s.length >= 3 && !soloNumeros
         ? supabase.from('expenses').select(cols).or(`recipient.ilike.${comodin},description.ilike.${comodin}`).order('issue_date', { ascending: false }).limit(6)
         : Promise.resolve({ data: [] }))
+      // pagos por número de operación del voucher (¿ya se registró?). En la base suelen ir con
+      // ceros adelante ("000001316"): se busca lo que CONTIENE los dígitos escritos
+      const digitos = s.replace(/\D/g, '')
+      pedidos.push(soloNumeros && digitos.length >= 4
+        ? supabase.from('daily_income').select('id, project_id, lot_id, date, amount, operation_number, lot:lots(mz, lt)')
+            .ilike('operation_number', '%' + digitos + '%').order('date', { ascending: false }).limit(5)
+        : Promise.resolve({ data: [] }))
+      // boletas y facturas: "B001-16", "F001 5", "BP01-7"
+      const comp = comoComprobante(texto)
+      pedidos.push(comp
+        ? supabase.from('comprobantes').select('id, project_id, lot_id, tipo, serie, numero, total, cliente_nombre, estado, lot:lots(mz, lt)')
+            .eq('serie', comp.serie).eq('numero', comp.numero).limit(5)
+        : Promise.resolve({ data: [] }))
 
       const nada = { data: [] }
-      const [l, c, g1, g2] = await Promise.all(pedidos.map(p => p.then(r => r, () => nada)))
+      const [l, c, g1, g2, pg, cp] = await Promise.all(pedidos.map(p => p.then(r => r, () => nada)))
       const clientes = c.data || []
       const lotes = l.data || []
       // segunda vuelta, en paralelo: los lotes de esos clientes (comprador o co-comprador)
@@ -157,6 +179,8 @@ export default function BuscadorGeneral({ pantallas = [] }) {
             .map(v => ({ ...v.lot, expropiado: v.status === 'expropiado' })),
         })),
         gastos,
+        pagos: pg.data || [],
+        comprobantes: cp.data || [],
       })
       setBuscando(false)
       setActivo(0)
@@ -207,6 +231,22 @@ export default function BuscadorGeneral({ pantallas = [] }) {
       sub: [soles(g.amount), g.description].filter(Boolean).join(' · '),
       proyecto: g.project_id, ir: { a: `/gastos?gasto=${g.id}`, proyecto: g.project_id },
     }))
+    // pagos (por número de operación): lleva a la ficha de su lote, donde está el pago
+    ;(res.pagos || []).forEach(p => out.push({
+      grupo: 'Pagos', clave: 'pg' + p.id, icono: '💵',
+      titulo: soles(p.amount) + (p.lot ? ` · Lote ${p.lot.mz}-${p.lot.lt}` : ''),
+      sub: ['Op. ' + p.operation_number, fechaCorta(p.date)].filter(Boolean).join(' · '),
+      proyecto: p.project_id,
+      ir: p.lot_id ? { a: `/lotes/${p.lot_id}`, proyecto: p.project_id } : { a: '/pagos', proyecto: p.project_id },
+    }))
+    // boletas y facturas: a la ficha del lote (o a la lista de comprobantes)
+    ;(res.comprobantes || []).forEach(x => out.push({
+      grupo: 'Boletas y facturas', clave: 'cp' + x.id, icono: '🧾',
+      titulo: `${nombreTipo(x)} ${x.serie}-${x.numero}` + (x.lot ? ` · Lote ${x.lot.mz}-${x.lot.lt}` : ''),
+      sub: [soles(x.total), x.cliente_nombre, x.estado].filter(Boolean).join(' · '),
+      proyecto: x.project_id,
+      ir: x.lot_id ? { a: `/lotes/${x.lot_id}`, proyecto: x.project_id } : { a: '/comprobantes', proyecto: x.project_id },
+    }))
     return out
   }, [q, res, pantallas, recientes])    
 
@@ -237,14 +277,14 @@ export default function BuscadorGeneral({ pantallas = [] }) {
         <div className="bus-entrada">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
           <input ref={entrada} value={q} onChange={e => setQ(e.target.value)} onKeyDown={teclas} spellCheck={false} autoComplete="off"
-            placeholder="Buscar un lote (G-12), un cliente, un DNI, un gasto (SOL-424) o una pantalla…" />
+            placeholder="Lote (G-12), cliente, DNI, gasto (SOL-424), N° de operación, boleta (B001-16) o pantalla…" />
           {buscando ? <span className="bus-giro" aria-label="Buscando" /> : <kbd onClick={() => setAbierto(false)}>Esc</kbd>}
         </div>
         <div className="bus-lista" ref={lista}>
           {!items.length && q.trim().length < 2 && (
             <div className="bus-vacio">
               <b>¿Qué quieres encontrar?</b>
-              <span>Prueba con <code>G-12</code>, el nombre o el DNI de un cliente, <code>SOL-424</code> o el nombre de una pantalla.</span>
+              <span>Prueba con <code>G-12</code>, el nombre o el DNI de un cliente, <code>SOL-424</code>, el número de operación de un voucher, <code>B001-16</code> o el nombre de una pantalla.</span>
             </div>
           )}
           {!items.length && q.trim().length >= 2 && !buscando && (

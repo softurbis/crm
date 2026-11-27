@@ -1,0 +1,112 @@
+/* ============================================================
+   PREFERENCIAS DE CADA PERSONA (components/Preferencias.jsx, fase 5)
+   html.sin-mayus  → el texto como se escribió (sin las mayúsculas forzadas)
+   html.tema-claro → el CONTENIDO claro; el menú izquierdo sigue oscuro (es la marca)
+   ============================================================ */
+
+/* los botoncitos del pie del menú */
+.pref-botones { display: inline-flex; gap: 4px; }
+.shell .pref-btn { font-size: 11px; padding: 4px 8px; min-width: 30px; text-transform: none; }
+.shell .pref-btn.on { border-color: var(--accent); color: var(--accent-strong); background: rgba(156,203,134,.12); }
+
+/* ---- sin MAYÚSCULAS forzadas (los encabezados de tabla y de sección se quedan) ---- */
+html.sin-mayus .shell, html.sin-mayus .shell input, html.sin-mayus .shell select,
+html.sin-mayus .shell textarea, html.sin-mayus .shell button, html.sin-mayus .modal-bg { text-transform: none; }
+
+/* ---- TEMA CLARO ---- */
+html.tema-claro body { background: #edf1ea; }
+html.tema-claro .content:not(.tema-oscuro) {
+  --bg: #edf1ea; --panel: #ffffff; --panel-2: #f2f5ef;
+  --text: #1c2918; --muted: #5c6a57; --error: #c0392b; --ok: #1d8a4b;
+  --line: rgba(60,80,50,.22);
+  /* el color del proyecto se oscurece para leerse sobre blanco (Layout lo pone en línea) */
+  --accent-strong: color-mix(in srgb, var(--accent) 62%, #000) !important;
+  color: var(--text);
+}
+html.tema-claro .content:not(.tema-oscuro) .glass {
+  background: #fff; backdrop-filter: none;
+  border: 1px solid rgba(40,60,35,.1);
+  box-shadow: 0 1px 2px rgba(30,45,25,.05), 0 6px 18px rgba(30,45,25,.06);
+}
+html.tema-claro .content:not(.tema-oscuro) h1, html.tema-claro .content:not(.tema-oscuro) h2, html.tema-claro .content:not(.tema-oscuro) h3 { color: var(--text); }
+html.tema-claro .content:not(.tema-oscuro) a, html.tema-claro .content:not(.tema-oscuro) .link-btn { color: var(--accent-strong); }
+html.tema-claro .content:not(.tema-oscuro) .accent { color: var(--accent-strong); }
+html.tema-claro .content:not(.tema-oscuro) .warn { color: #9a6c05; }
+html.tema-claro .content:not(.tema-oscuro) .hint { color: var(--accent-strong); }
+
+/* campos */
+html.tema-claro .content:not(.tema-oscuro) input, html.tema-claro .content:not(.tema-oscuro) select, html.tema-claro .content:not(.tema-oscuro) textarea {
+  background: #fff; color: var(--text); border-color: rgba(60,80,50,.28);
+}
+html.tema-claro .content:not(.tema-oscuro) input::placeholder, html.tema-claro .content:not(.tema-oscuro) textarea::placeholder { color: #8b9686; }
+
+/* botones */
+html.tema-claro .content:not(.tema-oscuro) .btn-primary {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 80%, #fff), var(--accent));
+  color: #0d150f; box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+html.tema-claro .content:not(.tema-oscuro) .btn-ghost { background: #fff; color: #44523f; border-color: rgba(60,80,50,.25); }
+html.tema-claro .content:not(.tema-oscuro) .btn-ghost:hover { background: color-mix(in srgb, var(--accent) 12%, #fff); color: var(--accent-strong); }
+html.tema-claro .content:not(.tema-oscuro) .chip { background: #fff; color: #4d5a48; border-color: rgba(60,80,50,.22); }
+html.tema-claro .content:not(.tema-oscuro) .chip.on { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 75%, #fff), var(--accent)); color: #0d150f; }
+
+/* tablas */
+html.tema-claro .content:not(.tema-oscuro) thead th { background: #f6f8f4; color: #56634f; box-shadow: inset 0 -1px 0 rgba(60,80,50,.18); backdrop-filter: none; }
+html.tema-claro .content:not(.tema-oscuro) tbody tr + tr td { border-top: 1px solid rgba(40,60,35,.07); }
+html.tema-claro .content:not(.tema-oscuro) tr:hover td { background: color-mix(in srgb, var(--accent) 7%, #fff); }
+
+/* la franja del proyecto y las ventanas emergentes */
+html.tema-claro .content:not(.tema-oscuro) .proy-banda { background: linear-gradient(90deg, color-mix(in srgb, var(--pc) 16%, #fff), #fff 75%); }
+html.tema-claro .content:not(.tema-oscuro) .proy-banda-txt small { color: color-mix(in srgb, var(--pc) 60%, #000); }
+html.tema-claro .shell .content:not(.tema-oscuro) .proy-banda-cambiar { background: #fff; color: var(--text); }
+html.tema-claro .content:not(.tema-oscuro) .modal-bg { background: rgba(20,30,18,.45); }
+html.tema-claro .content:not(.tema-oscuro) .modal { background: #fff; color: var(--text); }
+
+/* el menú izquierdo sigue oscuro: su fondo era semitransparente y dejaba pasar el claro */
+html.tema-claro .shell .sidebar { background: linear-gradient(180deg, #1b2b21 0%, #111c16 55%, #0c1410 100%); }
+
+/* los colores pastel escritos a mano en las pantallas (style=color…), pensados para fondo
+   oscuro: en claro, la versión oscura del mismo tono. Los más usados del panel (26 nov). */
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(126, 200, 227)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(126, 200, 227)"] { color: #1f7a9c !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(224, 179, 76)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(224, 179, 76)"] { color: #9a6c05 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(75, 185, 106)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(75, 185, 106)"] { color: #1d8a4b !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(255, 142, 122)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(255, 142, 122)"] { color: #c0392b !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(232, 151, 90)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(232, 151, 90)"] { color: #b25a17 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(123, 167, 247)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(123, 167, 247)"] { color: #2f5fbf !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(217, 117, 79)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(217, 117, 79)"] { color: #b0461f !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(195, 156, 224)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(195, 156, 224)"] { color: #7a45a8 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(111, 221, 155)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(111, 221, 155)"] { color: #1d8a4b !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(224, 178, 63)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(224, 178, 63)"] { color: #9a6c05 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(184, 161, 217)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(184, 161, 217)"] { color: #6b4fa0 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(138, 180, 248)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(138, 180, 248)"] { color: #2f5fbf !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(123, 182, 224)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(123, 182, 224)"] { color: #2a6fa8 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(232, 176, 79)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(232, 176, 79)"] { color: #9a6c05 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(242, 120, 92)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(242, 120, 92)"] { color: #b8452a !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(143, 209, 111)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(143, 209, 111)"] { color: #3d8a22 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(156, 203, 134)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(156, 203, 134)"] { color: #3f7a2c !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(191, 227, 166)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(191, 227, 166)"] { color: #3f7a2c !important; }
+
+/* clases con colores para fondo oscuro */
+html.tema-claro .content:not(.tema-oscuro) .st-chip.st-na { background: #eef0ec; color: #5f6470; }
+html.tema-claro .content:not(.tema-oscuro) .cv-titulo { color: #9a6c05; }
+html.tema-claro .content:not(.tema-oscuro) .ok { color: #1d8a4b; }
+html.tema-claro .content:not(.tema-oscuro) .bad { color: #c0392b; }
+
+/* pantallas que se quedan oscuras en el tema claro (WhatsApp: chat con etiquetas de colores) */
+html.tema-claro .content.tema-oscuro { background: #0d1512; min-height: 100vh; }
+
+/* más tonos (colores de personas y de estados) */
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(232, 160, 200)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(232, 160, 200)"] { color: #a3427f !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(231, 193, 90)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(231, 193, 90)"] { color: #8a6a0c !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(240, 163, 92)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(240, 163, 92)"] { color: #a8561b !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(86, 199, 214)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(86, 199, 214)"] { color: #13808f !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(230, 164, 208)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(230, 164, 208)"] { color: #a3427f !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(240, 143, 176)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(240, 143, 176)"] { color: #b23a63 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(240, 192, 90)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(240, 192, 90)"] { color: #8a6a0c !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(183, 146, 232)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(183, 146, 232)"] { color: #6b3fb0 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(197, 138, 224)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(197, 138, 224)"] { color: #7a45a8 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(111, 209, 192)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(111, 209, 192)"] { color: #1b8079 !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(74, 135, 201)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(74, 135, 201)"] { color: #2a5f9a !important; }
+html.tema-claro .content:not(.tema-oscuro) [style^="color: rgb(224, 82, 82)"], html.tema-claro .content:not(.tema-oscuro) [style*="; color: rgb(224, 82, 82)"] { color: #b52f2f !important; }
+html.tema-claro .content:not(.tema-oscuro) .pr-est { color: color-mix(in srgb, var(--ec, var(--text)) 58%, #000); }
+html.tema-claro .content:not(.tema-oscuro) .cp-lect.no { color: #9a6c05; }

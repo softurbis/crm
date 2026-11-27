@@ -6,6 +6,10 @@ import { AuthProvider } from './context/AuthContext'
 import { ProjectProvider } from './context/ProjectContext'
 import Dialogos from './components/Dialogos'
 import './styles/global.css'
+import { aplicarPreferencias } from './components/Preferencias'
+
+// las preferencias de cada persona (sin mayúsculas, tema claro) antes de dibujar: sin parpadeo
+aplicarPreferencias()
 
 // ---- APP INSTALABLE EN EL CELULAR ----
 // El service worker no guarda nada (ver public/sw.js): está para que Chrome ofrezca

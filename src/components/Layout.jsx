@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { NavLink, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useProject, colorProyecto, logoProyecto, gruposPorEmpresa, nombreEmpresa, empresaDe, PID_EMPRESA } from '../context/ProjectContext'
@@ -8,10 +8,13 @@ import Logo from './Logo'
 import Avatar from './Avatar'
 import SaveFx from './SaveFx'
 import InstalarApp from './InstalarApp'
+import Preferencias from './Preferencias'
+import DescargarApp from './DescargarApp'
 import BarraVendedor from './BarraVendedor'
 import SubidasEnCurso from './SubidasEnCurso'
 import { SiluetaPagina } from './Silueta'
 import Atajos from './Atajos'
+import { enApp, avisarApp, escucharApp, avisosNuevos } from '../lib/appEscritorio'
 import BuscadorGeneral from './BuscadorGeneral'
 import { useTablasAlAlto } from '../lib/tablasAlAlto'
 import { useNavigate as usarNavegacion } from 'react-router-dom'
@@ -388,6 +391,35 @@ export default function Layout() {
     return () => { vivo = false; clearInterval(t) }
   }, [role, profile?.id, pathname === '/reclamos'])   // eslint-disable-line
 
+  // AVISOS DE WINDOWS (app de escritorio v1.2, lib/appEscritorio.js): lo pendiente que SUBE
+  // se le avisa a la app, que lo muestra aunque esté minimizada. En el navegador no hace nada.
+  const avisados = useRef(new Map())
+  useEffect(() => {
+    if (!enApp()) return
+    const lista = []
+    const cuantas = (n, una, varias) => n + ' ' + (n === 1 ? una : varias)
+    porFirmar.forEach(p => lista.push({ clave: 'firma:' + p.id, n: p.n,
+      titulo: role === 'socio' ? '✍ Gastos por aprobar' : '✍ Gastos por firmar',
+      texto: `${p.name}: ${cuantas(p.n, 'solicitud', 'solicitudes')} por firmar · ${solesMenu(p.total)}`, ir: { a: '/gastos', proyecto: p.id } }))
+    porPagar.forEach(p => lista.push({ clave: 'pago:' + p.id, n: p.n, titulo: '💸 Gastos por pagar',
+      texto: `${p.name}: ${cuantas(p.n, 'gasto aprobado', 'gastos aprobados')} esperan el voucher · ${solesMenu(p.total)}`, ir: { a: '/gastos', proyecto: p.id } }))
+    if (pendCartas > 0) lista.push({ clave: 'cartas', n: pendCartas, titulo: '📨 Cartas de cobranza',
+      texto: cuantas(pendCartas, 'carta pendiente', 'cartas pendientes'), ir: { a: esFacturacion ? '/facturacion/cartas' : '/cartas' } })
+    if (pendReclamos > 0) lista.push({ clave: 'reclamos', n: pendReclamos, titulo: '📕 Libro de reclamaciones',
+      texto: cuantas(pendReclamos, 'reclamo por responder', 'reclamos por responder'), ir: { a: '/reclamos' } })
+    if (pendProsp > 0) lista.push({ clave: 'prospectos', n: pendProsp, titulo: '🎯 Prospectos',
+      texto: cuantas(pendProsp, 'prospecto para hoy', 'prospectos para hoy'), ir: { a: '/prospectos' } })
+    if (esFacturacion && pendFact > 0) lista.push({ clave: 'fact', n: pendFact, titulo: '🧾 Boletas y facturas',
+      texto: cuantas(pendFact, 'pago sin comprobante', 'pagos sin comprobante'), ir: { a: '/facturacion' } })
+    avisosNuevos(lista, avisados.current).forEach(avisarApp)
+  }, [porFirmar, porPagar, pendCartas, pendReclamos, pendProsp, pendFact])   // eslint-disable-line
+  // al tocar un aviso, la app pide venir aquí: se elige el proyecto y se abre la pantalla
+  useEffect(() => escucharApp(m => {
+    if (m.tipo !== 'ir' || !m.a || !String(m.a).startsWith('/')) return
+    if (m.proyecto) select(m.proyecto)
+    irA(m.a)
+  }), [])   // eslint-disable-line
+
   const visibles = MENU.filter(verItem).map(delRol).map(m => m.to === '/cartas' ? { ...m, badge: pendCartas } : m.to === '/reclamos' ? { ...m, badge: pendReclamos } : m)
 
   // LA BARRA POR SECCIONES (26 nov): "En este proyecto" (lo que trabaja sobre el proyecto
@@ -568,11 +600,13 @@ export default function Layout() {
             <a className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}
               href={import.meta.env.BASE_URL + 'reset'} title="Cambiar mi contraseña">🔑 Mi contraseña</a>
             <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }} onClick={logout}>Cerrar sesión</button>
+            <Preferencias />
+            <DescargarApp />
             <InstalarApp />
           </div>
         </div>
       </aside>
-      <main className="content" style={{
+      <main className={'content' + (pathname.startsWith('/whatsapp') ? ' tema-oscuro' : '')} style={{
         '--accent-mod': accentMod,
         ...(colorActivo ? {
           '--accent': colorActivo,

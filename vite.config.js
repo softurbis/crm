@@ -6,4 +6,7 @@ import react from '@vitejs/plugin-react'
 // con vite.publico.config.js. GitHub Pages ya no publica la app (15 sep 2026).
 export default defineConfig({
   plugins: [react()],
+  // el servidor de desarrollo no vigila la app de Windows: el .exe abierto queda bloqueado
+  // por Windows y el vigilante se caía con EBUSY (26 nov)
+  server: { watch: { ignored: ['**/escritorio/**', '**/public/app/**'] } },
 })

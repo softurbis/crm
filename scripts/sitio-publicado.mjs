@@ -47,6 +47,9 @@ if (cara === 'publico') {
   // la app instalable: el celular revisa el service worker en cada visita (si lo
   // guardara en caché, podría quedarse con uno viejo)
   appendFileSync(`${salida}/_headers`, '/sw.js\n  Cache-Control: no-cache\n/manifest.webmanifest\n  Cache-Control: no-cache\n')
+  // la app de Windows (escritorio/compilar.ps1 la deja en public/app/): sin caché, para que la
+  // versión nueva se vea apenas se publica; el .exe se descarga con su nombre
+  appendFileSync(`${salida}/_headers`, '/app/*\n  Cache-Control: no-cache\n/app/UrbisControl.exe\n  Content-Disposition: attachment; filename="UrbisControl.exe"\n')
   writeFileSync(`${salida}/robots.txt`, 'User-agent: *\nDisallow: /\n')
 }
 
