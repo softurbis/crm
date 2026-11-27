@@ -15,7 +15,13 @@ if (!salida) {
   process.exit(1)
 }
 
-const cabeceras = lineas => writeFileSync(`${salida}/_headers`, '/*\n' + lineas.map(l => '  ' + l).join('\n') + '\n')
+// /assets/ son los archivos que arma Vite (JS y CSS): cada versión sale con OTRO nombre
+// (index-DDvWsBnd.js), así que el navegador los puede guardar un año sin volver a
+// preguntar. Antes Cloudflare decía "max-age=0" y en cada apertura el navegador
+// reconfirmaba archivo por archivo con el servidor (26 nov: se notaba en PCs con
+// antivirus que revisa la red). index.html sigue sin caché: por él llegan las versiones nuevas.
+const ASSETS_INMUTABLES = '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n'
+const cabeceras = lineas => writeFileSync(`${salida}/_headers`, '/*\n' + lineas.map(l => '  ' + l).join('\n') + '\n' + ASSETS_INMUTABLES)
 const comunes = ['X-Content-Type-Options: nosniff', 'Referrer-Policy: strict-origin-when-cross-origin']
 
 if (cara === 'publico') {

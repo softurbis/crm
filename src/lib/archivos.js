@@ -123,8 +123,59 @@ export async function fotoDentroDelWord(file) {
   } catch { return null }                                        // ante la duda, se sube el Word
 }
 
+// ============================================================
+// SUBIDAS A LA VISTA (26 nov 2026)
+// ------------------------------------------------------------
+// Antes el botón se quedaba "subiendo…" sin decir nada, y en una PC con internet
+// lento o antivirus parecía colgado. Ahora cada subida avisa cómo va (el evento
+// 'urbis-subida', que muestra components/SubidasEnCurso.jsx en una esquina): el
+// porcentaje, cuánto falta y si está reintentando. Si se corta el internet, se
+// reintenta sola dos veces antes de irse al respaldo de Supabase.
+// ============================================================
+let siguienteId = 0
+const avisarSubida = d => { try { window.dispatchEvent(new CustomEvent('urbis-subida', { detail: d })) } catch { /* sin ventana */ } }
+const esperar = ms => new Promise(r => setTimeout(r, ms))
+
+// fetch no dice cuánto lleva subido; XMLHttpRequest sí
+function subirAlWorker(token, archivo, destino, alAvanzar) {
+  return new Promise((ok, mal) => {
+    const falla = (texto, status) => Object.assign(new Error(texto), { status })
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', WORKER.replace(/\/$/, '') + '/subir')
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token)
+    xhr.timeout = 10 * 60 * 1000                                  // 10 min: ni el peor internet
+    xhr.upload.onprogress = e => { if (e.lengthComputable) alAvanzar(e.loaded, e.total) }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { ok(JSON.parse(xhr.responseText).url) } catch { mal(falla('respuesta rara del servidor', xhr.status)) }
+      } else mal(falla('R2 respondió ' + xhr.status, xhr.status))
+    }
+    xhr.onerror = () => mal(falla('sin conexión', 0))
+    xhr.ontimeout = () => mal(falla('tardó demasiado', 0))
+    const fd = new FormData()
+    fd.append('file', archivo)
+    fd.append('ruta', destino)
+    xhr.send(fd)
+  })
+}
+
 // Sube a una ruta EXACTA dentro del bucket y devuelve la URL pública.
 export async function subirRuta(ruta, file, opciones = {}) {
+  const id = ++siguienteId
+  const nombre = file?.name || String(ruta).split('/').pop()
+  const avisar = d => avisarSubida({ id, nombre, ...d })
+  avisar({ estado: 'preparando' })
+  try {
+    const url = await subirRutaConAvisos(ruta, file, opciones, avisar)
+    avisar({ estado: 'listo' })
+    return url
+  } catch (e) {
+    avisar({ estado: 'error', mensaje: e?.message || String(e) })
+    throw e
+  }
+}
+
+async function subirRutaConAvisos(ruta, file, opciones, avisar) {
   let limpia = String(ruta).replace(/^\/+/, '')
   // el .docx que es una foto se convierte antes de cualquier otra cosa
   if (opciones.abrirWord !== false) {
@@ -137,20 +188,28 @@ export async function subirRuta(ruta, file, opciones = {}) {
   const destino = archivo === file ? limpia : limpia.replace(/\.(png|webp|jpeg|jpg)$/i, '.jpg')
 
   if (WORKER) {
-    try {
-      const { data } = await supabase.auth.getSession()
-      const token = data?.session?.access_token
-      if (token) {
-        const fd = new FormData()
-        fd.append('file', archivo)
-        fd.append('ruta', destino)
-        const r = await fetch(WORKER.replace(/\/$/, '') + '/subir', { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd })
-        if (r.ok) return (await r.json()).url
-        console.warn('R2 respondió ' + r.status + ': se sube a Supabase como respaldo')
+    // hasta 3 intentos: un corte de internet o un error del servidor (5xx) se reintenta;
+    // si el Worker dice que no (401, 413…), reintentar no sirve: directo al respaldo
+    const PAUSAS = [1500, 4000]
+    for (let intento = 1; intento <= 3; intento++) {
+      try {
+        const { data } = await supabase.auth.getSession()
+        const token = data?.session?.access_token
+        if (!token) break
+        avisar({ estado: intento > 1 ? 'reintentando' : 'subiendo', intento, cargado: 0, total: archivo.size })
+        return await subirAlWorker(token, archivo, destino, (cargado, total) => avisar({ estado: 'subiendo', intento, cargado, total }))
+      } catch (e) {
+        const reintentable = !e.status || e.status >= 500 || e.status === 429
+        console.warn('R2: ' + e.message + ' (intento ' + intento + ')')
+        if (!reintentable || intento === 3) break
+        avisar({ estado: 'reintentando', intento: intento + 1, mensaje: e.message })
+        await esperar(PAUSAS[intento - 1])
       }
-    } catch (e) { console.warn('R2 no disponible (' + e.message + '): se sube a Supabase como respaldo') }
+    }
+    console.warn('R2 no respondió: se sube a Supabase como respaldo')
   }
 
+  avisar({ estado: 'respaldo' })
   const { error } = await supabase.storage.from('urbis-files').upload(destino, archivo, { contentType: archivo.type || undefined, upsert: true })
   if (error) throw new Error(error.message)
   return supabase.storage.from('urbis-files').getPublicUrl(destino).data.publicUrl

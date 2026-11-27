@@ -1,0 +1,34 @@
+/* Subidas en curso (components/SubidasEnCurso.jsx): esquina inferior derecha, encima del
+   botón "volver arriba" y por encima de las ventanas (modal-bg = 50) */
+.subidas {
+  position: fixed; right: 18px; bottom: 80px; z-index: 70;
+  display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 36px));
+  text-transform: none;
+}
+.subida {
+  display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(10px);
+  border: 1px solid rgba(156,203,134,.25); border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  animation: subida-entra .25s ease both;
+}
+@keyframes subida-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.subida-ico {
+  flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; color: #0d150f; background: var(--accent);
+}
+.subida.listo .subida-ico { background: var(--ok); }
+.subida.error { border-color: rgba(255,142,122,.45); }
+.subida.error .subida-ico { background: var(--error); }
+.subida.reintentando .subida-ico, .subida.respaldo .subida-ico { background: #e0b23f; }
+.subida-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.subida-txt b { font-size: .84rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subida-txt small { font-size: .76rem; color: var(--muted); }
+.subida.error .subida-txt small { color: #ffb9ac; }
+.subida-barra { height: 5px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 4px; position: relative; }
+.subida-barra i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); transition: width .25s ease; }
+.subida-barra.ind i { width: 35%; animation: subida-va 1.2s ease-in-out infinite; }
+@keyframes subida-va { from { left: -35%; } to { left: 100%; } }
+.subida-cerrar { flex: none; background: none; color: var(--muted); font-size: .8rem; padding: 2px 4px; }
+.subida-cerrar:hover { color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .subida, .subida-barra.ind i { animation: none; } }

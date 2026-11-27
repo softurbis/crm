@@ -21,7 +21,7 @@ import ReponerGasto from '../components/ReponerGasto'
 import GastoDirecto, { CorregirGastoDirecto } from '../components/GastoDirecto'
 import AnexosGasto, { AnexosChip, anexosDe, subirAnexo } from '../components/AnexosGasto'
 import { useEsCelular } from '../lib/useEsCelular'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EmitirFacturaGasto, gastoFacturable } from '../components/FacturaGasto'
 import { ComprobanteChip, ComprobanteDetalle } from '../components/Comprobante'
 import { emisoresGasto, COLS_FACTURA_GASTO, enCamino, estaVivo, nombreComprobante } from '../lib/comprobantes'
@@ -844,13 +844,24 @@ export default function Expenses() {
   // la ficha muestra nombres: los de quien pide y la socia salen de las listas que ya
   // carga la pantalla (firmantes y personas del proyecto)
   const nombreDe = id => id ? (firmantes.find(p => p.id === id) || personas.find(p => p.id === id))?.full_name || null : null
+  const fichaDe = g => ({
+    ...g, pedido_por_nombre: nombreDe(g.requester_id), registrado_por_nombre: nombreDe(g.registered_by), pagado_por_nombre: nombreDe(g.confirmed_by),
+    hoja_izq_por_nombre: nombreDe(g.requester_papel_por), hoja_der_por_nombre: nombreDe(g.approval_papel_por),
+    reposicion: g.reposicion_id && reposiciones[g.reposicion_id] ? reposiciones[g.reposicion_id] : null,
+  })
   const abrirFicha = g => (
-    <button className="link-btn" title="Ver todo de este gasto" onClick={() => setFicha({
-      ...g, pedido_por_nombre: nombreDe(g.requester_id), registrado_por_nombre: nombreDe(g.registered_by), pagado_por_nombre: nombreDe(g.confirmed_by),
-      hoja_izq_por_nombre: nombreDe(g.requester_papel_por), hoja_der_por_nombre: nombreDe(g.approval_papel_por),
-      reposicion: g.reposicion_id && reposiciones[g.reposicion_id] ? reposiciones[g.reposicion_id] : null,
-    })}><b>{g.request_number ? numeroDe(g) : '—'}</b></button>
+    <button className="link-btn" title="Ver todo de este gasto" onClick={() => setFicha(fichaDe(g))}><b>{g.request_number ? numeroDe(g) : '—'}</b></button>
   )
+  // ?gasto=<id> abre la ficha de ese gasto (se llega así desde el buscador, Ctrl+K). El
+  // buscador ya eligió su proyecto: se espera a que cargue la lista de ESE proyecto.
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    const gid = params.get('gasto')
+    if (!gid || !proyectoListo || !list.length) return
+    const g = list.find(x => String(x.id) === gid)
+    if (g) setFicha(fichaDe(g))
+    setParams(p => { p.delete('gasto'); return p }, { replace: true })
+  }, [params, proyectoListo, list])   // eslint-disable-line
   // los registrados directo con el voucher (sql/200) no tienen constancia que imprimir
   const imprimibles = filtrada.filter(g => !g.voucher_grupo)
   async function imprimirLote() {

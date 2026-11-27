@@ -1,13 +1,16 @@
 import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useProject, colorProyecto, logoProyecto, gruposPorEmpresa, nombreEmpresa, PID_EMPRESA } from '../context/ProjectContext'
+import { useProject, colorProyecto, logoProyecto, gruposPorEmpresa, nombreEmpresa, empresaDe, PID_EMPRESA } from '../context/ProjectContext'
+import '../styles/menu.css'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 import Avatar from './Avatar'
 import SaveFx from './SaveFx'
 import InstalarApp from './InstalarApp'
 import BarraVendedor from './BarraVendedor'
+import SubidasEnCurso from './SubidasEnCurso'
+import BuscadorGeneral from './BuscadorGeneral'
 import { useTablasAlAlto } from '../lib/tablasAlAlto'
 import { useNavigate as usarNavegacion } from 'react-router-dom'
 
@@ -150,8 +153,11 @@ const MENU_FACT_CARTAS = { to: '/facturacion/cartas', label: 'Cartas de cobranza
 const MENU_FACT_DEUDORES = { to: '/facturacion/deudores', label: 'Lotes con deuda', icon: '⏰', color: '#e05252' }
 // Los grupos, en orden. Un grupo con un solo ítem visible se muestra como ítem suelto.
 const COLOR_TOTAL = '#9aa896'   // el gris de "todos los proyectos", el mismo del selector de las pantallas
-const ORDEN_GRUPOS = ['Cobranza', 'Ventas', 'Gastos', 'Comercial', 'Reportes', 'Configuración']
-const ICONO_GRUPO = { Cobranza: '💰', Ventas: '🏷️', Gastos: '🧾', Comercial: '📢', Reportes: '📈', 'Configuración': '⚙️' }
+// las secciones de la barra (26 nov), en orden; lo que no está aquí va a "Más herramientas"
+const ORDEN_PROY = ['/lotes', '/ventas', '/pagos', '/gastos', '/cartas', '/comisiones', '/vendedor']
+const ORDEN_DIA = ['/hoy', '/', '/dashboard', '/whatsapp', '/clientes', '/prospectos', '/visitas', '/secretarias', '/cobranza-ia', '/facturacion/deudores']
+// la letra del proyecto cuando no tiene logo: "LAS PRADERAS DE CASHIBO" → "P"
+const inicialProy = n => (String(n || '').replace(/^(las|los|el|la)\s+/i, '').trim().charAt(0) || '?').toUpperCase()
 // Paneles que el superusuario puede habilitar/ocultar por usuario (excluye los solo-superusuario).
 // Cobranza IA no va en esta lista: no la abre un panel sino el permiso especial.
 // Los que van por permiso especial (la planilla) tampoco: se dan con su propia casilla.
@@ -162,7 +168,7 @@ export default function Layout() {
   const { projects, pid, pidOp, select, esTotal, empresaSel } = useProject()
   const [open, setOpen] = useState(false)
   const [eligiendoProy, setEligiendoProy] = useState(false)   // la lista de proyectos, desplegada
-  const [gruposCerrados, setGruposCerrados] = useState({})   // grupos plegados (por defecto todos abiertos)
+  const [verConectados, setVerConectados] = useState(false)   // la lista de conectados, desplegada
   const [conectados, setConectados] = useState([])
   // Solicitudes de gasto que esperan MI firma, por proyecto. Se ve en cualquier
   // pantalla: el objetivo es que nadie tenga que acordarse de revisar.
@@ -245,8 +251,6 @@ export default function Layout() {
   // `permiso`: el superusuario y quien tenga ese permiso especial en Usuarios (la planilla, sql/132)
   const tienePermiso = p => esSuper || (profile?.permisos || []).includes(p)
   const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.permiso || tienePermiso(m.permiso)) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
-  const grupoAbierto = g => !gruposCerrados[g]
-  const toggleGrupo = g => setGruposCerrados(s => ({ ...s, [g]: !s[g] }))
 
   // latido de presencia del usuario actual (cada 45s)
   useEffect(() => {
@@ -384,6 +388,18 @@ export default function Layout() {
 
   const visibles = MENU.filter(verItem).map(delRol).map(m => m.to === '/cartas' ? { ...m, badge: pendCartas } : m.to === '/reclamos' ? { ...m, badge: pendReclamos } : m)
 
+  // LA BARRA POR SECCIONES (26 nov): "En este proyecto" (lo que trabaja sobre el proyecto
+  // elegido), "Día a día" (lo de todos) y "Más herramientas" (configuración y
+  // administración, plegado). Cada quien ve solo lo que su rol y sus paneles le abren.
+  const secProy = ORDEN_PROY.map(to => visibles.find(m => m.to === to)).filter(Boolean)
+  const secDia = ORDEN_DIA.map(to => visibles.find(m => m.to === to)).filter(Boolean)
+  const secMas = visibles.filter(m => !secProy.includes(m) && !secDia.includes(m))
+  const [masPref, setMasPref] = useState(() => { try { return localStorage.getItem('urbis.menu.mas') === '1' } catch { return false } })
+  const enMas = secMas.some(m => m.to !== '/' && (pathname.startsWith(m.to) || (m.tambien || []).some(t => pathname.startsWith(t))))
+  const masAbierto = masPref || enMas
+  const cambiarMas = () => setMasPref(a => { const v = !masAbierto; try { localStorage.setItem('urbis.menu.mas', v ? '1' : '0') } catch { /* sin memoria */ } return v })
+  const badgeMas = secMas.reduce((s, m) => s + (m.badge || 0), 0)
+
   // facturación no tiene otra pantalla: cualquier otra dirección la devuelve a la suya
   if (esFacturacion && !pathname.startsWith('/facturacion')) return <Navigate to="/facturacion" replace />
 
@@ -395,6 +411,14 @@ export default function Layout() {
           <span className="brand-badge"><Logo size={34} /></span>
           <span><b>URBIS GROUP</b><br /><small>REAL ESTATE</small></span>
         </div>
+        {/* el buscador general (components/BuscadorGeneral.jsx): también con Ctrl+K o "/" */}
+        {!esFacturacion && role !== 'asesor' && (
+          <button type="button" className="buscar-btn" onClick={() => { setOpen(false); window.dispatchEvent(new Event('urbis-buscar')) }}
+            title="Buscar lotes, clientes, gastos y pantallas (Ctrl+K)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+            <span>Buscar…</span><kbd>Ctrl K</kbd>
+          </button>
+        )}
         <nav onClick={() => setOpen(false)}>
           {/* el VENDEDOR (rol asesor) solo ve sus prospectos, sus chats de WhatsApp y el panel
               de precios y cuotas (sin datos de clientes), nada más del CRM */}
@@ -403,28 +427,28 @@ export default function Layout() {
                 .map(m => Item(m.to === '/prospectos' ? { ...m, label: 'Mis prospectos', badge: pendProsp } : m))
             : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item({ ...MENU_FACT_CARTAS, badge: pendCartas })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
-                {/* EL PROYECTO: se elige una vez aquí y todas las pantallas de abajo
-                    (lotes, pagos, ventas, gastos, comisiones) trabajan sobre él */}
+                {/* EL PROYECTO, ARRIBA Y GRANDE (26 nov, pedido del dueño: "más cerrado por
+                    proyecto"): su logo, su empresa y su nombre. Se elige una vez aquí y las
+                    pantallas de "En este proyecto" trabajan sobre él. Dice la verdad de lo que está
+                    elegido: si Hoy o el Dashboard están en "todos los proyectos", aquí también. */}
                 {proyOp && (
-                  <div className={`proj-grp ${eligiendoProy ? 'open' : ''}`} style={{ '--pc': enTotal ? COLOR_TOTAL : colorProyecto(proyOp, iOp), marginBottom: 6 }}>
-                    <p className="menu-section" style={{ marginTop: 0 }}>Proyecto</p>
-                    {/* Dice la verdad de lo que está elegido: si Hoy o el Dashboard están en
-                        "todos los proyectos", aquí también (antes seguía mostrando el primero) */}
-                    <button type="button" className="proj-head on" title={projects.length > 1 ? 'Cambiar de proyecto' : proyOp.name}
+                  <div className={'mn-proy' + (eligiendoProy ? ' open' : '') + (enTotal ? ' total' : '')} style={{ '--pc': enTotal ? COLOR_TOTAL : colorProyecto(proyOp, iOp) }}>
+                    <button type="button" className="mn-proy-head" title={projects.length > 1 ? 'Cambiar de proyecto' : proyOp.name}
                       onClick={e => { e.stopPropagation(); if (projects.length > 1) setEligiendoProy(a => !a) }}>
-                      <span className="proj-dot" />
-                      <span className="proj-name" title={enTotal ? (empresaSel ? 'Todo ' + nombreEmpresa(empresaSel) : 'Todos los proyectos') : proyOp.name}>
-                        {enTotal ? (empresaSel ? <>Todo <b>{nombreEmpresa(empresaSel)}</b></> : <>Todos los <b>proyectos</b></>) : nombreProy(proyOp.name)}
+                      {/* la marca: el logo de quien factura si lo tiene (Praderas de Pucallpa = Century) */}
+                      <span className="mn-proy-logo">
+                        {!enTotal && logoProyecto(proyOp)
+                          ? <img src={logoProyecto(proyOp)} alt={proyOp.fact_razon_social || proyOp.name} />
+                          : <span>{enTotal ? '∑' : inicialProy(proyOp.name)}</span>}
                       </span>
-                      {projects.length > 1 && <span className={`proj-caret ${eligiendoProy ? 'open' : ''}`}>&#9656;</span>}
+                      <span className="mn-proy-txt">
+                        <small>{enTotal ? 'Vista general' : 'Proyecto · ' + empresaDe(proyOp)}</small>
+                        <b title={enTotal ? (empresaSel ? 'Todo ' + nombreEmpresa(empresaSel) : 'Todos los proyectos') : proyOp.name}>
+                          {enTotal ? (empresaSel ? 'Todo ' + nombreEmpresa(empresaSel) : 'Todos los proyectos') : proyOp.name}
+                        </b>
+                      </span>
+                      {projects.length > 1 && <span className={'mn-proy-caret' + (eligiendoProy ? ' open' : '')} aria-hidden="true">&#9662;</span>}
                     </button>
-                    {/* la marca del proyecto elegido: cada uno se identifica con su logo
-                        (el de quien factura si lo tiene: Praderas de Pucallpa = Century) */}
-                    {!enTotal && logoProyecto(proyOp) && !eligiendoProy && (
-                      <div className="proj-marca" title={proyOp.fact_razon_social || proyOp.name}>
-                        <img src={logoProyecto(proyOp)} alt={proyOp.fact_razon_social || proyOp.name} />
-                      </div>
-                    )}
                     {/* Los proyectos van AL MISMO NIVEL, sin sangría: cada proyecto es
                         independiente, ninguno cuelga de otro (pedido del dueño, 1 oct). Desde el
                         11 nov se separan por EMPRESA: CENTURY (Praderas de Pucallpa) y URBIS
@@ -446,7 +470,7 @@ export default function Layout() {
                         </button>
                       )
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+                        <div className="mn-proy-lista">
                           <p className="menu-section" style={{ margin: '0 0 2px' }}>Cambiar a</p>
                           {conEmpresas
                             ? gruposEmp.map(g => (
@@ -465,33 +489,56 @@ export default function Layout() {
                   </div>
                 )}
 
-                {/* sueltos arriba: Hoy y el mapa de lotes */}
-                {visibles.filter(m => !m.grupo).map(Item)}
+                {/* EN ESTE PROYECTO: lo que trabaja sobre el proyecto de arriba, siempre a la
+                    vista y del color del proyecto */}
+                {secProy.length > 0 && (
+                  <div className="mn-sec mn-sec-proy" style={{ '--pc': enTotal || !proyOp ? COLOR_TOTAL : colorProyecto(proyOp, iOp) }}>
+                    <p className="mn-cab"><i />{enTotal ? 'Por proyecto' : 'En este proyecto'}</p>
+                    {secProy.map(Item)}
+                  </div>
+                )}
 
-                {ORDEN_GRUPOS.map(g => {
-                  const hijos = visibles.filter(m => m.grupo === g)
-                  if (!hijos.length) return null
-                  // un grupo con una sola pantalla (Gastos, Reportes) va como ítem suelto
-                  if (hijos.length === 1) return Item(hijos[0])
-                  return (
-                    <div key={g} className={`proj-grp ${grupoAbierto(g) ? 'open' : ''}`} style={{ '--pc': '#8a93a0' }}>
-                      <button type="button" className="proj-head" onClick={e => { e.stopPropagation(); toggleGrupo(g) }}>
-                        <span style={{ fontSize: 15, width: 18, textAlign: 'center' }}>{ICONO_GRUPO[g]}</span>
-                        <span className="proj-name">{g}</span>
-                        <span className={`proj-caret ${grupoAbierto(g) ? 'open' : ''}`}>&#9656;</span>
-                      </button>
-                      {grupoAbierto(g) && <div className="proj-items">{hijos.map(Item)}</div>}
-                    </div>
-                  )
-                })}
+                {/* DÍA A DÍA: lo de todos los proyectos */}
+                {secDia.length > 0 && (
+                  <div className="mn-sec">
+                    <p className="mn-cab">Día a día</p>
+                    {secDia.map(Item)}
+                  </div>
+                )}
+
+                {/* MÁS HERRAMIENTAS: configuración y administración, plegado (se abre solo si
+                    se está en una de sus pantallas) */}
+                {secMas.length > 0 && (
+                  <div className={'mn-sec mn-mas' + (masAbierto ? ' open' : '')}>
+                    <button type="button" className="mn-cab mn-cab-btn" aria-expanded={masAbierto}
+                      onClick={e => { e.stopPropagation(); cambiarMas() }}>
+                      <span>Más herramientas</span>
+                      {!masAbierto && badgeMas > 0 && <span className="nav-badge">{badgeMas}</span>}
+                      <span className={'proj-caret' + (masAbierto ? ' open' : '')}>&#9656;</span>
+                    </button>
+                    {masAbierto && secMas.map(Item)}
+                  </div>
+                )}
               </>)
           }
         </nav>
         {esAdmin && conectados.length > 0 && (
-          // lista con scroll propio: aunque haya muchos conectados, nunca empuja el pie fuera de vista
-          <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 11, display: 'flex', flexDirection: 'column', maxHeight: '32vh', minHeight: 0 }}>
-            <p className="muted" style={{ fontWeight: 700, letterSpacing: '.5px', margin: '0 0 4px', flexShrink: 0 }}>🟢 CONECTADOS ({conectados.length})</p>
-            <div style={{ overflowY: 'auto', minHeight: 0 }}>
+          // 26 nov: compacto (una fila de caritas) para dejarle el alto al menú; al tocarlo se
+          // despliega la lista con nombres. La lista tiene scroll propio y nunca empuja el pie.
+          <div className={'mn-conectados' + (verConectados ? ' open' : '')}>
+            <button type="button" className="mn-conectados-cab" onClick={() => setVerConectados(v => !v)}
+              title={conectados.map(u => u.full_name).filter(Boolean).join(', ')} aria-expanded={verConectados}>
+              <span className="mn-punto" />
+              <span className="mn-conectados-n">{conectados.length} {conectados.length === 1 ? 'conectado' : 'conectados'}</span>
+              {!verConectados && (
+                <span className="mn-caritas">
+                  {conectados.slice(0, 5).map(u => <Avatar key={u.id} url={u.avatar_url} nombre={u.full_name} size={20} />)}
+                  {conectados.length > 5 && <small>+{conectados.length - 5}</small>}
+                </span>
+              )}
+              <span className={'proj-caret' + (verConectados ? ' open' : '')}>&#9656;</span>
+            </button>
+            {verConectados && <div style={{ overflowY: 'auto', minHeight: 0 }}>
               {conectados.map(u => (
                 <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '3px 0' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
@@ -501,7 +548,7 @@ export default function Layout() {
                   <span className="muted" style={{ whiteSpace: 'nowrap' }}>{haceCuanto(u.online_since)}</span>
                 </div>
               ))}
-            </div>
+            </div>}
           </div>
         )}
         <div className="sidebar-footer">
@@ -530,6 +577,22 @@ export default function Layout() {
           '--accent-strong': `color-mix(in srgb, ${colorActivo} 62%, #ffffff)`,
         } : {}),
       }}>
+        {/* LA FRANJA DEL PROYECTO (26 nov): en las pantallas de un proyecto (mapa, ficha del
+            lote, ventas, pagos, gastos…) queda claro DENTRO de cuál se está trabajando */}
+        {pantallaDeProyecto && proyOp && !enTotal && (
+          <div className="proy-banda" style={{ '--pc': colorProyecto(proyOp, iOp) }}>
+            <span className="proy-banda-logo">
+              {logoProyecto(proyOp) ? <img src={logoProyecto(proyOp)} alt="" /> : <span>{inicialProy(proyOp.name)}</span>}
+            </span>
+            <span className="proy-banda-txt">
+              <small>{empresaDe(proyOp)}</small>
+              <b>{proyOp.name}</b>
+            </span>
+            {projects.length > 1 && (
+              <button type="button" className="proy-banda-cambiar" onClick={() => { setEligiendoProy(true); setOpen(true) }}>Cambiar<span className="pb-largo"> proyecto</span></button>
+            )}
+          </div>
+        )}
         {/* LO QUE ESPERA A ESTA PERSONA EN GASTOS (10 oct, pedido del dueño): al entrar
             al sistema, tarjetas con el total por firmar y por pagar; cada una lleva a
             Gastos del proyecto, ya elegido. En las demás pantallas, la franja corta. En
@@ -566,6 +629,8 @@ export default function Layout() {
       </main>
       {role === 'asesor' && <BarraVendedor pendientes={pendProsp} onCuenta={() => setOpen(o => !o)} />}
       <VolverArriba />
+      <SubidasEnCurso />
+      {!esFacturacion && role !== 'asesor' && <BuscadorGeneral pantallas={visibles} />}
       <SaveFx />
     </div>
   )
