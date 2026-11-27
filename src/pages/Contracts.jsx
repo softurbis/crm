@@ -124,7 +124,7 @@ export default function Contracts() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Ventas y contratos</h1>
+        <h1 className="u-m0 u-f1">Ventas y contratos</h1>
         <ProjectPicker />
         {puedeCorregir &&(
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
@@ -134,13 +134,13 @@ export default function Contracts() {
       </div>
 
       {tplOpen && puedeCorregir &&(
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p><b>PLANTILLA DEL CONTRATO — {proyecto?.name}</b></p>
           <p className="muted small">
             Cada proyecto tiene su propia plantilla. Escribe el texto libremente y usa variables entre dobles llaves.
             Lineas que empiezan con "CLAUSULA" o "ANEXO" salen como titulos. <b>**texto**</b> sale en negrita.
           </p>
-          <p className="muted small" style={{ textTransform: 'none' }}>
+          <p className="muted small u-tt-n">
             Tablas propias: cada fila en su linea, con las celdas separadas por <code>|</code> (ej. <code>| Banco | BBVA |</code>).
             Una fila <code>|---|---|</code> debajo de la primera la vuelve encabezado.
             Al inicio de una linea, <code>{'{{SI_SEPARACION}}'}</code> o <code>{'{{SI_CO_COMPRADOR}}'}</code> hace que salga solo si la venta tuvo separacion o co-comprador.
@@ -199,7 +199,7 @@ export default function Contracts() {
                   <td><LoteLink lot={v.lot}>{conjunta ? v.lot.associated_to.split(' (')[0].replace('VENTA CONJUNTA ', '') : null}</LoteLink></td>
                   <td>{v.client?.full_name || '-'}{v.co_client ? <span className="muted"> + {v.co_client.full_name}</span> : ''}</td>
                   <td>{fechaPe(v.sale_date)}
-                    {puedeCorregir &&<button className="link-btn" style={{ marginLeft: 4 }} title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
+                    {puedeCorregir &&<button className="link-btn u-ml-4" title="Corregir fecha de venta (queda en bitácora)" onClick={() => editarFechaVenta(v)}>&#9998;</button>}
                   </td>
                   <td>{soles(v.total_sale_price)}</td>
                   <td style={{ color: '#4bb96a' }}>{soles(c.cobrado)}</td>

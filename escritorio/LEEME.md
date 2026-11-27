@@ -18,8 +18,9 @@ sigue funcionando igual: es el respaldo.**
 
 ## Qué tiene además del navegador
 - **Pantalla de bienvenida** al abrir (logo, barra de carga y "By: Ing. César O'Higgins"): se ve
-  al menos 3 s mientras el panel carga escondido detrás (`MINIMO_BIENVENIDA_MS`; si el panel
-  tarda más de 20 s, se muestra igual). Se dibuja a mano en `class Bienvenida`.
+  12 s (desde la 1.2.1, pedido del dueño) con una barra que se llena y mensajes que cambian,
+  mientras el panel carga escondido detrás (`Bienvenida.DURACION_MS`; si el panel tarda más de
+  30 s, se muestra igual). Se dibuja a mano en `class Bienvenida`.
 - Barra de título oscura, del color del panel (Windows 11).
 - Recuerda el tamaño y la posición de la ventana (la primera vez abre maximizada).
 - Los enlaces a otros sitios (WhatsApp, Google…) se abren en el navegador; imprimir y ver

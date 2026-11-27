@@ -43,21 +43,21 @@ export default function EntrarVendedor() {
       <form className="glass login-card entrar-vend" onSubmit={entrar}>
         <div className="login-logo"><Logo size={72} /></div>
         <h1>VENDEDORES</h1>
-        <p className="muted" style={{ textTransform: 'none' }}>Entra con tu celular y tu clave</p>
+        <p className="muted u-tt-n">Entra con tu celular y tu clave</p>
         <label>Tu celular
           <input type="tel" inputMode="numeric" autoComplete="username" placeholder="987 654 321" maxLength={15}
             value={cel} onChange={e => setCel(e.target.value)} required autoFocus={!cel} />
         </label>
         <label>Tu clave
-          <span style={{ display: 'flex', gap: 6 }}>
+          <span className="u-d-f u-g-6">
             <input type={ver ? 'text' : 'password'} autoComplete="current-password" style={{ flex: 1, minWidth: 0, textTransform: 'none' }}
               value={clave} onChange={e => setClave(e.target.value)} required autoFocus={!!cel} />
             <button type="button" className="btn-ghost" onClick={() => setVer(v => !v)}>{ver ? 'Ocultar' : 'Ver'}</button>
           </span>
         </label>
-        {error && <p className="error" style={{ textTransform: 'none' }}>{error}</p>}
+        {error && <p className="error u-tt-n">{error}</p>}
         <button className="btn-primary" disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
-        <p className="muted" style={{ fontSize: 12, textTransform: 'none', marginTop: 10 }}>
+        <p className="muted u-fs-12 u-tt-n u-mt-10">
           ¿Olvidaste tu clave? Pídele una nueva al administrador.<br />
           <Link to="/login" className="muted">Soy de oficina: entrar con correo</Link>
         </p>

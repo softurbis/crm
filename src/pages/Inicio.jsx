@@ -131,15 +131,15 @@ export default function Inicio() {
   return (
     <div className="hoy">
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Hoy <span className="muted hoy-fecha">· {titulo}</span></h1>
+        <h1 className="u-m0 u-f1">Hoy <span className="muted hoy-fecha">· {titulo}</span></h1>
         <ProjectPicker withGeneral generalLabel="TODOS MIS PROYECTOS" />
       </div>
 
       {/* ---- la puerta de entrada: a quien se atiende ---- */}
       <div className="glass hoy-buscar">
-        <p className="fl-lbl" style={{ margin: '0 0 6px' }}>¿A quién atiendes? Escribe el lote, el nombre, el DNI o el celular</p>
+        <p className="fl-lbl u-m-006">¿A quién atiendes? Escribe el lote, el nombre, el DNI o el celular</p>
         <BuscarLote autoFocus={!esCelular} proyectos={ids} placeholder="Ej: G7 · Juan Pérez · 45678912 · 987654321" />
-        <p className="small" style={{ margin: '8px 0 0' }}><Link to="/lotes">&#128506; Abrir el mapa de lotes</Link></p>
+        <p className="small u-m-800"><Link to="/lotes">&#128506; Abrir el mapa de lotes</Link></p>
       </div>
 
       {!d && <p className="muted">Buscando lo urgente del día…</p>}
@@ -204,7 +204,7 @@ export default function Inicio() {
           {/* ---- documentos que faltan ---- */}
           <div className="glass fl-card">
             <h3>&#128206; Pagos sin documentos <span className="hoy-n">{d.docs.length}</span></h3>
-            <p className="muted small" style={{ margin: '0 0 6px' }}>
+            <p className="muted small u-m-006">
               De las últimas 6 semanas. En total faltan {d.nSinComp ?? '?'} comprobantes y {d.nSinVou ?? '?'} vouchers (<Link to="/pagos">ver en Pagos</Link>).
             </p>
             {!d.docs.length && <p className="ok small">Todos los pagos recientes tienen sus documentos.</p>}
@@ -231,7 +231,7 @@ export default function Inicio() {
                 {t.time ? <b>{String(t.time).slice(0, 5)} </b> : null}{t.title}
               </p>
             ))}
-            <p className="small" style={{ margin: '8px 0 0' }}><Link to="/secretarias">Ver mi seguimiento completo</Link></p>
+            <p className="small u-m-800"><Link to="/secretarias">Ver mi seguimiento completo</Link></p>
           </div>
         </div>
       )}

@@ -133,7 +133,7 @@ export default function Facturacion() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Comprobantes por subir</h1>
+        <h1 className="u-m0 u-f1">Comprobantes por subir</h1>
         <button className={exp ? 'btn-ghost' : 'btn-primary'} onClick={abrirExcel} title="Bajar los pagos de un rango de fechas en Excel">{exp ? '✕ Cerrar Excel' : '📥 Excel'}</button>
       </div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem' }}>
@@ -142,9 +142,9 @@ export default function Facturacion() {
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       {exp && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>📥 PAGOS EN EXCEL</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — cada pago con su fecha, cliente, lote, concepto y monto, el resumen por proyecto y mes, y los que faltan de boleta o factura (los documentos se ven solo aquí en el sistema)</span></p>
+        <div className="glass form-card u-mxw-n">
+          <p className="u-m-008"><b>📥 PAGOS EN EXCEL</b>
+            <span className="muted small u-tt-n"> — cada pago con su fecha, cliente, lote, concepto y monto, el resumen por proyecto y mes, y los que faltan de boleta o factura (los documentos se ven solo aquí en el sistema)</span></p>
           <div className="chips">
             {atajos.map(([t, d, h]) => <button key={t} className={`chip ${exp.desde === d && exp.hasta === h ? 'on' : ''}`} onClick={() => setExp({ desde: d, hasta: h })}>{t}</button>)}
           </div>
@@ -159,7 +159,7 @@ export default function Facturacion() {
             )}
             <button className="btn-primary" disabled={bajando} onClick={excel}>{bajando ? 'Armando…' : '📥 Descargar Excel'}</button>
           </div>
-          <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+          <p className="muted small u-m-800 u-tt-n">
             {exp.desde || exp.hasta ? 'Del ' + (exp.desde ? fechaPe(exp.desde) : 'inicio') + ' al ' + (exp.hasta ? fechaPe(exp.hasta) : 'hoy') : 'Todos los pagos, desde el primero'}
             {' · '}{proy === 'todos' ? 'todos tus proyectos' : proy}.
           </p>
@@ -200,19 +200,19 @@ export default function Facturacion() {
       {!!vistaGrupos.length && (
         <div className="glass table-wrap">
           <table>
-            <thead><tr><th>Fecha</th><th>Proyecto · lote</th><th>Cliente</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th>Operación</th><th>Voucher</th><th>Boleta / factura</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Proyecto · lote</th><th>Cliente</th><th>Concepto</th><th className="u-ta-r">Monto</th><th>Operación</th><th>Voucher</th><th>Boleta / factura</th></tr></thead>
             <tbody>
               {vistaGrupos.map(g => (
                 <tr key={g.key}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(g.r.date)}</td>
+                  <td className="u-nw">{fechaPe(g.r.date)}</td>
                   <td className="small" style={{ whiteSpace: 'normal', minWidth: 130 }}>{g.r.proyecto}<div>{g.r.mz
                     ? (g.r.lot_id ? <button className="link-btn" title="Ver el estado de cuenta de este lote" onClick={() => setLoteVer(g.r.lot_id)}><b>MZ {g.r.mz} LT {g.r.lt}</b></button> : <b>MZ {g.r.mz} LT {g.r.lt}</b>)
                     : <b>—</b>}</div></td>
                   <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}>{g.r.cliente || '—'}
                     {g.r.doc_number && <div className="muted">{g.r.doc_type || 'DOC'} {g.r.doc_number}</div>}</td>
                   <td className="small" style={{ whiteSpace: 'normal', minWidth: 110 }}>{g.concepto}{g.r.venta_estado === 'expropiado' && <div className="warn">venta expropiada</div>}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.total)}</b></td>
-                  <td className="small" style={{ textTransform: 'none' }}>{g.r.operation_number}<div className="muted">{g.r.banco || ''}</div></td>
+                  <td className="u-ta-r u-nw"><b>{soles(g.total)}</b></td>
+                  <td className="small u-tt-n">{g.r.operation_number}<div className="muted">{g.r.banco || ''}</div></td>
                   <td>{g.r.voucher_url
                     ? <button className="link-btn" onClick={() => setVerDoc({ url: g.items.find(x => x.voucher_url).voucher_url, titulo: 'Voucher · ' + fechaPe(g.r.date) + ' · ' + soles(g.total) })}>VER</button>
                     : <span className="muted small">sin voucher</span>}</td>
@@ -221,7 +221,7 @@ export default function Facturacion() {
                       <button className="link-btn" onClick={() => setVerDoc({ url: g.comprobante.receipt_url, titulo: 'Comprobante · ' + (g.comprobante.receipt_note || fechaPe(g.r.date)) })}>VER</button>
                       {g.comprobante.receipt_note && <span className="muted small"> {g.comprobante.receipt_note}</span>}
                       {' '}<ChipLectura l={lecturas.porUrl[g.comprobante.receipt_url]} puedeRevisar onCambio={lecturas.recargar} />
-                      {g.esMio && <label className="link-btn small" style={{ marginLeft: 6 }}>cambiar
+                      {g.esMio && <label className="link-btn small u-ml-6">cambiar
                         <input type="file" accept="image/*,.pdf" hidden onChange={e => e.target.files[0] && subir(g, e.target.files[0])} /></label>}
                     </>) : g.electronico ? (
                       g.electronico.ce_pdf

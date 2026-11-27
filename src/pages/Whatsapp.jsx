@@ -180,7 +180,7 @@ function ReplyBox({ conv, userId, onSent, quicks = [], vars = {}, esAdmin, onQui
       )}
       <div className="wa-reply" style={cerrada ? { opacity: .5 } : undefined}>
         <label className="wa-btn" title={cerrada ? 'Ventana de 24 h cerrada: no se pueden mandar archivos' : 'Adjuntar imagen, video, audio o documento'} style={{ cursor: cerrada ? 'not-allowed' : 'pointer' }}>
-          📎<input type="file" disabled={cerrada} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={elegirArchivo} style={{ display: 'none' }} />
+          📎<input className="u-d-n" type="file" disabled={cerrada} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={elegirArchivo} />
         </label>
         <input value={txt} disabled={cerrada} onChange={e => setTxt(e.target.value)}
           placeholder={cerrada ? 'Ventana de 24 h cerrada: solo plantilla' : adj ? 'Texto que acompaña al archivo (opcional)…' : 'Escribe y sale por el +51 960 487 000 (número oficial)… el bot se calla al responder tú'}
@@ -934,17 +934,17 @@ export default function Whatsapp() {
     return (
       <div key={c.id} onClick={() => setSel(c)}
         style={{ padding: 10, borderRadius: 10, cursor: 'pointer', marginBottom: 4, borderLeft: colProy ? `3px solid ${colProy}` : undefined, background: sel?.id === c.id ? 'rgba(140,155,122,.18)' : nsinleer ? 'rgba(37,211,102,.07)' : 'transparent', border: '1px solid ' + (sel?.id === c.id ? 'rgba(140,155,122,.5)' : 'transparent') }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-          <b style={{ fontSize: 13 }}>{nombreDe(c)}</b>
+        <div className="u-d-f u-jc-sb u-g-6">
+          <b className="u-fs-13">{nombreDe(c)}</b>
           <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
             {nsinleer > 0 && <span style={{ background: '#25d366', color: '#04210f', fontSize: 10, fontWeight: 800, borderRadius: 20, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{nsinleer}</span>}
-            {c.ultimo_entrante_at && !ventanaDe(c).abierta && <span title="Ventana de 24 h cerrada: solo se le puede escribir con plantilla" style={{ fontSize: 10 }}>🔒</span>}
-            <span className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fh(c.last_message_at)}</span>
+            {c.ultimo_entrante_at && !ventanaDe(c).abierta && <span className="u-fs-10" title="Ventana de 24 h cerrada: solo se le puede escribir con plantilla">🔒</span>}
+            <span className="muted u-fs-11 u-nw">{fh(c.last_message_at)}</span>
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-          <span className="muted" style={{ fontSize: 12 }}>+{c.phone}</span>
-          <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <span className="muted u-fs-12">+{c.phone}</span>
+          <span className="u-d-f u-g-4 u-fwr">
             {sesiones.length > 1 && c.session_id && (() => { const sn = sesiones.find(x => x.id === c.session_id); const col = colorSesion(c.session_id) || '#8b95a1'; return sn ? <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: '1px solid ' + col, color: col }}>📱 {sn.label}</span> : null })()}
             {c.projects && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colProy || '#6fd0c9'}`, color: colProy || '#6fd0c9' }}>{(c.projects.name || '').split(' ').slice(-1)[0].toUpperCase()}</span>}
             {(c.etiquetas || []).map(t => <span key={t} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 20, border: `1px solid ${colorTag(t)}`, color: colorTag(t) }}>🏷️ {t}</span>)}
@@ -975,11 +975,11 @@ export default function Whatsapp() {
 
   return (
     <div>
-      <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>WhatsApp
+      <div className="page-head u-d-f u-jc-sb u-ai-c u-fwr u-g-10">
+        <h1 className="u-d-f u-ai-c u-g-10">WhatsApp
           {pausado && <span title="El panel se pausó para ahorrar datos. Mueve el mouse para reactivarlo (los avisos siguen llegando)." style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, border: '1px solid #8b95a1', color: '#8b95a1', cursor: 'pointer' }} onClick={() => { ultAccion.current = Date.now(); setPausa(false); cargarConvs() }}>⏸ EN PAUSA</span>}
         </h1>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="u-d-f u-g-8 u-fwr u-ai-c">
           {esAdminW && (<>
           <Toggle on={flags.bot_activo} onClick={() => setFlag('bot_activo', !flags.bot_activo)} icon="🤖" label="BOT" />
           <span style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 10px 4px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,.1)', opacity: flags.bot_activo ? 1 : 0.45 }}>
@@ -1023,16 +1023,16 @@ export default function Whatsapp() {
             (+{adminPhone || '—'}) y del asesor de cada proyecto. También les llega el <b>latido</b> que confirma
             que el bot sigue vivo. El bot los relee en máximo 1 minuto.
           </p>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <div className="u-d-f u-g-6 u-fwr u-ai-c u-mb-8">
             <input value={avisoNuevo} placeholder="51924947651" style={{ flex: '0 1 190px', textTransform: 'none' }}
               onChange={e => setAvisoNuevo(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregarAviso() } }} />
             <button className="btn-ghost" onClick={agregarAviso}>+ Agregar número</button>
           </div>
           {listaAvisos.length === 0
-            ? <p className="muted small" style={{ margin: 0, textTransform: 'none' }}>Todavía no hay números en copia. El ADMIN igual recibe todo.</p>
+            ? <p className="muted small u-m0 u-tt-n">Todavía no hay números en copia. El ADMIN igual recibe todo.</p>
             : (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div className="u-d-f u-g-6 u-fwr">
                 {listaAvisos.map(n => (
                   <span key={n} className="tok" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '.25rem .55rem' }}>
                     📱 +{n}
@@ -1042,7 +1042,7 @@ export default function Whatsapp() {
                 ))}
               </div>
             )}
-          {cfgMsg && <p className="ok small" style={{ margin: '6px 0 0' }}>{cfgMsg}</p>}
+          {cfgMsg && <p className="ok small u-m-600">{cfgMsg}</p>}
         </div>
       )}
 
@@ -1050,7 +1050,7 @@ export default function Whatsapp() {
       {/* Gestor de números por proyecto (wa_sessions) */}
       {verSes && esAdminW && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-10 u-ai-c u-fwr">
             <b>📱 NÚMEROS DE WHATSAPP (uno por proyecto)</b>
           </div>
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>
@@ -1061,11 +1061,11 @@ export default function Whatsapp() {
           {sesiones.length === 0 && <p className="muted">Aún no hay números registrados (¿ya se corrió sql/30 y se redesplegó el agente?).</p>}
           {sesiones.map(s => (
             <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.06)', flexWrap: 'wrap', opacity: sesionViva(s) ? 1 : .6 }}>
-              <span style={{ fontSize: 14 }} title={sesionViva(s) ? 'En línea por la Cloud API' : 'Apagado (Baileys se apagó el 27 oct 2026)'}>{sesionViva(s) ? '☁️' : '⏸'}</span>
+              <span className="u-fs-14" title={sesionViva(s) ? 'En línea por la Cloud API' : 'Apagado (Baileys se apagó el 27 oct 2026)'}>{sesionViva(s) ? '☁️' : '⏸'}</span>
               <input value={s.label || ''} onChange={e => setSesiones(a => a.map(x => x.id === s.id ? { ...x, label: e.target.value } : x))}
                 onBlur={e => setSesCampo(s.id, { label: e.target.value.trim().toUpperCase() })} style={{ width: 130, fontWeight: 700 }} />
               <span className="muted" style={{ fontSize: 12, width: 110 }}>{s.phone ? '+' + s.phone : '(sin vincular)'}</span>
-              {s.hist_ultimo && <span className="muted" style={{ fontSize: 10 }} title={'Historial de chats importado del celular: ' + new Date(s.hist_ultimo).toLocaleString('es-PE')}>🗄️ backup ✓</span>}
+              {s.hist_ultimo && <span className="muted u-fs-10" title={'Historial de chats importado del celular: ' + new Date(s.hist_ultimo).toLocaleString('es-PE')}>🗄️ backup ✓</span>}
               <span className="muted" style={{ fontSize: 11, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title="Proyecto que atiende este número (se asigna al crearlo desde su ficha en Proyectos)">
                 {proysAll.find(p => p.id === s.project_id)?.name || '— sin proyecto —'}
@@ -1074,12 +1074,12 @@ export default function Whatsapp() {
                 title={s.leads_activo !== false ? 'LEADS de este número ENCENDIDO: atiende a los interesados con el flujo de su proyecto. Clic para apagar (solo humano).' : 'LEADS de este número APAGADO: no responde a interesados nuevos. Clic para encender.'}
                 style={{ fontSize: 10, borderColor: s.leads_activo !== false ? '#9ccb86' : '#8b95a1', color: s.leads_activo !== false ? '#9ccb86' : '#8b95a1' }}>
                 🤖 LEADS {s.leads_activo !== false ? 'ON' : 'OFF'}</button>
-              {s.project_id && <button className="btn-ghost" style={{ fontSize: 10 }} title="Editar el flujo del bot de este proyecto" onClick={() => abrirFlujoDe(s.project_id)}>✏️ FLUJO</button>}
+              {s.project_id && <button className="btn-ghost u-fs-10" title="Editar el flujo del bot de este proyecto" onClick={() => abrirFlujoDe(s.project_id)}>✏️ FLUJO</button>}
               {s.is_corporate
                 ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: '1px solid #e7c15a', color: '#e7c15a' }}>★ CORPORATIVO</span>
-                : <button className="btn-ghost" style={{ fontSize: 10 }} onClick={() => marcarCorporativa(s.id)} title="Hacer de este el número de seguimiento/gerencia/avisos">☆ hacer corporativo</button>}
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-                {!sesionViva(s) && <span className="muted" style={{ fontSize: 10 }}>APAGADO · solo historial</span>}
+                : <button className="btn-ghost u-fs-10" onClick={() => marcarCorporativa(s.id)} title="Hacer de este el número de seguimiento/gerencia/avisos">☆ hacer corporativo</button>}
+              <span className="u-ml-a u-d-f u-g-6 u-ai-c">
+                {!sesionViva(s) && <span className="muted u-fs-10">APAGADO · solo historial</span>}
                 <button className="btn-ghost" onClick={() => borrarSesion(s)} title="Eliminar este número">✕</button>
               </span>
             </div>
@@ -1101,29 +1101,29 @@ export default function Whatsapp() {
               <BrainMap nodes={buildNodes()} selected={brainSel} onSelect={elegirBrain} />
             </div>
             <div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+          <div className="u-d-f u-g-8 u-fwr u-mb-10 u-ai-c">
             <select value={brainSel} onChange={e => elegirBrain(e.target.value)} style={{ maxWidth: 340 }}>
               {BRAIN_DEFS.map(b => <option key={b.k} value={b.k}>{b.t}</option>)}
               {proys.map(p => <option key={p.id} value={'p:' + p.id}>📁 FICHA: {p.name}</option>)}
             </select>
             {brainSel !== 'secretaria' && (<>
-              <label className="btn-ghost" style={{ cursor: 'pointer' }}>
+              <label className="btn-ghost u-cp">
                 📄 SUBIR .MD
-                <input type="file" accept=".md,.txt" onChange={subirMd} style={{ display: 'none' }} />
+                <input className="u-d-n" type="file" accept=".md,.txt" onChange={subirMd} />
               </label>
               <button className="btn" onClick={guardarBrain}>💾 GUARDAR{brainSel === 'gerencia' ? ' NOTAS' : ''}</button>
-              {brainMsg && <span style={{ fontSize: 12 }}>{brainMsg}</span>}
+              {brainMsg && <span className="u-fs-12">{brainMsg}</span>}
             </>)}
           </div>
           {brainSel === 'aprendido' && (
             <div style={{ border: '1px solid rgba(232,151,90,.5)', borderRadius: 10, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
               <b style={{ color: '#e8975a', fontSize: 13 }}>💡 ENSÉÑALE ALGO</b>
               <p className="muted" style={{ fontSize: 11, margin: '3px 0 8px' }}>Escribe un dato en una frase y el bot lo recordará (se agrega a la lista de abajo). Ej: "La oficina abre de 9am a 6pm" · "El plano de Cashibo ya está actualizado" · "No quedan lotes en la Mz A".</p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={ensenaTxt} onChange={e => setEnsenaTxt(e.target.value)} placeholder="Enséñale un dato…" style={{ flex: 1, textTransform: 'none' }} onKeyDown={e => { if (e.key === 'Enter') ensenar() }} />
+              <div className="u-d-f u-g-8">
+                <input className="u-f1 u-tt-n" value={ensenaTxt} onChange={e => setEnsenaTxt(e.target.value)} placeholder="Enséñale un dato…" onKeyDown={e => { if (e.key === 'Enter') ensenar() }} />
                 <button className="btn" onClick={ensenar}>ENSEÑAR</button>
               </div>
-              <p className="muted" style={{ fontSize: 10, marginTop: 6 }}>También por WhatsApp: desde el número ADMIN escríbele al bot <b>aprende: &lt;dato&gt;</b>.</p>
+              <p className="muted u-fs-10 u-mt-6">También por WhatsApp: desde el número ADMIN escríbele al bot <b>aprende: &lt;dato&gt;</b>.</p>
             </div>
           )}
           {brainSel === 'secretaria' && (
@@ -1137,18 +1137,18 @@ export default function Whatsapp() {
                   <input type="time" value={secCfg.saludoHora} onChange={e => setSecCfg(c => ({ ...c, saludoHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
                 </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
-                  <label style={{ fontSize: 12 }}>Pases de lista al día:{' '}
+                  <label className="u-fs-12">Pases de lista al día:{' '}
                     <select value={secCfg.checkins.length} onChange={e => setCheckinCount(Number(e.target.value))} style={{ fontSize: 12, padding: '4px 8px' }}>
                       {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </label>
                   {secCfg.checkins.map((h, i) => (
-                    <label key={i} style={{ fontSize: 12 }}>Hora {i + 1}:{' '}
+                    <label className="u-fs-12" key={i}>Hora {i + 1}:{' '}
                       <input type="time" value={h} onChange={e => setSecCfg(c => { const a = [...c.checkins]; a[i] = e.target.value; return { ...c, checkins: a } })} style={{ fontSize: 12, padding: '3px 6px' }} />
                     </label>
                   ))}
                 </div>
-                <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>A cada hora, el bot pasa lista de lo que sigue <b>pendiente</b> (re-pregunta lo no confirmado).</p>
+                <p className="muted u-fs-11 u-m-008">A cada hora, el bot pasa lista de lo que sigue <b>pendiente</b> (re-pregunta lo no confirmado).</p>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
                   <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
                     <input type="checkbox" checked={secCfg.recordatorio} onChange={e => setSecCfg(c => ({ ...c, recordatorio: e.target.checked }))} /> Recordar si no responde (45 min)
@@ -1160,24 +1160,24 @@ export default function Whatsapp() {
                     <input type="checkbox" checked={secCfg.feedback} onChange={e => setSecCfg(c => ({ ...c, feedback: e.target.checked }))} /> Preguntar “¿algo extra?” al cerrar
                   </label>
                   {secCfg.feedback && (
-                    <label style={{ fontSize: 12 }}>a las{' '}
+                    <label className="u-fs-12">a las{' '}
                       <input type="time" value={secCfg.feedbackHora} onChange={e => setSecCfg(c => ({ ...c, feedbackHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
                     </label>
                   )}
                   <button className="btn" onClick={guardarSecCfg}>💾 GUARDAR HORARIOS</button>
-                  {secMsg && <span style={{ fontSize: 12 }}>{secMsg}</span>}
+                  {secMsg && <span className="u-fs-12">{secMsg}</span>}
                 </div>
               </div>
-              <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Un cuadro por cada mensaje del seguimiento. Vacío = plantilla por defecto.</p>
+              <p className="muted u-fs-11 u-m-008">Un cuadro por cada mensaje del seguimiento. Vacío = plantilla por defecto.</p>
               {SEC_CARDS.map(([tag, lbl, toks]) => (
-                <div key={tag} style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 12, fontWeight: 700 }}>{lbl}</label>
-                  <div className="muted" style={{ fontSize: 10 }}>{toks}</div>
+                <div className="u-mb-8" key={tag}>
+                  <label className="u-fs-12 u-fw-7">{lbl}</label>
+                  <div className="muted u-fs-10">{toks}</div>
                   <textarea value={secCards[tag] || ''} onChange={e => setSec(tag, e.target.value)} style={{ width: '100%', minHeight: 42, textTransform: 'none', fontSize: 12.5, marginTop: 2 }} />
                 </div>
               ))}
               <button className="btn" onClick={guardarSeguimiento}>💾 GUARDAR MENSAJES</button>
-              {cfgMsg && <span style={{ fontSize: 12, marginLeft: 8 }}>{cfgMsg}</span>}
+              {cfgMsg && <span className="u-fs-12 u-ml-8">{cfgMsg}</span>}
             </>
           )}
           {brainSel === 'gerencia' && (
@@ -1188,26 +1188,26 @@ export default function Whatsapp() {
                 {gerCmds.map((c, i) => (
                   <div key={i} style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
                     <input value={c.claves} placeholder="palabras clave: agenda, asignar" onChange={e => gcSet(i, { claves: e.target.value })} style={{ flex: '1 1 140px', textTransform: 'none' }} />
-                    <select value={c.tipo} onChange={e => gcSet(i, { tipo: e.target.value })} style={{ fontSize: 11 }}>
+                    <select className="u-fs-11" value={c.tipo} onChange={e => gcSet(i, { tipo: e.target.value })}>
                       <option value="consulta">consulta al sistema</option>
                       <option value="texto">texto fijo</option>
                       <option value="accion">acción (tareas)</option>
                     </select>
                     {c.tipo === 'consulta'
-                      ? <select value={c.consulta} onChange={e => gcSet(i, { consulta: e.target.value })} style={{ fontSize: 11 }}>{CONSULTAS_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                      ? <select className="u-fs-11" value={c.consulta} onChange={e => gcSet(i, { consulta: e.target.value })}>{CONSULTAS_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                       : c.tipo === 'accion'
-                        ? <select value={c.accion} onChange={e => gcSet(i, { accion: e.target.value })} style={{ fontSize: 11 }}>{ACCIONES_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                        ? <select className="u-fs-11" value={c.accion} onChange={e => gcSet(i, { accion: e.target.value })}>{ACCIONES_GER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                         : <input value={c.texto} placeholder="texto que responde" onChange={e => gcSet(i, { texto: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none' }} />}
                     <button className="btn-ghost" onClick={() => gcDel(i)}>✕</button>
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div className="u-d-f u-g-8 u-ai-c">
                   <button className="btn-ghost" onClick={gcAdd}>+ Comando</button>
                   <button className="btn" onClick={guardarGerCmds}>💾 GUARDAR COMANDOS</button>
-                  {cfgMsg && <span style={{ fontSize: 12 }}>{cfgMsg}</span>}
+                  {cfgMsg && <span className="u-fs-12">{cfgMsg}</span>}
                 </div>
               </div>
-              <p className="muted" style={{ fontSize: 11, margin: '0 0 4px' }}>
+              <p className="muted u-fs-11 u-m-004">
                 Abajo, <b>notas internas</b> (opcional) para las preguntas libres con IA de gerencia — ej. "margen mínimo por lote S/ X".
               </p>
             </div>
@@ -1228,12 +1228,12 @@ export default function Whatsapp() {
                   El bot ya trae las de siempre (<i>sí, claro, ok, dale, ya, listo, 👍 · no, ahorita no, más tarde, lo voy a pensar</i>), con tilde o sin tilde.
                   Agrega solo las que se digan en tu zona y no estén.
                 </p>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="u-d-f u-g-8 u-fwr u-ai-c">
                   <input value={clavesSi} placeholder="para SÍ: mándale, hagámoslo, ya pues" onChange={e => setClavesSi(e.target.value)} style={{ flex: '1 1 220px', textTransform: 'none' }} />
                   <input value={clavesNo} placeholder="para NO: nanay, ni hablar, después vemos" onChange={e => setClavesNo(e.target.value)} style={{ flex: '1 1 220px', textTransform: 'none' }} />
                   <button className="btn-ghost" onClick={guardarClavesSN}>💾 Guardar palabras</button>
                 </div>
-                <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
+                <p className="muted u-fs-11 u-m-600">
                   Si el bot no entiende <b>dos veces seguidas</b>, deja de repreguntar y pasa el lead a un asesor.
                 </p>
               </div>
@@ -1241,19 +1241,19 @@ export default function Whatsapp() {
               <div style={{ border: '1px solid rgba(232,151,90,.4)', borderRadius: 8, padding: 10, marginBottom: 10, background: 'rgba(232,151,90,.06)' }}>
                 <b style={{ fontSize: 12, color: '#e8975a' }}>📎 Material del flujo (se sube aquí, no del proyecto)</b>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '6px 0 8px' }}>
-                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Subir imágenes<input type="file" accept="image/*" multiple onChange={e => subirMedia(e, 'imagen')} style={{ display: 'none' }} /></label>
-                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>🎬 Subir videos<input type="file" accept="video/*" multiple onChange={e => subirMedia(e, 'video')} style={{ display: 'none' }} /></label>
-                  <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 Subir PDF<input type="file" accept="application/pdf,.pdf" multiple onChange={e => subirMedia(e, 'pdf')} style={{ display: 'none' }} /></label>
+                  <label className="btn-ghost u-cp">🖼️ Subir imágenes<input className="u-d-n" type="file" accept="image/*" multiple onChange={e => subirMedia(e, 'imagen')} /></label>
+                  <label className="btn-ghost u-cp">🎬 Subir videos<input className="u-d-n" type="file" accept="video/*" multiple onChange={e => subirMedia(e, 'video')} /></label>
+                  <label className="btn-ghost u-cp">📄 Subir PDF<input className="u-d-n" type="file" accept="application/pdf,.pdf" multiple onChange={e => subirMedia(e, 'pdf')} /></label>
                   <button className="btn-ghost" onClick={() => libAdd({ id: nuevoPasoId(), tipo: 'link', url: '', desc: '' })}>🔗 Agregar link</button>
-                  {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
+                  {subiendo && <span className="u-fs-11">subiendo…</span>}
                 </div>
-                {(projFlow.media_lib || []).length === 0 && <p className="muted" style={{ fontSize: 11 }}>Aún no hay material. Sube imágenes/videos o agrega links.</p>}
+                {(projFlow.media_lib || []).length === 0 && <p className="muted u-fs-11">Aún no hay material. Sube imágenes/videos o agrega links.</p>}
                 {(projFlow.media_lib || []).map((m, mli) => (
                   <div key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap', padding: '4px 6px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6 }}>
                     <b style={{ fontSize: 10, opacity: .6, width: 16 }}>{mli + 1}.</b>
                     <button className="btn-ghost" onClick={() => libMove(m.id, -1)} title="Subir">▲</button>
                     <button className="btn-ghost" onClick={() => libMove(m.id, 1)} title="Bajar">▼</button>
-                    <span style={{ fontSize: 11 }}>{m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
+                    <span className="u-fs-11">{m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'}</span>
                     {m.tipo === 'link'
                       ? <input value={m.url} placeholder="https://…" onChange={e => libSet(m.id, { url: e.target.value })} style={{ flex: '1 1 160px', textTransform: 'none', fontSize: 11 }} />
                       : <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#7ec8e3', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ver archivo</a>}
@@ -1261,7 +1261,7 @@ export default function Whatsapp() {
                     <button className="btn-ghost" onClick={() => libDel(m.id)}>✕</button>
                   </div>
                 ))}
-                <p className="muted" style={{ fontSize: 10, marginTop: 4 }}>Cada material se envía <b>uno por uno</b> con su descripción como texto. Adjunta los que quieras en cada paso del flujo (abajo).</p>
+                <p className="muted u-fs-10 u-mt-4">Cada material se envía <b>uno por uno</b> con su descripción como texto. Adjunta los que quieras en cada paso del flujo (abajo).</p>
               </div>
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', border: '1px solid rgba(255,255,255,.1)', borderRadius: 8, fontSize: 12 }}>
@@ -1270,11 +1270,11 @@ export default function Whatsapp() {
                 <span style={{ width: 8 }} />
                 <label title="Si el lead no responde una pregunta, tras este tiempo el bot pasa al siguiente paso">⏭️ Si no responde, pasar al siguiente a los</label>
                 <input type="number" min="0" value={projFlow.reask_min} onChange={e => setProjFlow(f => ({ ...f, reask_min: e.target.value }))} style={{ width: 54 }} />
-                <select value={projFlow.reask_unit || 'min'} onChange={e => setProjFlow(f => ({ ...f, reask_unit: e.target.value }))} style={{ fontSize: 12 }}>
+                <select className="u-fs-12" value={projFlow.reask_unit || 'min'} onChange={e => setProjFlow(f => ({ ...f, reask_unit: e.target.value }))}>
                   <option value="seg">segundos</option>
                   <option value="min">minutos</option>
                 </select>
-                <span className="muted" style={{ fontSize: 9 }}>(default; 0 = espera indefinida. Ajustable por pregunta.)</span>
+                <span className="muted u-fs-9">(default; 0 = espera indefinida. Ajustable por pregunta.)</span>
                 <span style={{ width: 8 }} />
                 <label title="Tiempo que 'escribe' entre cada mensaje/imagen del flujo">⏱️ Pausa entre mensajes</label>
                 <input type="number" min="0" max="30" value={projFlow.pausa_seg} onChange={e => setProjFlow(f => ({ ...f, pausa_seg: e.target.value }))} style={{ width: 44 }} /> seg
@@ -1282,24 +1282,24 @@ export default function Whatsapp() {
 
               {projFlow.steps.map((s, i) => (
                 <div key={s.id} style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, padding: 10, marginBottom: 8, background: 'rgba(0,0,0,.12)' }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-                    <b style={{ fontSize: 12 }}>Paso {i + 1}</b>
-                    <select value={s.tipo} onChange={e => flowSet(i, { tipo: e.target.value })} style={{ fontSize: 12 }}>
+                  <div className="u-d-f u-g-6 u-ai-c u-mb-6 u-fwr">
+                    <b className="u-fs-12">Paso {i + 1}</b>
+                    <select className="u-fs-12" value={s.tipo} onChange={e => flowSet(i, { tipo: e.target.value })}>
                       <option value="mensaje">💬 Mensaje</option>
                       <option value="pregunta">❓ Pregunta</option>
                     </select>
                     <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer', color: s.pasar_asesor ? '#e0b34c' : undefined }}>
                       <input type="checkbox" checked={!!s.pasar_asesor} onChange={e => flowSet(i, { pasar_asesor: e.target.checked })} /> pasar al asesor tras este paso
                     </label>
-                    <span style={{ marginLeft: 'auto' }} />
+                    <span className="u-ml-a" />
                     <button className="btn-ghost" onClick={() => flowMove(i, -1)} title="Subir">▲</button>
                     <button className="btn-ghost" onClick={() => flowMove(i, 1)} title="Bajar">▼</button>
                     <button className="btn-ghost" onClick={() => flowDel(i)} title="Quitar paso">✕</button>
                   </div>
                   <textarea value={s.texto} placeholder={s.tipo === 'pregunta' ? 'Texto de la pregunta (ej. ¿Para qué buscas el lote?)' : 'Texto del mensaje'} onChange={e => flowSet(i, { texto: e.target.value })} style={{ width: '100%', minHeight: 44, textTransform: 'none', fontSize: 12.5 }} />
                   <div style={{ margin: '6px 0' }}>
-                    <span className="muted" style={{ fontSize: 11 }}>📎 Material a enviar (en este orden, después del texto):</span>
-                    {(projFlow.media_lib || []).length === 0 && <span className="muted" style={{ fontSize: 10 }}> (sube material arriba)</span>}
+                    <span className="muted u-fs-11">📎 Material a enviar (en este orden, después del texto):</span>
+                    {(projFlow.media_lib || []).length === 0 && <span className="muted u-fs-10"> (sube material arriba)</span>}
                     {(s.media || []).map((mid, mi) => {
                       const m = (projFlow.media_lib || []).find(x => x.id === mid)
                       if (!m) return null
@@ -1317,7 +1317,7 @@ export default function Whatsapp() {
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 5 }}>
                       {(projFlow.media_lib || []).filter(m => !(s.media || []).includes(m.id)).map(m => {
                         const ic = m.tipo === 'video' ? '🎬' : m.tipo === 'pdf' ? '📄' : m.tipo === 'link' ? '🔗' : '🖼️'
-                        return <button key={m.id} className="btn-ghost" style={{ fontSize: 10, textTransform: 'none' }} onClick={() => flowMedia(i, m.id)}>+ {ic} {m.desc ? m.desc.slice(0, 14) : 'material'}</button>
+                        return <button key={m.id} className="btn-ghost u-fs-10 u-tt-n" onClick={() => flowMedia(i, m.id)}>+ {ic} {m.desc ? m.desc.slice(0, 14) : 'material'}</button>
                       })}
                     </div>
                   </div>
@@ -1328,7 +1328,7 @@ export default function Whatsapp() {
                           <input value={o.label} placeholder="Opción (ej. Inversión)" onChange={e => optSet(i, oi, { label: e.target.value })} style={{ flex: '1 1 120px', textTransform: 'none' }} />
                           <input value={o.claves} placeholder="palabras clave: invertir, negocio" onChange={e => optSet(i, oi, { claves: e.target.value })} style={{ flex: '1 1 150px', textTransform: 'none' }} />
                           <input value={o.respuesta || ''} placeholder="respuesta si elige esto (opcional)" title="Lo que el bot contesta cuando el cliente elige esta opción. Acepta {nombre} y {proyecto}." onChange={e => optSet(i, oi, { respuesta: e.target.value })} style={{ flex: '1 1 190px', textTransform: 'none' }} />
-                          <select value={o.ir_a} onChange={e => optSet(i, oi, { ir_a: e.target.value })} style={{ fontSize: 11 }}>
+                          <select className="u-fs-11" value={o.ir_a} onChange={e => optSet(i, oi, { ir_a: e.target.value })}>
                             <option value="">→ siguiente paso</option>
                             {projFlow.steps.map((st, si) => si !== i ? <option key={st.id} value={st.id}>→ Paso {si + 1}</option> : null)}
                           </select>
@@ -1346,44 +1346,44 @@ export default function Whatsapp() {
                           ⚠️ Con una sola opción el cliente no tiene cómo decir que <b>no</b>: si contesta "no", el bot no lo entiende y repregunta. Usa <b>+ Sí / No</b>.
                         </p>
                       )}
-                      <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                      <p className="muted small u-m-400 u-tt-n">
                         Las palabras clave son <b>opcionales</b>: el bot ya entiende los sí y no de siempre (con tilde o sin, y 👍). Acá pones las de <b>esta</b> pregunta.
                       </p>
-                      <div style={{ marginTop: 8, fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div className="u-mt-8 u-fs-11 u-d-f u-g-6 u-ai-c u-fwr">
                         ⏭️ Si no responde en
                         <input type="number" min="0" value={s.reask_min} placeholder={String(projFlow.reask_min || 0)} onChange={e => flowSet(i, { reask_min: e.target.value })} style={{ width: 50 }} />
-                        <select value={s.reask_unit || ''} onChange={e => flowSet(i, { reask_unit: e.target.value })} style={{ fontSize: 11 }}>
+                        <select className="u-fs-11" value={s.reask_unit || ''} onChange={e => flowSet(i, { reask_unit: e.target.value })}>
                           <option value="">(unidad global)</option>
                           <option value="seg">segundos</option>
                           <option value="min">minutos</option>
                         </select>
                         →
-                        <select value={s.sin_respuesta || 'detener'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })} style={{ fontSize: 11 }}>
+                        <select className="u-fs-11" value={s.sin_respuesta || 'detener'} onChange={e => flowSet(i, { sin_respuesta: e.target.value })}>
                           <option value="detener">🛑 DETENER — interviene el humano (avisa al asesor)</option>
                           <option value="asesor">pasar al asesor (con mensaje al cliente)</option>
                           <option value="mensaje">enviar un mensaje y seguir</option>
                           <option value="siguiente">pasar al siguiente paso</option>
                         </select>
                         {s.sin_respuesta === 'mensaje' && <input value={s.sin_respuesta_texto} placeholder="mensaje antes de seguir" onChange={e => flowSet(i, { sin_respuesta_texto: e.target.value })} style={{ flex: '1 1 180px', textTransform: 'none' }} />}
-                        <span className="muted" style={{ fontSize: 9 }}>vacío/0 = espera indefinida (nunca avanza)</span>
+                        <span className="muted u-fs-9">vacío/0 = espera indefinida (nunca avanza)</span>
                       </div>
                     </div>
                   )}
                 </div>
               ))}
-              <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="u-d-f u-g-8 u-mt-6 u-ai-c u-fwr">
                 <button className="btn-ghost" onClick={flowAdd}>+ Agregar paso</button>
                 <button className="btn" onClick={guardarFlujo}>💾 GUARDAR FLUJO</button>
-                {projQMsg && <span style={{ fontSize: 12 }}>{projQMsg}</span>}
+                {projQMsg && <span className="u-fs-12">{projQMsg}</span>}
               </div>
             </div>
           )}
-          {brainSel.startsWith('p:') && <p className="muted" style={{ fontSize: 11, margin: '0 0 8px' }}>Abajo (opcional) la <b>info del proyecto</b> que el bot manda en el bombardeo por defecto (cuando el proyecto no tiene flujo armado).</p>}
+          {brainSel.startsWith('p:') && <p className="muted u-fs-11 u-m-008">Abajo (opcional) la <b>info del proyecto</b> que el bot manda en el bombardeo por defecto (cuando el proyecto no tiene flujo armado).</p>}
           {brainSel !== 'secretaria' && (<>
           <textarea value={brainTxt} onChange={e => setBrainTxt(e.target.value)}
             placeholder="Vacío = el bot usa su cerebro por defecto. Pega aquí el MD o súbelo con el botón."
             style={{ width: '100%', minHeight: brainSel === 'gerencia' ? '20vh' : '48vh', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }} />
-          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+          <p className="muted u-fs-11 u-mt-6">
             {brainTxt.length.toLocaleString()} caracteres
             {!brainSel.startsWith('p:') && brains.find(b => b.key === brainSel)?.updated_at ? ' · Última actualización: ' + new Date(brains.find(b => b.key === brainSel).updated_at).toLocaleString('es-PE') : ''}
           </p>
@@ -1397,7 +1397,7 @@ export default function Whatsapp() {
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
           <b>DIRECTORIO DE NÚMEROS</b>
           <p className="muted" style={{ fontSize: 12, margin: '4px 0 10px' }}>Todo número que NO esté aquí se trata como BOT (flujo de leads). Si un CLIENTE registrado escribe a este número, el bot le pasa el número de cobranzas (una vez por día): la cobranza la atiende el agente de Cobranza IA.</p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div className="u-d-f u-g-8 u-fwr u-mb-12">
             <input placeholder="Número (ej. 519XXXXXXXX)" value={nvo.phone} onChange={e => setNvo({ ...nvo, phone: e.target.value })} style={{ width: 180 }} />
             <select value={nvo.tipo} onChange={e => setNvo({ ...nvo, tipo: e.target.value })}>
               {TIPOS.map(t => <option key={t.v} value={t.v}>{t.t}</option>)}
@@ -1421,7 +1421,7 @@ export default function Whatsapp() {
                   <button className="btn-ghost" onClick={() => setEdNum(null)}>&#10005;</button>
                 </>) : (<>
                   <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, border: `1px solid ${t?.c || '#888'}`, color: t?.c || '#888' }}>{t?.s || n.tipo.toUpperCase()}</span>
-                  <span className="muted" style={{ flex: 1, fontSize: 12 }}>{n.note}</span>
+                  <span className="muted u-f1 u-fs-12">{n.note}</span>
                   <button className="btn-ghost" onClick={() => setEdNum({ phone: n.phone, tipo: n.tipo, note: n.note || '' })}>EDITAR</button>
                   <button className="btn-ghost" onClick={() => borrarNum(n.phone)}>QUITAR</button>
                 </>)}
@@ -1434,7 +1434,7 @@ export default function Whatsapp() {
       <div className="dos-paneles" style={{ display: 'grid', gridTemplateColumns: vista === 'cuadros' ? 'minmax(340px, 500px) 1fr' : 'minmax(240px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
         <div className="glass" style={{ padding: 10, maxHeight: '70vh', overflowY: 'auto' }}>
           {sesiones.length > 1 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+            <div className="u-d-f u-g-4 u-fwr u-mb-6">
               <button className="btn-ghost" onClick={() => setFiltroSes('')}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: !filtroSes ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>📱 TODOS LOS NÚMEROS</button>
               {sesiones.map(s => {
@@ -1449,7 +1449,7 @@ export default function Whatsapp() {
             </div>
           )}
           {proysBandeja.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+            <div className="u-d-f u-g-4 u-fwr u-mb-6">
               <button className="btn-ghost" onClick={() => setFiltroProy('')}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: !filtroProy ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>TODOS LOS PROYECTOS</button>
               {proysBandeja.map(([pid, e]) => (
@@ -1459,7 +1459,7 @@ export default function Whatsapp() {
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          <div className="u-d-f u-g-4 u-fwr u-mb-8">
             {[['todos', 'TODOS'], ['mios', '⭐ MÍOS'], ['clientes', '💵 CLIENTES'], ...(cobChats.length ? [['cobranza', '📨 COBRANZA (' + cobChats.length + ')']] : []), ['leads', '🆕 LEADS'], ['ventana', '🕒 VENTANA ABIERTA'], ['calificados', 'CALIFICADOS'], ['flujo', 'EN FLUJO'], ['humanos', '👤 EN HUMANO'], ['silenciados', 'SILENCIADOS']].map(([v, t]) => (
               <button key={v} className="btn-ghost" onClick={() => setFiltro(v)}
                 style={{ fontSize: 10, padding: '3px 8px', borderColor: filtro === v ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)', color: filtro === v ? '#c9d4bc' : undefined }}>{t}</button>
@@ -1479,8 +1479,8 @@ export default function Whatsapp() {
           </div>
           {verEtiq && jefeBandeja && (
             <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: 8, marginBottom: 8 }}>
-              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>🏷️ ETIQUETAS DEL PANEL (propias del CRM: no se sincronizan con WhatsApp)</p>
-              {tags.length === 0 && <p className="muted" style={{ fontSize: 11, margin: '0 0 4px' }}>Sin etiquetas todavía (¿se corrió sql/158?).</p>}
+              <p className="muted u-fs-9 u-m-004 u-fw-7">🏷️ ETIQUETAS DEL PANEL (propias del CRM: no se sincronizan con WhatsApp)</p>
+              {tags.length === 0 && <p className="muted u-fs-11 u-m-004">Sin etiquetas todavía (¿se corrió sql/158?).</p>}
               {tags.map(t => (
                 <div key={t.n} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
                   <input type="color" value={t.c} title="Color" onChange={e => colorearTag(t.n, e.target.value)} style={{ width: 26, height: 20, padding: 0, border: 'none', background: 'transparent' }} />
@@ -1488,20 +1488,20 @@ export default function Whatsapp() {
                   <button className="btn-ghost" style={{ fontSize: 10, padding: '0 6px' }} title="Eliminar de todos los chats" onClick={() => borrarTag(t.n)}>✕</button>
                 </div>
               ))}
-              <button className="btn-ghost" style={{ fontSize: 10, marginTop: 4 }} onClick={crearTag}>➕ Nueva etiqueta</button>
+              <button className="btn-ghost u-fs-10 u-mt-4" onClick={crearTag}>➕ Nueva etiqueta</button>
             </div>
           )}
           {verConteo && conteoRaw && (
             <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: 8, marginBottom: 8 }}>
-              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>🏷️ POR ETIQUETA · {conteoRaw.length} chats</p>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+              <p className="muted u-fs-9 u-m-004 u-fw-7">🏷️ POR ETIQUETA · {conteoRaw.length} chats</p>
+              <div className="u-d-f u-g-4 u-fwr u-mb-8">
                 {agrupar(conteoRaw, 'etiquetas').map(([k, n]) => (
                   <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroTag(filtroTag === k ? '' : k)}
                     style={{ fontSize: 10, padding: '2px 8px', color: k ? colorTag(k) : undefined, borderColor: filtroTag === k && k ? colorTag(k) : 'rgba(255,255,255,.15)' }}>
                     {k || 'SIN ETIQUETA'} <b>{n}</b></button>
                 ))}
               </div>
-              <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>📁 POR PROYECTO</p>
+              <p className="muted u-fs-9 u-m-004 u-fw-7">📁 POR PROYECTO</p>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: jefeBandeja ? 8 : 0 }}>
                 {agrupar(conteoRaw, 'project_id').map(([k, n]) => {
                   const p = proysAll.find(x => x.id === k)
@@ -1513,8 +1513,8 @@ export default function Whatsapp() {
                 })}
               </div>
               {jefeBandeja && (<>
-                <p className="muted" style={{ fontSize: 9, margin: '0 0 4px', fontWeight: 700 }}>⭐ POR ASESOR ASIGNADO</p>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <p className="muted u-fs-9 u-m-004 u-fw-7">⭐ POR ASESOR ASIGNADO</p>
+                <div className="u-d-f u-g-4 u-fwr">
                   {agrupar(conteoRaw, 'assigned_to').map(([k, n]) => (
                     <button key={k || '(sin)'} className="btn-ghost" onClick={() => setFiltroAsig(filtroAsig === k ? '' : k)}
                       style={{ fontSize: 10, padding: '2px 8px', color: k ? '#7ec8e3' : undefined, borderColor: filtroAsig === k && k ? '#7ec8e3' : 'rgba(255,255,255,.15)' }}>
@@ -1524,17 +1524,17 @@ export default function Whatsapp() {
               </>)}
             </div>
           )}
-          {filtroAsig && <p className="muted" style={{ fontSize: 10, margin: '0 0 6px' }}>Filtrando chats de ⭐ {nombreUsuario(filtroAsig)} — <button className="link-btn" onClick={() => setFiltroAsig('')}>quitar</button></p>}
-          <input placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => { setBusca(e.target.value); setGlobales([]) }}
-            onKeyDown={e => { if (e.key === 'Enter') buscarGlobal() }} style={{ width: '100%', marginBottom: 8 }} />
-          {lista.length === 0 && globales.length === 0 && <p className="muted" style={{ padding: 8 }}>{busca ? 'Nada en los chats cargados.' : 'Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.'}</p>}
+          {filtroAsig && <p className="muted u-fs-10 u-m-006">Filtrando chats de ⭐ {nombreUsuario(filtroAsig)} — <button className="link-btn" onClick={() => setFiltroAsig('')}>quitar</button></p>}
+          <input className="u-w-100 u-mb-8" placeholder="Buscar teléfono o nombre…" value={busca} onChange={e => { setBusca(e.target.value); setGlobales([]) }}
+            onKeyDown={e => { if (e.key === 'Enter') buscarGlobal() }} />
+          {lista.length === 0 && globales.length === 0 && <p className="muted u-p-8">{busca ? 'Nada en los chats cargados.' : 'Aún no hay conversaciones. Cuando alguien le escriba al bot, aparecerá aquí.'}</p>}
           <div style={vista === 'cuadros' ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 } : {}}>
           {lista.map(chatItem)}
           </div>
           {busca.trim().length >= 2 && (
             globales.length > 0
               ? <div><p className="muted" style={{ fontSize: 9, fontWeight: 700, margin: '8px 0 3px' }}>🌐 OTROS CHATS ({globales.length})</p>{globales.map(chatItem)}</div>
-              : <button className="btn-ghost" onClick={buscarGlobal} disabled={buscandoG} style={{ fontSize: 10, width: '100%', marginTop: 6 }}>{buscandoG ? 'Buscando en todos…' : '🔎 Buscar en TODOS los chats (no solo los recientes)'}</button>
+              : <button className="btn-ghost u-fs-10 u-w-100 u-mt-6" onClick={buscarGlobal} disabled={buscandoG}>{buscandoG ? 'Buscando en todos…' : '🔎 Buscar en TODOS los chats (no solo los recientes)'}</button>
           )}
         </div>
 
@@ -1555,8 +1555,8 @@ export default function Whatsapp() {
                     <div style={{ display: 'flex', gap: 10, minWidth: 0 }}>
                       <div className="wa-avatar" style={{ background: avColor }}>{inicial}</div>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <b style={{ fontSize: 15 }}>{nombreDe(sel)}</b>
+                        <div className="u-d-f u-ai-c u-g-6 u-fwr">
+                          <b className="u-fs-15">{nombreDe(sel)}</b>
                           {(!jefeBandeja || sel.cob) && sel.projects && <span className="wa-badge" style={{ color: sel.projects.color || '#6fd0c9', borderColor: sel.projects.color || '#6fd0c9' }} title={sel.cob ? 'Proyecto de su lote (viene de la ficha; no se cambia aquí)' : undefined}>📁 {sel.projects.name}</span>}
                           {jefeBandeja && !sel.cob && (
                             <select className="wa-sel" value={sel.project_id || ''} title="Proyecto del chat: etiqueta, color y por qué número sale la atención"
@@ -1578,7 +1578,7 @@ export default function Whatsapp() {
                             </span>
                           ))}
                           {puedeEscribir && !sel.cob && (
-                            <select className="wa-sel" value="" title="Agregar una etiqueta a este chat (propia del CRM; no se sincroniza con WhatsApp)" style={{ fontSize: 11 }}
+                            <select className="wa-sel u-fs-11" value="" title="Agregar una etiqueta a este chat (propia del CRM; no se sincroniza con WhatsApp)"
                               onChange={async e => {
                                 let v = e.target.value
                                 if (!v) return
@@ -1602,13 +1602,13 @@ export default function Whatsapp() {
                           {sel.cob && <Link className="wa-badge" to="/cobranza-ia?tab=chats" style={{ color: '#e0b34c', borderColor: '#e0b34c', textDecoration: 'none' }} title="Abrir en Cobranza IA (validar vouchers, promesas, seguimiento)">↗ COBRANZA IA</Link>}
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
-                          <span className="muted" style={{ fontSize: 12 }}>+{sel.phone}</span>
+                          <span className="muted u-fs-12">+{sel.phone}</span>
                           {/* VENTANA DE 24 H de Meta: abierta = texto libre; cerrada = solo plantilla */}
                           {ven.abierta
                             ? <span className="wa-badge" style={{ color: '#6fdd9b', borderColor: '#6fdd9b' }} title={'La persona escribió el ' + fh(sel.ultimo_entrante_at) + '. Hasta 24 h después se le puede escribir texto libre y mandar archivos.'}>🕒 VENTANA ABIERTA · quedan {durCorta(ven.resta)}</span>
                             : <span className="wa-badge" style={{ color: '#e8975a', borderColor: '#e8975a' }} title={ven.desde ? 'Su último mensaje fue el ' + fh(sel.ultimo_entrante_at) + '. Pasadas 24 h, Meta solo deja escribirle con una plantilla aprobada.' : 'Esta persona todavía no escribió al número oficial: Meta solo deja iniciar con una plantilla aprobada.'}>🔒 VENTANA CERRADA · solo plantilla{ven.desde ? ' · escribió hace ' + durCorta(-ven.resta + VENTANA_MS) : ''}</span>}
                           {mostrarLead && ['admin', 'superuser', 'operador', 'secretary'].includes(role) && (
-                            <span className="muted" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>LEAD:
+                            <span className="muted u-fs-11 u-d-if u-ai-c u-g-4">LEAD:
                               <select className="wa-sel" value={sel.leads?.status || 'nuevo'} style={{ fontSize: 11, padding: '3px 6px' }} onChange={async e => {
                                 const st = e.target.value
                                 await supabase.from('leads').update({ status: st }).eq('id', sel.lead_id)
@@ -1621,7 +1621,7 @@ export default function Whatsapp() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="u-d-f u-g-8 u-ai-c u-fwr">
                       {sel.cob ? (
                         sel.modo === 'humano'
                           ? <button className="wa-btn" style={{ borderColor: '#e8975a', color: '#e8975a' }} disabled={!puedeEscribir}
@@ -1692,7 +1692,7 @@ export default function Whatsapp() {
                     )}
                     {m.body && <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>}
                     {m.fallo && m.err && <div style={{ fontSize: 11, color: '#e07b7b', textTransform: 'none', marginTop: 4 }}>⚠️ {m.err}</div>}
-                    <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <div className="muted u-fs-10 u-mt-4 u-ta-r u-d-f u-g-6 u-jc-fe u-ai-c">
                       {puedeEscribir && !m.info && (m.body || m.media_url) && (
                         <button className="btn-ghost" title="Reenviar a otro chat" style={{ fontSize: 10, padding: '0 5px' }}
                           onClick={() => setReenvio({ body: m.body || '', media_url: m.media_url || null, media_type: m.media_type || null, media_name: m.media_name || null, destino: '' })}>↪</button>
@@ -1751,12 +1751,12 @@ export default function Whatsapp() {
                 </p>
               )}
               {sel.cob
-                ? (puedeEscribir ? <CobReplyBox chat={sel} userId={profile?.id} ventana={ventanaDe(sel)} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }} /> : <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Solo lectura.</p>)
+                ? (puedeEscribir ? <CobReplyBox chat={sel} userId={profile?.id} ventana={ventanaDe(sel)} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }} /> : <p className="muted u-fs-11 u-m-600">Solo lectura.</p>)
                 : puedeEscribir && !(sel.flow_state === 'ia' && sel.modo !== 'humano' && iaExperimento && role !== 'superuser')
                 ? <ReplyBox conv={sel} userId={profile?.id} onSent={env => { if (env) agregarOptimista(env); cargarMsgs(selRef.current) }}
                     quicks={quicks} esAdmin={jefeBandeja} onQuicks={guardarQuicks} ventana={ventanaDe(sel)}
                     vars={{ nombre: (() => { const n = nombreDe(sel); return n === 'SIN NOMBRE' ? '' : cap(n.trim().split(' ')[0]) })(), proyecto: sel.projects?.name || '' }} />
-                : !puedeEscribir && <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>Gerencia: solo lectura.</p>}
+                : !puedeEscribir && <p className="muted u-fs-11 u-m-600">Gerencia: solo lectura.</p>}
             </>
           )}
         </div>

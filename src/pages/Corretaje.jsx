@@ -228,14 +228,14 @@ export default function Corretaje() {
   // ---------------- LISTA ----------------
   if (!sel) return (
     <div className="page">
-      <div className="page-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>🏠 Corretaje</h1>
-        <div style={{ display: 'flex', gap: 6 }}>
+      <div className="page-head u-d-f u-ai-c u-g-12 u-fwr">
+        <h1 className="u-m0">🏠 Corretaje</h1>
+        <div className="u-d-f u-g-6">
           {[['propiedades', 'Propiedades'], ['proyectos', 'Proyectos'], ['consultas', 'Consultas'], ['contrato', 'Contrato']].map(([v, t]) => (
             <button key={v} className={vista === v ? 'btn' : 'btn-ghost'} onClick={() => setVista(v)}>{t}</button>
           ))}
         </div>
-        <button className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={copiarLinkPublico} title="Copia el link de la página pública para compartir por WhatsApp, redes, etc.">🔗 Link público</button>
+        <button className="btn-ghost u-ml-a" onClick={copiarLinkPublico} title="Copia el link de la página pública para compartir por WhatsApp, redes, etc.">🔗 Link público</button>
         <a className="btn-ghost" href={LINK_PUBLICO} target="_blank" rel="noreferrer" title="Ver la página pública">👁️ Ver</a>
         {vista === 'propiedades' && <button className="btn" onClick={nuevo}>➕ Nueva propiedad</button>}
       </div>
@@ -253,7 +253,7 @@ export default function Corretaje() {
         </div>
       )}
 
-      {!lista.length && <div className="glass" style={{ padding: 8 }}><p className="muted" style={{ padding: 10 }}>Aún no hay propiedades. Crea la primera con “➕ Nueva propiedad”.</p></div>}
+      {!lista.length && <div className="glass u-p-8"><p className="muted u-p-10">Aún no hay propiedades. Crea la primera con “➕ Nueva propiedad”.</p></div>}
       <div className="corr-cards">
         {lista.map(p => (
           <div key={p.id} className="corr-card">
@@ -281,12 +281,12 @@ export default function Corretaje() {
       </>)}
 
       {vista === 'proyectos' && (
-        <div className="glass" style={{ padding: 12 }}>
-          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Marca qué proyectos salen en el link público y su info. Los contadores (disponibles/vendidos/reservados) se calculan solos de tus lotes.</p>
-          {!projs.length && <p className="muted" style={{ fontSize: 12 }}>No hay proyectos.</p>}
+        <div className="glass u-p-12">
+          <p className="muted u-fs-12 u-mt-0">Marca qué proyectos salen en el link público y su info. Los contadores (disponibles/vendidos/reservados) se calculan solos de tus lotes.</p>
+          {!projs.length && <p className="muted u-fs-12">No hay proyectos.</p>}
           {projs.map(pr => (
             <div key={pr.id} style={{ borderBottom: '1px solid rgba(255,255,255,.08)', padding: '10px 0' }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="u-d-f u-g-10 u-ai-c u-fwr">
                 <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
                   <input type="checkbox" checked={!!pr.pub.publicado} onChange={e => setProjPub(pr.id, { publicado: e.target.checked })} /> {pr.name}
                 </label>
@@ -300,32 +300,32 @@ export default function Corretaje() {
                   </a>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap', fontSize: 12 }}>
-                <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 PDF (plano/brochure)<input type="file" accept="application/pdf" onChange={e => subirProy(pr.id, 'pdf_url', e)} style={{ display: 'none' }} /></label>
+              <div className="u-d-f u-g-10 u-ai-c u-mt-6 u-fwr u-fs-12">
+                <label className="btn-ghost u-cp">📄 PDF (plano/brochure)<input className="u-d-n" type="file" accept="application/pdf" onChange={e => subirProy(pr.id, 'pdf_url', e)} /></label>
                 {pr.pub.pdf_url && <a href={pr.pub.pdf_url} target="_blank" rel="noreferrer" style={{ color: '#7ec8e3' }}>ver PDF</a>}
-                <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Foto de portada<input type="file" accept="image/*" onChange={e => subirProy(pr.id, 'foto_url', e)} style={{ display: 'none' }} /></label>
+                <label className="btn-ghost u-cp">🖼️ Foto de portada<input className="u-d-n" type="file" accept="image/*" onChange={e => subirProy(pr.id, 'foto_url', e)} /></label>
                 {(pr.pub.foto_url || pr.photo_url) && <img src={pr.pub.foto_url || pr.photo_url} alt="" style={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
               </div>
               {landingAbierta === pr.id && <LandingEditor pr={pr} setPub={patch => setProjPub(pr.id, patch)} avisar={setMsg} />}
             </div>
           ))}
-          {subiendo && <span style={{ fontSize: 11 }}>subiendo…</span>}
+          {subiendo && <span className="u-fs-11">subiendo…</span>}
         </div>
       )}
 
       {vista === 'consultas' && (
-        <div className="glass" style={{ padding: 12 }}>
-          {!consultas.length && <p className="muted" style={{ fontSize: 12 }}>Aún no hay consultas del formulario público.</p>}
+        <div className="glass u-p-12">
+          {!consultas.length && <p className="muted u-fs-12">Aún no hay consultas del formulario público.</p>}
           {consultas.map(c => (
             <div key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,.08)', padding: '8px 0', opacity: c.atendido ? .55 : 1 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <b style={{ fontSize: 13 }}>{c.nombre || '—'}</b>
+              <div className="u-d-f u-g-8 u-ai-c u-fwr">
+                <b className="u-fs-13">{c.nombre || '—'}</b>
                 <a href={'https://wa.me/' + (c.telefono || '').replace(/\D/g, '')} target="_blank" rel="noreferrer" style={{ color: '#6fdd9b', fontSize: 13 }}>📱 {c.telefono}</a>
-                <span className="muted" style={{ fontSize: 12 }}>{c.tipo === 'vender' ? '🏷️ Quiere VENDER su inmueble' : c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
+                <span className="muted u-fs-12">{c.tipo === 'vender' ? '🏷️ Quiere VENDER su inmueble' : c.tipo === 'proyecto' ? 'Proyecto: ' + (nombresProy[c.project_id] || '—') : 'Propiedad: ' + (nombresProp[c.propiedad_id] || '—')}</span>
                 {c.origen === 'web' && <span style={{ fontSize: 11, color: '#6fdd9b', border: '1px solid rgba(111,221,155,.4)', borderRadius: 10, padding: '0 7px' }}>🌐 web</span>}
                 {c.origen === 'landing' && <span style={{ fontSize: 11, color: '#6fdd9b', border: '1px solid rgba(111,221,155,.4)', borderRadius: 10, padding: '0 7px' }}>🌐 landing</span>}
-                <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{new Date(c.created_at).toLocaleString('es-PE')}</span>
-                <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!c.atendido} onChange={() => toggleAtendido(c)} /> atendido</label>
+                <span className="muted u-fs-11 u-ml-a">{new Date(c.created_at).toLocaleString('es-PE')}</span>
+                <label className="u-fs-11 u-d-f u-g-4 u-ai-c u-cp"><input type="checkbox" checked={!!c.atendido} onChange={() => toggleAtendido(c)} /> atendido</label>
               </div>
               {c.mensaje && <div style={{ fontSize: 13, marginTop: 3 }} className="muted">{c.mensaje}</div>}
             </div>
@@ -334,10 +334,10 @@ export default function Corretaje() {
       )}
 
       {vista === 'contrato' && (
-        <div className="glass" style={{ padding: 12 }}>
-          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Plantilla del contrato de exclusividad. Variables (se reemplazan al generar el contrato en cada propiedad): {'{propietario} {propietario_dni} {titulo} {direccion} {area} {area_unidad} {partida} {excl_inicio} {excl_fin} {moneda} {precio} {comision_valor} {comision_tipo}'}.</p>
+        <div className="glass u-p-12">
+          <p className="muted u-fs-12 u-mt-0">Plantilla del contrato de exclusividad. Variables (se reemplazan al generar el contrato en cada propiedad): {'{propietario} {propietario_dni} {titulo} {direccion} {area} {area_unidad} {partida} {excl_inicio} {excl_fin} {moneda} {precio} {comision_valor} {comision_tipo}'}.</p>
           <textarea value={plantilla} onChange={e => setPlantilla(e.target.value)} style={{ width: '100%', minHeight: 'calc(100vh - 300px)', textTransform: 'none', fontSize: 12.5, fontFamily: 'monospace', lineHeight: 1.5 }} />
-          <div style={{ marginTop: 8 }}><button className="btn" onClick={guardarContrato}>💾 Guardar plantilla</button>{msg && <span style={{ fontSize: 12, marginLeft: 8 }}>{msg}</span>}</div>
+          <div className="u-mt-8"><button className="btn" onClick={guardarContrato}>💾 Guardar plantilla</button>{msg && <span className="u-fs-12 u-ml-8">{msg}</span>}</div>
         </div>
       )}
     </div>
@@ -349,19 +349,19 @@ export default function Corretaje() {
 
   return (
     <div className="page">
-      <div className="page-head" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div className="page-head u-d-f u-ai-c u-g-10 u-fwr">
         <button className="btn-ghost" onClick={() => { setSel(null); cargarLista() }}>← Volver</button>
         <h1 style={{ margin: 0, fontSize: 20 }}>{sel.id ? 'Editar propiedad' : 'Nueva propiedad'}</h1>
         <label style={{ marginLeft: 'auto', fontSize: 12, display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!sel.publicado} onChange={e => set('publicado', e.target.checked)} /> 🌐 Publicada en el link público
         </label>
         <button className="btn" onClick={guardar}>💾 Guardar</button>
-        {msg && <span style={{ fontSize: 12 }}>{msg}</span>}
+        {msg && <span className="u-fs-12">{msg}</span>}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="u-d-f u-fd-c u-g-10">
         <Seccion titulo="🏷️ Comercial (público)">
-          <Campo label="Título comercial"><input value={sel.titulo ?? ''} onChange={e => set('titulo', e.target.value)} placeholder="Casa 2 pisos en Yarinacocha" style={{ textTransform: 'none' }} /></Campo>
+          <Campo label="Título comercial"><input className="u-tt-n" value={sel.titulo ?? ''} onChange={e => set('titulo', e.target.value)} placeholder="Casa 2 pisos en Yarinacocha" /></Campo>
           <Campo label="Código">{inp('codigo')}</Campo>
           <Campo label="Tipo"><select value={sel.tipo} onChange={e => set('tipo', e.target.value)}>{TIPOS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></Campo>
           <Campo label="Estado"><select value={sel.estado} onChange={e => set('estado', e.target.value)}>{ESTADOS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></Campo>
@@ -369,7 +369,7 @@ export default function Corretaje() {
           <Campo label="Moneda"><select value={sel.moneda} onChange={e => set('moneda', e.target.value)}>{MONEDAS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></Campo>
           <Campo label="Cuota (referencial)">{inp('cuota_ref')}</Campo>
           <Campo label="Comisión">
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className="u-d-f u-g-4">
               <select value={sel.comision_tipo} onChange={e => set('comision_tipo', e.target.value)}><option value="porcentaje">%</option><option value="fijo">Monto fijo</option></select>
               <input value={sel.comision_valor ?? ''} onChange={e => set('comision_valor', e.target.value)} type="number" style={{ width: 80 }} />
             </div>
@@ -426,17 +426,17 @@ export default function Corretaje() {
           <Campo label="Fin (mín. 6 meses)">{inp('excl_fin', { type: 'date' })}</Campo>
           <div style={{ flexBasis: '100%', display: 'flex', gap: 8, alignItems: 'center' }}>
             <button className="btn-ghost" onClick={generarContrato}>📄 Generar contrato (desde plantilla)</button>
-            <span className="muted" style={{ fontSize: 11 }}>Rellena los datos con la propiedad; puedes editarlo abajo. La plantilla se edita en Configuración.</span>
+            <span className="muted u-fs-11">Rellena los datos con la propiedad; puedes editarlo abajo. La plantilla se edita en Configuración.</span>
           </div>
           <textarea value={sel.excl_contrato ?? ''} onChange={e => set('excl_contrato', e.target.value)} placeholder="El contrato generado aparece aquí (editable)…" style={{ flexBasis: '100%', minHeight: 200, textTransform: 'none', fontSize: 12.5, fontFamily: 'monospace' }} />
         </Seccion>
 
         <Seccion titulo={`📷 Fotos (galería pública) — ${fotos.length}`}>
           <div style={{ flexBasis: '100%' }}>
-            <label className="btn-ghost" style={{ cursor: 'pointer' }}>🖼️ Subir fotos<input type="file" accept="image/*" multiple onChange={subirFotos} style={{ display: 'none' }} /></label>
-            {subiendo && <span style={{ fontSize: 11, marginLeft: 8 }}>subiendo…</span>}
-            {!sel.id && <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>(guarda la propiedad primero)</span>}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <label className="btn-ghost u-cp">🖼️ Subir fotos<input className="u-d-n" type="file" accept="image/*" multiple onChange={subirFotos} /></label>
+            {subiendo && <span className="u-fs-11 u-ml-8">subiendo…</span>}
+            {!sel.id && <span className="muted u-fs-11 u-ml-8">(guarda la propiedad primero)</span>}
+            <div className="u-d-f u-g-8 u-fwr u-mt-8">
               {fotos.map(f => (
                 <div key={f.id} style={{ position: 'relative' }}>
                   <img src={f.url} alt="" style={{ width: 90, height: 68, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(255,255,255,.15)' }} />
@@ -465,7 +465,7 @@ export default function Corretaje() {
 
         <Seccion titulo={`📎 Documentos (privado) — ${docs.length}`}>
           <div style={{ flexBasis: '100%' }}>
-            <label className="btn-ghost" style={{ cursor: 'pointer' }}>📄 Subir documento<input type="file" onChange={subirDoc} style={{ display: 'none' }} /></label>
+            <label className="btn-ghost u-cp">📄 Subir documento<input className="u-d-n" type="file" onChange={subirDoc} /></label>
             {docs.map(d => (
               <div key={d.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, fontSize: 12 }}>
                 <a href={d.url} target="_blank" rel="noreferrer" style={{ color: '#7ec8e3' }}>{d.nombre || 'documento'}</a>
@@ -489,9 +489,9 @@ function Campo({ label, children }) {
 
 function Seccion({ titulo, children }) {
   return (
-    <div className="glass" style={{ padding: 12 }}>
+    <div className="glass u-p-12">
       <b style={{ fontSize: 13, color: 'var(--accent-strong)' }}>{titulo}</b>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>{children}</div>
+      <div className="u-d-f u-g-10 u-fwr u-mt-8">{children}</div>
     </div>
   )
 }

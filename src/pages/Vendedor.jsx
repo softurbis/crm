@@ -124,7 +124,7 @@ export default function Vendedor() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0 }}>Panel del vendedor</h1>
+        <h1 className="u-m0">Panel del vendedor</h1>
         <ProjectPicker />
       </div>
       {error && <p className="error">{error}</p>}

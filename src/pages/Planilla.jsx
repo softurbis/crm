@@ -93,7 +93,7 @@ export default function Planilla() {
 
   if (faltaBase) return (
     <>
-      <div className="toolbar"><h1 style={{ margin: 0, flex: 1 }}>Planilla</h1></div>
+      <div className="toolbar"><h1 className="u-m0 u-f1">Planilla</h1></div>
       <p className="hint">Falta correr <b>sql/131_planilla.sql</b> en el servidor: la planilla todavía no tiene sus tablas.</p>
     </>
   )
@@ -110,7 +110,7 @@ export default function Planilla() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Planilla</h1>
+        <h1 className="u-m0 u-f1">Planilla</h1>
         <button className="btn-ghost" onClick={editarConfig} title="Monto fijo por cada tardanza">⏰ Tardanza: {soles(cfg?.descuento_tardanza)}</button>
         <button className="btn-primary" onClick={() => setFormT({ ...VACIO_T })}>+ Trabajador</button>
       </div>
@@ -136,7 +136,7 @@ export default function Planilla() {
         {!!filas.length && (
           <div className="glass table-wrap">
             <table>
-              <thead><tr><th>Trabajador</th><th>Pago</th><th>Periodo de hoy</th><th>Movimientos del periodo</th><th style={{ textAlign: 'right' }}>A pagar</th></tr></thead>
+              <thead><tr><th>Trabajador</th><th>Pago</th><th>Periodo de hoy</th><th>Movimientos del periodo</th><th className="u-ta-r">A pagar</th></tr></thead>
               <tbody>
                 {filas.map(({ t, p, c, cierreHoy, sinCerrar, pendientes }) => (
                   <tr key={t.id} style={t.activo ? {} : { opacity: .5 }}>
@@ -144,7 +144,7 @@ export default function Planilla() {
                       <div className="muted small">{t.cargo || '—'}{!t.activo ? ' · ya no trabaja' : ''}</div>
                       {sinCerrar && <div className="warn small">⚠ falta cerrar: {nombrePeriodo(sinCerrar, t.periodicidad)}</div>}
                       {!sinCerrar && pendientes > 0 && <div className="warn small">⚠ {pendientes} movimiento(s) de periodos anteriores sin cerrar</div>}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{PERIODICIDAD[t.periodicidad]}<div className="muted small">{soles(t.sueldo)} {SUELDO_POR[t.periodicidad]}</div></td>
+                    <td className="u-nw">{PERIODICIDAD[t.periodicidad]}<div className="muted small">{soles(t.sueldo)} {SUELDO_POR[t.periodicidad]}</div></td>
                     <td className="small">{nombrePeriodo(p, t.periodicidad)}</td>
                     <td className="small planilla-movs">
                       {c.bonos > 0 && <span>🎁 +{soles(c.bonos)}</span>}
@@ -154,13 +154,13 @@ export default function Planilla() {
                       {c.n_faltas > 0 && <span>🚫 −{soles(c.faltas)} ({c.n_faltas})</span>}
                       {!(c.bonos || c.adelantos || c.descuentos || c.n_tardanzas || c.n_faltas) && <span className="muted">—</span>}
                     </td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b className={c.neto < 0 ? 'bad' : ''}>{soles(c.neto)}</b>
+                    <td className="u-ta-r u-nw"><b className={c.neto < 0 ? 'bad' : ''}>{soles(c.neto)}</b>
                       {cierreHoy && <div>{cierreHoy.estado === 'pagado'
                         ? <span className="st-chip st-ok">PAGADO</span>
                         : <span className="st-chip st-per">CERRADO</span>}</div>}</td>
                   </tr>
                 ))}
-                <tr className="fl-fila-total"><td colSpan="4">FALTA PAGAR DE LOS PERIODOS DE HOY (activos)</td><td style={{ textAlign: 'right' }}>{soles(totalHoy)}</td></tr>
+                <tr className="fl-fila-total"><td colSpan="4">FALTA PAGAR DE LOS PERIODOS DE HOY (activos)</td><td className="u-ta-r">{soles(totalHoy)}</td></tr>
               </tbody>
             </table>
           </div>
@@ -178,25 +178,25 @@ export default function Planilla() {
         {!!cierresMes.length && (
           <div className="glass table-wrap">
             <table>
-              <thead><tr><th>Trabajador</th><th>Periodo</th><th style={{ textAlign: 'right' }}>Sueldo</th><th style={{ textAlign: 'right' }}>Bonos</th><th style={{ textAlign: 'right' }}>Adelantos</th><th style={{ textAlign: 'right' }}>Desc.</th><th style={{ textAlign: 'right' }}>Tardanzas</th><th style={{ textAlign: 'right' }}>Faltas</th><th style={{ textAlign: 'right' }}>Pagado / a pagar</th><th>Estado</th></tr></thead>
+              <thead><tr><th>Trabajador</th><th>Periodo</th><th className="u-ta-r">Sueldo</th><th className="u-ta-r">Bonos</th><th className="u-ta-r">Adelantos</th><th className="u-ta-r">Desc.</th><th className="u-ta-r">Tardanzas</th><th className="u-ta-r">Faltas</th><th className="u-ta-r">Pagado / a pagar</th><th>Estado</th></tr></thead>
               <tbody>
                 {cierresMes.map(x => (
                   <tr key={x.id}>
                     <td><button className="link-btn" onClick={() => setFicha(x.trabajador_id)}>{nombreT(x.trabajador_id)}</button></td>
                     <td className="small">{nombrePeriodo(x, x.periodicidad)}</td>
-                    <td style={{ textAlign: 'right' }}>{soles(x.sueldo)}</td>
-                    <td style={{ textAlign: 'right' }}>{Number(x.bonos) ? '+' + soles(x.bonos) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{Number(x.adelantos) ? '−' + soles(x.adelantos) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{Number(x.descuentos) ? '−' + soles(x.descuentos) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{x.n_tardanzas ? <>−{soles(x.tardanzas)} <span className="muted small">({x.n_tardanzas})</span></> : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{x.n_faltas ? <>−{soles(x.faltas)} <span className="muted small">({x.n_faltas})</span></> : '—'}</td>
-                    <td style={{ textAlign: 'right' }}><b>{soles(x.neto)}</b></td>
+                    <td className="u-ta-r">{soles(x.sueldo)}</td>
+                    <td className="u-ta-r">{Number(x.bonos) ? '+' + soles(x.bonos) : '—'}</td>
+                    <td className="u-ta-r">{Number(x.adelantos) ? '−' + soles(x.adelantos) : '—'}</td>
+                    <td className="u-ta-r">{Number(x.descuentos) ? '−' + soles(x.descuentos) : '—'}</td>
+                    <td className="u-ta-r">{x.n_tardanzas ? <>−{soles(x.tardanzas)} <span className="muted small">({x.n_tardanzas})</span></> : '—'}</td>
+                    <td className="u-ta-r">{x.n_faltas ? <>−{soles(x.faltas)} <span className="muted small">({x.n_faltas})</span></> : '—'}</td>
+                    <td className="u-ta-r"><b>{soles(x.neto)}</b></td>
                     <td>{x.estado === 'pagado'
                       ? <span className="st-chip st-ok">PAGADO {x.pagado_el ? fechaPe(x.pagado_el) : ''}</span>
                       : <span className="st-chip st-per">POR PAGAR</span>}</td>
                   </tr>
                 ))}
-                <tr className="fl-fila-total"><td colSpan="8">TOTAL DEL MES</td><td style={{ textAlign: 'right' }}>{soles(cierresMes.reduce((s, x) => s + Number(x.neto), 0))}</td><td /></tr>
+                <tr className="fl-fila-total"><td colSpan="8">TOTAL DEL MES</td><td className="u-ta-r">{soles(cierresMes.reduce((s, x) => s + Number(x.neto), 0))}</td><td /></tr>
               </tbody>
             </table>
           </div>
@@ -205,7 +205,7 @@ export default function Planilla() {
           <div className="glass form-card" style={{ maxWidth: 520 }}>
             <p style={{ margin: '0 0 .4rem' }}><b>Por proyecto</b> <span className="muted small">(según el reparto de cada trabajador)</span></p>
             {porProyecto.map(([pid, monto]) => (
-              <div key={pid || 'x'} style={{ display: 'flex', justifyContent: 'space-between' }}><span>{pid ? nombreProy(pid) : 'Sin proyecto asignado'}</span><b>{soles(monto)}</b></div>
+              <div className="u-d-f u-jc-sb" key={pid || 'x'}><span>{pid ? nombreProy(pid) : 'Sin proyecto asignado'}</span><b>{soles(monto)}</b></div>
             ))}
           </div>
         )}
@@ -300,7 +300,7 @@ function FichaTrabajador({ t, cfg, pers, esSuper, nombreProy, onEditar, onClose,
 
         <div className="planilla-nav">
           <button className="btn-ghost" onClick={() => setP(periodoAnterior(p, t.periodicidad))}>◀</button>
-          <b style={{ flex: 1, textAlign: 'center' }}>{nombrePeriodo(p, t.periodicidad)}
+          <b className="u-f1 u-ta-c">{nombrePeriodo(p, t.periodicidad)}
             <span className="muted small"> · {fechaPe(p.desde)} al {fechaPe(p.hasta)}</span></b>
           <button className="btn-ghost" onClick={() => setP(periodoSiguiente(p, t.periodicidad))}>▶</button>
         </div>
@@ -321,25 +321,25 @@ function FichaTrabajador({ t, cfg, pers, esSuper, nombreProy, onEditar, onClose,
 
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Fecha</th><th>Qué</th><th>Detalle</th><th style={{ textAlign: 'right' }}>Monto</th><th /></tr></thead>
+            <thead><tr><th>Fecha</th><th>Qué</th><th>Detalle</th><th className="u-ta-r">Monto</th><th /></tr></thead>
             <tbody>
               {movs === null && <tr><td colSpan="5" className="muted">Cargando…</td></tr>}
               {movs?.length === 0 && <tr><td colSpan="5" className="muted">Sin movimientos en este periodo.</td></tr>}
               {(movs || []).map(m => (
                 <tr key={m.id} style={m.anulado_at ? { opacity: .5, textDecoration: 'line-through' } : {}}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(m.fecha)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{TIPOS[m.tipo].icon} {TIPOS[m.tipo].label}</td>
-                  <td className="small" style={{ textTransform: 'none' }}>
+                  <td className="u-nw">{fechaPe(m.fecha)}</td>
+                  <td className="u-nw">{TIPOS[m.tipo].icon} {TIPOS[m.tipo].label}</td>
+                  <td className="small u-tt-n">
                     {[m.tipo === 'tardanza' && m.minutos ? m.minutos + ' min' : '', m.motivo || ''].filter(Boolean).join(' · ')}
                     {m.voucher_url && <> <a href={m.voucher_url} target="_blank" rel="noreferrer">voucher</a></>}
                     {m.anulado_at && <div className="muted">ANULADO: {m.anulado_motivo}</div>}
                   </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{TIPOS[m.tipo].signo > 0 ? '+' : '−'}{soles(m.monto)}</td>
+                  <td className="u-ta-r u-nw">{TIPOS[m.tipo].signo > 0 ? '+' : '−'}{soles(m.monto)}</td>
                   <td>{!cierre && !m.anulado_at && <button className="link-btn bad" style={{ textDecoration: 'none' }} onClick={() => anular(m)}>anular</button>}</td>
                 </tr>
               ))}
-              <tr><td colSpan="3">Sueldo del periodo</td><td style={{ textAlign: 'right' }}>{soles(c.sueldo)}</td><td /></tr>
-              <tr className="fl-fila-total"><td colSpan="3">A PAGAR</td><td style={{ textAlign: 'right' }}>{soles(cierre ? cierre.neto : c.neto)}</td><td /></tr>
+              <tr><td colSpan="3">Sueldo del periodo</td><td className="u-ta-r">{soles(c.sueldo)}</td><td /></tr>
+              <tr className="fl-fila-total"><td colSpan="3">A PAGAR</td><td className="u-ta-r">{soles(cierre ? cierre.neto : c.neto)}</td><td /></tr>
             </tbody>
           </table>
         </div>
@@ -494,7 +494,7 @@ function FormTrabajador({ inicial, projects, onClose, onListo }) {
             return (
               <label key={pr.id} className="planilla-proy">
                 <input type="checkbox" checked={pct !== undefined} onChange={e => tocarProy(pr.id, e.target.checked)} />
-                <span style={{ flex: 1 }}>{pr.name}</span>
+                <span className="u-f1">{pr.name}</span>
                 {pct !== undefined && <><input type="number" min="0" max="100" value={pct} onChange={e => setPct(pr.id, e.target.value)} style={{ width: 70 }} /> %</>}
               </label>
             )

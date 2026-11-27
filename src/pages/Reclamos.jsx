@@ -73,14 +73,14 @@ export default function Reclamos() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Libro de reclamaciones</h1>
+        <h1 className="u-m0 u-f1">Libro de reclamaciones</h1>
         <a className="btn-ghost" href={linkPublico('libro-de-reclamaciones')} target="_blank" rel="noreferrer">Ver el formulario público ↗</a>
       </div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
         Lo que los clientes registran en la web. Hay que responder cada hoja en un plazo no mayor a <b>{PLAZO_DIAS} días hábiles</b> (Ley 31435),
         por el medio que eligió el cliente. Cada hoja va a nombre de la empresa de su proyecto y se numera por RUC y año.
       </p>
-      {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+      {err && <p className="error u-tt-n">{err}</p>}
 
       <div className="chips">
         <button className={`chip ${ver === 'pendientes' ? 'on' : ''}`} onClick={() => setVer('pendientes')}>Por responder ({pend.length})</button>
@@ -97,13 +97,13 @@ export default function Reclamos() {
             <thead><tr><th>N°</th><th>Fecha</th><th>Proyecto · empresa</th><th>Cliente</th><th>Tipo</th><th>Plazo</th><th></th></tr></thead>
             <tbody>
               {lista.map(r => (
-                <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setAbiertaId(r.id)}>
-                  <td style={{ whiteSpace: 'nowrap' }}><b>{r.numero}</b></td>
-                  <td className="small" style={{ whiteSpace: 'nowrap' }}>{fechaHoraPe(r.fecha)}</td>
-                  <td style={{ textTransform: 'none' }}>{bonito(r.proyecto)}<div className="muted small">{r.empresa_razon_social} · RUC {r.empresa_ruc}</div></td>
+                <tr className="u-cp" key={r.id} onClick={() => setAbiertaId(r.id)}>
+                  <td className="u-nw"><b>{r.numero}</b></td>
+                  <td className="small u-nw">{fechaHoraPe(r.fecha)}</td>
+                  <td className="u-tt-n">{bonito(r.proyecto)}<div className="muted small">{r.empresa_razon_social} · RUC {r.empresa_ruc}</div></td>
                   <td>{r.nombre}<div className="muted small">{r.doc_tipo} {r.doc_numero} · {r.telefono}</div></td>
                   <td>{TIPOS[r.tipo]?.t || r.tipo}</td>
-                  <td className="small" style={{ textTransform: 'none' }}><Plazo r={r} hoy={hoy} /></td>
+                  <td className="small u-tt-n"><Plazo r={r} hoy={hoy} /></td>
                   <td><button className="btn-ghost" onClick={e => { e.stopPropagation(); setAbiertaId(r.id) }}>{r.respuesta_at ? 'Ver' : 'Responder'}</button></td>
                 </tr>
               ))}
@@ -155,7 +155,7 @@ function Hoja({ r, hoy, onCerrar, onRespondida }) {
           <b>📕 HOJA N° {r.numero} · {TIPOS[r.tipo]?.t?.toUpperCase()}</b>
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
-        <p className="small" style={{ textTransform: 'none', margin: '0 0 6px' }}>
+        <p className="small u-tt-n u-m-006">
           {fechaHoraPe(r.fecha)} · <Plazo r={r} hoy={hoy} /> · {bonito(r.proyecto)}
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0 10px' }}>
@@ -176,14 +176,14 @@ function Hoja({ r, hoy, onCerrar, onRespondida }) {
         <h3 style={{ margin: '8px 0 2px' }}>3. Detalle y pedido</h3>
         <div className="muted small">Detalle</div><div style={largo}>{r.detalle}</div>
         <div className="muted small">Pedido</div><div style={largo}>{r.pedido}</div>
-        <p className="small" style={{ textTransform: 'none' }}>Quiere la respuesta por: <b>{MEDIOS[r.respuesta_medio]}</b></p>
+        <p className="small u-tt-n">Quiere la respuesta por: <b>{MEDIOS[r.respuesta_medio]}</b></p>
 
         <h3 style={{ margin: '12px 0 4px' }}>4. Respuesta</h3>
         {r.respuesta && !editar ? (
           <>
             <div style={largo}>{r.respuesta}</div>
-            <p className="muted small" style={{ textTransform: 'none' }}>Respondida el {fechaHoraPe(r.respuesta_at)}{r.quien?.full_name ? ' por ' + r.quien.full_name : ''}.</p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <p className="muted small u-tt-n">Respondida el {fechaHoraPe(r.respuesta_at)}{r.quien?.full_name ? ' por ' + r.quien.full_name : ''}.</p>
+            <div className="u-d-f u-g-8 u-fwr">
               {r.respuesta_medio === 'whatsapp' && <a className="btn-primary" href={wa} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}
               {r.respuesta_medio === 'correo' && correo && <a className="btn-primary" href={correo}>Enviar por correo</a>}
               {r.respuesta_medio === 'domicilio' && <button className="btn-primary" onClick={bajar}>Imprimir la carta (PDF con la respuesta)</button>}
@@ -194,18 +194,18 @@ function Hoja({ r, hoy, onCerrar, onRespondida }) {
           </>
         ) : (
           <>
-            <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={7} maxLength={6000} style={{ width: '100%', textTransform: 'none' }}
+            <textarea className="u-w-100 u-tt-n" value={texto} onChange={e => setTexto(e.target.value)} rows={7} maxLength={6000}
               placeholder="Qué se revisó, qué se decidió y qué acciones se tomaron. Esto lo ve el cliente en su hoja." />
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <div className="u-d-f u-g-8 u-fwr u-mt-8">
               <button className="btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar respuesta'}</button>
               {r.respuesta && <button className="btn-ghost" onClick={() => { setTexto(r.respuesta); setEditar(false) }}>Cancelar</button>}
             </div>
-            {r.respuesta && <p className="muted small" style={{ textTransform: 'none' }}>La respuesta anterior queda guardada en el historial.</p>}
+            {r.respuesta && <p className="muted small u-tt-n">La respuesta anterior queda guardada en el historial.</p>}
           </>
         )}
         {msg && <p className={msg.ok ? 'ok' : 'error'} style={{ textTransform: 'none' }}>{msg.t}</p>}
         {!!historial.length && (
-          <details style={{ marginTop: 10 }}>
+          <details className="u-mt-10">
             <summary className="muted small">Respuestas anteriores ({historial.length})</summary>
             {historial.map((x, i) => <div key={i} style={largo}><div className="muted small">{fechaHoraPe(x.respuesta_at)}</div>{x.respuesta}</div>)}
           </details>

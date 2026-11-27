@@ -152,26 +152,26 @@ export default function EquipoVentas() {
     return (
       <div key={f.id} className="glass vend-fila" style={{ opacity: f.active ? 1 : .6 }}>
         <div style={{ minWidth: 0, flex: '1 1 220px' }}>
-          <b>{f.full_name}</b> <span className="chip" style={{ fontSize: 10 }}>{f.code}</span>
-          <div className="muted" style={{ fontSize: 12, textTransform: 'none' }}>
+          <b>{f.full_name}</b> <span className="chip u-fs-10">{f.code}</span>
+          <div className="muted u-fs-12 u-tt-n">
             {p ? <>Entra con: <b>{mostrarUsuario(p.email)}</b>{p.active === false && ' · usuario desactivado'}</>
               : 'Sin acceso al sistema'}
           </div>
           {p && f.active && projects.length > 1 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }} title="Proyectos que ve. Sin marcar ninguno, ve todos.">
+            <div className="u-d-f u-fwr u-g-4 u-mt-6" title="Proyectos que ve. Sin marcar ninguno, ve todos.">
               {projects.map(pr => (
                 <button key={pr.id} type="button" className={'chip' + (suyos.includes(pr.id) ? ' on' : '')} style={{ fontSize: 10 }}
                   onClick={() => toggleProy(p, pr.id, !suyos.includes(pr.id))}>{pr.name}</button>
               ))}
-              {!suyos.length && <span className="muted" style={{ fontSize: 11, textTransform: 'none' }}>ve todos los proyectos</span>}
+              {!suyos.length && <span className="muted u-fs-11 u-tt-n">ve todos los proyectos</span>}
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {f.active && !p && <button className="btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => abrir(f)}>Dar acceso</button>}
-          {f.active && p && <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => claveOtra(f, p)}>Clave nueva</button>}
-          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => renombrar(f, p)}>Corregir nombre</button>
-          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => activar(f, p, !f.active)}>{f.active ? 'Desactivar' : 'Reactivar'}</button>
+        <div className="u-d-f u-g-6 u-fwr u-ai-c">
+          {f.active && !p && <button className="btn-primary u-fs-12" disabled={busy} onClick={() => abrir(f)}>Dar acceso</button>}
+          {f.active && p && <button className="btn-ghost u-fs-12" disabled={busy} onClick={() => claveOtra(f, p)}>Clave nueva</button>}
+          <button className="btn-ghost u-fs-12" disabled={busy} onClick={() => renombrar(f, p)}>Corregir nombre</button>
+          <button className="btn-ghost u-fs-12" disabled={busy} onClick={() => activar(f, p, !f.active)}>{f.active ? 'Desactivar' : 'Reactivar'}</button>
         </div>
       </div>
     )
@@ -179,11 +179,11 @@ export default function EquipoVentas() {
 
   return (
     <div className="vend-admin">
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <h1 style={{ margin: 0, flex: 1 }}>Vendedores</h1>
+      <div className="u-d-f u-g-10 u-ai-c u-fwr u-mb-12">
+        <h1 className="u-m0 u-f1">Vendedores</h1>
         <button className="btn-primary" onClick={() => abrir(null)}>+ Nuevo vendedor</button>
       </div>
-      <p className="muted" style={{ textTransform: 'none', marginTop: 0 }}>
+      <p className="muted u-tt-n u-mt-0">
         Cada vendedor entra desde su celular en <b>{DIRECCION().replace(/^https?:\/\//, '')}</b> con su número y su clave, y ve solo sus prospectos, sus chats y el plano con precios.
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
@@ -192,7 +192,7 @@ export default function EquipoVentas() {
         <div className="glass" style={{ padding: 16, marginBottom: 14, borderLeft: '4px solid #6fdd9b' }}>
           <b>Pásale esto a {entrega.nombre}</b>
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', textTransform: 'none', margin: '8px 0' }}>{textoEntrega(entrega)}</pre>
-          <p className="muted" style={{ fontSize: 12, textTransform: 'none', margin: '0 0 8px' }}>
+          <p className="muted u-fs-12 u-tt-n u-m-008">
             La clave no se guarda en ningún lado: cópiala ahora. Para sus recordatorios, que escriba a @UrbisAgenteBot en Telegram y toque "Compartir mi número".
           </p>
           <button className="btn-primary" onClick={() => copiar(textoEntrega(entrega))}>Copiar mensaje</button>{' '}
@@ -211,12 +211,12 @@ export default function EquipoVentas() {
               onChange={e => setForm({ ...form, cel: e.target.value })} required autoFocus={!!form.ficha} />
           </label>
           <label>Clave para empezar (él la puede cambiar)
-            <input value={form.clave} style={{ textTransform: 'none' }} onChange={e => setForm({ ...form, clave: e.target.value })} required />
+            <input className="u-tt-n" value={form.clave} onChange={e => setForm({ ...form, clave: e.target.value })} required />
           </label>
           {projects.length > 1 && (
             <div>
               <span className="muted" style={{ fontSize: '.9rem' }}>Proyectos que vende (sin marcar = todos)</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              <div className="u-d-f u-fwr u-g-6 u-mt-6">
                 {projects.map(pr => (
                   <button key={pr.id} type="button" className={'chip' + (form.proys.includes(pr.id) ? ' on' : '')}
                     onClick={() => setForm({ ...form, proys: form.proys.includes(pr.id) ? form.proys.filter(x => x !== pr.id) : [...form.proys, pr.id] })}>{pr.name}</button>
@@ -224,7 +224,7 @@ export default function EquipoVentas() {
               </div>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="u-d-f u-g-8">
             <button className="btn-primary" disabled={busy}>{busy ? 'Creando…' : form.ficha ? 'Dar acceso' : 'Crear vendedor'}</button>
             <button type="button" className="btn-ghost" disabled={busy} onClick={() => setForm(null)}>Cancelar</button>
           </div>
@@ -232,10 +232,10 @@ export default function EquipoVentas() {
       )}
 
       <h2 className="sub">Con acceso ({conAcceso.length})</h2>
-      {conAcceso.length ? conAcceso.map(Fila) : <p className="muted" style={{ textTransform: 'none' }}>Todavía ningún vendedor tiene acceso. Usa "Dar acceso" en su fila o crea uno nuevo.</p>}
+      {conAcceso.length ? conAcceso.map(Fila) : <p className="muted u-tt-n">Todavía ningún vendedor tiene acceso. Usa "Dar acceso" en su fila o crea uno nuevo.</p>}
 
       <h2 className="sub" style={{ marginTop: 18 }}>Sin acceso ({sinAcceso.length})</h2>
-      <p className="muted" style={{ fontSize: 12, textTransform: 'none', marginTop: 0 }}>Tienen ventas o comisiones registradas, pero no entran al sistema.</p>
+      <p className="muted u-fs-12 u-tt-n u-mt-0">Tienen ventas o comisiones registradas, pero no entran al sistema.</p>
       {sinAcceso.map(Fila)}
 
       {inactivos.length > 0 && (

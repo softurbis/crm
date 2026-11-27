@@ -51,7 +51,7 @@ const finDeMes = ym => {
 function Ayuda({ titulo = '¿Cómo se lee?', margen = '6px 0 0', children }) {
   return (
     <details style={{ margin: margen, textTransform: 'none' }}>
-      <summary className="muted small" style={{ cursor: 'pointer', textTransform: 'none' }}>{titulo}</summary>
+      <summary className="muted small u-cp u-tt-n">{titulo}</summary>
       {children}
     </details>
   )
@@ -559,7 +559,7 @@ export default function Dashboard() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Dashboard {pid === 'general' ? '- GENERAL' : empresaSel ? '- ' + empresaSel : ''}</h1>
+        <h1 className="u-m0 u-f1">Dashboard {pid === 'general' ? '- GENERAL' : empresaSel ? '- ' + empresaSel : ''}</h1>
         <select value={fmes} onChange={e => verMes(e.target.value)}>
           <option value="todos">RESUMEN: TODO EL TIEMPO</option>
           {D.mesesOrden.map(ym => <option key={ym} value={ym}>{mesLbl(ym)}</option>)}
@@ -590,8 +590,8 @@ export default function Dashboard() {
         {comp && (
           <div className="glass form-card" style={{ marginBottom: '1rem', borderLeft: '3px solid var(--accent-strong)' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 8 }}>
-              <h2 className="sub" style={{ margin: 0 }}>RITMO Y HORIZONTE</h2>
-              <span className="muted small" style={{ textTransform: 'none' }}>
+              <h2 className="sub u-m0">RITMO Y HORIZONTE</h2>
+              <span className="muted small u-tt-n">
                 últimos 6 meses · <b style={{ color: '#4bb96a' }}>● en vivo</b>
                 {raw?._t ? ' · actualizado ' + new Date(raw._t).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : ''}
               </span>
@@ -600,19 +600,19 @@ export default function Dashboard() {
               <div className="glass card">
                 <p className="muted">SE VENDEN</p>
                 <p className="kpi kpi-big" style={{ color: '#4f83c2' }}>{comp.ritmo.toFixed(1)}</p>
-                <p className="muted small" style={{ textTransform: 'none' }}>lotes por mes · {comp.ventasUlt6} en 6 meses</p>
+                <p className="muted small u-tt-n">lotes por mes · {comp.ventasUlt6} en 6 meses</p>
               </div>
               <div className="glass card">
                 <p className="muted">QUEDAN POR VENDER</p>
                 <p className="kpi kpi-big">{comp.disponiblesTot}</p>
-                <p className="muted small" style={{ textTransform: 'none' }}>lotes disponibles</p>
+                <p className="muted small u-tt-n">lotes disponibles</p>
               </div>
               <div className="glass card">
                 <p className="muted">SE TERMINAN DE VENDER</p>
                 <p className="kpi kpi-big" style={{ color: comp.mesesRestantes && comp.mesesRestantes > 60 ? '#e0913f' : '#4bb96a' }}>
                   {comp.mesesRestantes ?? '—'}<span style={{ fontSize: '1rem', fontWeight: 400 }}> meses</span>
                 </p>
-                <p className="muted small" style={{ textTransform: 'none' }}>
+                <p className="muted small u-tt-n">
                   {comp.mesesRestantes ? 'a este ritmo, hasta ' + (() => { const d = new Date(); d.setMonth(d.getMonth() + comp.mesesRestantes); return MESES_L[d.getMonth()].toLowerCase() + ' ' + d.getFullYear() })() : 'sin ventas recientes'}
                 </p>
               </div>
@@ -625,14 +625,14 @@ export default function Dashboard() {
                     <div className="glass card">
                       <p className="muted">FALTA COBRAR</p>
                       <p className="kpi kpi-big" style={{ color: '#e0913f' }}>{corto(saldo)}</p>
-                      <p className="muted small" style={{ textTransform: 'none' }}>entran {soles(porMes)} por mes</p>
+                      <p className="muted small u-tt-n">entran {soles(porMes)} por mes</p>
                     </div>
                     <div className="glass card">
                       <p className="muted">SE TERMINA DE COBRAR</p>
                       <p className="kpi kpi-big" style={{ color: meses && meses > 48 ? '#e0913f' : '#4bb96a' }}>
                         {meses ?? '—'}<span style={{ fontSize: '1rem', fontWeight: 400 }}> meses</span>
                       </p>
-                      <p className="muted small" style={{ textTransform: 'none' }}>
+                      <p className="muted small u-tt-n">
                         {meses ? 'a este ritmo, hasta ' + (() => { const d = new Date(); d.setMonth(d.getMonth() + meses); return MESES_L[d.getMonth()].toLowerCase() + ' ' + d.getFullYear() })() : '—'}
                       </p>
                     </div>
@@ -641,7 +641,7 @@ export default function Dashboard() {
               })()}
             </div>
             {comp.ritmos.length > 1 && (
-              <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+              <p className="muted small u-m-800 u-tt-n">
                 Ojo: son <b>{comp.ritmos.length} proyectos</b> con ritmos muy distintos
                 ({comp.ritmos.map(r => r.nombre.replace(/^LAS PRADERAS DE |^EL TRIUNFO DE /i, '') + ' ' + r.ritmo.toFixed(1)).join(' · ')} por mes).
                 El detalle de cada uno está en la pestaña{' '}
@@ -672,7 +672,7 @@ export default function Dashboard() {
         {/* ---- EL MES ELEGIDO (selector de arriba, barra del grafico o fila de la tabla) ---- */}
         {m && (
           <div className="glass form-card mes-box">
-            <h2 className="sub" style={{ margin: 0 }}>RESUMEN DE {mesLbl(fmes)}</h2>
+            <h2 className="sub u-m0">RESUMEN DE {mesLbl(fmes)}</h2>
             <div className="cards">
               <div className="glass card"><p className="muted">COBRADO EN EL MES</p><p className="kpi">{soles(m.rec)}</p><p className="muted small">{m.pagos} pagos registrados</p></div>
               <div className="glass card"><p className="muted">VENTAS NUEVAS</p><p className="kpi">{m.ventasN}</p><p className="muted small">por {soles(m.ventasS)}</p></div>
@@ -771,7 +771,7 @@ export default function Dashboard() {
                     <BarrasH
                       filas={comp.top.map(([k, v]) => ({ label: k, valor: Math.round(v.monto), color: '#d9534f', lote: v.lote, n: v.n }))}
                       onFila={f => navigate('/lotes?lote=' + encodeURIComponent(f.lote))} />
-                    <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Clic en cualquiera para abrir la ficha de su lote.</p>
+                    <p className="muted small u-m-400 u-tt-n">Clic en cualquiera para abrir la ficha de su lote.</p>
                   </>
                 : <p className="ok small">Nadie tiene cuotas vencidas. ✅</p>}
             </div>
@@ -780,7 +780,7 @@ export default function Dashboard() {
 
         {/* ---- LO QUE DEBIO ENTRAR CONTRA LO QUE ENTRO ---- */}
         {comp?.curva?.length > 1 && (
-          <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+          <div className="glass form-card u-mb-1r">
             <h2 className="sub">LO QUE DEBIÓ ENTRAR CONTRA LO QUE ENTRÓ</h2>
             <Lineas
               etiquetas={comp.curva.map(c => MESES_L[Number(c.k.split('-')[1]) - 1].slice(0, 3) + " '" + c.k.slice(2, 4))}
@@ -815,10 +815,10 @@ export default function Dashboard() {
                     onFila={f => setTramoSel(tramoSel === f.label ? null : f.label)} />
                   {(() => {
                     const t = comp.tramos.find(x => x.label === tramoSel)
-                    if (!t) return <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Clic en un tramo para ver quiénes son.</p>
+                    if (!t) return <p className="muted small u-m-400 u-tt-n">Clic en un tramo para ver quiénes son.</p>
                     return (
                       <div style={{ marginTop: 8, border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, padding: '6px 8px' }}>
-                        <p className="muted small" style={{ margin: '0 0 4px' }}>
+                        <p className="muted small u-m-004">
                           {t.label.toUpperCase()} — {t.n} cuota(s) · {soles(t.valor)}
                         </p>
                         <div className="table-wrap" style={{ maxHeight: 210, overflowY: 'auto' }}>
@@ -826,7 +826,7 @@ export default function Dashboard() {
                             <thead><tr><th>CLIENTE</th><th>LOTE</th><th>VENCIÓ</th><th>DÍAS</th><th>MONTO</th></tr></thead>
                             <tbody>
                               {t.items.slice().sort((a, z) => z.monto - a.monto).map((x, i) => (
-                                <tr key={i} style={{ cursor: 'pointer' }} onClick={() => navigate('/lotes?lote=' + encodeURIComponent(x.lote))}
+                                <tr className="u-cp" key={i} onClick={() => navigate('/lotes?lote=' + encodeURIComponent(x.lote))}
                                   title="Abrir la ficha del lote">
                                   <td>{x.quien}</td><td><b>{x.lote}</b></td>
                                   <td>{String(x.vence).split('-').reverse().join('/')}</td>
@@ -841,13 +841,13 @@ export default function Dashboard() {
                     )
                   })()}
                   <Ayuda titulo="¿Cómo se lee?">
-                    <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                    <p className="muted small u-m-400 u-tt-n">
                       Lo de <b>1 a 30 días</b> casi siempre se cobra con una llamada. Lo de <b>más de 90</b> ya es
                       negociación o resolución de contrato — mientras más abajo esté la plata, más difícil vuelve.
                     </p>
                   </Ayuda>
                   {comp.tramos[3].valor > 0 && (
-                    <p className="bad small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                    <p className="bad small u-m-400 u-tt-n">
                       ⚠️ {soles(comp.tramos[3].valor)} llevan más de 90 días vencidos, en {comp.tramos[3].n} cuotas.
                     </p>
                   )}
@@ -860,7 +860,7 @@ export default function Dashboard() {
                 <>
                   <BarrasH filas={comp.calendario} />
                   <Ayuda titulo="¿Qué muestra?">
-                    <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+                    <p className="muted small u-m-400 u-tt-n">
                       Cuotas que <b>aún no vencen</b>. Es la plata que debería entrar si todos pagan a tiempo:
                       sirve para saber si la caja alcanza y a quién hay que recordarle antes de la fecha.
                     </p>
@@ -892,7 +892,7 @@ export default function Dashboard() {
           const pct = ant.rec ? (dif / ant.rec * 100) : 0
           return (
             <div className="glass form-card">
-              <h2 className="sub" style={{ margin: '0 0 6px' }}>CÓMO VA {act.lbl} CONTRA {ant.lbl}</h2>
+              <h2 className="sub u-m-006">CÓMO VA {act.lbl} CONTRA {ant.lbl}</h2>
               <BarrasH filas={[
                 { label: 'Cobrado ' + ant.lbl, valor: ant.rec, color: '#4bb96a99' },
                 { label: 'Cobrado ' + act.lbl, valor: act.rec, color: '#4bb96a' },
@@ -912,7 +912,7 @@ export default function Dashboard() {
           if (anios.length < 2) return null
           const COL = ['#6d7f8f', '#4bb96a']
           return (
-            <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+            <div className="glass form-card u-mb-1r">
               <h2 className="sub">ESTE AÑO CONTRA EL PASADO</h2>
               <Lineas
                 etiquetas={MESES_L.map(m => m.slice(0, 3))}
@@ -922,7 +922,7 @@ export default function Dashboard() {
                 }))}
                 alto={250}
               />
-              <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>
+              <p className="muted small u-m-400 u-tt-n">
                 Cobrado por mes. Los meses que aún no llegaron salen en cero.
               </p>
             </div>
@@ -973,7 +973,7 @@ export default function Dashboard() {
                   const g = comp.embudo.find(e => e.label === 'Ganados')?.valor || 0
                   const v = comp.embudo.find(e => e.label === 'Visita agendada')?.valor || 0
                   return (
-                    <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                    <p className="muted small u-m-600 u-tt-n">
                       De <b>{comp.totLeads}</b> leads, <b>{v}</b> llegaron a agendar visita
                       ({(v / comp.totLeads * 100).toFixed(0)}%) y <b>{g}</b> terminaron en venta
                       ({(g / comp.totLeads * 100).toFixed(0)}%).
@@ -1003,13 +1003,13 @@ export default function Dashboard() {
       {/* ================= PESTAÑA: PROYECTOS ================= */}
       {/* ================= PESTAÑA: GASTOS ================= */}
       {tabActiva === 'gastos' && gv && (<>
-        <div className="glass form-card mes-box" style={{ marginBottom: '1rem' }}>
+        <div className="glass form-card mes-box u-mb-1r">
           <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <h2 className="sub" style={{ margin: 0 }}>GASTOS DE {mesLbl(gv.ym)}</h2>
-            <span className="muted small" style={{ textTransform: 'none' }}>
+            <h2 className="sub u-m0">GASTOS DE {mesLbl(gv.ym)}</h2>
+            <span className="muted small u-tt-n">
               {gv.esHoy && fmes === 'todos' ? 'el mes en curso · elige otro mes arriba' : 'elegido arriba'} · solo lo ya pagado
             </span>
-            <button className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/gastos')}>Abrir la pantalla Gastos →</button>
+            <button className="btn-ghost u-ml-a u-fs-12" onClick={() => navigate('/gastos')}>Abrir la pantalla Gastos →</button>
           </div>
           <div className="cards">
             <div className="glass card"><p className="muted">GASTADO EN EL MES</p><p className="kpi" style={{ color: '#d9754f' }}>{soles(gv.total)}</p><p className="muted small">{gv.n} {gv.n === 1 ? 'gasto pagado' : 'gastos pagados'}</p></div>
@@ -1025,7 +1025,7 @@ export default function Dashboard() {
         </div>
 
         {(gv.porAprobar.n > 0 || gv.pagoPendiente.n > 0) && (
-          <div className="cards" style={{ marginBottom: '1rem' }}>
+          <div className="cards u-mb-1r">
             {gv.porAprobar.n > 0 && (
               <button type="button" className="glass card" style={{ textAlign: 'left', cursor: 'pointer', borderLeft: '4px solid #e0a13f' }} onClick={() => navigate('/gastos')}>
                 <p className="muted">✍ ESPERAN TU FIRMA</p><p className="kpi" style={{ color: '#e0a13f' }}>{soles(gv.porAprobar.total)}</p>
@@ -1045,7 +1045,7 @@ export default function Dashboard() {
           <div className="glass form-card">
             <h2 className="sub">GASTOS CONTRA LO COBRADO — ÚLTIMOS {serie.length} MESES</h2>
             <BarrasMes meses={serie} alto={280} onMes={ym => setFmes(ym)} />
-            <p className="muted small" style={{ margin: '4px 0 0', textTransform: 'none' }}>Toca una barra para ver ese mes aquí.</p>
+            <p className="muted small u-m-400 u-tt-n">Toca una barra para ver ese mes aquí.</p>
           </div>
           <div className="glass form-card">
             <h2 className="sub">EN QUÉ SE FUE {mesLbl(gv.ym).split(' ')[0]}</h2>
@@ -1095,7 +1095,7 @@ export default function Dashboard() {
               </table>
             </div>
           )}
-          <p className="muted small" style={{ margin: '8px 0 0', textTransform: 'none' }}>
+          <p className="muted small u-m-800 u-tt-n">
             Los gastos que esperan firma o voucher aparecen atenuados y no entran en el total hasta que se pagan. El mes es el de la fecha del gasto.
           </p>
         </div>
@@ -1104,16 +1104,16 @@ export default function Dashboard() {
       {tabActiva === 'proyectos' && (<>
         {/* ---- RITMO Y HORIZONTE, PROYECTO POR PROYECTO ---- */}
         {comp?.ritmos?.length > 0 && (
-          <div className="glass form-card" style={{ marginBottom: '1rem' }}>
+          <div className="glass form-card u-mb-1r">
             <h2 className="sub">RITMO Y HORIZONTE POR PROYECTO</h2>
             <Ayuda titulo="¿Cómo se calcula? (y qué es el ÓPTIMO*)" margen="0">
-              <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+              <p className="muted small u-m-600 u-tt-n">
                 Son dos preguntas distintas: cuándo se termina de <b>vender</b> (depende del ritmo de ventas) y
                 cuándo se termina de <b>cobrar</b> (depende de cuánto entra por mes). El <b>cronograma</b> ya tiene
                 una respuesta firmada para lo segundo: la fecha de la última cuota. Si la fecha real cae después,
                 ese proyecto va atrasado.
               </p>
-              <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+              <p className="muted small u-m-600 u-tt-n">
                 * <b>Óptimo</b> = el ritmo que haría falta para vender todo el inventario en <b>24 meses</b>.
                 Es una referencia de planificación, no una meta de la empresa: si tú manejas otro horizonte, dímelo y lo cambio.
               </p>
@@ -1149,7 +1149,7 @@ export default function Dashboard() {
                   <tr style={{ borderTop: '2px solid rgba(255,255,255,.18)' }}>
                     <td><b>PROMEDIO</b></td>
                     <td><b>{comp.ritmoProm.toFixed(1)}</b>/mes</td>
-                    <td colSpan="8" className="muted small" style={{ textTransform: 'none' }}>
+                    <td colSpan="8" className="muted small u-tt-n">
                       promedio simple entre proyectos activos
                     </td>
                   </tr>
@@ -1189,7 +1189,7 @@ export default function Dashboard() {
           <div className="glass form-card">
             <h2 className="sub" style={{ margin: '0 0 2px' }}>LÍMITES DEL SISTEMA</h2>
             {limites.error ? (
-              <p className="warn small" style={{ textTransform: 'none' }}>
+              <p className="warn small u-tt-n">
                 No pude leerlos ({limites.error}). {/expolimites|does not exist|function/i.test(limites.error)
                   ? <>Falta correr <b>sql/64_limites_sistema.sql</b> en Supabase.</> : null}
               </p>
@@ -1200,13 +1200,13 @@ export default function Dashboard() {
               return (
                 <>
                   <Ayuda titulo="¿Cómo se lee? (y qué no se puede ver desde acá)" margen="0 0 8px">
-                    <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                    <p className="muted small u-m-600 u-tt-n">
                       Plan Free de Supabase. Cuando algo pasa del <b>75%</b> el reloj se pone ámbar, y del <b>90%</b> rojo.
                       El <b>egress</b> y los <b>usuarios activos</b> no se pueden leer desde acá (piden un token de administración
                       de la cuenta, que no puede vivir en el panel): esos se ven en Supabase → Settings → Usage.
                     </p>
                   </Ayuda>
-                  <div className="cards" style={{ alignItems: 'flex-start' }}>
+                  <div className="cards u-ai-fs">
                     <Reloj titulo="BASE DE DATOS" usado={limites.db_bytes} limite={limites.db_limite}
                       detalle={MB(limites.db_bytes).toFixed(0) + ' MB de 500'} />
                     <Reloj titulo="ARCHIVOS EN SUPABASE" usado={limites.storage_bytes} limite={limites.storage_limite}
@@ -1216,14 +1216,14 @@ export default function Dashboard() {
                       <div style={{ fontSize: 12, columns: 2, columnGap: 14 }}>
                         {filas.map(([t, n]) => (
                           <div key={t} style={{ display: 'flex', justifyContent: 'space-between', breakInside: 'avoid' }}>
-                            <span className="muted" style={{ textTransform: 'none' }}>{t}</span><b>{Number(n).toLocaleString('es-PE')}</b>
+                            <span className="muted u-tt-n">{t}</span><b>{Number(n).toLocaleString('es-PE')}</b>
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
                   {pesadas.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
+                    <div className="u-mt-10">
                       <p className="muted small" style={{ margin: '0 0 5px' }}>LAS QUE MÁS PESAN</p>
                       <BarrasH filas={pesadas.map((x, i) => ({
                         label: x.tabla, valor: Number(x.bytes),

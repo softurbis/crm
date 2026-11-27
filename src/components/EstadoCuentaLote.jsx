@@ -34,8 +34,8 @@ export default function EstadoCuentaLote({ lotId, onCerrar }) {
     <div className="modal-bg" onClick={onCerrar}>
       <div className="glass modal fg-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head">
-          <h2 style={{ flex: 1 }}>{d ? d.lote.proyecto + ' · MZ ' + d.lote.mz + ' LT ' + d.lote.lt : 'Estado de cuenta'}
-            {d && <span className="muted small" style={{ marginLeft: 8 }}>{ESTADO_LOTE[d.lote.status] || d.lote.status}</span>}</h2>
+          <h2 className="u-f1">{d ? d.lote.proyecto + ' · MZ ' + d.lote.mz + ' LT ' + d.lote.lt : 'Estado de cuenta'}
+            {d && <span className="muted small u-ml-8">{ESTADO_LOTE[d.lote.status] || d.lote.status}</span>}</h2>
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
         {err && <p className="error">{err}</p>}
@@ -72,14 +72,14 @@ export default function EstadoCuentaLote({ lotId, onCerrar }) {
           {d.pagos.length ? (
             <div className="table-wrap" style={{ marginBottom: '.8rem' }}>
               <table>
-                <thead><tr><th>Fecha</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th>Operación</th><th>Voucher</th><th>Boleta / factura</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Concepto</th><th className="u-ta-r">Monto</th><th>Operación</th><th>Voucher</th><th>Boleta / factura</th></tr></thead>
                 <tbody>
                   {[...d.pagos].reverse().map(p => (
                     <tr key={p.id} style={p.de_esta_venta ? undefined : { opacity: .6 }}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(p.fecha)}</td>
+                      <td className="u-nw">{fechaPe(p.fecha)}</td>
                       <td className="small">{TIPO[p.tipo] || p.tipo}{p.cuota ? ' N ' + p.cuota : ''}{!p.de_esta_venta && <div className="muted">de una venta anterior</div>}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(p.monto)}</td>
-                      <td className="small" style={{ textTransform: 'none' }}>{p.operacion}<div className="muted">{p.banco || ''}</div></td>
+                      <td className="u-ta-r u-nw">{soles(p.monto)}</td>
+                      <td className="small u-tt-n">{p.operacion}<div className="muted">{p.banco || ''}</div></td>
                       <td>{p.voucher_url ? <button className="link-btn" onClick={() => setVer({ url: p.voucher_url, t: 'Voucher · ' + fechaPe(p.fecha) })}>VER</button> : <span className="muted small">—</span>}</td>
                       <td>{p.receipt_url ? <><button className="link-btn" onClick={() => setVer({ url: p.receipt_url, t: 'Comprobante · ' + (p.receipt_note || fechaPe(p.fecha)) })}>VER</button>{p.receipt_note && <span className="muted small"> {p.receipt_note}</span>}</>
                         : p.ce_serie && !['rechazado', 'anulado', 'error'].includes(p.ce_estado) ? (p.ce_pdf ? <button className="link-btn" onClick={() => setVer({ url: p.ce_pdf, t: p.ce_serie + '-' + (p.ce_numero || '') })}>{p.ce_serie}-{p.ce_numero || '…'}</button> : <span className="muted small">{p.ce_serie} en proceso</span>)
@@ -95,16 +95,16 @@ export default function EstadoCuentaLote({ lotId, onCerrar }) {
             <p className="fg-sub">Cronograma ({d.cuotas.length} cuotas)</p>
             <div className="table-wrap" style={{ maxHeight: 320 }}>
               <table>
-                <thead><tr><th>N°</th><th>Vence</th><th style={{ textAlign: 'right' }}>Cuota</th><th style={{ textAlign: 'right' }}>Pagado</th><th>Estado</th></tr></thead>
+                <thead><tr><th>N°</th><th>Vence</th><th className="u-ta-r">Cuota</th><th className="u-ta-r">Pagado</th><th>Estado</th></tr></thead>
                 <tbody>
                   {d.cuotas.map(q => {
                     const pagada = Number(q.pagado) >= Number(q.monto) - 0.009
                     return (
                       <tr key={q.n}>
                         <td>{q.n}</td>
-                        <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(q.vence)}</td>
-                        <td style={{ textAlign: 'right' }}>{soles(q.monto)}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(q.pagado) > 0 ? soles(q.pagado) : '—'}</td>
+                        <td className="u-nw">{fechaPe(q.vence)}</td>
+                        <td className="u-ta-r">{soles(q.monto)}</td>
+                        <td className="u-ta-r">{Number(q.pagado) > 0 ? soles(q.pagado) : '—'}</td>
                         <td className="small">{pagada ? <span className="ok">✔ pagada{q.fecha_pago ? ' ' + fechaPe(q.fecha_pago) : ''}</span>
                           : q.vencida ? <span className="bad">vencida{Number(q.pagado) > 0 ? ' (parcial)' : ''}</span>
                           : Number(q.pagado) > 0 ? <span className="warn">parcial</span> : <span className="muted">por vencer</span>}</td>

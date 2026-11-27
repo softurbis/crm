@@ -154,7 +154,7 @@ export default function Campanas() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>📣 Campañas</h1>
+        <h1 className="u-m0 u-f1">📣 Campañas</h1>
         <ProjectPicker />
         {puedeEditar && !edit && <button className="btn-primary" onClick={nueva}>+ Nueva campaña</button>}
       </div>
@@ -164,11 +164,11 @@ export default function Campanas() {
 
       {/* ---------- EDITOR ---------- */}
       {edit && (
-        <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardar}>
+        <form className="glass form-card u-mxw-n" onSubmit={guardar}>
           <p><b>{edit.id ? 'EDITAR CAMPAÑA' : 'NUEVA CAMPAÑA'} — {proyecto?.name}</b></p>
           <div className="grid2">
             <label>Nombre de la campaña
-              <input value={edit.name} onChange={e => { const v = e.target.value; setEdit(x => ({ ...x, name: v, keyword: x.id ? x.keyword : slug(v) })) }} placeholder="Ej: Meta septiembre — lotes desde S/500" required style={{ textTransform: 'none' }} />
+              <input className="u-tt-n" value={edit.name} onChange={e => { const v = e.target.value; setEdit(x => ({ ...x, name: v, keyword: x.id ? x.keyword : slug(v) })) }} placeholder="Ej: Meta septiembre — lotes desde S/500" required />
             </label>
             <label>Frase clave de atribución
               <input value={edit.keyword} onChange={e => set('keyword', slug(e.target.value))} placeholder="meta-septiembre" style={{ textTransform: 'none', fontFamily: 'monospace' }} />
@@ -176,8 +176,8 @@ export default function Campanas() {
             </label>
           </div>
           <label>Texto prellenado del anuncio (lo que el cliente manda al tocar el anuncio)
-            <textarea rows="2" value={edit.wa_text} placeholder={proponerTexto(edit.name, edit.keyword || 'clave')}
-              onChange={e => set('wa_text', e.target.value)} style={{ textTransform: 'none' }} />
+            <textarea className="u-tt-n" rows="2" value={edit.wa_text} placeholder={proponerTexto(edit.name, edit.keyword || 'clave')}
+              onChange={e => set('wa_text', e.target.value)} />
             <span className="muted small">Si lo dejas vacío se usa: <i>{proponerTexto(edit.name, edit.keyword || 'clave')}</i></span>
           </label>
           <div className="grid2">
@@ -185,7 +185,7 @@ export default function Campanas() {
             <label>Termina (opcional)<input type="date" value={edit.ends_at || ''} onChange={e => set('ends_at', e.target.value)} /></label>
             <label>Presupuesto de pauta (opcional, S/)<input type="number" step="0.01" min="0" value={edit.budget} onChange={e => set('budget', e.target.value)} placeholder="para calcular costo por lead" /></label>
             <label>Horario para escribir seguimientos
-              <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span className="u-d-f u-g-6 u-ai-c">
                 <input type="time" value={edit.attend_from} onChange={e => set('attend_from', e.target.value)} /> a
                 <input type="time" value={edit.attend_to} onChange={e => set('attend_to', e.target.value)} />
               </span>
@@ -196,19 +196,19 @@ export default function Campanas() {
           {edit.sequence.map((s, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto', gap: 8, alignItems: 'start', marginBottom: 6 }}>
               <label>Día<input type="number" min="1" max="60" value={s.dia} onChange={e => setSeq(i, 'dia', e.target.value)} /></label>
-              <label>Mensaje<textarea rows="2" value={s.texto} onChange={e => setSeq(i, 'texto', e.target.value)} style={{ textTransform: 'none' }} /></label>
+              <label>Mensaje<textarea className="u-tt-n" rows="2" value={s.texto} onChange={e => setSeq(i, 'texto', e.target.value)} /></label>
               <button type="button" className="link-btn" title="Quitar" style={{ marginTop: 22 }} onClick={() => setEdit(x => ({ ...x, sequence: x.sequence.filter((_, j) => j !== i) }))}>✕</button>
             </div>
           ))}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-8 u-fwr">
             <button type="button" className="btn-ghost" onClick={() => setEdit(x => ({ ...x, sequence: [...x.sequence, { dia: (x.sequence.at(-1)?.dia || 0) + 4, texto: '' }] }))}>+ mensaje</button>
             <button type="button" className="btn-ghost" onClick={() => set('sequence', SECUENCIA_BASE.map(s => ({ ...s })))}>Restaurar secuencia base</button>
           </div>
 
-          <label style={{ marginTop: 10 }}>Notas internas (dónde va la pauta, público, oferta…)
-            <textarea rows="2" value={edit.notes || ''} onChange={e => set('notes', e.target.value)} style={{ textTransform: 'none' }} />
+          <label className="u-mt-10">Notas internas (dónde va la pauta, público, oferta…)
+            <textarea className="u-tt-n" rows="2" value={edit.notes || ''} onChange={e => set('notes', e.target.value)} />
           </label>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div className="u-d-f u-g-8 u-mt-10">
             <button className="btn-primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button>
             <button type="button" className="btn-ghost" onClick={() => setEdit(null)}>Cancelar</button>
           </div>
@@ -219,7 +219,7 @@ export default function Campanas() {
       {!edit && lista.length === 0 && !sinTabla && (
         <div className="glass form-card">
           <p><b>Todavía no hay campañas en {proyecto?.name}.</b></p>
-          <p className="muted small" style={{ textTransform: 'none' }}>Una campaña te da tres cosas: saber qué anuncio trajo a cada lead, seguimiento automático a los que se enfrían, y resultados para decidir si repetir o cortar.</p>
+          <p className="muted small u-tt-n">Una campaña te da tres cosas: saber qué anuncio trajo a cada lead, seguimiento automático a los que se enfrían, y resultados para decidir si repetir o cortar.</p>
           {puedeEditar && <button className="btn-primary" onClick={nueva}>Crear la primera</button>}
         </div>
       )}
@@ -231,14 +231,14 @@ export default function Campanas() {
         const cpl = c.budget && leads ? Number(c.budget) / leads : null
         const est = ESTADOS[c.status] || ESTADOS.borrador
         return (
-          <div key={c.id} className="glass form-card" style={{ maxWidth: 'none', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, flex: 1 }}>{c.name} <span className={est.cls} style={{ fontSize: 12, marginLeft: 6 }}>● {est.t}</span></h3>
+          <div key={c.id} className="glass form-card u-mxw-n u-mb-12">
+            <div className="u-d-f u-ai-c u-g-10 u-fwr">
+              <h3 className="u-m0 u-f1">{c.name} <span className={est.cls} style={{ fontSize: 12, marginLeft: 6 }}>● {est.t}</span></h3>
               <span className="muted small">{c.starts_at || '—'}{c.ends_at ? ' → ' + c.ends_at : ''}{c.closed_at ? ' · cerrada ' + c.closed_at.slice(0, 10) : ''}</span>
               {puedeEditar && c.status !== 'cerrada' && <>
-                <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => abrir(c)}>✎ Configurar</button>
-                {c.status !== 'activa' && <button className="btn-primary" style={{ fontSize: 12 }} onClick={() => cambiarEstado(c, 'activa')}>▶ Activar</button>}
-                {c.status === 'activa' && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => cambiarEstado(c, 'pausada')}>⏸ Pausar</button>}
+                <button className="btn-ghost u-fs-12" onClick={() => abrir(c)}>✎ Configurar</button>
+                {c.status !== 'activa' && <button className="btn-primary u-fs-12" onClick={() => cambiarEstado(c, 'activa')}>▶ Activar</button>}
+                {c.status === 'activa' && <button className="btn-ghost u-fs-12" onClick={() => cambiarEstado(c, 'pausada')}>⏸ Pausar</button>}
                 <button className="btn-ghost" style={{ fontSize: 12, color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={() => cambiarEstado(c, 'cerrada')}>■ Cerrar</button>
               </>}
             </div>
@@ -265,23 +265,23 @@ export default function Campanas() {
             {/* el enlace para el anuncio */}
             {c.status !== 'cerrada' && (
               <div style={{ background: 'rgba(80,160,120,.07)', borderRadius: 8, padding: '8px 10px' }}>
-                <p style={{ margin: '0 0 4px', fontSize: 12 }}><b>ENLACE PARA EL ANUNCIO</b> <span className="muted">— frase clave: <code>{c.keyword}</code></span></p>
-                <p className="muted small" style={{ textTransform: 'none', margin: '0 0 6px' }}>Texto que manda el cliente: <i>{c.wa_text}</i></p>
+                <p className="u-m-004 u-fs-12"><b>ENLACE PARA EL ANUNCIO</b> <span className="muted">— frase clave: <code>{c.keyword}</code></span></p>
+                <p className="muted small u-tt-n u-m-006">Texto que manda el cliente: <i>{c.wa_text}</i></p>
                 {telefono
-                  ? <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  ? <div className="u-d-f u-g-6 u-fwr u-ai-c">
                       <code style={{ fontSize: 11, wordBreak: 'break-all', flex: 1, minWidth: 240 }}>{linkWa(c)}</code>
-                      <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => copiar(linkWa(c), 'ENLACE')}>Copiar enlace</button>
-                      <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => copiar(c.wa_text || '', 'TEXTO')}>Copiar texto</button>
+                      <button className="btn-ghost u-fs-12" onClick={() => copiar(linkWa(c), 'ENLACE')}>Copiar enlace</button>
+                      <button className="btn-ghost u-fs-12" onClick={() => copiar(c.wa_text || '', 'TEXTO')}>Copiar texto</button>
                     </div>
                   : <p className="bad small">Vincula un número de WhatsApp al proyecto para generar el enlace.</p>}
-                <p className="muted small" style={{ textTransform: 'none', margin: '6px 0 0' }}>
+                <p className="muted small u-tt-n u-m-600">
                   En Meta: objetivo <b>Mensajes → WhatsApp</b>, y en <b>Mensaje de bienvenida</b> pega el texto (o usa el enlace como destino). Cuando el cliente lo manda, el bot lo etiqueta a esta campaña.
                 </p>
               </div>
             )}
-            {c.notes && <p className="muted small" style={{ textTransform: 'none', marginTop: 6 }}>📝 {c.notes}</p>}
+            {c.notes && <p className="muted small u-tt-n u-mt-6">📝 {c.notes}</p>}
             {c.status === 'activa' && !!(c.sequence || []).length && (
-              <p className="muted small" style={{ textTransform: 'none', marginTop: 6 }}>🔁 Seguimiento automático: {(c.sequence || []).map(s => 'día ' + s.dia).join(' · ')} · de {c.attend_from} a {c.attend_to}</p>
+              <p className="muted small u-tt-n u-mt-6">🔁 Seguimiento automático: {(c.sequence || []).map(s => 'día ' + s.dia).join(' · ')} · de {c.attend_from} a {c.attend_to}</p>
             )}
           </div>
         )

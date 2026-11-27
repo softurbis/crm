@@ -143,7 +143,7 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
 
         {items.length > 0 && (
           <table style={{ width: '100%', fontSize: 12, marginTop: 10, borderCollapse: 'collapse' }}>
-            <thead><tr style={{ opacity: .65, textAlign: 'left' }}><th>Fecha</th><th>Detalle</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <thead><tr style={{ opacity: .65, textAlign: 'left' }}><th>Fecha</th><th>Detalle</th><th className="u-ta-r">Monto</th></tr></thead>
             <tbody>{items.map((a, i) => (
               <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
                 <td>{a[0]}</td><td>{a[1]}</td><td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a[2] ? 'S/ ' + a[2] : ''}</td>
@@ -153,16 +153,16 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
         )}
 
         {docs.length > 0 && (
-          <p className="small" style={{ marginTop: 10 }}>
+          <p className="small u-mt-10">
             Adjuntos: {docs.map(([t, u], i) => <span key={t}>{i ? ' · ' : ''}<a href={u} target="_blank" rel="noreferrer">{t} ↗</a></span>)}
           </p>
         )}
 
         {rechazo === null ? (
-          <form onSubmit={envio ? firmarConCodigo : pedirCodigo} style={{ marginTop: 14 }}>
+          <form className="u-mt-14" onSubmit={envio ? firmarConCodigo : pedirCodigo}>
             {firmaUrl
               ? (
-                <div style={{ textAlign: 'center' }}>
+                <div className="u-ta-c">
                   <img src={firmaUrl} alt="Tu firma registrada" style={{ height: 72, background: '#fff', borderRadius: 6, padding: 4 }} />
                   <div className="muted small">Tu firma registrada · {profile?.full_name}</div>
                 </div>
@@ -170,20 +170,20 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
               : <p className="warn">Todavía no registraste tu firma. <button type="button" className="link-btn" onClick={onPedirFirma}>Registrarla ahora</button></p>}
 
             {!envio ? (
-              <label style={{ marginTop: 10 }}>Tu contraseña, para confirmar que eres tú
-                <input type="password" autoComplete="current-password" value={pass}
-                  onChange={e => setPass(e.target.value)} style={{ textTransform: 'none' }} autoFocus />
+              <label className="u-mt-10">Tu contraseña, para confirmar que eres tú
+                <input className="u-tt-n" type="password" autoComplete="current-password" value={pass}
+                  onChange={e => setPass(e.target.value)} autoFocus />
               </label>
             ) : (
-              <div style={{ marginTop: 10 }}>
-                <p className="ok small" style={{ textTransform: 'none' }}>
+              <div className="u-mt-10">
+                <p className="ok small u-tt-n">
                   📲 Te mandamos un código al celular {envio.destino ? <b>{envio.destino}</b> : ''}. Escríbelo aquí:
                 </p>
                 <input inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={codigo} autoFocus
                   onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))}
                   placeholder="000000"
                   style={{ fontSize: 30, letterSpacing: 8, textAlign: 'center', width: '100%', fontVariantNumeric: 'tabular-nums' }} />
-                <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+                <p className="muted small u-tt-n u-mt-4">
                   {quedan > 0 ? <>Vence en <b>{mmss(quedan)}</b>.</> : <b>El código venció.</b>}{' '}
                   <button type="button" className="link-btn" disabled={busy || quedan > 240} onClick={reenviar}>Reenviar</button>
                 </p>
@@ -191,7 +191,7 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
             )}
 
             {err && <p className="error">{err}</p>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <div className="u-d-f u-g-8 u-mt-10 u-fwr">
               <button className="btn-primary" disabled={busy || !firmaUrl}>
                 {busy ? (envio ? 'Firmando…' : 'Enviando el código…') : envio ? '✍ Confirmar y firmar' : 'Continuar'}
               </button>
@@ -201,19 +201,18 @@ export default function AprobarGasto({ gasto: g, proyecto, profile, firmaUrl, mo
                   onClick={() => { setRechazo(''); setErr('') }}>Rechazar…</button>
               )}
             </div>
-            <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
+            <p className="muted small u-tt-n u-mt-10">
               Firmar pide tu contraseña y un código que llega a tu celular. Queda registrado quién {pidiendo ? 'pidió el gasto' : 'aprobó'}, cuándo, y una huella del gasto. Si alguien lo modifica después,
               {pidiendo ? ' tu firma se anula y hay que volver a firmarla.' : ' la constancia lo va a señalar.'}
             </p>
           </form>
         ) : (
-          <div style={{ marginTop: 14 }}>
+          <div className="u-mt-14">
             <label>Motivo del rechazo
-              <textarea rows="3" value={rechazo} onChange={e => setRechazo(e.target.value)} autoFocus
-                style={{ textTransform: 'none' }} placeholder="Ej: el monto no coincide con la cotización; falta el detalle de gastos…" />
+              <textarea className="u-tt-n" rows="3" value={rechazo} onChange={e => setRechazo(e.target.value)} autoFocus placeholder="Ej: el monto no coincide con la cotización; falta el detalle de gastos…" />
             </label>
             {err && <p className="error">{err}</p>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <div className="u-d-f u-g-8 u-mt-10 u-fwr">
               <button type="button" className="btn-primary" disabled={busy} onClick={rechazar}>{busy ? 'Enviando…' : '✖ Rechazar solicitud'}</button>
               <button type="button" className="btn-ghost" disabled={busy} onClick={() => { setRechazo(null); setErr('') }}>Volver</button>
             </div>

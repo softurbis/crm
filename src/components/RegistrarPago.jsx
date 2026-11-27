@@ -118,7 +118,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
     <div className="modal-bg" onClick={busy || fase === 'leyendo' ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540, width: '96%', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>{urlInicial ? '✔ CONFIRMAR EL PAGO' : '💸 SUBIR COMPROBANTE DE PAGO'} · {numSol(g)}</b>
+          <b className="u-f1">{urlInicial ? '✔ CONFIRMAR EL PAGO' : '💸 SUBIR COMPROBANTE DE PAGO'} · {numSol(g)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">✕</button>
         </div>
 
@@ -126,7 +126,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
           <div className="muted small">{proyecto?.name}</div>
           <div style={{ fontSize: 30, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</div>
           <div>para <b>{g.recipient || '—'}</b>{g.recipient_dni ? ' · DNI ' + g.recipient_dni : ''}</div>
-          <div className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+          <div className="muted small u-tt-n u-mt-4">
             {(g.description || g.type || '')}{g.payment_method ? ' · ' + g.payment_method : ''}
           </div>
         </div>
@@ -143,20 +143,20 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
           {/\.(jpe?g|png|webp|gif)(\?|$)/i.test(urlInicial) && <img src={urlInicial} alt="Voucher ya subido" style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, background: '#0a0d09' }} />}
         </>}
         {vista && <img src={vista} alt="Comprobante elegido" style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, background: '#0a0d09', marginTop: 10 }} />}
-        {file && !vista && <p className="small" style={{ textTransform: 'none', marginTop: 8 }}>📄 {file.name}</p>}
+        {file && !vista && <p className="small u-tt-n u-mt-8">📄 {file.name}</p>}
 
         {/* 2. leyendo */}
         {fase === 'leyendo' && (
           <div style={{ textAlign: 'center', padding: '16px 6px' }}>
             <div style={{ fontSize: 28 }}>🤖</div>
             <b>Leyendo el comprobante con IA…</b>
-            <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>Revisa el monto, la fecha, a quién se pagó y que no se haya usado antes. Tarda unos segundos.</p>
+            <p className="muted small u-tt-n u-mt-4">Revisa el monto, la fecha, a quién se pagó y que no se haya usado antes. Tarda unos segundos.</p>
           </div>
         )}
 
         {/* 3. resultado */}
         {fase === 'resultado' && res && (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="u-mt-12 u-d-f u-fd-c u-g-10">
             {listo && L && (
               <div className="glass" style={{ padding: '10px 12px' }}>
                 <b className="small">🤖 LO QUE DICE EL COMPROBANTE</b>
@@ -172,7 +172,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
             )}
 
             {listo && Array.isArray(res.validacion) && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="u-d-f u-fd-c u-g-4">
                 {res.validacion.map((v, i) => (
                   <div key={i} className="small" style={{ textTransform: 'none', color: v.nivel === 'mal' ? 'var(--error)' : v.nivel === 'duda' ? '#e0b23f' : 'var(--ok)' }}>
                     {ICONO[v.nivel] || '•'} {v.texto}
@@ -184,7 +184,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
             {todoCuadra && (
               <div style={{ border: '1px solid rgba(111,221,155,.5)', borderRadius: 10, padding: '10px 12px' }}>
                 <b className="ok">✅ Todo cuadra con la solicitud {numSol(g)}.</b>
-                <p className="small muted" style={{ textTransform: 'none', margin: '4px 0 0' }}>
+                <p className="small muted u-tt-n u-m-400">
                   {res.validacion?.some(v => v.nivel === 'duda') ? 'Mira los puntos en amarillo y, ' : ''}Si es el comprobante correcto, confírmalo:
                 </p>
               </div>
@@ -196,7 +196,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
                 {listo
                   ? <b className="bad">❌ OJO: {res.alertas} cosa{res.alertas === 1 ? '' : 's'} NO cuadra{res.alertas === 1 ? '' : 'n'} con la solicitud.</b>
                   : <b className="warn">⚠️ No se pudo leer con IA{res.error ? ': ' + res.error : ' a tiempo'}. Revísalo tú.</b>}
-                <p className="small" style={{ textTransform: 'none', margin: 0 }}>
+                <p className="small u-tt-n u-m0">
                   ¿Subiste el comprobante correcto? Si te equivocaste, elige otro arriba. Si es el correcto, confírmalo aquí:
                 </p>
                 <label className="small">Escribe el monto que ves en el comprobante
@@ -205,7 +205,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
                     style={{ fontSize: '1.2rem', fontVariantNumeric: 'tabular-nums' }} />
                 </label>
                 {visto != null && !montoOk && (
-                  <span className="small bad" style={{ textTransform: 'none' }}>
+                  <span className="small bad u-tt-n">
                     {soles(visto)} no coincide ni con la solicitud ({soles(g.amount)}){L?.monto != null ? ' ni con lo que leyó la IA (' + soles(L.monto) + ')' : ''}. Revisa bien el comprobante.
                   </span>
                 )}
@@ -217,7 +217,7 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
             )}
 
             <label>Nota <span className="muted small">(se llena sola; puedes corregirla)</span>
-              <input value={nota} onChange={e => setNota(e.target.value)} style={{ textTransform: 'none' }} placeholder="BCP · OP 123456 · 16/09/2026" />
+              <input className="u-tt-n" value={nota} onChange={e => setNota(e.target.value)} placeholder="BCP · OP 123456 · 16/09/2026" />
             </label>
 
             {err && <p className="error">{err}</p>}
@@ -232,8 +232,8 @@ export default function RegistrarPago({ gasto: g, proyecto, onCerrar, onHecho, u
           </div>
         )}
 
-        {fase === 'elegir' && err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
-        <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
+        {fase === 'elegir' && err && <p className="error u-mt-10">{err}</p>}
+        <p className="muted small u-tt-n u-mt-10">
           Al guardarlo, el gasto queda como pagado con el comprobante adjunto y lo que leyó la IA queda registrado.
         </p>
       </div>

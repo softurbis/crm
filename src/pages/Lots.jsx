@@ -202,7 +202,7 @@ export default function Lots() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0 }}>Mapa de lotes</h1>
+        <h1 className="u-m0">Mapa de lotes</h1>
         {/* la puerta de entrada del dia a dia: se escribe y se cae en la ficha del lote */}
         <div className="mapa-buscar"><BuscarLote autoFocus={!esCelular} /></div>
         <ProjectPicker />
@@ -244,7 +244,7 @@ export default function Lots() {
             <span className="dot" /> Eliminados ({counts.eliminado})
           </button>
         )}
-        <span style={{ flex: 1 }} />
+        <span className="u-f1" />
         {hayPlanoReal && <button className={`chip ${vistaVer === 'real' ? 'on' : ''}`} onClick={() => cambiarVista('real')}>📐 Plano real</button>}
         <button className={`chip ${vistaVer === 'plano' ? 'on' : ''}`} onClick={() => cambiarVista('plano')}>🗺️ {hayPlanoReal ? 'Cuadros' : 'Plano'}</button>
         <button className={`chip ${vistaVer === 'lista' ? 'on' : ''}`} onClick={() => cambiarVista('lista')}>☰ Lista</button>

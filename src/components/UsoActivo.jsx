@@ -140,7 +140,7 @@ export default function UsoActivo({ activo, nombre, email }) {
       <div className="modal-bg" style={{ zIndex: 9999 }}>
         <div className="glass modal" style={{ maxWidth: 420, width: '92%' }}>
           <div className="modal-head"><b>🔢 CREA TU PIN</b></div>
-          <p className="muted small" style={{ marginTop: 0 }}>
+          <p className="muted small u-mt-0">
             A los 30 minutos sin usar el panel, la pantalla se bloquea. Con un PIN la abres en un segundo,
             sin volver a escribir tu correo y tu contraseña. Puedes cambiarlo luego en <b>🔑 Mi contraseña</b>.
           </p>
@@ -184,14 +184,14 @@ function Bloqueo({ nombre, onAbierta }) {
       <form className="glass login-card" onSubmit={abrir}>
         <div className="login-logo"><Logo size={60} /></div>
         <h1>🔒 Bloqueado</h1>
-        <p className="muted" style={{ margin: 0 }}>
+        <p className="muted u-m0">
           {nombre ? <><b>{nombre}</b><br /></> : null}
           Pasaron 30 minutos sin usar el panel. Escribe tu PIN para seguir.
         </p>
         <input type="password" inputMode="numeric" autoComplete="off" autoFocus value={pin}
           onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
           placeholder="PIN" style={{ textAlign: 'center', fontSize: 24, letterSpacing: 8 }} />
-        {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
+        {err && <p className="error u-m0">{err}</p>}
         <button className="btn-primary" disabled={busy || pin.length < 4}>{busy ? 'COMPROBANDO…' : 'DESBLOQUEAR'}</button>
         <button type="button" className="btn-ghost" onClick={() => cerrarSesion('')}>No soy yo / entrar con contraseña</button>
       </form>

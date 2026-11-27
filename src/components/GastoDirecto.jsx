@@ -235,7 +235,7 @@ export default function GastoDirecto({ proyecto, opcionesPersonas = [], onCerrar
     <div className="modal-bg" onClick={busy || fase === 'leyendo' ? undefined : onCerrar}>
       <div className="glass modal gd-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>🧾 REGISTRAR GASTOS CON EL VOUCHER · {proyecto?.name}</b>
+          <b className="u-f1">🧾 REGISTRAR GASTOS CON EL VOUCHER · {proyecto?.name}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">✕</button>
         </div>
         <p className="muted small gd-intro">
@@ -251,9 +251,9 @@ export default function GastoDirecto({ proyecto, opcionesPersonas = [], onCerrar
           </label>
         )}
         {vista && <img src={vista} alt="Voucher elegido" className="gd-vista" />}
-        {file && !vista && <p className="small" style={{ textTransform: 'none', marginTop: 8 }}>📄 {file.name}</p>}
+        {file && !vista && <p className="small u-tt-n u-mt-8">📄 {file.name}</p>}
         {lectura()}
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+        {err && <p className="error u-tt-n">{err}</p>}
 
         {fase === 'listo' && <>
           {/* el total y los datos del pago */}
@@ -352,19 +352,19 @@ export default function GastoDirecto({ proyecto, opcionesPersonas = [], onCerrar
             </span>
           </div>
           <label className="gd-nota">Nota <span className="muted small">(opcional)</span>
-            <input value={v.nota} style={{ textTransform: 'none' }} onChange={e => setV(x => ({ ...x, nota: e.target.value }))} />
+            <input className="u-tt-n" value={v.nota} onChange={e => setV(x => ({ ...x, nota: e.target.value }))} />
           </label>
         </>}
 
         <datalist id="personas-gasto-directo">
           {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
         </datalist>
-        {falta && <p className="error" style={{ textTransform: 'none', margin: '10px 0 0' }}>{falta}</p>}
+        {falta && <p className="error u-tt-n u-m-1000">{falta}</p>}
         <div className="sg-botones">
           <button type="button" className="btn-primary" disabled={busy || fase !== 'listo'} onClick={registrar}>
             {busy ? 'Registrando…' : lineas.length > 1 ? 'Registrar los ' + lineas.length + ' gastos' : 'Registrar el gasto'}
           </button>
-          <button type="button" className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={onCerrar} disabled={busy}>Cancelar</button>
+          <button type="button" className="btn-ghost u-ml-a" onClick={onCerrar} disabled={busy}>Cancelar</button>
         </div>
       </div>
     </div>
@@ -403,7 +403,7 @@ export function CorregirGastoDirecto({ gasto: g, opcionesPersonas = [], profile,
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, width: '96%' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>✏ CORREGIR GASTO · {soles(g.amount)}</b>
+          <b className="u-f1">✏ CORREGIR GASTO · {soles(g.amount)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">✕</button>
         </div>
         <div className="form-grid">
@@ -427,11 +427,11 @@ export function CorregirGastoDirecto({ gasto: g, opcionesPersonas = [], profile,
         <datalist id="personas-gasto-corregir">
           {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
         </datalist>
-        <p className="muted small" style={{ textTransform: 'none' }}>El monto no se cambia aquí: los gastos tienen que seguir sumando el voucher. Si el monto está mal, anula el voucher y regístralo de nuevo.</p>
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+        <p className="muted small u-tt-n">El monto no se cambia aquí: los gastos tienen que seguir sumando el voucher. Si el monto está mal, anula el voucher y regístralo de nuevo.</p>
+        {err && <p className="error u-tt-n">{err}</p>}
         <div className="sg-botones">
           <button type="button" className="btn-primary" disabled={busy} onClick={guardar}>{busy ? 'Guardando…' : 'Guardar'}</button>
-          <button type="button" className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={onCerrar} disabled={busy}>Cancelar</button>
+          <button type="button" className="btn-ghost u-ml-a" onClick={onCerrar} disabled={busy}>Cancelar</button>
         </div>
       </div>
     </div>

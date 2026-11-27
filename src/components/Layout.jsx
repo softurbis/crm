@@ -579,7 +579,7 @@ export default function Layout() {
                     <Avatar url={u.avatar_url} nombre={u.full_name} size={20} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name || '—'}</span>
                   </span>
-                  <span className="muted" style={{ whiteSpace: 'nowrap' }}>{haceCuanto(u.online_since)}</span>
+                  <span className="muted u-nw">{haceCuanto(u.online_since)}</span>
                 </div>
               ))}
             </div>}
@@ -642,7 +642,7 @@ export default function Layout() {
                   <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #e8b04f' }}>
                     <b>✍ Esperan tu firma:</b>
                     {porFirmar.map(p => (
-                      <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                      <button key={p.id} className="btn-primary u-fs-12"
                         onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n} · {solesMenu(p.total)}</button>
                     ))}
                   </div>
@@ -651,7 +651,7 @@ export default function Layout() {
                   <div className="glass" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid #6fdd9b' }}>
                     <b>💸 Por pagar · sube el voucher:</b>
                     {porPagar.map(p => (
-                      <button key={p.id} className="btn-primary" style={{ fontSize: 12 }}
+                      <button key={p.id} className="btn-primary u-fs-12"
                         onClick={() => { select(p.id); irA('/gastos') }}>{p.name} · {p.n} · {solesMenu(p.total)}</button>
                     ))}
                   </div>

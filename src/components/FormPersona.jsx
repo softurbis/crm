@@ -35,7 +35,7 @@ export function BuscarCliente({ onElegir, excluir = [], placeholder = 'Busca por
   }
   return (
     <div className="bsc" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-      <input className="search" value={q} placeholder={placeholder} style={{ textTransform: 'none' }} onChange={e => setQ(e.target.value)} />
+      <input className="search u-tt-n" value={q} placeholder={placeholder} onChange={e => setQ(e.target.value)} />
       {q.trim().length >= 3 && (
         <div className="bsc-menu glass" style={{ position: 'static', marginTop: 4 }}>
           {buscando && <p className="muted bsc-nada">Buscando…</p>}
@@ -109,11 +109,11 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
 
   return (
     <div className="fp">
-      {titulo && <p className="fl-lbl" style={{ margin: '0 0 6px' }}>{titulo}</p>}
+      {titulo && <p className="fl-lbl u-m-006">{titulo}</p>}
       <div className="form-grid">
         {/* el DNI va primero: al elegirlo la IA lo lee y llena los datos de abajo */}
         <div className="span2">
-          <span className="muted small" style={{ display: 'block', marginBottom: 4 }}>DNI (frente y reverso) · la IA lo lee y llena los datos</span>
+          <span className="muted small u-d-b u-mb-4">DNI (frente y reverso) · la IA lo lee y llena los datos</span>
           <SubirDni archivos={archivo} setArchivos={setArchivo} dniIA={dniIA} aplicar={aplicarLectura} />
           {tieneFotoDni(persona) && !archivo && (
             <span className="ok small" style={{ display: 'block', margin: '2px 0' }}>
@@ -155,7 +155,7 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
         </label>
       </div>
       {otra && (
-        <p className="hint small" style={{ margin: '6px 0 0' }}>
+        <p className="hint small u-m-600">
           &#128279; Ese documento ya está registrado a nombre de <b>{otra.full_name}</b>. Es la misma persona:
           arriba se cargaron sus datos registrados — revísalos. Al registrar se usa esa ficha (no queda duplicada).
         </p>
@@ -163,7 +163,7 @@ export default function FormPersona({ persona, setPersona, archivo, setArchivo, 
       {repetidoConTitular && <p className="error small">El co-comprador no puede tener el mismo documento que el titular.</p>}
       {falta.length > 0
         ? <p className="fl-falta">&#9888; Falta para el contrato: {falta.join(', ')}</p>
-        : <p className="ok small" style={{ margin: '6px 0 0' }}>✓ Datos completos para el contrato</p>}
+        : <p className="ok small u-m-600">✓ Datos completos para el contrato</p>}
     </div>
   )
 }

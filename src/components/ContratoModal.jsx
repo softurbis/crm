@@ -81,7 +81,7 @@ export default function ContratoModal({ saleId, onClose }) {
               <p><a href={gen.signed_contract_url} target="_blank" rel="noreferrer">Ver el contrato firmado</a></p>
               {puedeCorregir
                 ? <>
-                    <p className="muted small" style={{ textTransform: 'none' }}>Si el cliente tiene que firmar un contrato nuevo (por ejemplo, con el plano nuevo), genéralo aquí. Cuando subas el nuevo firmado, ese pasa a ser el vigente y el de ahora queda guardado en "contratos anteriores".</p>
+                    <p className="muted small u-tt-n">Si el cliente tiene que firmar un contrato nuevo (por ejemplo, con el plano nuevo), genéralo aquí. Cuando subas el nuevo firmado, ese pasa a ser el vigente y el de ahora queda guardado en "contratos anteriores".</p>
                     <button className="btn-primary" onClick={() => setNuevo(true)}>&#128196; Generar contrato NUEVO</button>{' '}
                   </>
                 : <p className="muted small">Para hacer un contrato nuevo que lo reemplace, pídeselo a la secretaria o al superusuario.</p>}
@@ -89,10 +89,10 @@ export default function ContratoModal({ saleId, onClose }) {
           : <>
               <p><b>¿Con qué formato se genera el contrato?</b></p>
               <div style={{ display: 'grid', gap: 8, margin: '10px 0' }}>
-                <button className="btn-ghost" style={{ textAlign: 'left', textTransform: 'none' }} onClick={() => setFormato('normal')}>
+                <button className="btn-ghost u-ta-l u-tt-n" onClick={() => setFormato('normal')}>
                   <b>Formato de siempre</b><br /><span className="muted small">Vende y firma {p.titular_name || 'la titular'}.</span>
                 </button>
-                <button className="btn-ghost" style={{ textAlign: 'left', textTransform: 'none' }} onClick={() => setFormato('poder')}>
+                <button className="btn-ghost u-ta-l u-tt-n" onClick={() => setFormato('poder')}>
                   <b>Formato CON PODER</b><br /><span className="muted small">{p.titular_name || 'La titular'}, representada por {p.representante_nombre} según su poder; firma {p.representante_nombre}.</span>
                 </button>
               </div>
@@ -297,7 +297,7 @@ export default function ContratoModal({ saleId, onClose }) {
     }
     const mb = t.match(/^\{\{(\w+)\}\}$/)
     if (mb && BLOQ[mb[1]]) { cuerpo.push(<div key={i}>{BLOQ[mb[1]]}</div>); continue }
-    if (primera) { primera = false; cuerpo.push(<h2 key={i} style={{ textAlign: 'center' }}>{conNegritas(fill(t))}</h2>); continue }
+    if (primera) { primera = false; cuerpo.push(<h2 className="u-ta-c" key={i}>{conNegritas(fill(t))}</h2>); continue }
     if (/^(CLAUSULA|CLÁUSULA|ANEXO)/i.test(t)) { cuerpo.push(<h3 key={i}>{conNegritas(fill(t))}</h3>); continue }
     cuerpo.push(<p key={i}>{conNegritas(fill(t))}</p>)
   }
@@ -390,14 +390,14 @@ export default function ContratoModal({ saleId, onClose }) {
         )}
         {problemas.length > 0 && (
           <div className="no-print" style={{ padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(224,178,63,.1)', border: '1px solid rgba(224,178,63,.35)' }}>
-            <p className="warn" style={{ margin: 0 }}><b>&#9888; Ojo con los documentos del proyecto</b> (el contrato se puede imprimir igual):</p>
+            <p className="warn u-m0"><b>&#9888; Ojo con los documentos del proyecto</b> (el contrato se puede imprimir igual):</p>
             {problemas.map((x, i) => <p key={i} className="warn small" style={{ margin: '2px 0 0' }}>&#8226; {x}</p>)}
-            <p className="muted small" style={{ margin: '4px 0 0' }}>Se regularizan en PROYECTOS &#8594; EDITAR.</p>
+            <p className="muted small u-m-400">Se regularizan en PROYECTOS &#8594; EDITAR.</p>
           </div>
         )}
         {pendientes.length > 0 && (
           <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 12px', margin: '0 0 10px', borderRadius: 10, background: 'rgba(120,170,220,.08)', border: '1px solid rgba(120,170,220,.3)' }}>
-            <b style={{ textTransform: 'none' }}>&#128197; Día de pago de las cuotas:</b>
+            <b className="u-tt-n">&#128197; Día de pago de las cuotas:</b>
             <select value={diaPago} onChange={e => setDiaPago(e.target.value)} disabled={cambiandoDia}>
               <option value="15">Quincena (día 15)</option>
               <option value="fin">Fin de mes (último día)</option>
@@ -407,7 +407,7 @@ export default function ContratoModal({ saleId, onClose }) {
               <input type="number" min="1" max="31" placeholder="Día (1-31)" value={diaOtro} onChange={e => setDiaOtro(e.target.value)} style={{ width: 110 }} disabled={cambiandoDia} />
             )}
             <button className="btn-ghost" onClick={cambiarDiaPago} disabled={cambiandoDia}>{cambiandoDia ? 'Cambiando…' : 'Aplicar al cronograma'}</button>
-            <span className="muted small" style={{ textTransform: 'none' }}>Hoy vencen el día {Number(String(pendientes[0].due_date).slice(8, 10))}. Solo cambia las cuotas no pagadas.</span>
+            <span className="muted small u-tt-n">Hoy vencen el día {Number(String(pendientes[0].due_date).slice(8, 10))}. Solo cambia las cuotas no pagadas.</span>
           </div>
         )}
         {editDoc && <p className="no-print" style={{ color: '#e0b34c', fontSize: 12, margin: '0 0 8px' }}>✎ MODO EDICIÓN: haz clic sobre el texto y corrige lo que necesites. Los cambios aplican a esta impresión.</p>}

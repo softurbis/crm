@@ -91,7 +91,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
               {puedeEditar && <button type="button" className="cv-btn" onClick={nota} title={AYUDA.nota}>&#128221; Nota</button>}
               {puedeEditar && puedeCorregir && <button type="button" className="cv-btn peligro" onClick={quitar} title={AYUDA.quitar}>&#128465;</button>}
             </div>
-            {v.contract_note && <div className="muted small" style={{ textTransform: 'none' }}>{v.contract_note}</div>}
+            {v.contract_note && <div className="muted small u-tt-n">{v.contract_note}</div>}
             {/* contrato NUEVO que reemplaza al firmado: lo hace quien corrige, en dos pasos */}
             {puedeEditar && puedeCorregir && (
               <div className="cv-nuevo">
@@ -115,8 +115,8 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
           : <span className="warn">sin contrato firmado</span>}
       {/* los contratos firmados de antes (reemplazados por uno nuevo o quitados): solo se consultan */}
       {anteriores.length > 0 && (
-        <details className="small" style={{ marginTop: 4, textTransform: 'none' }}>
-          <summary style={{ cursor: 'pointer' }} title={AYUDA.anteriores}>&#128220; contratos anteriores ({anteriores.length})</summary>
+        <details className="small u-mt-4 u-tt-n">
+          <summary className="u-cp" title={AYUDA.anteriores}>&#128220; contratos anteriores ({anteriores.length})</summary>
           {anteriores.map((a, i) => (
             <div key={i} style={{ margin: '2px 0 2px 14px' }}>
               <a href={a.url} target="_blank" rel="noreferrer" className="muted" title="Abre en otra pestaña este contrato anterior. Ya no es el vigente: queda solo como historial.">ver</a>
@@ -130,7 +130,7 @@ export default function ContratoDeVenta({ venta: v, alCambiar, alFallar, puedeEd
       {(docs.length > 0 || puedeEditar) && (
         <div className="cv-respaldo">
           {docs.map((d, i) => (
-            <div key={i} className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', textTransform: 'none', marginBottom: 2 }}>
+            <div key={i} className="small u-d-f u-g-6 u-ai-c u-tt-n u-mb-2">
               <span>📎</span>
               <a href={d.url} target="_blank" rel="noreferrer" className="ok" title="Abre en otra pestaña este documento de respaldo del contrato.">{d.note || 'Respaldo'}</a>
               {puedeEditar && <button type="button" className="link-btn" title={AYUDA.etiqueta} onClick={() => etiquetarRespaldo(i)}>&#9998;</button>}

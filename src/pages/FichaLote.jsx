@@ -64,7 +64,7 @@ function Persona({ c, titulo, editable, alEditar, children }) {
       <p className="small fl-links">
         {dni ? <a href={dni} target="_blank" rel="noreferrer">ver DNI</a> : <span className="bad">sin foto del DNI</span>}
         {/* se edita aquí mismo, sin salir de la ficha (antes mandaba a la pantalla Clientes) */}
-        {editable && <button type="button" className="link-btn" style={{ textTransform: 'none' }} onClick={() => alEditar?.(c, titulo)}>&#9998; editar datos</button>}
+        {editable && <button type="button" className="link-btn u-tt-n" onClick={() => alEditar?.(c, titulo)}>&#9998; editar datos</button>}
       </p>
       {falta.length > 0 && <p className="fl-falta">&#9888; Falta para el contrato: {falta.join(', ')}</p>}
       {children}
@@ -1243,7 +1243,7 @@ export default function FichaLote() {
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
-        {!readOnly && <button className="link-btn" style={{ marginLeft: 4, fontSize: 11 }}
+        {!readOnly && <button className="link-btn u-ml-4 u-fs-11"
           title="Volver a pedir este documento" onClick={() => noAplica(g.items, campo, false)}>&#8634;</button>}
       </span>
     )
@@ -1261,7 +1261,7 @@ export default function FichaLote() {
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g.items, e.target.files[0], campo)} />
         </label>
-        {naOk && <button className="link-btn" style={{ display: 'block', fontSize: 10, marginTop: 2 }}
+        {naOk && <button className="link-btn u-d-b u-fs-10 u-mt-2"
           title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo."
           onClick={() => noAplica(g.items, campo, true)}>no aplica</button>}
       </>
@@ -1397,7 +1397,7 @@ export default function FichaLote() {
                 <button className="link-btn" onClick={() => { setCoEdit(true); cargarClientes() }}>{sale.co_client ? 'cambiar co-comprador' : '+ agregar co-comprador'}</button>
               ))}
               {detail.hermanosLotes.length > 0 && (
-                <p className="small" style={{ marginTop: 8 }}>&#127968; También tiene:{' '}
+                <p className="small u-mt-8">&#127968; También tiene:{' '}
                   {detail.hermanosLotes.map(h => <Link key={h.id} className="lote-chip" style={{ marginRight: 4 }} to={`/lotes/${h.id}`}>{h.mz}-{h.lt}</Link>)}
                 </p>
               )}
@@ -1437,7 +1437,7 @@ export default function FichaLote() {
               <h3>&#127991; Venta</h3>
               <dl className="fl-dl">
                 <dt>Fecha de venta</dt><dd>{fechaPe(sale.sale_date)}
-                  {puedeCorregir && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('sale_date', 'fecha de venta', sale.sale_date, 'sales', sale.id)} title="Corregir fecha de venta">&#9998;</button>}</dd>
+                  {puedeCorregir && <button className="fecha-edit u-ml-6" onClick={() => editarFechaLote('sale_date', 'fecha de venta', sale.sale_date, 'sales', sale.id)} title="Corregir fecha de venta">&#9998;</button>}</dd>
                 <dt>Precio</dt><dd><b>{soles(sale.total_sale_price)}</b></dd>
                 <dt>Separación</dt><dd>{soles(resumen.sepReal)}</dd>
                 <dt>Inicial</dt><dd>{soles(resumen.iniReal)}</dd>
@@ -1505,15 +1505,15 @@ export default function FichaLote() {
                 title="Esta venta no tiene cuotas. Crea el cronograma completo desde el contrato.">&#128197; Generar cronograma</button>
             )}
             {puedeCorregir && (<>
-              <button className="btn-ghost" style={{ fontSize: 12 }} title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
+              <button className="btn-ghost u-fs-12" title="Redistribuye lo ya pagado entre las cuotas, en orden. Corrige cuotas sobrepagadas/cortas de la migracion sin tocar los pagos de caja."
                 onClick={recuadrarCuotas}>&#9878; Recuadrar cuotas</button>
-              <button className="btn-ghost" style={{ fontSize: 12 }} title="Registrar una inicial o separación que no se cargó en la migración, sobre esta venta. No crea venta ni toca el cronograma."
+              <button className="btn-ghost u-fs-12" title="Registrar una inicial o separación que no se cargó en la migración, sobre esta venta. No crea venta ni toca el cronograma."
                 onClick={() => setCobro('cuadre')}>&#9998; Cuadre inicial / separación</button>
-              <button className="btn-ghost" style={{ fontSize: 12 }} title="Crear una cuota que faltó en la migración (ej. la 11). No toca las demás."
+              <button className="btn-ghost u-fs-12" title="Crear una cuota que faltó en la migración (ej. la 11). No toca las demás."
                 onClick={insertarCuota}>&#10133; Insertar cuota faltante</button>
             </>)}
           </div>
-          {puedeCorregir && <p className="muted" style={{ fontSize: 10, margin: '0 0 4px' }}>💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En VENCE puedes cambiar solo esa cuota o esa y todas las siguientes (el mismo día o fin de mes). En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
+          {puedeCorregir && <p className="muted u-fs-10 u-m-004">💡 Superusuario: haz clic en <b>VENCE</b>, <b>MONTO</b> o <b>PAGADA EL</b> para corregir. En VENCE puedes cambiar solo esa cuota o esa y todas las siguientes (el mismo día o fin de mes). En MONTO, el nuevo importe se aplica desde esa cuota y la última se ajusta para cuadrar.</p>}
           <div className="table-wrap fl-tabla">
             <table>
               <thead><tr><th>N°</th><th>Vence</th><th>Monto</th><th>Pagado</th><th>Debe</th><th>Estado</th><th>Pagada el</th></tr></thead>
@@ -1582,12 +1582,12 @@ export default function FichaLote() {
       {/* ======================= PAGOS Y DOCUMENTOS ======================= */}
       {tabActiva === 'pagos' && (
         <div className="glass fl-panel">
-          <p className="muted small" style={{ margin: '0 0 8px' }}>
+          <p className="muted small u-m-008">
             Cada fila es <b>un pago real</b> (un depósito), por el monto exacto del voucher. Aquí mismo se sube el
             <b> voucher del cliente</b> y el <b>comprobante</b> (boleta o factura SUNAT). Clic en el concepto para ver los documentos.
           </p>
           <div className="filtros">
-            <input className="search fx-search" style={{ textTransform: 'none' }}
+            <input className="search fx-search u-tt-n"
               placeholder="Buscar: fecha (15/06/2026), N° operación, cuota, monto…"
               value={pagoQ} onChange={e => setPagoQ(e.target.value)} />
             {[['todos', `Todos (${grupos.length})`], ['sin_voucher', `Falta voucher (${faltaVoucher})`], ['sin_comprobante', `Falta comprobante (${faltaComprobante})`]].map(([k, l]) => (
@@ -1600,19 +1600,19 @@ export default function FichaLote() {
           {!!gruposVista.length && (
             <div className="table-wrap fl-tabla">
               <table>
-                <thead><tr><th>Fecha</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th>N° operación</th><th>Banco</th><th>Voucher</th><th>Comprobante</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Concepto</th><th className="u-ta-r">Monto</th><th>N° operación</th><th>Banco</th><th>Voucher</th><th>Comprobante</th></tr></thead>
                 <tbody>
                   {gruposVista.map(g => {
                     const r = g.referencia
                     return (
                       <tr key={g.key}>
-                        <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(r.date)}</td>
+                        <td className="u-nw">{fechaPe(r.date)}</td>
                         <td><button className="link-btn" title="Ver este pago y sus documentos" onClick={() => setVerPago(r)}>{g.concepto}</button>
                           {/* un voucher repartido en varias cuotas: se dice cuánto fue a cada una */}
                           {g.reparto.length > 1 && <div className="small fl-reparto">Se repartió en: {textoReparto(g.reparto)}</div>}
                           {g.notas && <div className="muted small fl-obs">{g.notas}</div>}</td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.total)}</b></td>
-                        <td style={{ textTransform: 'none' }}>{r.operation_number}</td>
+                        <td className="u-ta-r u-nw"><b>{soles(g.total)}</b></td>
+                        <td className="u-tt-n">{r.operation_number}</td>
                         <td title="origen → destino">{r.banco_origen ? r.banco_origen + ' → ' : ''}{r.account?.name || '-'}</td>
                         <td>{celdaDoc(g, 'voucher_url')}</td>
                         <td>{celdaDoc(g, 'receipt_url')}</td>
@@ -1621,7 +1621,7 @@ export default function FichaLote() {
                   })}
                   <tr className="fl-fila-total">
                     <td colSpan="2">{gruposVista.length === grupos.length ? `TOTAL EN ${grupos.length} PAGOS` : `FILTRADO: ${gruposVista.length} de ${grupos.length} pagos`}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(gruposVista.reduce((x, g) => x + g.total, 0))}</td>
+                    <td className="u-ta-r u-nw">{soles(gruposVista.reduce((x, g) => x + g.total, 0))}</td>
                     <td colSpan="4" />
                   </tr>
                 </tbody>
@@ -1644,7 +1644,7 @@ export default function FichaLote() {
               {sel.associated_to && <><dt>Asociado a</dt><dd>{sel.associated_to}</dd></>}
               {sel.boundaries?.medidas && <><dt>Medidas</dt><dd>{Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</dd></>}
               {sel.status === 'entregado' && <><dt>Entregado el</dt><dd><b>{sel.delivered_at ? fechaPe(sel.delivered_at) : '- (sin fecha)'}</b>
-                {puedeCorregir && <button className="fecha-edit" style={{ marginLeft: 6 }} onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">&#9998;</button>}</dd></>}
+                {puedeCorregir && <button className="fecha-edit u-ml-6" onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">&#9998;</button>}</dd></>}
             </dl>
             {sel.status === 'eliminado' && <p className="hint" style={{ color: '#c9cbd0', margin: '4px 0' }}>
               &#9888; Este lote está marcado como <b>ELIMINADO</b>: no existe en el terreno y no cuenta en el
@@ -1721,7 +1721,7 @@ export default function FichaLote() {
                   {totalDev > 0 && <> · <span className="muted">devuelto:</span> <b className="warn">{soles(totalDev)}</b></>}
                 </p>
                 {conCierre < exps.length && (
-                  <p className="muted small" style={{ margin: '0 0 4px' }}>
+                  <p className="muted small u-m-004">
                     {exps.length - conCierre} de {exps.length} {exps.length - conCierre === 1 ? 'expropiación' : 'expropiaciones'} sin cierre económico registrado
                     {puedeCierre ? ' — complétalo en la columna CIERRE.' : '.'}
                   </p>
@@ -1736,7 +1736,7 @@ export default function FichaLote() {
                           <td>{fechaPe(e.sale_date)}</td>
                           <td>{soles(e.total_sale_price)}</td>
                           <td><b style={{ color: '#c39ce0' }}>{soles(e.pagado)}</b>
-                            {puedeCierre && <div><button className="link-btn" style={{ fontSize: 11 }}
+                            {puedeCierre && <div><button className="link-btn u-fs-11"
                               onClick={() => abrirPagoExp(e)}>&#43; pago que faltó</button></div>}
                           </td>
                           <td>
@@ -1747,10 +1747,10 @@ export default function FichaLote() {
                                 {e.expr_monto_devuelto != null && <div><span className="muted">devuelto:</span> <b className="warn">{soles(e.expr_monto_devuelto)}</b></div>}
                                 {e.expr_saldo != null && <div><span className="muted">saldo:</span> <b className={Number(e.expr_saldo) < 0 ? 'bad' : 'ok'}>{soles(e.expr_saldo)}</b> <span className="muted">{Number(e.expr_saldo) < 0 ? '(en contra)' : '(a favor)'}</span></div>}
                                 {e.expr_acuerdo_url && <div><a href={e.expr_acuerdo_url} target="_blank" rel="noreferrer">ver acuerdo firmado</a></div>}
-                                {e.expr_notas && <div className="muted" style={{ textTransform: 'none' }}>{e.expr_notas}</div>}
+                                {e.expr_notas && <div className="muted u-tt-n">{e.expr_notas}</div>}
                               </div>
                             ) : <span className="muted small">sin registrar</span>}
-                            {puedeCierre && <div><button className="link-btn" style={{ fontSize: 11 }}
+                            {puedeCierre && <div><button className="link-btn u-fs-11"
                               onClick={() => abrirCierre(e)}>{tieneCierre(e) ? '✎ editar cierre' : '✎ completar cierre'}</button></div>}
                           </td>
                         </tr>
@@ -1809,7 +1809,7 @@ export default function FichaLote() {
               <h2>Cierre de expropiación — MZ {sel.mz} LT {sel.lt}</h2>
               <button type="button" className="btn-ghost" onClick={() => setCierre(null)}>&#10005;</button>
             </div>
-            <p className="muted small" style={{ margin: '0 0 6px' }}>
+            <p className="muted small u-m-006">
               Cliente original: <b>{cierre.exp.client?.full_name || '—'}</b> · pagó y perdió{' '}
               <b style={{ color: '#c39ce0' }}>{soles(cierre.exp.pagado)}</b>.
               Sus pagos <b>no se tocan</b>: acá solo se registra cómo terminó el acuerdo.
@@ -1849,7 +1849,7 @@ export default function FichaLote() {
                 <input type="file" accept="image/*,.pdf" onChange={e => setCierreFile(e.target.files[0] || null)} />
               </label>
               <label className="span2">Notas del cierre
-                <textarea rows="3" style={{ textTransform: 'none' }} value={cierre.f.expr_notas}
+                <textarea className="u-tt-n" rows="3" value={cierre.f.expr_notas}
                   placeholder="Qué se acordó, condiciones, pendientes…"
                   onChange={e => setCierre(c => ({ ...c, f: { ...c.f, expr_notas: e.target.value } }))} />
               </label>
@@ -1873,7 +1873,7 @@ export default function FichaLote() {
               <>
                 {' '}
                 <button type="button" className="btn-ghost bad" disabled={cierreBusy} onClick={borrarCierre}>Borrar cierre</button>
-                <p className="muted small" style={{ margin: '6px 0 0', textTransform: 'none' }}>
+                <p className="muted small u-m-600 u-tt-n">
                   Si ese monto fue en realidad un pago del cliente, bórralo de acá y regístralo con <b>+ pago que faltó</b>: así suma en lo pagado y en la caja, en vez de quedar como una nota.
                 </p>
               </>
@@ -1891,12 +1891,12 @@ export default function FichaLote() {
               <h2>Pago que faltó — MZ {sel.mz} LT {sel.lt}</h2>
               <button type="button" className="btn-ghost" onClick={() => setPagoExp(null)}>&#10005;</button>
             </div>
-            <p className="muted small" style={{ margin: '0 0 6px' }}>
+            <p className="muted small u-m-006">
               Venta expropiada de <b>{pagoExp.exp.client?.full_name || '—'}</b> · hoy figura pagado{' '}
               <b style={{ color: '#c39ce0' }}>{soles(pagoExp.exp.pagado)}</b>.
               Esto es para la plata que <b>sí entró</b> y nunca se registró. Suma en lo pagado y en la caja del proyecto.
             </p>
-            <p className="hint" style={{ margin: '0 0 8px' }}>
+            <p className="hint u-m-008">
               Si lo que quieres anotar es cómo terminó el acuerdo (penalidad, devolución), eso va en <b>completar cierre</b>, no acá.
             </p>
 
@@ -1949,7 +1949,7 @@ export default function FichaLote() {
                 <input type="file" accept="image/*,.pdf" onChange={e => setPagoExpFile(e.target.files[0] || null)} />
               </label>
               <label className="span2">¿De dónde sale este pago? <span className="muted small">(obligatorio, queda en bitácora)</span>
-                <textarea rows="2" style={{ textTransform: 'none' }} value={pagoExp.f.observation}
+                <textarea className="u-tt-n" rows="2" value={pagoExp.f.observation}
                   placeholder="Ej: voucher de la cuota 04 que estaba en el Drive y nunca se subió"
                   onChange={e => setPagoExp(p => ({ ...p, f: { ...p.f, observation: e.target.value } }))} required />
               </label>

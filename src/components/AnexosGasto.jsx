@@ -42,12 +42,12 @@ export function AnexosImpresos({ g }) {
   const lista = anexosDe(g)
   if (!lista.length) return null
   return <>
-    <p className="small" style={{ marginTop: 14, textTransform: 'none' }}>
+    <p className="small u-mt-14 u-tt-n">
       <b>ANEXOS ({lista.length}):</b> {lista.map((a, i) => (i + 1) + '. ' + (a.note || (esImagenAnexo(a.url) ? 'foto' : 'documento'))).join(' · ')}
     </p>
     {lista.map((a, i) => esImagenAnexo(a.url) && (
       <div key={a.url} style={{ breakBefore: 'page', pageBreakBefore: 'always', textAlign: 'center', paddingTop: 10 }}>
-        <p style={{ margin: '0 0 8px' }}><b>ANEXO {i + 1}</b>{a.note ? ' — ' + a.note : ''}</p>
+        <p className="u-m-008"><b>ANEXO {i + 1}</b>{a.note ? ' — ' + a.note : ''}</p>
         <img src={a.url} alt={'Anexo ' + (i + 1)} style={{ maxWidth: '100%', maxHeight: '24cm', objectFit: 'contain' }} />
       </div>
     ))}
@@ -95,17 +95,17 @@ export default function AnexosGasto({ g, numero, puedeAgregar, puedeQuitarTodo, 
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 760, width: '96%', maxHeight: '92vh', overflowY: 'auto', textTransform: 'none' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>📎 Anexos {numero ? 'de la ' + numero : 'del gasto'}</b>
+          <b className="u-f1">📎 Anexos {numero ? 'de la ' + numero : 'del gasto'}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={!!busy} aria-label="Cerrar">&#10005;</button>
         </div>
-        <p className="muted small" style={{ margin: '0 0 10px' }}>
+        <p className="muted small u-m-0010">
           {(g.description || g.type || '').slice(0, 90)}{g.recipient ? ' · ' + g.recipient : ''}
           <br />Opcionales: fotos, boletas, cotizaciones, lo que respalde el gasto. No cambian las firmas.
         </p>
 
         {!lista.length && <p className="muted">Este gasto todavía no tiene anexos.</p>}
         {lista.length > 0 && (
-          <table className="ctable" style={{ fontSize: 13, marginBottom: 10 }}>
+          <table className="ctable u-fs-13 u-mb-10">
             <tbody>
               {lista.map((a, i) => {
                 const mio = miId && a.por === miId
@@ -116,7 +116,7 @@ export default function AnexosGasto({ g, numero, puedeAgregar, puedeQuitarTodo, 
                       {a.note || <span className="muted">{esImagenAnexo(a.url) ? 'foto' : 'documento'} sin nota</span>}
                       <div className="muted small">{a.por_nombre || ''}{a.at ? ' · ' + fechaCorta(a.at) : ''}</div>
                     </td>
-                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <td className="u-nw u-ta-r">
                       <button type="button" className="link-btn" onClick={() => setVer(ver?.url === a.url ? null : { url: a.url, titulo: 'Anexo ' + (i + 1) })}>{ver?.url === a.url ? 'OCULTAR' : 'VER'}</button>
                       {' '}<a href={a.url} target="_blank" rel="noreferrer" className="muted small" title="abrir en otra pestaña">↗</a>
                       {(puedeQuitarTodo || mio) && <>{' '}<button type="button" className="link-btn" title="Quitar este anexo (queda en la bitácora)" disabled={!!busy} onClick={() => quitar(a)}>&#128465;</button></>}
@@ -127,7 +127,7 @@ export default function AnexosGasto({ g, numero, puedeAgregar, puedeQuitarTodo, 
             </tbody>
           </table>
         )}
-        {ver && <div style={{ marginBottom: 12 }}><VisorDoc key={ver.url} url={ver.url} titulo={ver.titulo} alto={460} /></div>}
+        {ver && <div className="u-mb-12"><VisorDoc key={ver.url} url={ver.url} titulo={ver.titulo} alto={460} /></div>}
 
         {puedeAgregar && (
           <div className="form-grid" style={{ alignItems: 'end' }}>
@@ -141,7 +141,7 @@ export default function AnexosGasto({ g, numero, puedeAgregar, puedeQuitarTodo, 
             </label>
           </div>
         )}
-        {err && <p className="error" style={{ margin: '10px 0 0' }}>{err}</p>}
+        {err && <p className="error u-m-1000">{err}</p>}
       </div>
     </div>
   )

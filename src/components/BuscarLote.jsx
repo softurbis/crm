@@ -145,8 +145,7 @@ export default function BuscarLote({ autoFocus, placeholder = 'Buscar lote (G7),
 
   return (
     <div className="bsc buscar-lote" ref={caja}>
-      <input className="bsc-in search" value={q} placeholder={placeholder} autoFocus={autoFocus}
-        style={{ textTransform: 'none' }}
+      <input className="bsc-in search u-tt-n" value={q} placeholder={placeholder} autoFocus={autoFocus}
         onFocus={() => { asegurarDatos(); setAbierto(true) }}
         onChange={e => { setQ(e.target.value); setAbierto(true) }}
         onKeyDown={tecla} />

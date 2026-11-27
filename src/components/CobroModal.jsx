@@ -345,8 +345,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const otrosVouchers = (pasoBase, de, ayuda) => (
     <div className="cobro-caja">
       {extras.map((x, k) => (
-        <div key={x.uid} style={{ marginBottom: 10 }}>
-          <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Voucher {k + 2} {de}</p>
+        <div className="u-mb-10" key={x.uid}>
+          <p className="fl-lbl u-m-004">Voucher {k + 2} {de}</p>
           <DatosPago pago={x} setPago={setExtra(x.uid)} cuentas={cuentas} loteId={lote?.id} paso={pasoBase + 2 * k} />
           <button type="button" className="link-btn small" onClick={() => quitarExtra(x.uid)}>quitar voucher {k + 2}</button>
         </div>
@@ -382,9 +382,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
             {!facturaAqui
               ? <p className="muted small">Cuando emitas la boleta o factura SUNAT, súbela en la pestaña <b>Pagos y documentos</b> de la ficha.</p>
               : estaVivo(comp)
-                ? <p className="ok small" style={{ textTransform: 'none' }}>🧾 {comp.tipo === 'factura' ? 'Factura' : 'Boleta'} {nombreComprobante(comp)} pedida para este pago. <button type="button" className="link-btn" onClick={() => setVerComp(true)}>Ver / enviar por WhatsApp</button></p>
+                ? <p className="ok small u-tt-n">🧾 {comp.tipo === 'factura' ? 'Factura' : 'Boleta'} {nombreComprobante(comp)} pedida para este pago. <button type="button" className="link-btn" onClick={() => setVerComp(true)}>Ver / enviar por WhatsApp</button></p>
                 : <p className="muted small">{hecho.cobro ? 'Emite ahora su boleta o factura electrónica y envíasela por WhatsApp. También' : 'La boleta o factura electrónica'} se puede emitir después, en la pestaña <b>Pagos y documentos</b> de la ficha, botón <b>🧾 Emitir</b>.</p>}
-            <div className="acc-row" style={{ marginTop: 10 }}>
+            <div className="acc-row u-mt-10">
               {facturaAqui && hecho.cobro && !estaVivo(comp) && (
                 <button className="btn-primary" onClick={abrirEmitir} disabled={buscandoPago}>{buscandoPago ? 'Buscando el pago…' : '🧾 Emitir boleta o factura'}</button>
               )}
@@ -409,7 +409,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               </div>
               {hallado?.clientes.length > 0 && (
                 <div className="cobro-caja">
-                  <p className="small" style={{ margin: '0 0 4px' }}>Ese celular ya está registrado. ¿Es esta persona?</p>
+                  <p className="small u-m-004">Ese celular ya está registrado. ¿Es esta persona?</p>
                   {hallado.clientes.map(c => (
                     <label key={c.id} className="cobro-opcion">
                       <input type="radio" name="clisep" checked={clienteSel === c.id} onChange={() => setClienteSel(c.id)} />
@@ -449,11 +449,11 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                 <span className="paso-n">1</span>
                 <span className="paso-t">{sep ? 'Titular: la misma persona que separó. Completa los datos del contrato' : '¿Quién compra? Datos del contrato'}</span>
               </div>
-              {sep && <p className="hint small" style={{ margin: '0 0 6px' }}>Separó el {fechaPe(sep.date)} con {soles(sep.amount)} (se descuenta del saldo).</p>}
+              {sep && <p className="hint small u-m-006">Separó el {fechaPe(sep.date)} con {soles(sep.amount)} (se descuenta del saldo).</p>}
               {!titular ? (
                 <div className="cobro-caja">
                   <BuscarCliente onElegir={c => setTitular(c)} />
-                  <p className="small" style={{ margin: '6px 0 0' }}>¿No está registrado? <button type="button" className="link-btn" onClick={() => setTitular({ doc_type: 'DNI' })}>+ Persona nueva</button></p>
+                  <p className="small u-m-600">¿No está registrado? <button type="button" className="link-btn" onClick={() => setTitular({ doc_type: 'DNI' })}>+ Persona nueva</button></p>
                 </div>
               ) : (
                 <div className="cobro-caja">
@@ -466,9 +466,9 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               <div className="cobro-caja">
                 {!co && !buscandoCo && <button type="button" className="link-btn" onClick={() => setBuscandoCo(true)}>+ Agregar co-comprador (firma también el contrato)</button>}
                 {!co && buscandoCo && (<>
-                  <p className="fl-lbl" style={{ margin: '0 0 4px' }}>Co-comprador</p>
+                  <p className="fl-lbl u-m-004">Co-comprador</p>
                   <BuscarCliente onElegir={c => { setCo(c); setBuscandoCo(false) }} excluir={titular?.id ? [titular.id] : []} />
-                  <p className="small" style={{ margin: '6px 0 0' }}>
+                  <p className="small u-m-600">
                     <button type="button" className="link-btn" onClick={() => { setCo({ doc_type: 'DNI' }); setBuscandoCo(false) }}>+ Persona nueva</button>
                     {' · '}<button type="button" className="link-btn" onClick={() => setBuscandoCo(false)}>cancelar</button>
                   </p>
@@ -504,20 +504,20 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               </DatosPago>
               {otrosVouchers(4, 'de la inicial', 'la inicial se pagó con varios depósitos')}
               <div className="cobro-resumen">
-                <p style={{ margin: 0 }}>
+                <p className="u-m0">
                   Precio {soles(precio)}{sep ? <> − separación {soles(sepMonto)}</> : null} − inicial {soles(montoInicial)}{extras.length ? <> ({sumaTexto})</> : null} = <b>{soles(financiado)}</b> a financiar
                 </p>
                 {montos.length > 0
                   ? (primeraCuota
-                    ? <p style={{ margin: '4px 0 0' }}>&#128197; <b>{textoCuotas(montos)}</b>, {textoDiaPago(diaPago)}: la primera el <b>{fechaPe(primeraCuota)}</b> y la última el {fechaPe(fechaCuota(primeraCuota, montos.length - 1, diaPago))}. <span className="muted small">(cuotas redondeadas al sol; la última absorbe la diferencia)</span></p>
-                    : <p className="warn" style={{ margin: '4px 0 0' }}>&#128197; {textoCuotas(montos)}. Elige el <b>día de pago</b> para ver las fechas.</p>)
-                  : <p className="warn" style={{ margin: '4px 0 0' }}>Completa precio, inicial y cuotas para ver el cronograma.</p>}
+                    ? <p className="u-m-400">&#128197; <b>{textoCuotas(montos)}</b>, {textoDiaPago(diaPago)}: la primera el <b>{fechaPe(primeraCuota)}</b> y la última el {fechaPe(fechaCuota(primeraCuota, montos.length - 1, diaPago))}. <span className="muted small">(cuotas redondeadas al sol; la última absorbe la diferencia)</span></p>
+                    : <p className="warn u-m-400">&#128197; {textoCuotas(montos)}. Elige el <b>día de pago</b> para ver las fechas.</p>)
+                  : <p className="warn u-m-400">Completa precio, inicial y cuotas para ver el cronograma.</p>}
               </div>
             </>)}
 
             {/* ======================= CUOTA ======================= */}
             {modo === 'cuota' && (<>
-              <p className="muted small" style={{ margin: '0 0 6px' }}>
+              <p className="muted small u-m-006">
                 Cliente: <b>{sale.client?.full_name}</b>
                 {primera ? <> · toca la cuota N° {primera.installment_number}: <b>{soles(debePrimera)}</b>, vence {fechaPe(primera.due_date)}</> : ' · no tiene cuotas pendientes'}
               </p>
@@ -534,7 +534,7 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               )}
               {plan?.parts.length > 0 && (
                 <div className="cobro-resumen">
-                  <p style={{ margin: '0 0 4px' }}>Se aplicará así (de la cuota más antigua a la más nueva){extras.length ? <>, con los {todos.length} vouchers: <b>{soles(montoCobro)}</b></> : null}:</p>
+                  <p className="u-m-004">Se aplicará así (de la cuota más antigua a la más nueva){extras.length ? <>, con los {todos.length} vouchers: <b>{soles(montoCobro)}</b></> : null}:</p>
                   {plan.parts.map(p => (
                     <p key={p.q.id} style={{ margin: '2px 0' }}>
                       &#8594; Cuota N° {p.q.installment_number} (vence {fechaPe(p.q.due_date)}): {soles(p.take)}
@@ -549,13 +549,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
             {/* ======================= CUADRE (superusuario) ======================= */}
             {modo === 'cuadre' && puedeCorregir && (<>
               <div className="cobro-caja" style={{ borderLeft: '3px solid #e0b34c' }}>
-                <p className="small" style={{ margin: 0 }}>Registra una <b>inicial</b> o <b>separación</b> que no se cargó en la migración, sobre esta venta. Entra a caja ligada a la venta y suma en lo pagado. <b>No crea venta ni toca el cronograma.</b></p>
-                <div className="acc-row" style={{ marginTop: 6 }}>
+                <p className="small u-m0">Registra una <b>inicial</b> o <b>separación</b> que no se cargó en la migración, sobre esta venta. Entra a caja ligada a la venta y suma en lo pagado. <b>No crea venta ni toca el cronograma.</b></p>
+                <div className="acc-row u-mt-6">
                   {[['inicial', 'Inicial'], ['separacion', 'Separación']].map(([v, l]) => (
                     <button type="button" key={v} className={`chip ${cuadreTipo === v ? 'on' : ''}`} style={{ margin: 0 }} onClick={() => setCuadreTipo(v)}>{l}</button>
                   ))}
                 </div>
-                <p className="hint small" style={{ margin: '6px 0 0' }}>
+                <p className="hint small u-m-600">
                   Ya registrado en caja: inicial {soles(detail.iniPagado)} · separación {soles(detail.sepPagado)}.
                   {cuadreTipo === 'inicial' && detail.iniPagado > 0 && <b className="bad"> Ojo: ya tiene inicial, no la dupliques.</b>}
                   {cuadreTipo === 'separacion' && detail.sepPagado > 0 && <b className="bad"> Ojo: ya tiene separación, no la dupliques.</b>}
@@ -564,8 +564,8 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
               <DatosPago pago={pago} setPago={setPago} cuentas={cuentas} loteId={lote?.id} paso={1} voucherObligatorio={false} />
             </>)}
 
-            {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
-            <div className="acc-row" style={{ marginTop: 12 }}>
+            {err && <p className="error u-mt-10">{err}</p>}
+            <div className="acc-row u-mt-12">
               <button className="btn-primary" disabled={busy || (esInicial && (leyendoDni.titular || leyendoDni.co)) || (modo === 'cuota' && plan?.sobra > 0.01)}>
                 {busy ? 'Registrando…' : esInicial && (leyendoDni.titular || leyendoDni.co) ? 'Leyendo el DNI…' : modo === 'separacion' ? 'Registrar separación' : esInicial ? 'Registrar venta e inicial' : modo === 'cuadre' ? 'Registrar cuadre' : 'Registrar pago'}
               </button>

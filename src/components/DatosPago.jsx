@@ -153,10 +153,10 @@ export default function DatosPago({ pago, setPago, cuentas, voucherObligatorio =
               set('file', f); analizar(f)
               if (resto.length && onOtros) onOtros(resto)
             }} />
-          {onOtros && <span className="muted small" style={{ textTransform: 'none' }}>¿Pagó en varias operaciones? Elige todos los vouchers a la vez y la IA lee cada uno.</span>}
+          {onOtros && <span className="muted small u-tt-n">¿Pagó en varias operaciones? Elige todos los vouchers a la vez y la IA lee cada uno.</span>}
         </label>
-        <label style={{ flex: 1 }}>Nota del voucher <span className="muted small">(opcional)</span>
-          <input value={pago.nota} placeholder="ej: lo mandó por WhatsApp" style={{ textTransform: 'none' }}
+        <label className="u-f1">Nota del voucher <span className="muted small">(opcional)</span>
+          <input className="u-tt-n" value={pago.nota} placeholder="ej: lo mandó por WhatsApp"
             onChange={e => set('nota', e.target.value)} />
         </label>
       </div>

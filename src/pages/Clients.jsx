@@ -270,16 +270,16 @@ export default function Clients() {
           {allProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         {(q || fproj !== 'todos' || falta !== 'todos') && <button className="fx-clear" onClick={() => { setQ(''); setFproj('todos'); setFalta('todos') }} title="Quitar filtros">✕ Limpiar</button>}
-        {!readOnly && <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => abrir({})}>+ Nuevo cliente</button>}
+        {!readOnly && <button className="btn-primary u-ml-a" onClick={() => abrir({})}>+ Nuevo cliente</button>}
       </div>
-      <div className="chips" style={{ margin: '0 0 10px' }}>
+      <div className="chips u-m-0010">
         <span className="muted small" style={{ alignSelf: 'center' }}>Ver:</span>
         <button className={`chip ${falta === 'todos' ? 'on' : ''}`} onClick={() => setFalta('todos')}>Todos ({list.length})</button>
         <button className={`chip ${falta === 'sin_celular' ? 'on' : ''}`} onClick={() => setFalta('sin_celular')}>📵 Sin celular válido ({telInvalidos})</button>
         <button className={`chip ${falta === 'sin_dni' ? 'on' : ''}`} onClick={() => setFalta('sin_dni')}>🪪 DNI incompleto ({dniIncompletos})</button>
         <button className={`chip ${falta === 'dni_pendiente' ? 'on' : ''}`} onClick={() => setFalta('dni_pendiente')}>⚠ DNI pendiente ({pendientes})</button>
       </div>
-      <p className="muted small" style={{ margin: '0 0 10px' }}>{filtrada.length} de {list.length} clientes{fproj !== 'todos' ? ' en ' + nombreProyFull(fproj) : ''}</p>
+      <p className="muted small u-m-0010">{filtrada.length} de {list.length} clientes{fproj !== 'todos' ? ' en ' + nombreProyFull(fproj) : ''}</p>
 
       {(pendientes > 0 || telInvalidos > 0) && (
         <p className="hint">
@@ -360,7 +360,7 @@ export default function Clients() {
               {/* DNI: va primero. Se eligen juntas las 2 fotos (o una con las dos
                   caras, o el PDF) y la IA lee ambas caras y llena los datos de abajo. */}
               <div className="span2">
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                <div className="u-d-f u-g-6 u-ai-c u-fwr u-mb-6">
                   <span className="muted small" style={{ marginRight: 4 }}>DOCUMENTO (DNI) · la IA lo lee y llena los datos</span>
                   {!readOnly && !fDni && dniSubido.length > 0 && !dniIA.leyendo && (
                     <button type="button" className="link-btn" onClick={() => dniIA.leer(dniSubido, aplicarLectura)}>&#128269; leer los datos del DNI subido</button>
@@ -368,7 +368,7 @@ export default function Clients() {
                 </div>
                 {!readOnly && <SubirDni archivos={fDni} setArchivos={setFDni} dniIA={dniIA} aplicar={aplicarLectura} obligatorio={nuevo} />}
                 {!fDni && dniSubido.length > 0 && (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                  <div className="u-d-f u-g-8 u-fwr u-mt-6">
                     {dniSubido.map((u, i) => (
                       <a key={u} href={u} target="_blank" rel="noreferrer" title="Abrir en alta calidad">
                         <img className="thumb" src={u} alt={dniSubido.length === 2 ? (i ? 'DNI reverso' : 'DNI frente') : 'DNI'} />
@@ -377,20 +377,19 @@ export default function Clients() {
                   </div>
                 )}
                 {!readOnly && (dosPartes ? (
-                  <div className="form-grid" style={{ margin: '6px 0 0' }}>
-                    <input value={form.dni_front_note || ''} placeholder="nota / comentario del frente" style={{ textTransform: 'none' }}
+                  <div className="form-grid u-m-600">
+                    <input className="u-tt-n" value={form.dni_front_note || ''} placeholder="nota / comentario del frente"
                       onChange={e => setForm(f => ({ ...f, dni_front_note: e.target.value }))} />
-                    <input value={form.dni_back_note || ''} placeholder="nota / comentario del reverso" style={{ textTransform: 'none' }}
+                    <input className="u-tt-n" value={form.dni_back_note || ''} placeholder="nota / comentario del reverso"
                       onChange={e => setForm(f => ({ ...f, dni_back_note: e.target.value }))} />
                   </div>
                 ) : (
-                  <input value={form.dni_note || ''} placeholder="nota / comentario del documento"
-                    style={{ textTransform: 'none', marginTop: 6 }}
+                  <input className="u-tt-n u-mt-6" value={form.dni_note || ''} placeholder="nota / comentario del documento"
                     onChange={e => setForm(f => ({ ...f, dni_note: e.target.value }))} />
                 ))}
                 <AvisoLecturaDni estado={dniIA.estado} />
                 {yaRegistrado && (
-                  <p className="hint small" style={{ margin: '6px 0 0' }}>
+                  <p className="hint small u-m-600">
                     &#128279; Ese DNI ya estaba registrado a nombre de <b>{yaRegistrado.full_name}</b>: se abrió su ficha
                     con todos sus datos y encima va lo leído del DNI. Al guardar se actualiza esa ficha (no queda duplicada).
                   </p>
@@ -421,8 +420,7 @@ export default function Clients() {
                         onChange={e => setForm(f => ({ ...f, [kp]: e.target.value }))} />
                     </label>
                     <label style={{ flex: '1 1 200px' }}>Comentario
-                      <input value={form[kn] || ''} disabled={readOnly} placeholder="ej: es el celular de la esposa"
-                        style={{ textTransform: 'none' }}
+                      <input className="u-tt-n" value={form[kn] || ''} disabled={readOnly} placeholder="ej: es el celular de la esposa"
                         onChange={e => setForm(f => ({ ...f, [kn]: e.target.value }))} />
                     </label>
                     <label style={{ flex: '0 0 auto', display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer', paddingBottom: 7, whiteSpace: 'nowrap' }}>

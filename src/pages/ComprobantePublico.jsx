@@ -41,7 +41,7 @@ export default function ComprobantePublico() {
         )}
         {c && (<>
           <div style={{ background: '#fff', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 6px rgba(0,0,0,.08)', borderTop: '5px solid ' + color }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="u-d-f u-ai-c u-g-12">
               {c.logo && <img src={c.logo} alt="" style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: 8 }} />}
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, color: '#667' }}>{c.proyecto}</div>
@@ -61,7 +61,7 @@ export default function ComprobantePublico() {
           </div>
           <div style={{ marginTop: 14, background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,.08)' }}>
             {esImagen(c.url)
-              ? <img src={c.url} alt="Comprobante" style={{ width: '100%', display: 'block' }} />
+              ? <img className="u-w-100 u-d-b" src={c.url} alt="Comprobante" />
               : <iframe src={c.url} title="Comprobante" style={{ width: '100%', height: '75vh', border: 0, display: 'block' }} />}
           </div>
           <p style={{ textAlign: 'center', color: '#889', fontSize: 12, marginTop: 14 }}>Gracias por su pago · {c.proyecto}</p>

@@ -67,7 +67,7 @@ export function SubirDni({ archivos, setArchivos, dniIA, aplicar, obligatorio })
   const boton = { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="u-d-f u-g-8 u-ai-c u-fwr">
         <label className="btn-act" style={{ ...boton, opacity: dniIA.leyendo ? .6 : 1 }}>
           &#129706; {lista.length ? 'Cambiar el DNI' : 'Subir el DNI'}
           <input type="file" accept="image/*,.pdf" multiple hidden disabled={dniIA.leyendo} onChange={elegir} />
@@ -80,12 +80,12 @@ export function SubirDni({ archivos, setArchivos, dniIA, aplicar, obligatorio })
         )}
         {obligatorio && !lista.length && <b className="bad small">(obligatorio)</b>}
       </div>
-      <span className="muted small" style={{ display: 'block', marginTop: 4, textTransform: 'none' }}>
+      <span className="muted small u-d-b u-mt-4 u-tt-n">
         {lista.length
           ? lista.map((f, i) => (lista.length === 2 ? (i ? 'Reverso: ' : 'Frente: ') : '') + (f.name || 'DNI')).join(' · ')
           : 'Elige las 2 fotos juntas (frente y reverso), una foto con las dos caras o el PDF: la IA lee ambas caras sola y llena los datos.'}
       </span>
-      {aviso && <span className="warn small" style={{ display: 'block' }}>&#9888; {aviso}</span>}
+      {aviso && <span className="warn small u-d-b">&#9888; {aviso}</span>}
     </div>
   )
 }

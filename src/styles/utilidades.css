@@ -1,0 +1,77 @@
+/* ============================================================
+   CLASES CHICAS (fase 6, 26 nov 2026) — las GENERA scripts/estilos-a-clases.mjs
+   Reemplazan los style={{…}} fijos más repetidos. Llevan !important para ganar a las
+   reglas normales como ganaba el estilo en línea, y este archivo se carga ANTES que
+   global.css (main.jsx) para que sus pocas reglas !important (impresión) sigan ganando.
+   No editar a mano: agregar la clase en la tabla del script y volver a correrlo.
+   ============================================================ */
+.u-ai-c { align-items: center !important; }
+.u-ai-fs { align-items: flex-start !important; }
+.u-cp { cursor: pointer !important; }
+.u-d-b { display: block !important; }
+.u-d-f { display: flex !important; }
+.u-d-g { display: grid !important; }
+.u-d-ib { display: inline-block !important; }
+.u-d-if { display: inline-flex !important; }
+.u-d-n { display: none !important; }
+.u-f1 { flex: 1 !important; }
+.u-fd-c { flex-direction: column !important; }
+.u-fs-10 { font-size: 10px !important; }
+.u-fs-11 { font-size: 11px !important; }
+.u-fs-12 { font-size: 12px !important; }
+.u-fs-13 { font-size: 13px !important; }
+.u-fs-14 { font-size: 14px !important; }
+.u-fs-15 { font-size: 15px !important; }
+.u-fs-9 { font-size: 9px !important; }
+.u-fw-6 { font-weight: 600 !important; }
+.u-fw-7 { font-weight: 700 !important; }
+.u-fwr { flex-wrap: wrap !important; }
+.u-g-10 { gap: 10px !important; }
+.u-g-12 { gap: 12px !important; }
+.u-g-4 { gap: 4px !important; }
+.u-g-6 { gap: 6px !important; }
+.u-g-8 { gap: 8px !important; }
+.u-jc-fe { justify-content: flex-end !important; }
+.u-jc-sb { justify-content: space-between !important; }
+.u-m-0010 { margin: 0 0 10px !important; }
+.u-m-0012 { margin: 0 0 12px !important; }
+.u-m-004 { margin: 0 0 4px !important; }
+.u-m-006 { margin: 0 0 6px !important; }
+.u-m-008 { margin: 0 0 8px !important; }
+.u-m-1000 { margin: 10px 0 0 !important; }
+.u-m-400 { margin: 4px 0 0 !important; }
+.u-m-600 { margin: 6px 0 0 !important; }
+.u-m-800 { margin: 8px 0 0 !important; }
+.u-m0 { margin: 0 !important; }
+.u-mb-10 { margin-bottom: 10px !important; }
+.u-mb-12 { margin-bottom: 12px !important; }
+.u-mb-14 { margin-bottom: 14px !important; }
+.u-mb-1r { margin-bottom: 1rem !important; }
+.u-mb-2 { margin-bottom: 2px !important; }
+.u-mb-4 { margin-bottom: 4px !important; }
+.u-mb-6 { margin-bottom: 6px !important; }
+.u-mb-8 { margin-bottom: 8px !important; }
+.u-ml-4 { margin-left: 4px !important; }
+.u-ml-6 { margin-left: 6px !important; }
+.u-ml-8 { margin-left: 8px !important; }
+.u-ml-a { margin-left: auto !important; }
+.u-mt-0 { margin-top: 0 !important; }
+.u-mt-10 { margin-top: 10px !important; }
+.u-mt-12 { margin-top: 12px !important; }
+.u-mt-14 { margin-top: 14px !important; }
+.u-mt-16 { margin-top: 16px !important; }
+.u-mt-2 { margin-top: 2px !important; }
+.u-mt-4 { margin-top: 4px !important; }
+.u-mt-6 { margin-top: 6px !important; }
+.u-mt-8 { margin-top: 8px !important; }
+.u-mxw-n { max-width: none !important; }
+.u-nw { white-space: nowrap !important; }
+.u-p-1-7 { padding: 1px 7px !important; }
+.u-p-10 { padding: 10px !important; }
+.u-p-12 { padding: 12px !important; }
+.u-p-8 { padding: 8px !important; }
+.u-ta-c { text-align: center !important; }
+.u-ta-l { text-align: left !important; }
+.u-ta-r { text-align: right !important; }
+.u-tt-n { text-transform: none !important; }
+.u-w-100 { width: 100% !important; }

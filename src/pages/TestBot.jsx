@@ -115,7 +115,7 @@ export default function TestBot() {
 
   return (
     <div>
-      <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <div className="page-head u-d-f u-jc-sb u-ai-c u-fwr u-g-10">
         <h1>🧪 Probar Bot</h1>
         <button className="btn-ghost" onClick={purgar} title="Borra los leads/conversaciones marcados como prueba">🧹 BORRAR DATOS DE PRUEBA</button>
       </div>
@@ -126,47 +126,47 @@ export default function TestBot() {
       <div className="dos-paneles" style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 350px) 1fr', gap: 14, alignItems: 'start' }}>
         {/* Configuración */}
         <div className="glass" style={{ padding: 14 }}>
-          <b style={{ fontSize: 13 }}>1 · Perfil a simular</b>
+          <b className="u-fs-13">1 · Perfil a simular</b>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '8px 0 14px' }}>
             {PERFILES.map(p => (
               <button key={p.v} onClick={() => setPerfil(p.v)}
                 style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 10, cursor: 'pointer', background: perfil === p.v ? p.c + '22' : 'transparent', border: '1px solid ' + (perfil === p.v ? p.c : 'rgba(255,255,255,.14)'), color: 'inherit' }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: perfil === p.v ? p.c : undefined }}>{p.t}</div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{p.d}</div>
+                <div className="muted u-fs-11 u-mt-2">{p.d}</div>
               </button>
             ))}
           </div>
 
           {(perfil === 'lead' || perfil === 'cliente') && (<>
-            <b style={{ fontSize: 13 }}>2 · {perfil === 'cliente' ? 'Proyecto (filtra clientes)' : 'Proyecto de contexto'}</b>
+            <b className="u-fs-13">2 · {perfil === 'cliente' ? 'Proyecto (filtra clientes)' : 'Proyecto de contexto'}</b>
             <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ width: '100%', margin: '8px 0 14px' }}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </>)}
 
           {perfil === 'cliente' && (<>
-            <b style={{ fontSize: 13 }}>3 · Cliente a emular</b>
+            <b className="u-fs-13">3 · Cliente a emular</b>
             <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={{ width: '100%', margin: '8px 0 4px' }}>
               <option value="">— elige un cliente —</option>
               {clientesProj.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
             </select>
-            <p className="muted" style={{ fontSize: 10, margin: '0 0 10px' }}>{clientesProj.length} cliente(s) con venta en este proyecto.</p>
+            <p className="muted u-fs-10 u-m-0010">{clientesProj.length} cliente(s) con venta en este proyecto.</p>
             <p className="muted" style={{ fontSize: 11, margin: '0 0 14px', textTransform: 'none' }}>
               A un cliente, este bot solo le pasa el número de cobranzas. La cobranza se prueba en <b>Cobranza IA → Probar agente</b>.
             </p>
           </>)}
 
           {perfil === 'secretaria' && (<>
-            <b style={{ fontSize: 13 }}>2 · Secretaria a emular</b>
+            <b className="u-fs-13">2 · Secretaria a emular</b>
             <select value={secId} onChange={e => setSecId(e.target.value)} style={{ width: '100%', margin: '8px 0 8px' }}>
               <option value="">— elige una secretaria —</option>
               {secs.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
             </select>
-            <button className="btn" style={{ width: '100%', marginBottom: 14 }} disabled={!secId} onClick={pasarLista}>▶️ PASAR LISTA AHORA</button>
+            <button className="btn u-w-100 u-mb-14" disabled={!secId} onClick={pasarLista}>▶️ PASAR LISTA AHORA</button>
           </>)}
 
-          <button className="btn-ghost" style={{ width: '100%' }} onClick={nuevaConversacion}>🔄 NUEVA CONVERSACIÓN</button>
-          {activePhone && activePhone.length >= 9 && <p className="muted" style={{ fontSize: 10, marginTop: 8 }}>Sesión: +{activePhone}{(perfil === 'cliente' || perfil === 'secretaria') ? ' (real)' : ' (prueba)'}</p>}
+          <button className="btn-ghost u-w-100" onClick={nuevaConversacion}>🔄 NUEVA CONVERSACIÓN</button>
+          {activePhone && activePhone.length >= 9 && <p className="muted u-fs-10 u-mt-8">Sesión: +{activePhone}{(perfil === 'cliente' || perfil === 'secretaria') ? ' (real)' : ' (prueba)'}</p>}
           <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
             Requiere el <b>agente desplegado</b> y los interruptores encendidos (BOT/LEADS/SEGUIMIENTO), igual que en real.
           </p>
@@ -175,11 +175,11 @@ export default function TestBot() {
         {/* Chat */}
         <div className="glass" style={{ padding: 14, maxHeight: '72vh', display: 'flex', flexDirection: 'column' }}>
           <div className="wa-head" style={{ borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 8, marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="u-d-f u-g-10 u-ai-c">
               <div className="wa-avatar" style={{ background: pClr }}>{perfil[0].toUpperCase()}</div>
               <div>
-                <b style={{ fontSize: 15 }}>{PERFILES.find(p => p.v === perfil)?.t}</b>
-                <div className="muted" style={{ fontSize: 11 }}>{perfil === 'cliente' && cliente ? cliente.full_name : perfil === 'secretaria' && sec ? sec.full_name : 'chat de prueba'}</div>
+                <b className="u-fs-15">{PERFILES.find(p => p.v === perfil)?.t}</b>
+                <div className="muted u-fs-11">{perfil === 'cliente' && cliente ? cliente.full_name : perfil === 'secretaria' && sec ? sec.full_name : 'chat de prueba'}</div>
               </div>
             </div>
           </div>
@@ -191,15 +191,15 @@ export default function TestBot() {
             {chat.map((m, i) => (
               <div key={i} style={{ alignSelf: m.dir === 'out' ? 'flex-start' : 'flex-end', maxWidth: '80%', opacity: m.echo ? 0.55 : 1, background: m.dir === 'out' ? 'rgba(59,74,50,.9)' : 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)', borderRadius: m.dir === 'out' ? '12px 12px 12px 2px' : '12px 12px 2px 12px', padding: '8px 12px' }}>
                 <div style={{ whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13, lineHeight: 1.45 }}>{m.body}</div>
-                <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: 'right' }}>{m.dir === 'out' ? '🤖 BOT · ' : '🧑 TÚ · '}{m.echo ? 'enviando…' : fh(m.at)}</div>
+                <div className="muted u-fs-10 u-mt-4 u-ta-r">{m.dir === 'out' ? '🤖 BOT · ' : '🧑 TÚ · '}{m.echo ? 'enviando…' : fh(m.at)}</div>
               </div>
             ))}
             {pensando && !agenteMudo && <div style={{ alignSelf: 'flex-start', fontSize: 12, color: 'var(--muted)', padding: '4px 8px' }}>🤖 el bot está respondiendo…</div>}
             <div ref={endRef} />
           </div>
 
-          <div className="wa-reply" style={{ marginTop: 8 }}>
-            <input value={input} onChange={e => setInput(e.target.value)} placeholder={`Escribe como ${perfil}…`} style={{ textTransform: 'none' }}
+          <div className="wa-reply u-mt-8">
+            <input className="u-tt-n" value={input} onChange={e => setInput(e.target.value)} placeholder={`Escribe como ${perfil}…`}
               onKeyDown={e => { if (e.key === 'Enter') enviar() }} />
             <button className="wa-btn wa-solid" onClick={enviar}>➤ ENVIAR</button>
           </div>

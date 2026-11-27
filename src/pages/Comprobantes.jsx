@@ -68,9 +68,9 @@ export default function Comprobantes() {
     <>
       <div className="page-head"><h1>Boletas y facturas</h1></div>
       <p><Link to="/pagos">← Volver a Pagos</Link></p>
-      <div className="glass form-card" style={{ maxWidth: 'none' }}>
+      <div className="glass form-card u-mxw-n">
         <p><b>{proyecto.name}</b> no tiene prendido el facturador.</p>
-        <p className="muted" style={{ textTransform: 'none' }}>
+        <p className="muted u-tt-n">
           Mientras esté apagado, la boleta de cada cobro se sigue subiendo a mano como hasta ahora.
           Se prende en <Link to="/proyectos">Proyectos</Link>, en la ficha del proyecto, con el RUC de quien factura.
         </p>
@@ -119,29 +119,29 @@ export default function Comprobantes() {
       </div>
 
       {!lista.length && !cargando && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p>Todavía no se emitió ningún comprobante en {proyecto.name}.</p>
-          <p className="muted" style={{ textTransform: 'none' }}>Se emiten desde el pago: en la ficha del lote o en Pagos, columna “Comprobante”, botón <b>🧾 Emitir</b>.</p>
+          <p className="muted u-tt-n">Se emiten desde el pago: en la ficha del lote o en Pagos, columna “Comprobante”, botón <b>🧾 Emitir</b>.</p>
         </div>
       )}
       {!!lista.length && (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Fecha</th><th>Comprobante</th><th>Cliente</th><th>Lote</th><th style={{ textAlign: 'right' }}>Total</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Comprobante</th><th>Cliente</th><th>Lote</th><th className="u-ta-r">Total</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {pag.pagina.map(c => (
                 <tr key={c.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(c.fecha_emision)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}><button className="link-btn" onClick={() => setVer(c)}>
+                  <td className="u-nw">{fechaPe(c.fecha_emision)}</td>
+                  <td className="u-nw"><button className="link-btn" onClick={() => setVer(c)}>
                     {nombreTipo(c)} <b>{c.numero != null ? nombreComprobante(c) : '(sin número aún)'}</b></button>
-                    {c.tipo === 'nota_credito' && <div className="muted small" style={{ textTransform: 'none' }}>anula la {c.ref_tipo} {c.ref_serie}-{c.ref_numero}</div>}</td>
-                  <td>{c.cliente_nombre}<div className="muted small" style={{ textTransform: 'none' }}>{c.cliente_numero || 'sin documento'}</div></td>
+                    {c.tipo === 'nota_credito' && <div className="muted small u-tt-n">anula la {c.ref_tipo} {c.ref_serie}-{c.ref_numero}</div>}</td>
+                  <td>{c.cliente_nombre}<div className="muted small u-tt-n">{c.cliente_numero || 'sin documento'}</div></td>
                   <td>{lotes[c.lot_id] ? <LoteLink lot={lotes[c.lot_id]} /> : '-'}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(c.total)}</b></td>
+                  <td className="u-ta-r u-nw"><b>{soles(c.total)}</b></td>
                   <td><button type="button" className={'cp-chip ' + (ESTADOS[c.estado] || ESTADOS.pendiente).c} title={(ESTADOS[c.estado] || ESTADOS.pendiente).ayuda}
                     onClick={() => setVer(c)}>{(ESTADOS[c.estado] || ESTADOS.pendiente).t}{esPrueba(c) ? ' · prueba' : ''}</button>
                     {['rechazado', 'error'].includes(c.estado) && c.mensaje && <div className="muted small" style={{ textTransform: 'none', maxWidth: 320 }}>{c.mensaje}</div>}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{c.pdf_url && <a className="cp-pdf" href={c.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
+                  <td className="u-nw">{c.pdf_url && <a className="cp-pdf" href={c.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
                 </tr>
               ))}
               {!visibles.length && <tr><td colSpan={7} className="muted">Ningún comprobante coincide con el filtro.</td></tr>}
@@ -161,7 +161,7 @@ export default function Comprobantes() {
                 {envios.map(e => (
                   <tr key={e.id}>
                     <td>{fechaPe(String(e.creado_at).slice(0, 10))}</td>
-                    <td style={{ textTransform: 'none' }}>{e.identificador || (e.tipo === 'baja' ? 'baja' : 'resumen')}</td>
+                    <td className="u-tt-n">{e.identificador || (e.tipo === 'baja' ? 'baja' : 'resumen')}</td>
                     <td>{fechaPe(e.fecha_referencia)}</td>
                     <td>{e.cantidad}</td>
                     <td><span className={'cp-chip ' + (e.estado === 'aceptado' ? 'cp-ok' : e.estado === 'rechazado' ? 'cp-mal' : 'cp-aviso')} title={e.mensaje || ''}>

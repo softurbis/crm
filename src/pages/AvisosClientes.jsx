@@ -312,10 +312,10 @@ export function ClientesYAvisos() {
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       {!puede && <p className="hint muted">Modo consulta: cambiar quién recibe es de la responsable de cobranza.</p>}
-      {sinProyeccion && <p className="error" style={{ textTransform: 'none' }}>⚠ El agente todavía no calculó ningún "próximo aviso": falta actualizar el agente en el servidor (migracion/07) después de correr sql/159. Las casillas igual funcionan.</p>}
-      {datos && !cfg.avisos_activos && <p className="hint" style={{ textTransform: 'none' }}>Los avisos automáticos están APAGADOS en Cobranza IA → Configuración: lo programado no sale hasta prenderlos.</p>}
+      {sinProyeccion && <p className="error u-tt-n">⚠ El agente todavía no calculó ningún "próximo aviso": falta actualizar el agente en el servidor (migracion/07) después de correr sql/159. Las casillas igual funcionan.</p>}
+      {datos && !cfg.avisos_activos && <p className="hint u-tt-n">Los avisos automáticos están APAGADOS en Cobranza IA → Configuración: lo programado no sale hasta prenderlos.</p>}
       {datos && proy === 'todos' && [...proyCfg.entries()].some(([, c]) => !c.avisos || !c.agente) && (
-        <p className="hint" style={{ textTransform: 'none' }}>⏸ Proyectos apagados: {[...proyCfg.entries()].filter(([, c]) => !c.avisos || !c.agente).map(([id, c]) => (proyectos.find(([pid]) => pid === id)?.[1] || id) + ' (' + [!c.avisos && 'sin avisos', !c.agente && 'sin agente'].filter(Boolean).join(', ') + ')').join(' · ')}. Elige el proyecto en el selector para prenderlo.</p>
+        <p className="hint u-tt-n">⏸ Proyectos apagados: {[...proyCfg.entries()].filter(([, c]) => !c.avisos || !c.agente).map(([id, c]) => (proyectos.find(([pid]) => pid === id)?.[1] || id) + ' (' + [!c.avisos && 'sin avisos', !c.agente && 'sin agente'].filter(Boolean).join(', ') + ')').join(' · ')}. Elige el proyecto en el selector para prenderlo.</p>
       )}
 
       <div className="chips">
@@ -332,7 +332,7 @@ export function ClientesYAvisos() {
           // sql/165: los dos interruptores del proyecto elegido
           const c = cfgDe(proy)
           return (
-            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }} title="Interruptores de TODO el proyecto: mandan sobre las casillas de cada cliente">
+            <span className="u-d-if u-g-6 u-ai-c" title="Interruptores de TODO el proyecto: mandan sobre las casillas de cada cliente">
               <button className={c.avisos ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => setProyecto(proy, 'avisos', !c.avisos)}
                 style={{ padding: '.25rem .6rem', fontSize: '.8rem', ...(c.avisos ? {} : { borderColor: 'var(--error)', color: 'var(--error)' }) }}
                 title={c.avisos ? 'Los avisos automáticos del proyecto están prendidos. Clic para apagarlos a todos sus clientes.' : 'AVISOS APAGADOS para todo el proyecto. Clic para prenderlos.'}>
@@ -366,7 +366,7 @@ export function ClientesYAvisos() {
             <label>Prefijo de sus plantillas en Meta<input value={fNum.plantilla_prefijo} onChange={e => setFNum(f => ({ ...f, plantilla_prefijo: e.target.value }))} placeholder="century_cobranza" disabled={!puede} /></label>
           </div>
           <p className="muted small" style={{ margin: '.4rem 0' }}>Las plantillas con ese prefijo se crean una vez con <code>node cobranza_meta.js crear_plantillas century</code> y Meta las aprueba; mientras no estén aprobadas, los avisos de este proyecto no salen.</p>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="u-d-f u-g-8">
             <button className="btn-primary" disabled={!puede || busy}>Guardar</button>
             <button type="button" className="btn-ghost" onClick={() => setVerNumero(false)}>Cerrar</button>
           </div>
@@ -420,8 +420,8 @@ export function ClientesYAvisos() {
 
       {verTexto && (
         <div className="glass" style={{ padding: '1rem', marginTop: '1rem', textTransform: 'none' }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <b style={{ flex: 1 }}>📨 {motivoLegible(verTexto.proximo?.motivo)} · {verTexto.nombre} · {verTexto.lote}</b>
+          <div className="u-d-f u-g-10 u-ai-c">
+            <b className="u-f1">📨 {motivoLegible(verTexto.proximo?.motivo)} · {verTexto.nombre} · {verTexto.lote}</b>
             <button className="btn-ghost" onClick={() => setVerTexto(null)}>Cerrar</button>
           </div>
           <p className="muted small" style={{ margin: '.3rem 0' }}>
@@ -464,7 +464,7 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
       {grupo && <tr><td colSpan={cols} style={{ background: 'rgba(255,255,255,.04)', fontWeight: 700, letterSpacing: '.3px' }}>🏗️ {grupo}</td></tr>}
       <tr style={!f.recibe ? { opacity: .6 } : undefined}>
         {puede && <td><input type="checkbox" checked={marcado} onChange={onSel} /></td>}
-        <td className="small" style={{ whiteSpace: 'nowrap' }}>
+        <td className="small u-nw">
           {f.tipo === 'cliente'
             ? <span className="badge" style={{ background: '#5fd38d' }}>Cliente</span>
             : <span className="badge" style={{ background: '#8ab4f8' }}>Lead</span>}
@@ -473,14 +473,14 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
           {f.tipo === 'cliente'
             ? <b><LoteLink lot={{ id: f.lot_id, mz: f.mz, lt: f.lt }}>{f.lote}</LoteLink></b>
             : <span className="muted">{f.proyecto}</span>}
-          {f.tipo === 'cliente' && f.n_vencidas > 0 && <div className="bad" style={{ fontSize: 11 }}>{f.n_vencidas} vencida{f.n_vencidas === 1 ? '' : 's'} · {soles(f.deuda)}</div>}
-          {f.tipo === 'cliente' && !f.n_vencidas && f.proxima_cuota && <div className="muted" style={{ fontSize: 11 }}>próxima cuota {fCorta(f.proxima_cuota)}</div>}
+          {f.tipo === 'cliente' && f.n_vencidas > 0 && <div className="bad u-fs-11">{f.n_vencidas} vencida{f.n_vencidas === 1 ? '' : 's'} · {soles(f.deuda)}</div>}
+          {f.tipo === 'cliente' && !f.n_vencidas && f.proxima_cuota && <div className="muted u-fs-11">próxima cuota {fCorta(f.proxima_cuota)}</div>}
         </td>
         <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 170 }}>
           <b>{f.nombre}</b>
           {f.extra && <div className="muted">{f.extra}</div>}
         </td>
-        <td className="small" style={{ whiteSpace: 'nowrap' }}>
+        <td className="small u-nw">
           {f.telefono ? <span title={f.telefono_ok ? 'Validado y habilitado para el bot' : 'NO validado o no habilitado para el bot: no recibe'}>{f.telefono_ok ? '' : '⚠ '}{f.telefono}</span> : <span className="muted">—</span>}
           {f.telefono2 && <div className="muted">{f.telefono2_ok ? '' : '⚠ '}{f.telefono2}</div>}
         </td>
@@ -488,19 +488,19 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
           {f.tipo === 'lead' ? (
             <>
               <span className="muted">{f.conv_modo === 'humano' ? '👤 lo atiende una persona' : f.conv_estado === 'ia' ? '🤖 bot de ventas (IA)' : f.conv_estado ? '🤖 bot de ventas · ' + f.conv_estado : 'sin conversación'}</span>
-              {f.silenciado && <div className="bad" style={{ fontSize: 11 }}>{f.silenciado === 'silencio' ? '🔇 silencio total' : '🚫 número administrativo'}</div>}
+              {f.silenciado && <div className="bad u-fs-11">{f.silenciado === 'silencio' ? '🔇 silencio total' : '🚫 número administrativo'}</div>}
             </>
           ) : !px ? <span className="muted">{est ? est[1] : 'sin calcular'}</span> : (
             <>
               {px.estado === 'programado' && px.motivo && (
-                <button className="link-btn" style={{ textTransform: 'none', textAlign: 'left' }} onClick={onTexto} title="Ver el mensaje tal cual le llegaría">
+                <button className="link-btn u-tt-n u-ta-l" onClick={onTexto} title="Ver el mensaje tal cual le llegaría">
                   {motivoLegible(px.motivo)}{px.cuota ? ' · cuota ' + px.cuota : ''}
                 </button>
               )}
               {px.estado === 'programado' && <div><b className={px.fecha === hoyLima() ? 'warn' : ''}>{fCorta(px.fecha)}</b> <span className="muted">{enDias(px.fecha)}</span></div>}
               {px.estado !== 'programado' && est && <div className={est[2]} title={px.detalle || ''}>{est[0]} {est[1]}</div>}
-              {px.estado === 'revisar' && px.detalle && <div className="muted" style={{ fontSize: 11 }}>{px.detalle}</div>}
-              {px.estado !== 'programado' && px.motivo && <div className="muted" style={{ fontSize: 11 }}>si recibiera: {motivoLegible(px.motivo)} el {fCorta(px.fecha)}</div>}
+              {px.estado === 'revisar' && px.detalle && <div className="muted u-fs-11">{px.detalle}</div>}
+              {px.estado !== 'programado' && px.motivo && <div className="muted u-fs-11">si recibiera: {motivoLegible(px.motivo)} el {fCorta(px.fecha)}</div>}
             </>
           )}
         </td>
@@ -511,10 +511,10 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
               ? <>
                   <div>{motivoLegible(f.ultimo.motivo)}{f.ultimo.plantilla === 'texto_propio' ? ' ✍️' : ''}</div>
                   <div className="muted">{fHora(f.ultimo.at)} · {f.ultimo.estado}{f.ultimo.error ? ' ⚠' : ''}</div>
-                  {f.respondio === true && <div className="ok" style={{ fontSize: 11 }}>✅ respondió {fHora(f.respondio_at)}</div>}
-                  {f.respondio === false && <div className="warn" style={{ fontSize: 11 }}>⏳ sin respuesta {hace(f.ultimo.at)}</div>}
+                  {f.respondio === true && <div className="ok u-fs-11">✅ respondió {fHora(f.respondio_at)}</div>}
+                  {f.respondio === false && <div className="warn u-fs-11">⏳ sin respuesta {hace(f.ultimo.at)}</div>}
                 </>
-              : <><span className="muted">ninguno</span>{f.respondio_at && <div className="muted" style={{ fontSize: 11 }}>escribió {fHora(f.respondio_at)}</div>}</>}
+              : <><span className="muted">ninguno</span>{f.respondio_at && <div className="muted u-fs-11">escribió {fHora(f.respondio_at)}</div>}</>}
         </td>
         <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 150 }}>
           {f.tipo === 'cliente' ? (
@@ -522,7 +522,7 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
               {f.seguimiento
                 ? <div title={f.seguimiento.nota || ''}>{(RESULTADOS[f.seguimiento.resultado] || ['📝'])[0]} {(RESULTADOS[f.seguimiento.resultado] || [0, f.seguimiento.resultado])[1]}
                     {f.seguimiento.fecha_promesa ? ' · ' + fCorta(f.seguimiento.fecha_promesa) : ''}
-                    <div className="muted" style={{ fontSize: 11 }}>{f.seguimiento.nota ? '“' + String(f.seguimiento.nota).slice(0, 60) + (String(f.seguimiento.nota).length > 60 ? '…' : '') + '” · ' : ''}{String(f.seguimiento.por || '').split(' ')[0]} {hace(f.seguimiento.at)}{f.seguimiento.n > 1 ? ' · ' + f.seguimiento.n + ' notas' : ''}</div>
+                    <div className="muted u-fs-11">{f.seguimiento.nota ? '“' + String(f.seguimiento.nota).slice(0, 60) + (String(f.seguimiento.nota).length > 60 ? '…' : '') + '” · ' : ''}{String(f.seguimiento.por || '').split(' ')[0]} {hace(f.seguimiento.at)}{f.seguimiento.n > 1 ? ' · ' + f.seguimiento.n + ' notas' : ''}</div>
                   </div>
                 : <span className="muted">—</span>}
               <button className={abierta ? 'btn-primary' : 'btn-ghost'} onClick={onFicha} style={{ padding: '.15rem .55rem', fontSize: '.75rem', marginTop: 3 }}
@@ -530,14 +530,14 @@ function FilaConGrupo({ f, grupo, puede, busy, cols, marcado, onSel, onMarcar, o
             </>
           ) : <span className="muted">—</span>}
         </td>
-        <td style={{ whiteSpace: 'nowrap' }}>
+        <td className="u-nw">
           {f.tipo === 'cliente'
             ? <button className={f.agente ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onAgente(!f.agente)}
                 title={f.agente ? 'El agente le contesta. Clic para que lo atienda solo la secretaria.' : 'El agente NO le contesta: lo atiende la secretaria. Clic para prenderlo.'}
                 style={{ padding: '.25rem .6rem', fontSize: '.8rem' }}>{f.agente ? '🤖 ON' : '⏸ OFF'}</button>
             : <span className="muted small">bot de ventas</span>}
         </td>
-        <td style={{ whiteSpace: 'nowrap' }}>
+        <td className="u-nw">
           <button className={f.recibe ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onMarcar(!f.recibe)}
             title={f.recibe ? 'Sí se le escribe. Clic para dejar de escribirle.' : 'NO se le escribe. Clic para volver a escribirle.'}
             style={{ padding: '.25rem .7rem', fontSize: '.8rem', ...(f.recibe ? {} : { borderColor: 'var(--error)', color: 'var(--error)' }) }}>
@@ -604,8 +604,8 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
   const conFecha = n.resultado === 'promesa' || n.resultado === 'pago'
   return (
     <div className="glass" style={{ padding: '1rem', marginTop: '1rem', textTransform: 'none' }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <b style={{ flex: 1 }}>📝 Seguimiento · {f.nombre} · {f.lote} · {f.proyecto}</b>
+      <div className="u-d-f u-g-10 u-ai-c u-fwr">
+        <b className="u-f1">📝 Seguimiento · {f.nombre} · {f.lote} · {f.proyecto}</b>
         <button className={f.agente ? 'btn-primary' : 'btn-ghost'} disabled={!puede || busy} onClick={() => onAgente(!f.agente)}>{f.agente ? '🤖 Agente ON' : '⏸ Agente OFF'}</button>
         <button className="btn-ghost" onClick={cerrar}>Cerrar</button>
       </div>
@@ -618,15 +618,15 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, alignItems: 'start' }}>
         <div>
           {puede && (
-            <div className="form-card" style={{ marginBottom: 10 }}>
+            <div className="form-card u-mb-10">
               <b className="small">Anotar</b>
               <div className="chips" style={{ margin: '.4rem 0' }}>
                 {Object.entries(RESULTADOS).map(([k, [ic, t]]) => <button key={k} className={`chip ${n.resultado === k ? 'on' : ''}`} onClick={() => setN(x => ({ ...x, resultado: k }))}>{ic} {t}</button>)}
               </div>
-              <textarea value={n.nota} onChange={e => setN(x => ({ ...x, nota: e.target.value }))} rows={2} style={{ width: '100%', textTransform: 'none' }}
+              <textarea className="u-w-100 u-tt-n" value={n.nota} onChange={e => setN(x => ({ ...x, nota: e.target.value }))} rows={2}
                 placeholder={n.resultado === 'no_contesta' ? 'Ej. llamé 2 veces, no contesta (opcional)' : n.resultado === 'numero_equivocado' ? 'Quién contestó / qué número es el correcto (opcional)' : 'Qué se habló'} />
               {conFecha && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                <div className="u-d-f u-g-8 u-fwr u-mt-6">
                   <label className="small">{n.resultado === 'promesa' ? 'Pagará el' : 'Pagó el'}{' '}
                     <input type="date" value={n.fecha} min={n.resultado === 'promesa' ? hoy : undefined} max={n.resultado === 'pago' ? hoy : undefined} onChange={e => setN(x => ({ ...x, fecha: e.target.value }))} />
                   </label>
@@ -636,13 +636,13 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
                 </div>
               )}
               {n.resultado === 'pago' && (
-                <div style={{ marginTop: 6 }}>
-                  <label className="btn-ghost" style={{ cursor: 'pointer', display: 'inline-block' }}>
+                <div className="u-mt-6">
+                  <label className="btn-ghost u-cp u-d-ib">
                     📎 {archivo ? archivo.name : 'Subir voucher (foto o PDF)'}
-                    <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => { setArchivo(e.target.files?.[0] || null); e.target.value = '' }} />
+                    <input className="u-d-n" type="file" accept="image/*,application/pdf" onChange={e => { setArchivo(e.target.files?.[0] || null); e.target.value = '' }} />
                   </label>
                   {archivo && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                    <div className="u-d-f u-g-8 u-fwr u-mt-6">
                       <input value={n.op} onChange={e => setN(x => ({ ...x, op: e.target.value }))} placeholder="N° de operación" style={{ flex: '1 1 140px' }} />
                       <input value={n.banco} onChange={e => setN(x => ({ ...x, banco: e.target.value }))} placeholder="Banco / billetera" style={{ flex: '1 1 140px' }} />
                     </div>
@@ -650,7 +650,7 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
                   <p className="muted small" style={{ margin: '.3rem 0 0' }}>Con voucher queda en <b>Por validar</b>: se aprueba ahí y recién suma en Cuotas.</p>
                 </div>
               )}
-              <button className="btn-primary" disabled={busy} onClick={guardar} style={{ marginTop: 8 }}>{busy ? '…' : 'Guardar'}</button>
+              <button className="btn-primary u-mt-8" disabled={busy} onClick={guardar}>{busy ? '…' : 'Guardar'}</button>
             </div>
           )}
           <b className="small">Historial</b>
@@ -667,7 +667,7 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
                   {h.promesa_estado && h.promesa_estado !== 'vigente' && <> · promesa {h.promesa_estado}</>}
                 </div>
                 {h.nota && <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{h.nota}</div>}
-                <div className="muted" style={{ fontSize: 11 }}>{h.por || '?'} · {fHora(h.at)}</div>
+                <div className="muted u-fs-11">{h.por || '?'} · {fHora(h.at)}</div>
               </div>
             )
           })}
@@ -675,13 +675,13 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
 
         <div className="form-card">
           <b className="small">✍️ Mensaje propio de este cliente</b>
-          <label className="small" style={{ display: 'block', marginTop: 6 }}>Instrucciones para el agente
-            <textarea value={instr} disabled={!puede} onChange={e => setInstr(e.target.value)} rows={3} style={{ width: '100%', textTransform: 'none' }}
+          <label className="small u-d-b u-mt-6">Instrucciones para el agente
+            <textarea className="u-w-100 u-tt-n" value={instr} disabled={!puede} onChange={e => setInstr(e.target.value)} rows={3}
               placeholder='Ej. "Tiene acuerdo de pagar los días 30, no insistir antes." · "No mencionar el contrato." · "Tratarlo de usted."' />
           </label>
           <p className="muted small" style={{ margin: '.2rem 0 .6rem' }}>El agente las lee antes de contestarle a este cliente. No se las muestra al cliente.</p>
-          <label className="small" style={{ display: 'block' }}>Texto del próximo aviso
-            <textarea value={texto} disabled={!puede} onChange={e => setTexto(e.target.value)} rows={3} style={{ width: '100%', textTransform: 'none' }}
+          <label className="small u-d-b">Texto del próximo aviso
+            <textarea className="u-w-100 u-tt-n" value={texto} disabled={!puede} onChange={e => setTexto(e.target.value)} rows={3}
               placeholder="Vacío = sale la plantilla de siempre." />
           </label>
           <p className="muted small" style={{ margin: '.2rem 0 .6rem' }}>
@@ -689,7 +689,7 @@ function PanelSeguimiento({ f, puede, setMsg, cerrar, alGuardar, onAgente }) {
             {f.proximo?.estado === 'programado' && f.proximo?.fecha && <> Próximo aviso: <b>{fCorta(f.proximo.fecha)}</b> ({motivoLegible(f.proximo.motivo)}).</>}
           </p>
           {puede && <button className="btn-primary" disabled={busy} onClick={guardarMensaje}>Guardar mensaje propio</button>}
-          {!f.recibe && <p className="warn small" style={{ marginTop: 6 }}>Este cliente tiene los avisos automáticos en 🚫 No: no le sale ningún aviso.</p>}
+          {!f.recibe && <p className="warn small u-mt-6">Este cliente tiene los avisos automáticos en 🚫 No: no le sale ningún aviso.</p>}
         </div>
       </div>
     </div>

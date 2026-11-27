@@ -220,7 +220,7 @@ export default function VisitasWeb() {
   return (
     <div className="vw">
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Visitas de la web</h1>
+        <h1 className="u-m0 u-f1">Visitas de la web</h1>
         <label className="small">Desde <input type="date" value={desde} max={hasta} onChange={e => e.target.value && setDesde(e.target.value)} /></label>
         <label className="small">Hasta <input type="date" value={hasta} min={desde} max={hoy} onChange={e => e.target.value && setHasta(e.target.value)} /></label>
       </div>

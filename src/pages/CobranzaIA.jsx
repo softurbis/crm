@@ -70,7 +70,7 @@ export default function CobranzaIA() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Cobranza IA</h1>
+        <h1 className="u-m0 u-f1">Cobranza IA</h1>
         {cfg && (
           <span className="small" title={cfg.latido ? 'Último latido del proceso: ' + fHora(cfg.latido) : 'El proceso nunca reportó'}>
             {vivo ? '🟢 agente corriendo' : '🔴 el proceso no responde'}
@@ -83,7 +83,7 @@ export default function CobranzaIA() {
       {falta && <p className="error">{falta}</p>}
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       {!puede && <p className="hint muted">Modo consulta: validar, escribir y configurar es de la responsable de cobranza.</p>}
-      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+      <div className="toolbar u-fwr">
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'btn-primary' : 'btn-ghost'} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!falta && cfg && tab === 'clientes' && <ClientesYAvisos />}
@@ -163,12 +163,12 @@ function EnviosDelDia({ setMsg }) {
       {filas === null && <p className="muted">Cargando…</p>}
       {filas && !filas.length && <p className="muted">Ese día no salió ningún aviso.</p>}
       {filas && filas.length > 0 && (
-        <div className="glass table-wrap" style={{ marginBottom: '1rem' }}>
+        <div className="glass table-wrap u-mb-1r">
           <table>
             <thead><tr><th>Proyecto</th><th>Clientes</th><th>Enviados</th><th>Llegaron</th><th>Leídos</th><th>Fallidos</th><th>Respondieron</th></tr></thead>
             <tbody>
               {resumen.filas.map(r => (
-                <tr key={r.proyecto} style={{ cursor: 'pointer' }} onClick={() => setProy(proyectos.find(([, n]) => n === r.proyecto)?.[0] ?? 'todos')} title="Clic: filtrar la lista a este proyecto">
+                <tr className="u-cp" key={r.proyecto} onClick={() => setProy(proyectos.find(([, n]) => n === r.proyecto)?.[0] ?? 'todos')} title="Clic: filtrar la lista a este proyecto">
                   <td><b>{r.proyecto}</b></td><td>{r.clientes.size}</td><td>{r.enviados}</td>
                   <td>{r.llegaron} <span className="muted small">({pct(r.llegaron, r.enviados)})</span></td>
                   <td>{r.leidos} <span className="muted small">({pct(r.leidos, r.enviados)})</span></td>
@@ -206,32 +206,32 @@ function EnviosDelDia({ setMsg }) {
                 const en = ENTREGA[f.entrega] || null
                 return (
                   <Fragment key={f.id}>
-                    <tr style={{ cursor: 'pointer' }} onClick={() => setAbierto(abierto === f.id ? null : f.id)}>
-                      <td className="small" style={{ whiteSpace: 'nowrap' }}>{fHora(f.created_at).slice(-5)}</td>
+                    <tr className="u-cp" onClick={() => setAbierto(abierto === f.id ? null : f.id)}>
+                      <td className="small u-nw">{fHora(f.created_at).slice(-5)}</td>
                       <td className="small" style={{ whiteSpace: 'normal', minWidth: 120 }}><b>{f.mz ? 'MZ ' + f.mz + ' LT ' + f.lt : '—'}</b><div className="muted">{f.proyecto || ''}</div></td>
                       <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}><b>{f.cliente || '—'}</b></td>
-                      <td className="small" style={{ whiteSpace: 'nowrap' }}>+{f.phone}</td>
+                      <td className="small u-nw">+{f.phone}</td>
                       <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 150 }}>
                         {motivoLegible(f.motivo)}{f.plantilla === 'texto_propio' ? ' ✍️' : ''}
-                        <div className="muted" style={{ fontSize: 11 }}>{f.plantilla}</div>
+                        <div className="muted u-fs-11">{f.plantilla}</div>
                       </td>
-                      <td className="small" style={{ whiteSpace: 'nowrap' }}>
+                      <td className="small u-nw">
                         {f.estado === 'fallido'
                           ? <span className="bad" title={f.error || ''}>⚠️ falló</span>
                           : en ? <span style={{ color: en[1], fontWeight: 700 }} title={en[2]}>{en[0]} <span className="muted" style={{ fontWeight: 400 }}>{f.entrega}</span></span>
                           : <span className="muted" title="Enviado a Meta; todavía no avisa si llegó">✓ enviado</span>}
                         {f.estado === 'fallido' && f.error && <div className="bad" style={{ fontSize: 11, whiteSpace: 'normal', maxWidth: 220 }}>{String(f.error).slice(0, 120)}</div>}
                       </td>
-                      <td className="small" style={{ whiteSpace: 'nowrap' }}>
+                      <td className="small u-nw">
                         {f.respondio_at ? <span className="ok">✅ {fHora(f.respondio_at)}</span> : f.estado === 'fallido' ? <span className="muted">—</span> : <span className="warn">⏳ todavía no</span>}
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                      <td className="u-nw" onClick={e => e.stopPropagation()}>
                         {f.chat_id && <Link className="btn-ghost" to={'/whatsapp?chat=cob:' + f.chat_id} style={{ padding: '.2rem .55rem', fontSize: '.75rem', textDecoration: 'none' }} title="Ver la conversación completa en la bandeja">💬 chat</Link>}
                       </td>
                     </tr>
                     {abierto === f.id && (
                       <tr><td colSpan={8} style={{ textTransform: 'none', background: 'rgba(224,179,76,.06)' }}>
-                        <div className="muted small" style={{ marginBottom: 4 }}>📨 Así le llegó{f.respondio_at ? ' · respondió ' + fHora(f.respondio_at) : ''}:</div>
+                        <div className="muted small u-mb-4">📨 Así le llegó{f.respondio_at ? ' · respondió ' + fHora(f.respondio_at) : ''}:</div>
                         <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{f.texto || '(el texto del aviso no quedó guardado; plantilla ' + f.plantilla + ')'}</pre>
                       </td></tr>
                     )}
@@ -323,7 +323,7 @@ function Consumo({ cfg, puede, setMsg, recargar }) {
         </div>
       )}
       {filas && filas.length > 0 && (
-        <div className="glass table-wrap" style={{ marginBottom: '1rem' }}>
+        <div className="glass table-wrap u-mb-1r">
           <table>
             <thead><tr><th>Proyecto</th><th>Número</th><th>Plantillas</th><th>Llegaron</th><th>Fallidas</th><th>Textos agente</th><th>Textos secretaria</th><th>Del cliente</th><th>Plantillas US$</th><th>IA US$</th><th>Total</th></tr></thead>
             <tbody>
@@ -346,7 +346,7 @@ function Consumo({ cfg, puede, setMsg, recargar }) {
       )}
       {filas && !filas.length && <p className="muted">Ese mes no hubo mensajes.</p>}
       {filas && filas.length > 0 && (
-        <details open={verDias} onToggle={e => setVerDias(e.target.open)} style={{ marginBottom: '1rem' }}>
+        <details className="u-mb-1r" open={verDias} onToggle={e => setVerDias(e.target.open)}>
           <summary className="small">📅 Por día</summary>
           <div className="glass table-wrap" style={{ marginTop: '.5rem' }}>
             <table>
@@ -398,7 +398,7 @@ function PorValidar({ puede, setMsg }) {
           alTerminar={t => { setMsg(t); if (t.ok) { setAbierto(null); cargar() } }} />
       ))}
       {recientes.length > 0 && (
-        <div className="glass table-wrap" style={{ marginTop: 16 }}>
+        <div className="glass table-wrap u-mt-16">
           <p style={{ margin: '8px 10px' }}><b>Últimos revisados</b></p>
           <table>
             <thead><tr><th>Revisado</th><th>Cliente</th><th>Lote</th><th>Monto</th><th>Operación</th><th>Resultado</th></tr></thead>
@@ -536,7 +536,7 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
         </div>
       )}
       <div style={{ flex: '1 1 380px' }}>
-        <p style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <p className="u-m0 u-d-f u-g-8 u-ai-c u-fwr">
           <b>{r.client?.full_name || 'Cliente sin identificar'}</b> <span className="muted small">+{r.chat?.phone || '—'} · {fHora(r.created_at)}</span>
           {r.chat?.id && <Link className="btn-ghost" to={'/whatsapp?chat=cob:' + r.chat.id} style={{ padding: '.15rem .55rem', fontSize: '.75rem', textDecoration: 'none' }} title="Seguir la conversación del voucher en la bandeja (y volver con atrás)">💬 Ver chat</Link>}
           {r.chat && (ventana
@@ -550,14 +550,14 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
         {r.alerta && <p className="warn small" style={{ margin: '6px 0' }}>⚠ {r.alerta}</p>}
 
         {puede && !abierto && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-8 u-fwr">
             <button className="btn-primary" onClick={abrir}>Revisar y aprobar…</button>
             <button className="btn-ghost" onClick={() => rechazar(true)} disabled={!ventana} title={ventana ? 'Rechaza y le manda el motivo al cliente' : 'Ventana de 24 h cerrada: no se le puede avisar'} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>✖ Rechazar y avisar</button>
             <button className="btn-ghost" onClick={() => rechazar(false)} title="Rechaza y queda solo en la bitácora; el cliente no recibe nada">✖ Rechazar internamente</button>
           </div>
         )}
         {puede && abierto && (
-          <div className="form-grid" style={{ marginTop: 8 }}>
+          <div className="form-grid u-mt-8">
             <label>Lote
               <select value={f.sale} onChange={campo('sale')}>
                 <option value="">- elegir -</option>
@@ -566,7 +566,7 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
             </label>
             <label>Monto S/<input type="number" step="0.01" value={f.monto} onChange={campo('monto')} /></label>
             <label>Fecha del pago<input type="date" value={f.fecha} max={hoyLima()} onChange={campo('fecha')} /></label>
-            <label>N° de operación<input value={f.op} onChange={campo('op')} style={{ textTransform: 'none' }} /></label>
+            <label>N° de operación<input className="u-tt-n" value={f.op} onChange={campo('op')} /></label>
             <label>Tipo
               <select value={f.tipo} onChange={campo('tipo')}>{TIPOS_OP.map(t => <option key={t}>{t}</option>)}</select>
             </label>
@@ -584,15 +584,15 @@ function TarjetaPago({ r, puede, abierto, abrir, alTerminar }) {
             </label>
             <label className="span2">Observación (opcional)<input value={f.obs} onChange={campo('obs')} /></label>
             <label className="span2">Mensaje al cliente si eliges "Aprobar y avisar"{!ventana && <span className="warn"> · ventana de 24 h cerrada: no se puede enviar</span>}
-              <textarea rows="2" value={f.aviso} onChange={campo('aviso')} style={{ textTransform: 'none' }} disabled={!ventana} />
+              <textarea className="u-tt-n" rows="2" value={f.aviso} onChange={campo('aviso')} disabled={!ventana} />
             </label>
-            <div className="span2 small" style={{ textTransform: 'none' }}>
+            <div className="span2 small u-tt-n">
               {reparto.partes.length
                 ? <>Se aplica a: {reparto.partes.map(p => `cuota ${p.n} (${soles(p.toma)}${p.queda > 0 ? ', le quedan ' + soles(p.queda) : ''})`).join(' · ')}</>
                 : <span className="muted">Elige el lote y el monto para ver a qué cuotas se aplica.</span>}
               {reparto.sobra > 0.01 && <b className="bad"> · SOBRAN {soles(reparto.sobra)}: el monto supera la deuda</b>}
             </div>
-            <div className="span2" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="span2 u-d-f u-g-8 u-fwr">
               <button className="btn-primary" disabled={busy || !ventana} onClick={() => validar(true)} title={ventana ? 'Registra el pago en Cuotas y le avisa al cliente por WhatsApp' : 'Ventana de 24 h cerrada: no se le puede avisar'}>{busy ? 'Registrando…' : '✅ Aprobar y avisar'}</button>
               <button className="btn-primary" disabled={busy} onClick={() => validar(false)} title="Registra el pago en Cuotas sin mandarle nada al cliente" style={{ opacity: .85 }}>{busy ? 'Registrando…' : '✅ Aprobar sin avisar'}</button>
               <span className="muted small">|</span>
@@ -652,16 +652,16 @@ function Promesas({ puede, setMsg }) {
                 <tr key={p.id}>
                   <td><b>{fCorta(p.fecha_promesa)}</b><br /><span className={d < 0 ? 'bad small' : d === 0 ? 'warn small' : 'muted small'}>{d < 0 ? 'venció' : d === 0 ? 'HOY' : 'faltan ' + d + ' d'}</span></td>
                   <td style={{ whiteSpace: 'normal', minWidth: 160 }}>{p.client?.full_name}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{loteDe(p.sale)}<br /><span className="muted small">{p.sale?.lot?.project?.name}</span></td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{p.monto ? soles(p.monto) : '—'}</td>
+                  <td className="u-nw">{loteDe(p.sale)}<br /><span className="muted small">{p.sale?.lot?.project?.name}</span></td>
+                  <td className="u-nw">{p.monto ? soles(p.monto) : '—'}</td>
                   {/* 29 oct: el texto largo se envuelve dentro de su columna (antes se montaba sobre las de al lado) */}
                   <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 220, maxWidth: 420, lineHeight: 1.35 }}>{p.texto_cliente || '—'}{p.origen === 'secretaria' ? ' (secretaria)' : ''}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
+                  <td className="u-nw">
                     <input type="number" min="0" max="15" disabled={!puede} defaultValue={p.avisar_dias_antes ?? ''} placeholder="config" style={{ width: 80, minWidth: 80 }}
                       onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (p.avisar_dias_antes ?? null)) cambiar(p, { avisar_dias_antes: v }, 'RECORDATORIO AJUSTADO') }} /> días
                   </td>
-                  <td className="small" style={{ whiteSpace: 'nowrap' }}>{p.aviso_enviado_at ? '✅ ' + fHora(p.aviso_enviado_at) : 'pendiente'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
+                  <td className="small u-nw">{p.aviso_enviado_at ? '✅ ' + fHora(p.aviso_enviado_at) : 'pendiente'}</td>
+                  <td className="u-nw">
                     {puede && <>
                       <button className="link-btn" onClick={() => cambiar(p, { estado: 'cumplida', cerrado_at: new Date().toISOString() }, 'PROMESA MARCADA COMO CUMPLIDA')}>cumplida</button>{' · '}
                       <button className="link-btn bad" onClick={async () => { if (await confirmar('¿Cancelar esta promesa? El lote vuelve a recibir los avisos normales.', { aceptar: 'Sí, cancelar la promesa', cancelar: 'No' })) cambiar(p, { estado: 'cancelada', cerrado_at: new Date().toISOString() }, 'PROMESA CANCELADA') }}>cancelar</button>
@@ -675,7 +675,7 @@ function Promesas({ puede, setMsg }) {
         </table>
       </div>
 
-      <div className="glass table-wrap" style={{ marginTop: 16 }}>
+      <div className="glass table-wrap u-mt-16">
         <p style={{ margin: '8px 10px' }}><b>Cuotas que vencen en los próximos 7 días ({semana.length})</b></p>
         <table>
           <thead><tr><th>Vence</th><th>Cliente</th><th>Lote</th><th>Proyecto</th><th>Cuota</th><th>Pendiente</th></tr></thead>
@@ -696,7 +696,7 @@ function Promesas({ puede, setMsg }) {
       </div>
 
       {cerradas.length > 0 && (
-        <div className="glass table-wrap" style={{ marginTop: 16 }}>
+        <div className="glass table-wrap u-mt-16">
           <p style={{ margin: '8px 10px' }}><b>Promesas cerradas recientes</b></p>
           <table>
             <thead><tr><th>Prometida</th><th>Cliente</th><th>Lote</th><th>Monto</th><th>Resultado</th></tr></thead>
@@ -730,16 +730,16 @@ function Burbujas({ msgs }) {
         return (
           <div key={m.id} style={{ display: 'flex', justifyContent: sale ? 'flex-end' : 'flex-start', margin: '4px 0' }}>
             <div style={{ maxWidth: '78%', padding: '6px 10px', borderRadius: 10, background: fondo, whiteSpace: 'pre-wrap', textTransform: 'none', fontSize: 13 }}>
-              {AUTOR[m.autor] && <div className="muted" style={{ fontSize: 10 }}>{AUTOR[m.autor]}</div>}
+              {AUTOR[m.autor] && <div className="muted u-fs-10">{AUTOR[m.autor]}</div>}
               {m.media_url && (m.media_type === 'image'
                 ? <a href={m.media_url} target="_blank" rel="noreferrer"><img src={m.media_url} alt="adjunto" style={{ maxWidth: 220, borderRadius: 6, display: 'block', marginBottom: 4 }} /></a>
                 : <div><a href={m.media_url} target="_blank" rel="noreferrer">📎 {m.media_name || 'adjunto'}</a></div>)}
               {m.texto}
-              <div className="muted" style={{ fontSize: 10, textAlign: 'right' }}>
+              <div className="muted u-fs-10 u-ta-r">
                 {fHora(m.created_at)}{sale && m.estado ? ' · ' + m.estado : ''}
                 {m.tokens_in ? ` · ${(m.tokens_in || 0) + (m.tokens_cache || 0)}/${m.tokens_out || 0} tokens` : ''}
               </div>
-              {m.error && <div className="bad" style={{ fontSize: 11 }}>⚠ {m.error}</div>}
+              {m.error && <div className="bad u-fs-11">⚠ {m.error}</div>}
             </div>
           </div>
         )
@@ -811,13 +811,13 @@ function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
   return (
     <div style={{ margin: '6px 0', padding: '8px 10px', borderRadius: 8, border: '1px solid ' + (vinculado ? 'rgba(95,211,141,.5)' : 'rgba(224,179,76,.6)'), textTransform: 'none' }}>
       {esLead && !cambiar ? (
-        <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ flex: 1 }}>🆕 <b>Lead pasado a ventas</b> ({proys.find(p => p.id === chat.lead_project_id)?.name || 'proyecto'}): se le avisó al asesor por Telegram. Sin número, se le contesta desde el <b>celular del 960</b>.</span>
+        <div className="small u-d-f u-g-8 u-ai-c u-fwr">
+          <span className="u-f1">🆕 <b>Lead pasado a ventas</b> ({proys.find(p => p.id === chat.lead_project_id)?.name || 'proyecto'}): se le avisó al asesor por Telegram. Sin número, se le contesta desde el <b>celular del 960</b>.</span>
           {puede && <button className="btn-ghost" onClick={() => setCambiar(true)}>Era cliente: vincular</button>}
         </div>
       ) : vinculado && !cambiar ? (
-        <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ flex: 1 }}>👤 Usa <b>nombre de usuario</b> en WhatsApp. Vinculado a <b>{nombre}</b>: se le contesta al <b>+{chat.telefono_vinculado}</b> de su ficha.</span>
+        <div className="small u-d-f u-g-8 u-ai-c u-fwr">
+          <span className="u-f1">👤 Usa <b>nombre de usuario</b> en WhatsApp. Vinculado a <b>{nombre}</b>: se le contesta al <b>+{chat.telefono_vinculado}</b> de su ficha.</span>
           {puede && <button className="btn-ghost" onClick={() => setCambiar(true)}>Cambiar</button>}
           {puede && <button className="btn-ghost" onClick={desvincular}>Desvincular</button>}
         </div>
@@ -827,21 +827,21 @@ function VincularChat({ chat, puede, nombre, setMsg, alTerminar }) {
           {puede ? (
             <>
               <p className="muted small" style={{ margin: '4px 0' }}>Pregúntale su nombre o DNI y vincúlalo a su ficha. Desde ahí el sistema lo reconoce siempre.</p>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente por nombre, DNI o celular…" style={{ flex: 1 }} />
+              <div className="u-d-f u-g-6">
+                <input className="u-f1" value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente por nombre, DNI o celular…" />
                 {cambiar && <button className="btn-ghost" onClick={() => setCambiar(false)}>Cancelar</button>}
               </div>
               {res.map(c => (
                 <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-                  <span className="small" style={{ flex: 1 }}><b>{c.full_name}</b> <span className="muted">{c.doc_number ? 'DNI ' + c.doc_number : ''}{c.phone ? ' · ' + c.phone : ' · sin celular en la ficha'}</span></span>
+                  <span className="small u-f1"><b>{c.full_name}</b> <span className="muted">{c.doc_number ? 'DNI ' + c.doc_number : ''}{c.phone ? ' · ' + c.phone : ' · sin celular en la ficha'}</span></span>
                   <button className="btn-primary" disabled={busy || !(c.phone || c.phone2)} onClick={() => vincular(c)} title={c.phone || c.phone2 ? 'Vincular este chat a la ficha' : 'Ponle un celular en su ficha primero'}>Vincular</button>
                 </div>
               ))}
-              {q.trim().length >= 3 && !res.length && <p className="muted small" style={{ margin: '4px 0 0' }}>Ningún cliente con eso.</p>}
+              {q.trim().length >= 3 && !res.length && <p className="muted small u-m-400">Ningún cliente con eso.</p>}
               {!esLead && (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8, paddingTop: 6, borderTop: '1px dashed rgba(255,255,255,.12)' }}>
                   <span className="small">¿No es cliente sino un interesado?</span>
-                  <select value={proy} onChange={e => setProy(e.target.value)} style={{ fontSize: 12 }}>
+                  <select className="u-fs-12" value={proy} onChange={e => setProy(e.target.value)}>
                     <option value="">— proyecto —</option>
                     {proys.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
@@ -926,14 +926,14 @@ function Conversaciones({ puede, profile, setMsg }) {
   return (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'stretch' }}>
       <div className="glass" style={{ flex: '1 1 260px', maxWidth: 380, maxHeight: '72vh', overflowY: 'auto', padding: 8 }}>
-        <select value={filtro} onChange={e => setFiltro(e.target.value)} style={{ width: '100%', marginBottom: 6 }}>
+        <select className="u-w-100 u-mb-6" value={filtro} onChange={e => setFiltro(e.target.value)}>
           <option value="todos">Todas ({chats.length})</option>
           <option value="humano">👩 Para la secretaria ({paraSecretaria})</option>
           <option value="agente">🤖 Con el agente</option>
           {sinVincular > 0 && <option value="sin_numero">👤 Sin número, por vincular ({sinVincular})</option>}
         </select>
         {proyectos.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div className="u-d-f u-g-4 u-fwr u-mb-6">
             <button className="btn-ghost" onClick={() => setProy('todos')} style={{ fontSize: 10, padding: '3px 8px', borderColor: proy === 'todos' ? 'rgba(140,155,122,.9)' : 'rgba(255,255,255,.15)' }}>TODOS</button>
             {proyectos.map(p => (
               <button key={p.id} className="btn-ghost" onClick={() => setProy(proy === p.id ? 'todos' : p.id)} title={p.name}
@@ -948,7 +948,7 @@ function Conversaciones({ puede, profile, setMsg }) {
             style={{ padding: '8px 6px', cursor: 'pointer', borderRadius: 6, background: sel === c.id ? 'rgba(255,255,255,.08)' : 'transparent', borderLeft: proyDe[c.id]?.color ? `3px solid ${proyDe[c.id].color}` : '3px solid transparent' }}>
             <b>{titulo(c)}</b>{c.no_leidos > 0 && <span className="warn"> ({c.no_leidos})</span>} <BadgeProy p={proyDe[c.id]} />
             <div className="muted small">{telVisible(c)} · {c.modo === 'humano' ? '👩 secretaria' : '🤖 agente'} · {fHora(c.ultimo_mensaje_at)}</div>
-            {c.modo === 'humano' && c.motivo_humano && <div className="small warn" style={{ textTransform: 'none' }}>{c.motivo_humano}</div>}
+            {c.modo === 'humano' && c.motivo_humano && <div className="small warn u-tt-n">{c.motivo_humano}</div>}
           </div>
         ))}
         {!visibles.length && <p className="muted small">Todavía no hay conversaciones.</p>}
@@ -958,7 +958,7 @@ function Conversaciones({ puede, profile, setMsg }) {
         {!chat ? <p className="muted">Elige una conversación.</p> : (
           <>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,.08)', paddingBottom: 6 }}>
-              <div style={{ flex: 1 }}>
+              <div className="u-f1">
                 <b>{titulo(chat)}</b> <span className="muted small">{telVisible(chat)}</span> <BadgeProy p={proyDe[chat.id]} grande />
                 <div className="small">{chat.modo === 'humano' ? '👩 La atiende la secretaria' + (chat.motivo_humano ? ' — ' + chat.motivo_humano : '') : '🤖 La atiende el agente'}</div>
               </div>
@@ -969,15 +969,15 @@ function Conversaciones({ puede, profile, setMsg }) {
             {sinNumero(chat) && <VincularChat chat={chat} puede={puede} nombre={titulo(chat)} setMsg={setMsg} alTerminar={cargarChats} />}
             <Burbujas msgs={msgs} />
             {puede && sinNumero(chat) && !chat.telefono_vinculado
-              ? <p className="muted small" style={{ marginTop: 6 }}>{chat.es_lead ? 'Es un lead sin número: se le contesta desde el celular del 960.' : 'Para contestarle desde aquí, primero vincúlalo a la ficha del cliente (arriba). Mientras tanto, se le puede responder desde el celular del 960.'}</p>
+              ? <p className="muted small u-mt-6">{chat.es_lead ? 'Es un lead sin número: se le contesta desde el celular del 960.' : 'Para contestarle desde aquí, primero vincúlalo a la ficha del cliente (arriba). Mientras tanto, se le puede responder desde el celular del 960.'}</p>
               : puede && (ventanaAbierta(chat)
               ? (
-                <form onSubmit={enviar} style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <input value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribir al cliente (el agente se calla en este chat)" style={{ flex: 1, textTransform: 'none' }} />
+                <form className="u-d-f u-g-6 u-mt-6" onSubmit={enviar}>
+                  <input className="u-f1 u-tt-n" value={txt} onChange={e => setTxt(e.target.value)} placeholder="Escribir al cliente (el agente se calla en este chat)" />
                   <button className="btn-primary">Enviar</button>
                 </form>
               )
-              : <p className="muted small" style={{ marginTop: 6 }}>Pasaron más de 24 h desde el último mensaje del cliente: Meta solo deja escribirle con una plantilla. Cuando él escriba, se abre de nuevo.</p>)}
+              : <p className="muted small u-mt-6">Pasaron más de 24 h desde el último mensaje del cliente: Meta solo deja escribirle con una plantilla. Cuando él escriba, se abre de nuevo.</p>)}
           </>
         )}
       </div>
@@ -1039,11 +1039,11 @@ function Probar({ puede, vivo, setMsg }) {
   if (!puede) return <p className="muted">Probar el agente es de la responsable de cobranza.</p>
   return (
     <>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         Escribe como si fueras el cliente. El agente usa sus <b>datos reales</b> pero <b>no le envía nada</b> por WhatsApp; los vouchers y promesas de prueba no aparecen en "Por validar".
         {!vivo && <span className="bad"> El proceso del agente no está corriendo: los mensajes quedan en espera.</span>}
       </p>
-      <div className="glass form-card" style={{ maxWidth: 'none' }}>
+      <div className="glass form-card u-mxw-n">
         <label>Cliente
           <input value={q} onChange={e => { setQ(e.target.value); setCli(null) }} placeholder="Busca por nombre (mínimo 3 letras)" />
         </label>
@@ -1056,16 +1056,16 @@ function Probar({ puede, vivo, setMsg }) {
       </div>
       {cli && tel && (
         <div className="glass" style={{ display: 'flex', flexDirection: 'column', maxHeight: '64vh', padding: 10 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <b style={{ flex: 1 }}>{cli.full_name} <span className="muted small">+{tel} · PRUEBA</span></b>
+          <div className="u-d-f u-g-8 u-fwr u-ai-c">
+            <b className="u-f1">{cli.full_name} <span className="muted small">+{tel} · PRUEBA</span></b>
             <button className="btn-ghost" onClick={() => mandar({ texto: '/aviso' })}>📨 ¿Qué aviso le toca hoy?</button>
             <button className="btn-ghost" onClick={async () => { if (await confirmar('¿Borrar esta conversación de prueba y empezar de cero?')) mandar({ texto: '/reiniciar' }) }}>♻️ Reiniciar</button>
           </div>
           <Burbujas msgs={msgs} />
-          <form onSubmit={enviarTxt} style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          <form className="u-d-f u-g-6 u-mt-6 u-fwr" onSubmit={enviarTxt}>
             <input value={txt} onChange={e => setTxt(e.target.value)} placeholder='Ej: "cuánto debo", "no podré pagar el 30, pago el 15"' style={{ flex: 1, minWidth: 200, textTransform: 'none' }} />
             <button className="btn-primary">Enviar</button>
-            <label className="btn-ghost" style={{ cursor: 'pointer' }}>{subiendo ? 'Subiendo…' : '📷 Voucher'}
+            <label className="btn-ghost u-cp">{subiendo ? 'Subiendo…' : '📷 Voucher'}
               <input type="file" accept="image/*,.pdf" hidden disabled={subiendo} onChange={e => e.target.files[0] && subir(e.target.files[0])} />
             </label>
           </form>
@@ -1151,7 +1151,7 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
 
   return (
     <>
-      <div className="glass form-card" style={{ maxWidth: 'none' }}>
+      <div className="glass form-card u-mxw-n">
         <p><b>Interruptores</b></p>
         <label className="inline-check" style={{ display: 'flex', margin: '6px 0' }}>
           <input type="checkbox" disabled={!puede} checked={!!cfg.agente_activo} onChange={e => interruptor('agente_activo', e.target.checked)} />
@@ -1161,14 +1161,14 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <input type="checkbox" disabled={!puede} checked={!!cfg.avisos_activos} onChange={e => interruptor('avisos_activos', e.target.checked)} />
           📨 <b>Avisos</b>: plantillas automáticas antes y después del vencimiento
         </label>
-        <p className="small muted" style={{ textTransform: 'none' }}>
+        <p className="small muted u-tt-n">
           Proceso: {cfg.latido ? 'último latido ' + fHora(cfg.latido) : 'nunca reportó'} · WhatsApp {info.whatsapp ? '✅' : '❌ sin token'} · Claude {info.ia ? (info.clave_ia_propia ? '✅ clave propia' : '⚠ usando la clave general') : '❌ sin clave'} · Telegram {info.telegram ? '✅' : '—'}
           <br />Avisos enviados hoy: {envHoy ?? '…'} de {cfg.tope_diario} · Último barrido: {cfg.ultimo_barrido ? fCorta(cfg.ultimo_barrido) : 'nunca'}
           <br />Consumo del agente este mes: {uso ? `${uso.n} respuestas · aprox. US$ ${uso.usd.toFixed(2)}` : '…'} <span className="muted">(Claude Haiku; lo exacto está en la consola de Anthropic)</span>
         </p>
       </div>
 
-      <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardarForm}>
+      <form className="glass form-card u-mxw-n" onSubmit={guardarForm}>
         <p><b>Avisos y promesas</b></p>
         <div className="form-grid">
           <label>Recordatorio: días ANTES de vencer (0 = "vence hoy")<input value={f.dias_antes} onChange={campo('dias_antes')} disabled={!puede} placeholder="3, 0" /></label>
@@ -1178,50 +1178,50 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <label>Tope de avisos por día<input type="number" min="0" value={f.tope_diario} onChange={campo('tope_diario')} disabled={!puede} /></label>
           <label>Promesa: recordar N días antes<input type="number" min="0" max="15" value={f.promesa_avisar_dias} onChange={campo('promesa_avisar_dias')} disabled={!puede} /></label>
           <label>Promesa: el agente acepta hasta (días)<input type="number" min="1" max="120" value={f.promesa_max_dias} onChange={campo('promesa_max_dias')} disabled={!puede} /></label>
-          <label>Idioma de las plantillas<input value={f.plantilla_idioma || ''} onChange={campo('plantilla_idioma')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
+          <label>Idioma de las plantillas<input className="u-tt-n" value={f.plantilla_idioma || ''} onChange={campo('plantilla_idioma')} disabled={!puede} /></label>
           <label>Número de cobranzas (el 960 de Praderas, único para todos los proyectos; solo informativo)<input value={f.numero_cobranza || ''} onChange={campo('numero_cobranza')} disabled={!puede} placeholder="51960487000" /></label>
         </div>
-        <p className="small muted" style={{ textTransform: 'none' }}>Meta pone un tope de 250 conversaciones iniciadas por día mientras el negocio no esté verificado: deja el tope por debajo.</p>
+        <p className="small muted u-tt-n">Meta pone un tope de 250 conversaciones iniciadas por día mientras el negocio no esté verificado: deja el tope por debajo.</p>
 
         {'avisos_dias_habiles' in cfg && <>
           <label className="inline-check" style={{ display: 'flex', margin: '10px 0 4px' }}>
             <input type="checkbox" disabled={!puede} checked={!!f.avisos_dias_habiles} onChange={e => setF(x => ({ ...x, avisos_dias_habiles: e.target.checked }))} />
             📅 <b>Solo días hábiles</b>: ni sábados, ni domingos, ni feriados, ni después de las 8 p.m.
           </label>
-          <p className="small muted" style={{ textTransform: 'none', marginTop: 0 }}>
+          <p className="small muted u-tt-n u-mt-0">
             Es la ley, no una preferencia: el art. 62 de la Ley 29571 considera cobranza abusiva comunicarse esos días u horas. Lo que le tocaba a un cliente el sábado sale el lunes.
           </p>
           <label>Feriados <span className="muted small">(YYYY-MM-DD separados por coma — hay que actualizarlos cada año)</span>
-            <textarea rows="2" value={f.feriados || ''} onChange={campo('feriados')} disabled={!puede} style={{ textTransform: 'none' }} placeholder="2026-12-25, 2027-01-01" />
+            <textarea className="u-tt-n" rows="2" value={f.feriados || ''} onChange={campo('feriados')} disabled={!puede} placeholder="2026-12-25, 2027-01-01" />
           </label>
         </>}
 
         <p><b>Nombres de las plantillas aprobadas en Meta</b> <span className="muted small">(exactos; vacío = ese aviso no sale)</span></p>
         <div className="form-grid">
-          <label>1 · Recordatorio<input value={f.plantilla_recordatorio || ''} onChange={campo('plantilla_recordatorio')} disabled={!puede} placeholder="urbis_cobranza_recordatorio" style={{ textTransform: 'none' }} /></label>
-          <label>2 · Vence hoy<input value={f.plantilla_vence_hoy || ''} onChange={campo('plantilla_vence_hoy')} disabled={!puede} placeholder="urbis_cobranza_vence_hoy" style={{ textTransform: 'none' }} /></label>
-          <label>3 · Pago vencido<input value={f.plantilla_vencida || ''} onChange={campo('plantilla_vencida')} disabled={!puede} placeholder="urbis_cobranza_pago_vencido" style={{ textTransform: 'none' }} /></label>
+          <label>1 · Recordatorio<input className="u-tt-n" value={f.plantilla_recordatorio || ''} onChange={campo('plantilla_recordatorio')} disabled={!puede} placeholder="urbis_cobranza_recordatorio" /></label>
+          <label>2 · Vence hoy<input className="u-tt-n" value={f.plantilla_vence_hoy || ''} onChange={campo('plantilla_vence_hoy')} disabled={!puede} placeholder="urbis_cobranza_vence_hoy" /></label>
+          <label>3 · Pago vencido<input className="u-tt-n" value={f.plantilla_vencida || ''} onChange={campo('plantilla_vencida')} disabled={!puede} placeholder="urbis_cobranza_pago_vencido" /></label>
           {'grave_desde_cuotas' in cfg && <>
-            <label>4 · Aviso por contrato <span className="muted small">(reemplaza al 3)</span><input value={f.plantilla_vencida_grave || ''} onChange={campo('plantilla_vencida_grave')} disabled={!puede} placeholder="urbis_cobranza_aviso_contrato" style={{ textTransform: 'none' }} /></label>
+            <label>4 · Aviso por contrato <span className="muted small">(reemplaza al 3)</span><input className="u-tt-n" value={f.plantilla_vencida_grave || ''} onChange={campo('plantilla_vencida_grave')} disabled={!puede} placeholder="urbis_cobranza_aviso_contrato" /></label>
             <label>…desde cuántas cuotas vencidas<input type="number" min="2" max="12" value={f.grave_desde_cuotas ?? 4} onChange={campo('grave_desde_cuotas')} disabled={!puede} /></label>
           </>}
           {'plazo_contrato_dias' in cfg && <>
             <label>…se repite cada (días)<input type="number" min="1" max="30" value={f.repetir_contrato_dias ?? 7} onChange={campo('repetir_contrato_dias')} disabled={!puede} /></label>
             <label>…plazo para comunicarse (días)<input type="number" min="1" max="60" value={f.plazo_contrato_dias ?? 7} onChange={campo('plazo_contrato_dias')} disabled={!puede} /></label>
           </>}
-          <label>5 · Promesa de pago<input value={f.plantilla_promesa || ''} onChange={campo('plantilla_promesa')} disabled={!puede} placeholder="urbis_cobranza_promesa" style={{ textTransform: 'none' }} /></label>
+          <label>5 · Promesa de pago<input className="u-tt-n" value={f.plantilla_promesa || ''} onChange={campo('plantilla_promesa')} disabled={!puede} placeholder="urbis_cobranza_promesa" /></label>
         </div>
-        {'grave_desde_cuotas' in cfg && <p className="small muted" style={{ textTransform: 'none' }}>
+        {'grave_desde_cuotas' in cfg && <p className="small muted u-tt-n">
           Al llegar a esa cantidad de cuotas vencidas, el cliente recibe el aviso que menciona la <b>resolución del contrato</b> en vez del de pago vencido (nunca los dos).
           Si pasa el plazo para comunicarse y no escribió, aparece en el resumen diario por Telegram para evaluar la carta notarial: el WhatsApp no reemplaza a la carta.
           El contrato considera incumplimiento grave <b>2 cuotas seguidas o 3 acumuladas</b>.
         </p>}
 
-        <label style={{ marginTop: 10, display: 'block' }}>Indicaciones para el agente <span className="muted small">(horario de atención, cómo se llama la secretaria, avisos del mes…)</span>
-          <textarea rows="4" value={f.notas_agente || ''} onChange={campo('notas_agente')} disabled={!puede} style={{ textTransform: 'none' }}
+        <label className="u-mt-10 u-d-b">Indicaciones para el agente <span className="muted small">(horario de atención, cómo se llama la secretaria, avisos del mes…)</span>
+          <textarea className="u-tt-n" rows="4" value={f.notas_agente || ''} onChange={campo('notas_agente')} disabled={!puede}
             placeholder="Ej: La secretaria de cobranzas atiende de lunes a sábado de 8 a 6. En feriados no se validan pagos hasta el día hábil siguiente." />
         </label>
-        {puede && <button className="btn-primary" style={{ marginTop: 10 }}>Guardar configuración</button>}
+        {puede && <button className="btn-primary u-mt-10">Guardar configuración</button>}
       </form>
     </>
   )

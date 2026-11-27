@@ -93,19 +93,19 @@ export function EmitirFacturaGasto({ gasto, candidatos, proyecto, emisores, onCe
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal cp-modal" onClick={ev => ev.stopPropagation()}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>🧾 Factura del gasto</b>
+          <b className="u-f1">🧾 Factura del gasto</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
 
         {pedida ? (
           <div>
             <p className={'cp-grande ' + est.c}>{enCamino(pedida) && <span className="cp-gira" />}Factura {nombreComprobante(pedida)} · {est.t}{esPrueba(pedida) ? ' · PRUEBA sin valor' : ''}</p>
-            <p className="muted" style={{ textTransform: 'none' }}>
+            <p className="muted u-tt-n">
               {pedida.estado === 'aceptado'
                 ? (esPrueba(pedida) ? 'Aceptada en el ambiente de PRUEBAS de SUNAT: no tiene valor y no queda en el gasto.' : 'Aceptada por SUNAT. El PDF queda solo en el gasto como su factura.')
                 : pedida.mensaje || est.ayuda}
             </p>
-            <div className="acc-row" style={{ marginTop: 12 }}>
+            <div className="acc-row u-mt-12">
               {pedida.pdf_url && <a className="btn-primary btn-link" href={pedida.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
               <button type="button" className="btn-ghost" onClick={onCerrar}>Cerrar</button>
             </div>
@@ -195,14 +195,14 @@ export function EmitirFacturaGasto({ gasto, candidatos, proyecto, emisores, onCe
             )}
             <div className="cp-linea cp-total"><span>Total, sin IGV</span><b>{soles(total)}</b></div>
 
-            {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-            <div className="acc-row" style={{ marginTop: 12 }}>
+            {err && <p className="error u-tt-n">{err}</p>}
+            <div className="acc-row u-mt-12">
               <button className="btn-primary" onClick={emitir} disabled={busy || !ruc}>
                 {busy ? 'Pidiendo…' : !ruc ? 'Elige quién emite' : 'Emitir factura de ' + em?.nombre + ' por ' + soles(total)}
               </button>
               <button type="button" className="btn-ghost" onClick={onCerrar} disabled={busy}>Cancelar</button>
             </div>
-            <p className="muted small" style={{ marginTop: 8, textTransform: 'none' }}>
+            <p className="muted small u-mt-8 u-tt-n">
               Una vez emitida no se corrige: si algo quedó mal, se anula y se emite otra. Si el comprobante es un RH o la factura de otra persona, ciérrala y usa “subir”.
             </p>
           </>

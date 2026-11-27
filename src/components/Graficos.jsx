@@ -27,7 +27,7 @@ export function Reloj({ titulo, usado, limite, detalle, unidad = 'MB' }) {
   const val = n => (unidad === 'MB' ? (n / 1048576).toFixed(0) : n)
   return (
     <div className="glass card" style={{ textAlign: 'center', minWidth: 150 }}>
-      <p className="muted" style={{ margin: '0 0 4px' }}>{titulo}</p>
+      <p className="muted u-m-004">{titulo}</p>
       <svg viewBox="0 0 110 110" style={{ width: 108, height: 108 }}>
         <circle cx="55" cy="55" r={R} fill="none" stroke="rgba(255,255,255,.12)" strokeWidth="11" />
         <circle cx="55" cy="55" r={R} fill="none" stroke={color} strokeWidth="11" strokeLinecap="round"
@@ -37,7 +37,7 @@ export function Reloj({ titulo, usado, limite, detalle, unidad = 'MB' }) {
           {val(usado)} / {val(limite)} {unidad}
         </text>
       </svg>
-      {detalle && <p className="muted small" style={{ margin: 0, textTransform: 'none' }}>{detalle}</p>}
+      {detalle && <p className="muted small u-m0 u-tt-n">{detalle}</p>}
     </div>
   )
 }
@@ -97,9 +97,9 @@ export function BarrasMes({ meses, alto = 210, onMes }) {
           fontSize: 12, pointerEvents: 'none', minWidth: 168, boxShadow: '0 6px 18px rgba(0,0,0,.45)',
         }}>
           <b style={{ display: 'block', marginBottom: 3 }}>{h.lbl}</b>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <div className="u-d-f u-jc-sb u-g-10">
             <span style={{ color: '#4bb96a' }}>cobrado</span><b>{soles(h.rec)}</b></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <div className="u-d-f u-jc-sb u-g-10">
             <span style={{ color: '#d9754f' }}>gastos</span><b>{soles(h.gastos)}</b></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, borderTop: '1px solid rgba(255,255,255,.14)', marginTop: 3, paddingTop: 3 }}>
             <span style={{ color: '#7ec8e3' }}>balance</span>
@@ -162,7 +162,7 @@ export function Rosca({ partes, titulo, centro, formato }) {
             style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, padding: '1px 4px',
               borderRadius: 5, background: hover === i ? 'rgba(255,255,255,.08)' : 'transparent' }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: a.color, flex: '0 0 auto' }} />
-            <span style={{ flex: 1 }}>{a.label}</span>
+            <span className="u-f1">{a.label}</span>
             <b>{fmt(a.valor)}</b>
             <span className="muted" style={{ width: 44, textAlign: 'right' }}>{(a.valor / tot * 100).toFixed(0)}%</span>
           </div>
@@ -180,7 +180,7 @@ export function BarrasH({ filas, formato = soles, onFila }) {
   const tope = Math.max(...filas.map(f => f.valor), 1)
   const total = filas.reduce((s, f) => s + Number(f.valor || 0), 0)
   return (
-    <div style={{ fontSize: 12 }} onMouseLeave={() => setHover(null)}>
+    <div className="u-fs-12" onMouseLeave={() => setHover(null)}>
       {filas.map((f, i) => (
         <div key={f.label} onMouseEnter={() => setHover(i)}
           onClick={() => onFila && onFila(f, i)}
@@ -188,7 +188,7 @@ export function BarrasH({ filas, formato = soles, onFila }) {
           style={{ marginBottom: 7, padding: '2px 4px', borderRadius: 6, transition: 'background .12s',
             cursor: onFila ? 'pointer' : 'default',
             background: hover === i ? 'rgba(255,255,255,.07)' : 'transparent' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, gap: 8 }}>
+          <div className="u-d-f u-jc-sb u-mb-2 u-g-8">
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.label}</span>
             <b style={{ color: f.color, flex: '0 0 auto' }}>
               {formato(f.valor)}
@@ -289,7 +289,7 @@ export function Lineas({ series, etiquetas, alto = 240, brecha = false, formato 
         }}>
           <b style={{ display: 'block', marginBottom: 3 }}>{etiquetas[hover]}</b>
           {series.map(s => (
-            <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <div className="u-d-f u-jc-sb u-g-10" key={s.label}>
               <span style={{ color: s.color }}>{s.label}</span><b>{formato(s.datos[hover])}</b>
             </div>
           ))}

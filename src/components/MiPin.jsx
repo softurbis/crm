@@ -38,10 +38,10 @@ export default function MiPin({ email, tienePin, onListo, onCancelar }) {
   }
 
   return (
-    <form onSubmit={guardar} style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left' }}>
+    <form className="u-d-f u-fd-c u-g-10 u-ta-l" onSubmit={guardar}>
       <label>Tu contraseña actual
-        <input type="password" value={pass} onChange={e => setPass(e.target.value)} required
-          autoComplete="current-password" style={{ textTransform: 'none' }} />
+        <input className="u-tt-n" type="password" value={pass} onChange={e => setPass(e.target.value)} required
+          autoComplete="current-password" />
       </label>
       <label>{tienePin ? 'PIN nuevo' : 'PIN'} (4 a 6 números)
         <input type="password" inputMode="numeric" autoComplete="off" value={pin}
@@ -51,8 +51,8 @@ export default function MiPin({ email, tienePin, onListo, onCancelar }) {
         <input type="password" inputMode="numeric" autoComplete="off" value={pin2}
           onChange={e => setPin2(soloNum(e.target.value))} required />
       </label>
-      {err && <p className="error" style={{ margin: 0 }}>{err}</p>}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {err && <p className="error u-m0">{err}</p>}
+      <div className="u-d-f u-g-8 u-fwr">
         <button className="btn-primary" disabled={busy}>{busy ? 'GUARDANDO…' : 'GUARDAR PIN'}</button>
         {onCancelar && <button type="button" className="btn-ghost" onClick={onCancelar} disabled={busy}>Ahora no</button>}
         {tienePin && <button type="button" className="btn-ghost" onClick={quitar} disabled={busy}>Quitar mi PIN</button>}

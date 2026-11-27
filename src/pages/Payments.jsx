@@ -285,7 +285,7 @@ export default function Payments() {
     if (na) return (
       <span className="st-chip st-na" title={'NO APLICA' + (motivo ? ' — ' + motivo : '')}>
         no aplica
-        {!readOnly && <button className="link-btn" style={{ marginLeft: 4, fontSize: 11 }}
+        {!readOnly && <button className="link-btn u-ml-4 u-fs-11"
           title="Volver a pedir este documento" onClick={() => quitarNoAplica(g.items, campo)}>&#8634;</button>}
       </span>
     )
@@ -301,7 +301,7 @@ export default function Payments() {
           <input type="file" accept="image/*,.pdf" hidden
             onChange={e => e.target.files[0] && subirDoc(g.items, e.target.files[0], campo)} />
         </label>
-        {naOk && <button className="link-btn" style={{ display: 'block', fontSize: 10, marginTop: 2 }}
+        {naOk && <button className="link-btn u-d-b u-fs-10 u-mt-2"
           title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo."
           onClick={() => marcarNoAplica(g.items, campo)}>no aplica</button>}
       </>
@@ -317,7 +317,7 @@ export default function Payments() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Pagos</h1>
+        <h1 className="u-m0 u-f1">Pagos</h1>
         {puedeCorregir && <button className={exc ? 'btn-ghost' : 'btn-primary'} onClick={() => setExc(exc ? null : { mes: hoyMes(), todos: false })}
           title="Bajar en Excel las cuotas que vencen en un mes y los pagos que entraron, con el link de cada voucher">{exc ? '✕ Cerrar Excel' : '📥 Excel del mes'}</button>}
         <ProjectPicker />
@@ -326,8 +326,8 @@ export default function Payments() {
 
       {exc && (
         <div className="glass form-card" style={{ maxWidth: 'none', margin: '0 0 14px' }}>
-          <p style={{ margin: '0 0 8px' }}><b>📥 COBRANZA DEL MES EN EXCEL</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — trae dos cifras distintas y explica por qué no coinciden:</span></p>
+          <p className="u-m-008"><b>📥 COBRANZA DEL MES EN EXCEL</b>
+            <span className="muted small u-tt-n"> — trae dos cifras distintas y explica por qué no coinciden:</span></p>
           <ul className="small" style={{ margin: '0 0 10px', paddingLeft: 18, textTransform: 'none', lineHeight: 1.5 }}>
             <li><b>💰 Dinero que entró en el mes:</b> todo lo depositado ese mes (cuotas del mes, atrasadas, adelantos, iniciales y separaciones).</li>
             <li><b>✅ Cobrado de las cuotas que vencían en el mes:</b> lo pagado de esas cuotas en cualquier fecha (antes, en el mes o después con atraso).</li>
@@ -405,14 +405,14 @@ export default function Payments() {
                     <td><button className="link-btn" title={expandible ? 'Ver cómo se distribuyó el pago' : 'Ver documentos'} onClick={() => expandible ? alternarGrupo(g.key) : abrirPago(r)}>
                       {expandible && (abierto ? '▾ ' : '▸ ')}{g.concepto}
                     </button>
-                      {g.resto?.length > 0 && <div className="muted small" style={{ textTransform: 'none' }}>+ {g.resto.map(x => 'cuota ' + x.n + ' (' + soles(x.monto) + ')').join(' + ')}</div>}
+                      {g.resto?.length > 0 && <div className="muted small u-tt-n">+ {g.resto.map(x => 'cuota ' + x.n + ' (' + soles(x.monto) + ')').join(' + ')}</div>}
                     </td>
                     <td><EstadoChip r={r} /></td>
                     <td><b>{soles(g.total)}</b>{expandible && <span className="muted small"> ({g.items.length} cuotas)</span>}
-                      {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} title="Corregir directamente cómo se repartió este voucher" onClick={() => editando ? setRepartoEdit(null) : editarReparto(g)}>
+                      {puedeEditarReparto && <button className="link-btn u-ml-6 u-fs-11" title="Corregir directamente cómo se repartió este voucher" onClick={() => editando ? setRepartoEdit(null) : editarReparto(g)}>
                         {editando ? 'Cancelar edición' : '✎ Editar reparto'}
                       </button>}
-                      {puedeEditarReparto && <button className="link-btn" style={{ marginLeft: 6, fontSize: 11 }} disabled={repartoBusy}
+                      {puedeEditarReparto && <button className="link-btn u-ml-6 u-fs-11" disabled={repartoBusy}
                         title="Reparte de nuevo este voucher y los posteriores, respetando el monto de cada cuota"
                         onClick={() => recalcularCascadaDesde(g)}>↻ Recalcular cascada</button>}
                     </td>
@@ -435,7 +435,7 @@ export default function Payments() {
                         : soles(p.amount)}</td>
                       <td colSpan="5" className="muted small">{editando && i === g.items.length - 1 ? <>
                         Reparto: <b className={Math.abs(totalEditado - Number(g.total)) <= 0.009 ? 'ok' : 'bad'}>{soles(totalEditado)} de {soles(g.total)}</b>{' '}
-                        <button className="btn-ghost" style={{ fontSize: 11 }} disabled={repartoBusy || Math.abs(totalEditado - Number(g.total)) > 0.009} onClick={() => guardarReparto(g)}>{repartoBusy ? 'Guardando...' : 'Guardar reparto'}</button>
+                        <button className="btn-ghost u-fs-11" disabled={repartoBusy || Math.abs(totalEditado - Number(g.total)) > 0.009} onClick={() => guardarReparto(g)}>{repartoBusy ? 'Guardando...' : 'Guardar reparto'}</button>
                       </> : <>Parte del pago de {soles(g.total)} · operación {r.operation_number}</>}</td>
                     </tr>
                   ))}

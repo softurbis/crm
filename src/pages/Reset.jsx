@@ -40,9 +40,9 @@ export default function Reset() {
         <h1>Mi contraseña</h1>
         {!listo && <p className="muted">Primero entra al sistema con tu contraseña actual y vuelve a abrir esta página desde <b>🔑 Mi contraseña</b>, abajo en el menú.</p>}
         {listo && !ok && (
-          <form onSubmit={guardar} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <form className="u-d-f u-fd-c u-g-12" onSubmit={guardar}>
             <label>Nueva contraseña
-              <input type="password" value={pass} onChange={e => setPass(e.target.value)} minLength={6} required style={{ textTransform: 'none' }} />
+              <input className="u-tt-n" type="password" value={pass} onChange={e => setPass(e.target.value)} minLength={6} required />
             </label>
             <button className="btn-primary">GUARDAR</button>
           </form>
@@ -52,14 +52,14 @@ export default function Reset() {
         {listo && tienePin !== null && (
           <div style={{ borderTop: '1px solid rgba(127,148,118,.25)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <h2 style={{ margin: 0, fontSize: 18, textAlign: 'center' }}>🔢 Mi PIN</h2>
-            <p className="muted small" style={{ margin: 0 }}>
+            <p className="muted small u-m0">
               {tienePin
                 ? 'Ya tienes PIN. A los 30 minutos sin uso la pantalla se bloquea y la abres con él. Aquí puedes cambiarlo o quitarlo.'
                 : 'A los 30 minutos sin uso el panel te saca. Con un PIN, en vez de sacarte se bloquea, y lo abres en un segundo.'}
             </p>
             <MiPin key={String(tienePin)} email={email} tienePin={tienePin}
               onListo={quitado => { verPin(); setPinMsg(quitado ? 'PIN quitado.' : '✅ PIN guardado.') }} />
-            {pinMsg && <p className="ok" style={{ margin: 0 }}>{pinMsg}</p>}
+            {pinMsg && <p className="ok u-m0">{pinMsg}</p>}
           </div>
         )}
         {listo && !ok && <a className="btn-link btn-ghost" href={import.meta.env.BASE_URL}>VOLVER AL SISTEMA</a>}

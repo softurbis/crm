@@ -68,13 +68,13 @@ function CampoConBoton({ valor, placeholder, titulo, onGuardar }) {
   const cambio = soloDig(v) !== soloDig(valor)
   const guardar = async () => { setGuardando(true); await onGuardar(v); setGuardando(false) }
   return (
-    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+    <span className="u-d-if u-g-4 u-ai-c u-fwr">
       <input value={v} placeholder={placeholder} title={titulo} style={{ width: 170, fontSize: 11 }}
         onChange={e => setV(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); guardar() } }} />
       {cambio
         ? <button type="button" className="btn-act" style={{ fontSize: 10, padding: '2px 8px' }} disabled={guardando} onClick={guardar}>{guardando ? '…' : 'Guardar'}</button>
-        : valor ? <span className="ok" style={{ fontSize: 11 }} title="Guardado">✓</span> : null}
+        : valor ? <span className="ok u-fs-11" title="Guardado">✓</span> : null}
     </span>
   )
 }
@@ -399,7 +399,7 @@ export default function Users() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Usuarios y permisos</h1>
+        <h1 className="u-m0 u-f1">Usuarios y permisos</h1>
         <a className="btn-act" href="https://claude.ai/code/artifact/5dfca0de-e60d-4bb7-9b7d-acd3fcbc3635" target="_blank" rel="noreferrer"
           title="Abrir la referencia visual: qué ve y qué edita cada rol">📖 Ver permisos por rol</a>
       </div>
@@ -410,7 +410,7 @@ export default function Users() {
           entra en pantalla sin bajar. En pantalla chica se apilan solos. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 12, alignItems: 'start' }}>
       <div className="glass form-card">
-        <p style={{ margin: 0 }}><b>⚙️ EFECTO AL GUARDAR</b> <span className="muted small">— solo tú, vive en esta computadora</span></p>
+        <p className="u-m0"><b>⚙️ EFECTO AL GUARDAR</b> <span className="muted small">— solo tú, vive en esta computadora</span></p>
         <p className="muted small" style={{ margin: '2px 0 8px' }}>
           Al activarlo, cuando guardes en cualquier parte del sistema salta esta foto en vez del ✓ verde. La foto <b>no se sube a ningún lado</b>: queda solo en este navegador.
         </p>
@@ -421,7 +421,7 @@ export default function Users() {
             <span className="track" />
             <span className="small">{caraOn ? 'Activado' : 'Desactivado'}</span>
           </label>
-          <label className="btn-act" style={{ cursor: 'pointer' }}>
+          <label className="btn-act u-cp">
             {caraImg ? 'Cambiar foto' : 'Subir foto'}
             <input type="file" accept="image/*" hidden onChange={subirCara} />
           </label>
@@ -433,14 +433,14 @@ export default function Users() {
       <form className="glass form-card" onSubmit={crearUsuario}>
         <p><b>CREAR USUARIO NUEVO</b></p>
         <div className="form-grid">
-          <label>Correo <input type="email" style={{ textTransform: 'none' }} value={nu.email || ''} onChange={e => setNu(x => ({ ...x, email: e.target.value }))} required /></label>
-          <label>Contrasena <input type="text" style={{ textTransform: 'none' }} value={nu.pass || ''} onChange={e => setNu(x => ({ ...x, pass: e.target.value }))} required minLength="6" /></label>
+          <label>Correo <input className="u-tt-n" type="email" value={nu.email || ''} onChange={e => setNu(x => ({ ...x, email: e.target.value }))} required /></label>
+          <label>Contrasena <input className="u-tt-n" type="text" value={nu.pass || ''} onChange={e => setNu(x => ({ ...x, pass: e.target.value }))} required minLength="6" /></label>
           <label>Nombre completo <input value={nu.name || ''} onChange={e => setNu(x => ({ ...x, name: e.target.value }))} required /></label>
           <label>Rol
             <select value={nu.role} onChange={e => setNu(x => ({ ...x, role: e.target.value }))}>
               {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            {nu.role === 'operador' && <span className="muted small" style={{ textTransform: 'none' }}>{AYUDA_OPERADOR}</span>}
+            {nu.role === 'operador' && <span className="muted small u-tt-n">{AYUDA_OPERADOR}</span>}
           </label>
         </div>
         <button className="btn-primary" disabled={busy}>{busy ? 'Creando...' : 'Crear usuario'}</button>
@@ -458,7 +458,7 @@ export default function Users() {
                   <div className="ava-cel">
                     <Avatar url={u.avatar_url} nombre={u.full_name || u.email} size={34} />
                     <div className="ava-acc">
-                      <label className="link-btn" style={{ cursor: 'pointer' }} title="Subir o cambiar la foto">
+                      <label className="link-btn u-cp" title="Subir o cambiar la foto">
                         {u.avatar_url ? 'cambiar' : 'subir'}
                         <input type="file" accept="image/*" hidden disabled={busy}
                           onChange={e => { subirFoto(u, e.target.files[0]); e.target.value = '' }} />
@@ -471,7 +471,7 @@ export default function Users() {
                 <td>
                   <input defaultValue={u.full_name || ''} onBlur={e => cambiarNombre(u, e.target.value)} style={{ minWidth: 160 }} />
                   {/* el DNI sale solo en las constancias de gastos (sql/87) */}
-                  <div style={{ marginTop: 4 }}>
+                  <div className="u-mt-4">
                     <CampoConBoton valor={u.dni} placeholder="DNI"
                       titulo="Sale solo en las constancias donde esta persona recibe o entrega el dinero"
                       onGuardar={dni => guardarDni(u, dni)} />
@@ -487,7 +487,7 @@ export default function Users() {
                       · avisos (solo el socio): el que ya conoce el equipo, por ahí
                         le avisa el bot que hay una solicitud esperando su firma
                       · firma: el personal, adonde llega el código de 6 dígitos (sql/86) */}
-                  <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div className="u-mt-6 u-fs-11 u-d-f u-fd-c u-g-4">
                     {u.role === 'socio' && (
                       <CampoConBoton valor={u.phone} placeholder="WhatsApp de avisos 51…"
                         titulo="Por aquí le avisa el bot cuando hay una solicitud por firmar"
@@ -502,16 +502,16 @@ export default function Users() {
                     <CampoConBoton valor={u.firma_phone} placeholder="📲 Celular para FIRMAR 51…"
                       titulo="Aquí le llega el código de 6 dígitos para firmar. Es su teléfono personal y solo tú puedes cambiarlo."
                       onGuardar={tel => guardarTelFirma(u, tel)} />
-                    {!u.firma_phone && <span className="muted" style={{ fontSize: 10 }}>Sin celular de firma no puede firmar.</span>}
-                    {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad" style={{ fontSize: 10 }}>⚠ Sin proyectos asignados: no ve nada.</span>}
+                    {!u.firma_phone && <span className="muted u-fs-10">Sin celular de firma no puede firmar.</span>}
+                    {['socio', 'facturacion'].includes(u.role) && !asig.some(a => a.user_id === u.id) && <span className="bad u-fs-10">⚠ Sin proyectos asignados: no ve nada.</span>}
                     {u.role === 'asesor' && (() => {
-                      if (fichas === null) return <span className="bad" style={{ fontSize: 10 }}>⚠ Falta correr sql/190 para enlazar su ficha de vendedor.</span>
+                      if (fichas === null) return <span className="bad u-fs-10">⚠ Falta correr sql/190 para enlazar su ficha de vendedor.</span>
                       const f = fichas.find(x => x.profile_id === u.id)
                       if (f) return (
-                        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span className="u-d-if u-g-6 u-ai-c u-fwr">
                           <span style={{ color: '#f08fb0', fontWeight: 700 }}>🎯 Ficha {f.code}</span>
-                          <span className="muted" style={{ fontSize: 10 }}>{f.abiertos} en seguimiento · {f.total} en total</span>
-                          <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Quitar el enlace con su ficha" onClick={() => quitarFicha(u)}>✕</button>
+                          <span className="muted u-fs-10">{f.abiertos} en seguimiento · {f.total} en total</span>
+                          <button className="btn-ghost u-p-1-7 u-fs-11" title="Quitar el enlace con su ficha" onClick={() => quitarFicha(u)}>✕</button>
                         </span>
                       )
                       return (
@@ -521,12 +521,12 @@ export default function Users() {
                             <option value="nueva">➕ CREAR UNA FICHA NUEVA</option>
                             {fichas.filter(x => !x.profile_id && x.activo).map(x => <option key={x.id} value={x.id}>{x.code}{x.full_name && x.full_name !== x.code ? ' - ' + x.full_name : ''}</option>)}
                           </select>
-                          <span className="bad" style={{ fontSize: 10 }}>⚠ Sin ficha de vendedor no ve ningún prospecto.</span>
+                          <span className="bad u-fs-10">⚠ Sin ficha de vendedor no ve ningún prospecto.</span>
                         </>
                       )
                     })()}
                     {u.role === 'asesor' && <span className="muted" style={{ fontSize: 10, maxWidth: 260, textTransform: 'none' }}>Ve solo los prospectos y chats que se le asignan, y los precios de los proyectos que le marques.</span>}
-                    {u.role === 'facturacion' && <span className="muted" style={{ fontSize: 10 }}>Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas y el voucher de los pagos que hizo la socia, imprime constancias y ve el estado de cuenta de sus lotes. Nada más.</span>}
+                    {u.role === 'facturacion' && <span className="muted u-fs-10">Ve solo los pagos y los gastos de los proyectos que le marques: sube las boletas y facturas y el voucher de los pagos que hizo la socia, imprime constancias y ve el estado de cuenta de sus lotes. Nada más.</span>}
                   </div>
                 </td>
                 <td>
@@ -551,7 +551,7 @@ export default function Users() {
                   {firmaDe?.id === u.id && (
                     <div style={{ marginTop: 8, width: 340, maxWidth: '100%', textTransform: 'none' }}>
                       {u.signature_url && (
-                        <p className="muted small" style={{ margin: '0 0 6px' }}>
+                        <p className="muted small u-m-006">
                           Firma actual:{' '}
                           <img src={u.signature_url} alt="Firma actual" title="Ver la firma en grande"
                             onClick={() => setFirmaGrande(u)}
@@ -559,9 +559,9 @@ export default function Users() {
                         </p>
                       )}
                       <FirmaPad busy={busy} alto={140} onGuardar={f => guardarFirmaDe(u, f)} />
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setFirmaDe(null)}>Cerrar</button>
-                        {u.signature_url && <button className="btn-ghost bad" style={{ fontSize: 11 }} onClick={() => quitarFirma(u)}>Quitar firma</button>}
+                      <div className="u-d-f u-g-8 u-mt-8">
+                        <button className="btn-ghost u-fs-11" onClick={() => setFirmaDe(null)}>Cerrar</button>
+                        {u.signature_url && <button className="btn-ghost bad u-fs-11" onClick={() => quitarFirma(u)}>Quitar firma</button>}
                       </div>
                     </div>
                   )}
@@ -571,13 +571,13 @@ export default function Users() {
                   {(() => {
                     const v = seguim.find(s => s.user_id === u.id)
                     if (v) return (
-                      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                      <span className="u-d-if u-g-6 u-ai-c u-fs-12">
                         <span style={{ color: v.tipo === 'gerencia' ? '#e7c15a' : '#e8a0c8', fontWeight: 700 }}>{v.tipo === 'gerencia' ? '👔' : '🗓️'} +{v.phone}</span>
-                        <button className="btn-ghost" style={{ padding: '1px 7px', fontSize: 11 }} title="Desvincular" onClick={() => desvincularSeguimiento(u)}>✕</button>
+                        <button className="btn-ghost u-p-1-7 u-fs-11" title="Desvincular" onClick={() => desvincularSeguimiento(u)}>✕</button>
                       </span>
                     )
                     return (
-                      <select value="" onChange={e => vincularSeguimiento(u, e.target.value)} style={{ fontSize: 12 }}>
+                      <select className="u-fs-12" value="" onChange={e => vincularSeguimiento(u, e.target.value)}>
                         <option value="">— SIN SEGUIMIENTO —</option>
                         <option value="nuevo">➕ VINCULAR NÚMERO NUEVO…</option>
                         {seguim.filter(s => !s.user_id).map(s => <option key={s.id} value={s.id}>{s.full_name} (+{s.phone})</option>)}
@@ -585,12 +585,12 @@ export default function Users() {
                     )
                   })()}
                   {u.role !== 'superuser' && seguim.length > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      <span className="muted" style={{ fontSize: 10, fontWeight: 700 }}>VE A:</span>
+                    <div className="u-mt-6">
+                      <span className="muted u-fs-10 u-fw-7">VE A:</span>
                       {seguim.map(s => {
                         const on = segAcc.some(a => a.user_id === u.id && a.secretary_id === s.id)
                         return (
-                          <label key={s.id} className="inline-check" style={{ fontSize: 11 }}>
+                          <label key={s.id} className="inline-check u-fs-11">
                             <input type="checkbox" checked={on} onChange={e => toggleSegAcc(u, s.id, e.target.checked)} />
                             {s.tipo === 'gerencia' ? '👔' : ''}{s.full_name.split(' ')[0]}
                           </label>
@@ -613,15 +613,15 @@ export default function Users() {
                 </td>
                 <td>
                   {u.role === 'superuser'
-                    ? <span className="muted" style={{ fontSize: 11 }}>Todos</span>
+                    ? <span className="muted u-fs-11">Todos</span>
                     // el operador ve el menú del superusuario menos la administración: no se recorta por paneles
-                    : u.role === 'operador' ? <span className="muted" style={{ fontSize: 11 }}>Todos, menos administración</span>
+                    : u.role === 'operador' ? <span className="muted u-fs-11">Todos, menos administración</span>
                     // facturación tiene una sola pantalla: no hay paneles que elegir (sql/134)
-                    : u.role === 'facturacion' ? <span className="muted" style={{ fontSize: 11 }}>Solo "Boletas y facturas", "Gastos" y "Lotes con deuda"</span>
+                    : u.role === 'facturacion' ? <span className="muted u-fs-11">Solo "Boletas y facturas", "Gastos" y "Lotes con deuda"</span>
                     : PANELS.map(p => {
                       const on = Array.isArray(u.panels) ? u.panels.includes(p.to) : true
                       return (
-                        <label key={p.to} className="inline-check" style={{ fontSize: 11 }}>
+                        <label key={p.to} className="inline-check u-fs-11">
                           <input type="checkbox" checked={on} onChange={e => togglePanel(u, p.to, e.target.checked)} />
                           {p.label}
                         </label>
@@ -629,14 +629,14 @@ export default function Users() {
                     })}
                   {!['superuser', 'operador', 'facturacion'].includes(u.role) && <p className="muted" style={{ fontSize: 9, margin: '2px 0 0' }}>Todos marcados = ve según su rol. Desmarca para ocultar.</p>}
                   {!['superuser', 'socio', 'facturacion'].includes(u.role) && (
-                    <label className="inline-check" style={{ fontSize: 11, marginTop: 8, display: 'flex' }}
+                    <label className="inline-check u-fs-11 u-mt-8 u-d-f"
                       title="Valida los vouchers que lee el agente de cobranza, maneja el agente y ve sus conversaciones (sql/76)">
                       <input type="checkbox" checked={(u.permisos || []).includes('cobranza')} onChange={e => togglePermiso(u, 'cobranza', e.target.checked)} />
                       🤝 <b>Responsable de cobranza</b>
                     </label>
                   )}
                   {!['superuser', 'facturacion'].includes(u.role) && (
-                    <label className="inline-check" style={{ fontSize: 11, marginTop: 4, display: 'flex' }}
+                    <label className="inline-check u-fs-11 u-mt-4 u-d-f"
                       title="Ve y usa la planilla: sueldos, adelantos, descuentos, tardanzas, faltas y bonos (sql/132). Sin esto, solo la ve el superusuario.">
                       <input type="checkbox" checked={(u.permisos || []).includes('planilla')} onChange={e => togglePermiso(u, 'planilla', e.target.checked)} />
                       👷 <b>Planilla</b>
@@ -655,11 +655,11 @@ export default function Users() {
         <div onClick={() => setFirmaGrande(null)}
           style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.65)', display: 'grid', placeItems: 'center', padding: 16, cursor: 'zoom-out' }}>
           <div onClick={e => e.stopPropagation()} className="glass form-card" style={{ maxWidth: 720, width: '100%', textTransform: 'none', cursor: 'auto' }}>
-            <p style={{ margin: '0 0 8px' }}><b>FIRMA DE {firmaGrande.full_name || firmaGrande.email}</b></p>
+            <p className="u-m-008"><b>FIRMA DE {firmaGrande.full_name || firmaGrande.email}</b></p>
             <img src={firmaGrande.signature_url} alt="Firma en grande"
               style={{ width: '100%', maxHeight: '55vh', objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 10 }} />
-            <p className="muted small" style={{ marginTop: 8 }}>Así va a salir en la constancia, sobre la línea de la firma. Si salió con manchas, cortada o con parte del nombre, vuelve a subirla.</p>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <p className="muted small u-mt-8">Así va a salir en la constancia, sobre la línea de la firma. Si salió con manchas, cortada o con parte del nombre, vuelve a subirla.</p>
+            <div className="u-d-f u-g-8 u-mt-8 u-fwr">
               <button className="btn-ghost" onClick={() => setFirmaGrande(null)}>Cerrar</button>
               <a className="btn-ghost" href={firmaGrande.signature_url} target="_blank" rel="noreferrer">Abrir la imagen</a>
               <button className="btn-ghost" onClick={() => { setFirmaDe(firmaGrande); setFirmaGrande(null) }}>Cambiarla</button>

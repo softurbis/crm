@@ -77,14 +77,14 @@ export default function VisorDoc({ url, titulo = 'documento', alto = 420 }) {
       <div>
         {cargando && <p className="muted">Abriendo el Word…</p>}
         {word?.error && (
-          <p className="warn small" style={{ textTransform: 'none' }}>
+          <p className="warn small u-tt-n">
             No pude mostrarlo aquí: {word.error}.{' '}
             <a href={url} target="_blank" rel="noreferrer">Abrir o descargar el archivo</a>
           </p>
         )}
         {word?.html && (
           <>
-            <p className="muted small" style={{ margin: '0 0 4px', textTransform: 'none' }}>
+            <p className="muted small u-m-004 u-tt-n">
               Word convertido para verlo aquí. Para guardarlo en PDF: <b>Ctrl + P</b> → destino <b>Guardar como PDF</b>.
             </p>
             <div className="doc-word" style={{ maxHeight: alto }} dangerouslySetInnerHTML={{ __html: word.html }} />
@@ -95,7 +95,7 @@ export default function VisorDoc({ url, titulo = 'documento', alto = 420 }) {
   }
 
   return (
-    <p className="muted" style={{ textTransform: 'none' }}>
+    <p className="muted u-tt-n">
       Este tipo de archivo no se puede ver aquí. <a href={url} target="_blank" rel="noreferrer">Abrir o descargar</a>
     </p>
   )

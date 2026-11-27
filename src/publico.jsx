@@ -1,3 +1,5 @@
+// PRIMERO las clases chicas (fase 6), igual que en el panel (main.jsx)
+import './styles/utilidades.css'
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigationType } from 'react-router-dom'

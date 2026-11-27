@@ -260,17 +260,17 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
           {!readOnly && <label className="span2">Observacion / comentario del pago
             <textarea rows="2" value={obsEdit} onChange={e => setObsEdit(e.target.value)} />
           </label>}
-          {readOnly && notas && <p className="muted span2" style={{ margin: 0 }}>OBS: {notas}</p>}
+          {readOnly && notas && <p className="muted span2 u-m0">OBS: {notas}</p>}
           {puedeCorregir && (<>
             <label className="span2">N de operacion (correccion, solo superusuario - queda en bitacora)
               <span style={{ display: 'flex', gap: '.4rem' }}>
-                <input value={opEdit} onChange={e => setOpEdit(e.target.value)} style={{ flex: 1 }} />
+                <input className="u-f1" value={opEdit} onChange={e => setOpEdit(e.target.value)} />
                 <button type="button" className="btn-ghost" onClick={guardarNroOp}>Corregir N Op.</button>
               </span>
             </label>
             <label className="span2">Banco de origen - con qué pagó el cliente (corregir si no coincide con el voucher - queda en bitacora)
               <span style={{ display: 'flex', gap: '.4rem' }}>
-                <select value={origenEdit} onChange={e => setOrigenEdit(e.target.value)} style={{ flex: 1 }}>
+                <select className="u-f1" value={origenEdit} onChange={e => setOrigenEdit(e.target.value)}>
                   <option value="">(sin banco)</option>
                   {opcionesBanco(origenEdit || view.banco_origen).map(b => <option key={b}>{b}</option>)}
                 </select>
@@ -279,7 +279,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
             </label>
             <label className="span2">Cuenta destino - dónde entró la plata (corregir si no coincide con el voucher - queda en bitacora)
               <span style={{ display: 'flex', gap: '.4rem' }}>
-                <select value={accEdit} onChange={e => setAccEdit(e.target.value)} style={{ flex: 1 }}>
+                <select className="u-f1" value={accEdit} onChange={e => setAccEdit(e.target.value)}>
                   <option value="">(sin cuenta)</option>
                   {cuentas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
@@ -290,7 +290,7 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
               ? `Monto del voucher (el total de las ${filas.length} partes) - si lo cambias, se vuelve a repartir entre las cuotas`
               : 'Monto del pago (corregir si no coincide con el voucher - recalcula la cuota, queda en bitacora)'}
               <span style={{ display: 'flex', gap: '.4rem' }}>
-                <input type="number" step="0.01" min="0" value={amtEdit} onChange={e => setAmtEdit(e.target.value)} style={{ flex: 1 }} />
+                <input className="u-f1" type="number" step="0.01" min="0" value={amtEdit} onChange={e => setAmtEdit(e.target.value)} />
                 <button type="button" className="btn-ghost" disabled={busy} onClick={guardarMonto}>Corregir monto</button>
               </span>
             </label>
@@ -313,17 +313,17 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
         </div>
         <div className="docs-grid">
           {puedeCorregir && (
-            <div className="chg-box" style={{ marginBottom: 10 }}>
-              <p style={{ fontSize: 12, fontWeight: 700 }}>🛠 CORRECCIONES (SUPERUSUARIO)</p>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button className="btn-ghost" style={{ fontSize: 12 }} onClick={editarFecha}>📅 CORREGIR FECHA</button>
-                {conDoc('voucher_url') && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('voucher_url')}>🗑 QUITAR VOUCHER</button>}
-                {conDoc('receipt_url') && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('receipt_url')}>🗑 QUITAR COMPROBANTE</button>}
-                {conDoc('extra_url') && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => quitarDoc('extra_url')}>🗑 QUITAR ANEXO</button>}
+            <div className="chg-box u-mb-10">
+              <p className="u-fs-12 u-fw-7">🛠 CORRECCIONES (SUPERUSUARIO)</p>
+              <div className="u-d-f u-g-6 u-fwr">
+                <button className="btn-ghost u-fs-12" onClick={editarFecha}>📅 CORREGIR FECHA</button>
+                {conDoc('voucher_url') && <button className="btn-ghost u-fs-12" onClick={() => quitarDoc('voucher_url')}>🗑 QUITAR VOUCHER</button>}
+                {conDoc('receipt_url') && <button className="btn-ghost u-fs-12" onClick={() => quitarDoc('receipt_url')}>🗑 QUITAR COMPROBANTE</button>}
+                {conDoc('extra_url') && <button className="btn-ghost u-fs-12" onClick={() => quitarDoc('extra_url')}>🗑 QUITAR ANEXO</button>}
                 <button className="btn-ghost" style={{ fontSize: 12, color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} disabled={busy} onClick={borrarPago}>
                   🗑 ELIMINAR {deposito ? 'PAGO COMPLETO' : 'PAGO'}</button>
               </div>
-              <p className="muted" style={{ fontSize: 10 }}>El N° de operación se corrige arriba. Al eliminar un pago de cuotas, esas cuotas vuelven a deber y los pagos siguientes se reparten otra vez en orden.</p>
+              <p className="muted u-fs-10">El N° de operación se corrige arriba. Al eliminar un pago de cuotas, esas cuotas vuelven a deber y los pagos siguientes se reparten otra vez en orden.</p>
             </div>
           )}
           {[['VOUCHER DEL CLIENTE', 'voucher_url'], ['COMPROBANTE INTERNO', 'receipt_url']].map(([t, campo]) => {
@@ -337,19 +337,19 @@ export default function DetallePago({ pago, pagos = [], accounts: cuentasPadre, 
                   {u && campo === 'voucher_url' && <> | <BotonImprimirVoucher url={u} nota={f?.voucher_note} conTexto
                     items={new Set(filas.map(x => x.voucher_url).filter(Boolean)).size > 1 ? filas.filter(x => x.voucher_url === u) : filas} /></>}
                   {u && !readOnly && <> | <button className="link-btn" onClick={() => notaDoc(campo)}>&#128221; nota</button></>}</p>
-                {f?.[campoNota(campo)] && <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{f[campoNota(campo)]}</p>}
+                {f?.[campoNota(campo)] && <p className="muted small u-tt-n u-m-004">{f[campoNota(campo)]}</p>}
                 {!u
                   ? na
                     // marcado a proposito: este pago no va a tener este documento
                     ? <>
                         <p className="muted big-alert" style={{ color: '#b9bcc2' }}>NO APLICA</p>
-                        <p className="muted small" style={{ textTransform: 'none' }}>{filas.find(x => x[campoNAMotivo(campo)])?.[campoNAMotivo(campo)] || 'sin motivo registrado'}</p>
-                        {!readOnly && <button className="btn-ghost" style={{ fontSize: 12 }}
+                        <p className="muted small u-tt-n">{filas.find(x => x[campoNAMotivo(campo)])?.[campoNAMotivo(campo)] || 'sin motivo registrado'}</p>
+                        {!readOnly && <button className="btn-ghost u-fs-12"
                           onClick={() => noAplica(campo, false)}>&#8634; Volver a pedirlo</button>}
                       </>
                     : <>
                         <p className="bad big-alert">&#9888; NO SUBIDO</p>
-                        {!readOnly && naOk && <button className="btn-ghost" style={{ fontSize: 12 }}
+                        {!readOnly && naOk && <button className="btn-ghost u-fs-12"
                           title="Este pago nunca va a tener este documento (cascada, cuadre, canje). Se pide el motivo y queda en bitácora."
                           onClick={() => noAplica(campo, true)}>No aplica a este pago</button>}
                       </>
@@ -412,9 +412,9 @@ function EnviarRecibo({ pago, filas, total, proyecto, enDialogo = false }) {
     const t = setInterval(cargar, 3000)
     return () => clearInterval(t)
   }, [saliendo, leyendo, cargar])
-  if (info?.falta) return <p className="muted" style={{ textTransform: 'none' }}>El envío todavía no está instalado en la base: falta correr sql/148.</p>
+  if (info?.falta) return <p className="muted u-tt-n">El envío todavía no está instalado en la base: falta correr sql/148.</p>
   if (!info) return enDialogo && info === null
-    ? <p className="muted" style={{ textTransform: 'none' }}>Tu usuario no puede enviar este comprobante (o el pago ya no lo tiene).</p>
+    ? <p className="muted u-tt-n">Tu usuario no puede enviar este comprobante (o el pago ya no lo tiene).</p>
     : null
 
   const registrados = [...new Set((info.telefonos || []).map(limpio).filter(d => d.length >= 9))]

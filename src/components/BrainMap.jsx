@@ -18,10 +18,10 @@ export default function BrainMap({ nodes, selected, onSelect, titulo = 'Cerebro 
         .bm-glow { animation: bm-pulse 3.2s ease-in-out infinite; }
       `}</style>
       <div style={{ position: 'absolute', top: 10, left: 12, zIndex: 2, pointerEvents: 'none' }}>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>🧠 {titulo}</div>
-        <div className="muted" style={{ fontSize: 11 }}><b style={{ color: 'var(--accent-strong)' }}>{listo}% listo</b> · gira · toca un nodo para editar</div>
+        <div className="u-fw-7 u-fs-15">🧠 {titulo}</div>
+        <div className="muted u-fs-11"><b style={{ color: 'var(--accent-strong)' }}>{listo}% listo</b> · gira · toca un nodo para editar</div>
       </div>
-      <svg viewBox="0 0 400 415" style={{ width: '100%', display: 'block' }}>
+      <svg className="u-w-100 u-d-b" viewBox="0 0 400 415">
         <defs>
           <radialGradient id="bm-core" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#bfe3a6" />

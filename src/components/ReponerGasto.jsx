@@ -62,7 +62,7 @@ export default function ReponerGasto({ pidOp, gastos, inicial, opcionesPersonas,
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, width: '96%', maxHeight: '92vh', overflowY: 'auto', textTransform: 'none' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>💸 Reposición — devolver el dinero a quien lo adelantó</b>
+          <b className="u-f1">💸 Reposición — devolver el dinero a quien lo adelantó</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
 
@@ -88,12 +88,12 @@ export default function ReponerGasto({ pidOp, gastos, inicial, opcionesPersonas,
                 {g.recipient || '—'} · {(g.description || g.type || '').slice(0, 60)}
                 {g.adelanto_por && norm(g.adelanto_por) !== p && <span className="warn small"> · adelantó {g.adelanto_por}</span>}
               </span>
-              <b style={{ whiteSpace: 'nowrap' }}>{soles(g.amount)}</b>
+              <b className="u-nw">{soles(g.amount)}</b>
             </label>
           ))}
         </div>
         {otros.length > 0 && (
-          <button type="button" className="link-btn small" style={{ marginTop: 4 }} onClick={() => setVerTodos(v => !v)}>
+          <button type="button" className="link-btn small u-mt-4" onClick={() => setVerTodos(v => !v)}>
             {verTodos ? 'ocultar los demás gastos' : 'ver los demás gastos sin reposición (' + otros.length + ')'}
           </button>
         )}
@@ -110,12 +110,12 @@ export default function ReponerGasto({ pidOp, gastos, inicial, opcionesPersonas,
             <input type="file" accept="image/*,.pdf" onChange={e => setArchivo(e.target.files[0] || null)} />
           </label>
           <label className="span2">Nota <span className="muted small">(opcional)</span>
-            <input value={nota} onChange={e => setNota(e.target.value)} placeholder="ej. transferencia desde la cuenta de la socia" style={{ textTransform: 'none' }} />
+            <input className="u-tt-n" value={nota} onChange={e => setNota(e.target.value)} placeholder="ej. transferencia desde la cuenta de la socia" />
           </label>
         </div>
 
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-        <div className="acc-row" style={{ marginTop: 12 }}>
+        {err && <p className="error u-tt-n">{err}</p>}
+        <div className="acc-row u-mt-12">
           <button className="btn-primary" onClick={registrar} disabled={busy || !elegidos.length}>
             {busy ? 'Guardando…' : 'Registrar reposición por ' + soles(total)}
           </button>

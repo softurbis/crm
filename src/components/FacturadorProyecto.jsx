@@ -117,7 +117,7 @@ export default function FacturadorProyecto({ proyecto: p, puedeEditar, onGuardad
         {logoActual && <img className="cp-proyecto-logo" src={logoActual} alt="" />}
         <div style={{ flex: 1, minWidth: 180 }}>
           <b>🧾 Boletas y facturas electrónicas</b>
-          <div className="muted small" style={{ textTransform: 'none' }}>
+          <div className="muted small u-tt-n">
             {p.fact_ruc
               ? <>Factura <b>{p.fact_razon_social}</b> · RUC {p.fact_ruc} · series {p.fact_serie_boleta} y {p.fact_serie_factura}</>
               : 'Todavía no se dijo quién factura los cobros de este proyecto.'}
@@ -130,11 +130,11 @@ export default function FacturadorProyecto({ proyecto: p, puedeEditar, onGuardad
           : !visto ? <span className="cp-chip cp-aviso">El servidor no contesta</span>
           : emisor.ambiente === 'produccion' ? <span className="cp-chip cp-ok" title={'Certificado vigente hasta el ' + fechaPe(emisor.certificado_vence)}>En real</span>
           : <span className="cp-chip cp-aviso" title="Lo que se emita sale por el ambiente de pruebas de SUNAT: no tiene valor">En pruebas</span>)}
-        {puedeEditar && <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => abierto ? setAbierto(false) : abrir()}>{abierto ? 'Cerrar' : 'Configurar'}</button>}
+        {puedeEditar && <button className="btn-ghost u-fs-12" onClick={() => abierto ? setAbierto(false) : abrir()}>{abierto ? 'Cerrar' : 'Configurar'}</button>}
       </div>
 
       {abierto && f && (
-        <form onSubmit={guardar} style={{ marginTop: 10 }}>
+        <form className="u-mt-10" onSubmit={guardar}>
           <label className="cp-interruptor">
             <input type="checkbox" checked={f.fact_activo} onChange={e => setF(x => ({ ...x, fact_activo: e.target.checked }))} />
             <span><b>Usar el facturador en este proyecto.</b> Apagado, la boleta de cada cobro se sigue subiendo a mano como hasta ahora.</span>
@@ -156,9 +156,9 @@ export default function FacturadorProyecto({ proyecto: p, puedeEditar, onGuardad
             <label>Serie de facturas
               <input value={f.fact_serie_factura} maxLength={4} onChange={e => setF(x => ({ ...x, fact_serie_factura: e.target.value }))} />
             </label>
-            <label>Logo de quien factura {p.fact_logo_url && <a href={p.fact_logo_url} target="_blank" rel="noreferrer" style={{ textTransform: 'none' }}>ver actual</a>}
+            <label>Logo de quien factura {p.fact_logo_url && <a className="u-tt-n" href={p.fact_logo_url} target="_blank" rel="noreferrer">ver actual</a>}
               <input type="file" accept="image/*" onChange={e => setLogo(e.target.files[0] || null)} />
-              <span className="muted small" style={{ textTransform: 'none' }}>Sale en la boleta y en el panel. Si no se sube, se usa el logo del proyecto.</span>
+              <span className="muted small u-tt-n">Sale en la boleta y en el panel. Si no se sube, se usa el logo del proyecto.</span>
             </label>
             <label>Color de la marca
               <div className="color-pick">
@@ -172,11 +172,11 @@ export default function FacturadorProyecto({ proyecto: p, puedeEditar, onGuardad
               </div>
             </label>
           </div>
-          <p className="muted small" style={{ textTransform: 'none' }}>
+          <p className="muted small u-tt-n">
             Las series son nuevas para este sistema (las que empiezan con E son del portal de SUNAT y no sirven aquí).
             El certificado digital y la clave SOL de este RUC no se escriben aquí: se cargan una vez en el servidor.
           </p>
-          {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+          {err && <p className="error u-tt-n">{err}</p>}
           <div className="acc-row">
             <button className="btn-primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar facturación'}</button>
             <button type="button" className="btn-ghost" onClick={() => setAbierto(false)} disabled={busy}>Cancelar</button>

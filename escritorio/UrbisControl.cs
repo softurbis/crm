@@ -46,8 +46,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyProduct("Urbis Control")]
 [assembly: AssemblyCompany("Urbis Group")]
 [assembly: AssemblyCopyright("Urbis Group")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
 
 namespace UrbisEscritorio
 {
@@ -55,7 +55,7 @@ namespace UrbisEscritorio
     {
         // al cambiar la versión, cambiar también AssemblyFileVersion (arriba): con ella
         // el .exe nuevo sabe que tiene que actualizar al instalado
-        public const string VERSION = "1.2.0";
+        public const string VERSION = "1.2.1";
         public const string NOMBRE = "Urbis Control";
         public const string HOST = "panel.urbisgroupinmobiliaria.com";
         public const string PANEL = "https://" + HOST + "/";
@@ -411,8 +411,10 @@ namespace UrbisEscritorio
         }
 
         // ------------------------------------------------ arranque detrás de la bienvenida
-        const int MINIMO_BIENVENIDA_MS = 3000;   // la bienvenida se ve al menos 3 s
-        const int MAXIMO_ESPERA_MS = 20000;      // si el panel tarda más, se muestra igual
+        // la bienvenida se ve al menos lo que dura su barra (v1.2.1: 12 s, pedido del dueño: "me
+        // gusta ese inicio, que sea más demorado"); si el panel tarda más, se muestra igual
+        const int MINIMO_BIENVENIDA_MS = Bienvenida.DURACION_MS;
+        const int MAXIMO_ESPERA_MS = 30000;
         Bienvenida bienvenida;
         ApplicationContext contexto;
         bool mostrada, cargando, empezarMinimizada;
@@ -691,6 +693,7 @@ namespace UrbisEscritorio
             reloj.Start();
         }
 
+        public const int DURACION_MS = 12000;     // lo que tarda la barra en llenarse (v1.2.1)
         public string Estado { set { estado = value; Invalidate(); } }
         public long Milisegundos { get { return desde.ElapsedMilliseconds; } }
         public void Salir() { TopMost = true; saliendo = true; }   // fundido de salida sobre el panel
@@ -825,22 +828,33 @@ namespace UrbisEscritorio
             using (Font f = new Font("Segoe UI", F(13.5f), FontStyle.Regular, GraphicsUnit.Pixel))
                 Centrado(g, "Sistema de gestión inmobiliaria", f, GRIS, W, F(184));
 
-            // barra de carga que va y viene
-            float bw = F(210), bh = F(4), bx = (W - bw) / 2f, by = F(228);
+            // la barra se LLENA en DURACION_MS (v1.2.1), con un brillo que la recorre; los mensajes
+            // van cambiando con el avance. Si el panel todavía no terminó, queda "terminando…"
+            float avance = Math.Min(1f, desde.ElapsedMilliseconds / (float)DURACION_MS);
+            float suave = 1 - (float)Math.Pow(1 - avance, 1.6);          // arranca rápido y frena al final
+            float bw = F(230), bh = F(5), bx = (W - bw) / 2f, by = F(226);
             using (GraphicsPath pista = Redondeado(bx, by, bw, bh, bh / 2))
             {
                 using (SolidBrush pb = new SolidBrush(PISTA)) g.FillPath(pb, pista);
-                float p = (desde.ElapsedMilliseconds % 1600) / 1600f;
-                float ease = p < .5f ? 2 * p * p : 1 - (float)Math.Pow(-2 * p + 2, 2) / 2;
-                float sw = bw * 0.36f, sx = bx - sw + (bw + sw) * ease;
                 Region antes = g.Clip;
                 g.SetClip(pista);
-                using (LinearGradientBrush lb = new LinearGradientBrush(new RectangleF(sx - 1, by, sw + 2, bh), Color.FromArgb(0, ACENTO), ACENTO_2, 0f))
-                    g.FillRectangle(lb, sx, by, sw, bh);
+                float lleno = Math.Max(bh, bw * suave);
+                using (LinearGradientBrush lb = new LinearGradientBrush(new RectangleF(bx - 1, by, lleno + 2, bh), ACENTO, ACENTO_2, 0f))
+                    g.FillRectangle(lb, bx, by, lleno, bh);
+                float b = (desde.ElapsedMilliseconds % 1400) / 1400f, bwb = F(40);
+                float bxb = bx - bwb + (lleno + bwb) * b;
+                using (LinearGradientBrush br = new LinearGradientBrush(new RectangleF(bxb - 1, by, bwb + 2, bh), Color.FromArgb(0, 255, 255, 255), Color.FromArgb(120, 255, 255, 255), 0f))
+                    g.FillRectangle(br, bxb, by, Math.Min(bwb, bx + lleno - bxb), bh);
                 g.Clip = antes;
             }
+            string texto = estado == "Listo" && avance >= 1 ? "Listo"
+                : avance < .2f ? "Iniciando…"
+                : avance < .45f ? "Conectando con el servidor…"
+                : avance < .7f ? "Cargando tus proyectos…"
+                : avance < 1f ? "Preparando tu panel…"
+                : "Terminando de cargar…";
             using (Font f = new Font("Segoe UI", F(12), FontStyle.Regular, GraphicsUnit.Pixel))
-                Centrado(g, estado, f, GRIS_2, W, F(242));
+                Centrado(g, texto + "   " + (int)Math.Round(suave * 100) + "%", f, GRIS_2, W, F(240));
 
             // pie: el crédito, en letra chica
             using (Pen linea = new Pen(Color.FromArgb(40, ACENTO), 1)) g.DrawLine(linea, W / 2f - F(28), H - F(46), W / 2f + F(28), H - F(46));

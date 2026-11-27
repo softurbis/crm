@@ -99,13 +99,13 @@ function DetalleLectura({ l, puedeRevisar, onCerrar, onCambio }) {
         {(l.estado === 'pendiente' || l.estado === 'leyendo') && <p className="cp-busca"><span className="cp-gira" /> La IA la está leyendo… tarda unos segundos.</p>}
         {l.estado === 'error' && <p className="cp-busca no">No se pudo leer: {l.error || 'sin detalle'}.</p>}
         <ListaValidacion l={l} />
-        {l.revisado && <p className="muted small" style={{ textTransform: 'none' }}>✓ Revisada por {l.revisado_por || '—'}{l.revisado_at ? ' el ' + new Date(l.revisado_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}{l.revisado_nota ? ': ' + l.revisado_nota : ''}</p>}
-        {conAviso(l) && <p className="muted small" style={{ textTransform: 'none' }}>
+        {l.revisado && <p className="muted small u-tt-n">✓ Revisada por {l.revisado_por || '—'}{l.revisado_at ? ' el ' + new Date(l.revisado_at).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}{l.revisado_nota ? ': ' + l.revisado_nota : ''}</p>}
+        {conAviso(l) && <p className="muted small u-tt-n">
           {puedeRevisar
             ? 'Si la boleta está bien de todas formas (la IA leyó mal, o el pago se corrigió), márcala como revisada. Si es la boleta equivocada, súbela de nuevo.'
             : 'Facturación tiene que revisarla: o la corrige, o marca que está bien.'}</p>}
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        {err && <p className="error u-tt-n">{err}</p>}
+        <div className="u-d-f u-g-8 u-fwr u-mt-8">
           {conAviso(l) && puedeRevisar && <button className="btn-primary" disabled={busy} onClick={revisar}>✓ Lo revisé, está bien</button>}
           {(l.estado === 'listo' || l.estado === 'error') && <button className="btn-ghost" disabled={busy} onClick={releer}>↻ Leer otra vez</button>}
         </div>

@@ -93,7 +93,7 @@ export default function Cartas() {
 
   if (falta155) return (
     <>
-      <div className="toolbar"><h1 style={{ margin: 0 }}>Cartas de cobranza</h1></div>
+      <div className="toolbar"><h1 className="u-m0">Cartas de cobranza</h1></div>
       <p className="warn">Falta correr <b>sql/155</b> en el servidor para usar esta pantalla.</p>
     </>
   )
@@ -101,7 +101,7 @@ export default function Cartas() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Cartas de cobranza</h1>
+        <h1 className="u-m0 u-f1">Cartas de cobranza</h1>
       </div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
         {esFact ? 'Las cartas de tus proyectos: las que esperan la firma de la socia y las firmadas, para imprimirlas.'
@@ -110,7 +110,7 @@ export default function Cartas() {
       </p>
       {msg && <p className={msg.ok ? 'ok' : 'error'} style={{ textTransform: 'none' }}>{msg.t}</p>}
 
-      <div className="chips" style={{ marginBottom: 10 }}>
+      <div className="chips u-mb-10">
         <button className={`chip ${tab === 'cartas' ? 'on' : ''}`} onClick={() => setTab('cartas')}>📨 Cartas</button>
         {trabaja && <button className={`chip ${tab === 'notificar' ? 'on' : ''}`} onClick={() => setTab('notificar')}>⚠ Por notificar</button>}
         {editaPlantillas && <button className={`chip ${tab === 'plantillas' ? 'on' : ''}`} onClick={() => setTab('plantillas')}>📝 Plantillas</button>}
@@ -135,27 +135,27 @@ export default function Cartas() {
         {!!filas.length && (
           <div className="glass table-wrap">
             <table>
-              <thead><tr><th>N°</th><th>Creada</th>{varios && <th>Proyecto</th>}<th>Lote</th><th>Cliente</th><th style={{ textAlign: 'right' }}>Deuda</th><th>Estado</th><th>Plazo</th><th></th></tr></thead>
+              <thead><tr><th>N°</th><th>Creada</th>{varios && <th>Proyecto</th>}<th>Lote</th><th>Cliente</th><th className="u-ta-r">Deuda</th><th>Estado</th><th>Plazo</th><th></th></tr></thead>
               <tbody>
                 {filas.map(c => {
                   const e = ESTADOS[c.vis] || {}
                   return (
-                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setAbierta(c.id)}>
+                    <tr className="u-cp" key={c.id} onClick={() => setAbierta(c.id)}>
                       <td><b>{c.numero}</b></td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{fechaHora(c.creado_at)}</td>
+                      <td className="u-nw">{fechaHora(c.creado_at)}</td>
                       {varios && <td className="small">{c.proyecto}</td>}
                       <td><b>{c.lote}</b></td>
                       <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}>{c.cliente}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(c.deuda)}<div className="muted small">{c.cuotas_vencidas} cuota{c.cuotas_vencidas === 1 ? '' : 's'}</div></td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td className="u-ta-r u-nw">{soles(c.deuda)}<div className="muted small">{c.cuotas_vencidas} cuota{c.cuotas_vencidas === 1 ? '' : 's'}</div></td>
+                      <td className="u-nw">
                         <span className={`st-chip ${e.c || ''}`}>{e.i} {e.t}</span>
-                        <div className="muted small" style={{ textTransform: 'none' }}>
+                        <div className="muted small u-tt-n">
                           {c.vis === 'por_firmar' && c.puedo_firmar && <b className="warn">te toca firmar</b>}
                           {c.papel_at && '📄 papel '}{c.wsp_at && (c.wsp_estado === 'fallido' ? '💬 WhatsApp falló' : c.wsp_estado === 'enviado' ? '💬 WhatsApp' : '💬 saliendo…')}
                           {c.estado === 'cerrada' && RESULTADOS[c.resultado] && <>{RESULTADOS[c.resultado].i} {RESULTADOS[c.resultado].t}</>}
                         </div>
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{c.plazo_vence ? fechaPe(c.plazo_vence) : <span className="muted small">{c.plazo_dias} días</span>}</td>
+                      <td className="u-nw">{c.plazo_vence ? fechaPe(c.plazo_vence) : <span className="muted small">{c.plazo_dias} días</span>}</td>
                       <td><button className="btn-ghost" onClick={ev => { ev.stopPropagation(); setAbierta(c.id) }}>Abrir</button></td>
                     </tr>
                   )
@@ -224,12 +224,12 @@ function PorNotificar({ pid, cartas, onCrear, onAbrir }) {
     {filas === null && <p className="muted">Cargando…</p>}
     {filas && !filas.length && !err && <p className="ok">✅ Nadie tiene {minimo} o más cuotas vencidas en este proyecto.</p>}
     {!!filas?.length && (<>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         <b>{filas.length}</b> cliente{filas.length === 1 ? '' : 's'} con {minimo} o más cuotas vencidas · deuda vencida <b>{soles(deuda)}</b> · <b>{sinCarta.length}</b> sin carta en curso.
       </p>
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Lote</th><th>Cliente</th><th style={{ textAlign: 'right' }}>Vencidas</th><th style={{ textAlign: 'right' }}>Deuda</th><th>Atraso</th><th>Cartas</th><th></th></tr></thead>
+          <thead><tr><th>Lote</th><th>Cliente</th><th className="u-ta-r">Vencidas</th><th className="u-ta-r">Deuda</th><th>Atraso</th><th>Cartas</th><th></th></tr></thead>
           <tbody>
             {filas.map(f => {
               const u = f.ultima
@@ -238,10 +238,10 @@ function PorNotificar({ pid, cartas, onCrear, onAbrir }) {
                 <tr key={f.sale_id}>
                   <td><Link to={`/lotes/${f.lot_id}`}><b>{f.lote}</b></Link></td>
                   <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160 }}>{f.cliente}{f.telefono && <div className="muted">{f.telefono}</div>}</td>
-                  <td style={{ textAlign: 'right' }}><b className="bad">{f.n}</b></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(f.deuda)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{f.atraso} días<div className="muted small">desde {fechaPe(f.desde)}</div></td>
-                  <td className="small" style={{ textTransform: 'none' }}>
+                  <td className="u-ta-r"><b className="bad">{f.n}</b></td>
+                  <td className="u-ta-r u-nw">{soles(f.deuda)}</td>
+                  <td className="u-nw">{f.atraso} días<div className="muted small">desde {fechaPe(f.desde)}</div></td>
+                  <td className="small u-tt-n">
                     {!u ? <span className="muted">ninguna</span>
                       : <>N° {u.numero} · {(ESTADOS[u.estado] || {}).t}{u.resultado && RESULTADOS[u.resultado] ? ' · ' + RESULTADOS[u.resultado].t : ''}</>}
                   </td>
@@ -308,9 +308,9 @@ function CrearCarta({ saleId, onCerrar, onCreada }) {
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
         {!datos && !err && <p className="muted">Cargando los datos del cliente…</p>}
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+        {err && <p className="error u-tt-n">{err}</p>}
         {datos && (<>
-          <p style={{ textTransform: 'none', margin: '0 0 8px' }}>
+          <p className="u-tt-n u-m-008">
             <b>{datos.cliente}</b> · {datos.doc_tipo} {datos.dni || '—'} · {datos.proyecto}<br />
             <span className="bad"><b>{datos.cuotas_vencidas}</b> cuota{datos.cuotas_vencidas === 1 ? '' : 's'} vencida{datos.cuotas_vencidas === 1 ? '' : 's'} · <b>{soles(datos.deuda)}</b></span>
             {datos.cartas_previas > 0 && <span className="muted"> · ya tuvo {datos.cartas_previas} carta{datos.cartas_previas === 1 ? '' : 's'}</span>}
@@ -332,12 +332,12 @@ function CrearCarta({ saleId, onCerrar, onCreada }) {
           <label>El texto de la carta (lo puedes corregir antes de mandarlo a firmar)
             <textarea className="carta-texto" value={texto} onChange={e => setTexto(e.target.value)} />
           </label>
-          <p className="muted small" style={{ textTransform: 'none' }}>
+          <p className="muted small u-tt-n">
             El membrete del proyecto, la firma de la socia y el código de verificación se agregan solos al PDF.
             Si cambias el plazo aquí, corrígelo también en el texto.
           </p>
           {err && <p className="error">{err}</p>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-8 u-fwr">
             <button className="btn-primary" disabled={busy || texto.trim().length < 20} onClick={crear}>{busy ? 'Creando…' : '✍ Crear y mandar a firmar'}</button>
             <button className="btn-ghost" onClick={onCerrar}>Cancelar</button>
           </div>
@@ -411,14 +411,14 @@ function DetalleCarta({ c, proyecto, profile, esFact, onCerrar, onCambio }) {
           <b>📨 CARTA N° {c.numero} · LOTE {c.lote}</b>
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
-        <p style={{ textTransform: 'none', margin: '0 0 4px' }}>
+        <p className="u-tt-n u-m-004">
           <b>{c.cliente}</b> · {c.proyecto} · {c.tipo}<br />
           <span className="muted small">{c.cuotas_vencidas} cuota{c.cuotas_vencidas === 1 ? '' : 's'} vencida{c.cuotas_vencidas === 1 ? '' : 's'} · {soles(c.deuda)} al crearla · creada por {c.creado_nombre || '—'} el {fechaHora(c.creado_at)}</span>
           {!esFact && <> · <Link className="small" to={`/lotes/${c.lot_id}`}>ver la ficha del lote</Link></>}
         </p>
 
         {c.estado === 'anulada'
-          ? <p className="warn" style={{ textTransform: 'none' }}>✖ Anulada el {fechaHora(c.anulada_at)}: {c.anulada_motivo}</p>
+          ? <p className="warn u-tt-n">✖ Anulada el {fechaHora(c.anulada_at)}: {c.anulada_motivo}</p>
           : <div className="carta-pasos">{pasos.map(([t, ok], i) => <span key={t} className={ok ? 'hecho' : i === ahora ? 'ahora' : ''}>{ok ? '✔ ' : ''}{t}</span>)}</div>}
 
         {/* ---- la hoja ---- */}
@@ -456,7 +456,7 @@ function DetalleCarta({ c, proyecto, profile, esFact, onCerrar, onCambio }) {
           )}
         </div>
 
-        {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
+        {err && <p className="error u-tt-n">{err}</p>}
 
         {/* ---- por firmar ---- */}
         {c.estado === 'por_firmar' && (<>
@@ -464,9 +464,9 @@ function DetalleCarta({ c, proyecto, profile, esFact, onCerrar, onCambio }) {
             <FirmarCarta c={c} profile={profile}
               onHecho={t => onCambio(t)} />
           )}
-          {!c.puedo_firmar && <p className="hint" style={{ textTransform: 'none' }}>✍ Esperando la firma de la socia del proyecto. Ya le llegó el aviso por WhatsApp y Telegram.</p>}
+          {!c.puedo_firmar && <p className="hint u-tt-n">✍ Esperando la firma de la socia del proyecto. Ya le llegó el aviso por WhatsApp y Telegram.</p>}
           {trabaja && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            <div className="u-d-f u-g-8 u-fwr u-mt-10">
               {editando
                 ? <>
                     <button className="btn-primary" disabled={busy} onClick={guardarTexto}>{busy ? 'Guardando…' : 'Guardar el texto'}</button>
@@ -480,7 +480,7 @@ function DetalleCarta({ c, proyecto, profile, esFact, onCerrar, onCambio }) {
 
         {/* ---- firmada: imprimir, entregar y resultado ---- */}
         {firmada && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <div className="u-d-f u-g-8 u-fwr u-mt-12">
             <button className="btn-primary" disabled={busy} onClick={imprimir}>🖨 Imprimir / PDF</button>
             {viva && trabaja && <>
               <button className={`btn-ghost ${panel === 'papel' ? 'on' : ''}`} onClick={() => setPanel(panel === 'papel' ? null : 'papel')}>📄 Entregada en papel</button>
@@ -516,20 +516,20 @@ function EntregaPapel({ c, busy, rpc, onListo }) {
       '✅ Carta N° ' + c.numero + ' entregada en papel. Desde hoy corren sus ' + c.plazo_dias + ' días de plazo.')) onListo()
   }
   return (
-    <div className="glass" style={{ padding: 12, marginTop: 10 }}>
+    <div className="glass u-p-12 u-mt-10">
       <b>📄 Entrega en papel</b>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
+      <div className="u-d-f u-g-10 u-fwr u-mt-6">
         <label style={{ flex: '1 1 240px' }}>¿Quién la recibió?
-          <input value={recibio} onChange={e => setRecibio(e.target.value)} placeholder="El titular, su esposa María…, nadie: bajo la puerta" style={{ textTransform: 'none' }} />
+          <input className="u-tt-n" value={recibio} onChange={e => setRecibio(e.target.value)} placeholder="El titular, su esposa María…, nadie: bajo la puerta" />
         </label>
         <label style={{ width: 160 }}>Fecha
           <input type="date" value={fecha} max={hoyPe()} onChange={e => setFecha(e.target.value)} />
         </label>
       </div>
-      <label style={{ marginTop: 6 }}>Foto del cargo (la copia con la firma de quien la recibió)
+      <label className="u-mt-6">Foto del cargo (la copia con la firma de quien la recibió)
         <input type="file" accept="image/*,.pdf" onChange={e => setFoto(e.target.files[0] || null)} />
       </label>
-      <button className="btn-primary" style={{ marginTop: 8 }} disabled={busy || subiendo || recibio.trim().length < 3} onClick={guardar}>
+      <button className="btn-primary u-mt-8" disabled={busy || subiendo || recibio.trim().length < 3} onClick={guardar}>
         {subiendo ? 'Subiendo la foto…' : busy ? 'Guardando…' : 'Registrar la entrega'}</button>
     </div>
   )
@@ -558,7 +558,7 @@ function EnviarWsp({ c, proyecto, onCambio, onListo }) {
     setBusy(false)
   }
   return (
-    <div className="glass" style={{ padding: 12, marginTop: 10 }}>
+    <div className="glass u-p-12 u-mt-10">
       <b>💬 Enviar el PDF firmado por WhatsApp</b>
       <p className="muted small" style={{ textTransform: 'none', margin: '4px 0' }}>Sale por el WhatsApp del proyecto, con un mensaje corto y la carta adjunta. Cuenta como entregada (el plazo empieza hoy si no se entregó antes en papel).</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -575,8 +575,8 @@ function EnviarWsp({ c, proyecto, onCambio, onListo }) {
         </label>
         <button className="btn-primary" disabled={busy || String(tel).replace(/\D/g, '').length < 9} onClick={enviar}>{busy ? 'Preparando…' : 'Enviar'}</button>
       </div>
-      {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-      {manual && <p><a className="btn-ghost btn-link" href={manual} target="_blank" rel="noreferrer">Abrir WhatsApp</a> <span className="muted small" style={{ textTransform: 'none' }}>(sale de tu WhatsApp con el enlace al PDF; después registra la entrega en papel o pide que se conecte el número del proyecto)</span></p>}
+      {err && <p className="error u-tt-n">{err}</p>}
+      {manual && <p><a className="btn-ghost btn-link" href={manual} target="_blank" rel="noreferrer">Abrir WhatsApp</a> <span className="muted small u-tt-n">(sale de tu WhatsApp con el enlace al PDF; después registra la entrega en papel o pide que se conecte el número del proyecto)</span></p>}
     </div>
   )
 }
@@ -593,15 +593,15 @@ function Resultado({ c, busy, rpc, onListo }) {
       '✅ Carta N° ' + c.numero + ': ' + def.t + (def.cierra ? '. Caso cerrado.' : r === 'acuerdo' ? '. Cambia el cronograma en la ficha del lote.' : '.'))) onListo()
   }
   return (
-    <div className="glass" style={{ padding: 12, marginTop: 10 }}>
+    <div className="glass u-p-12 u-mt-10">
       <b>🏁 Resultado</b>
-      <div className="chips" style={{ marginTop: 6 }}>
+      <div className="chips u-mt-6">
         {Object.entries(RESULTADOS).map(([k, v]) => (
           <button key={k} className={`chip ${r === k ? 'on' : ''}`} onClick={() => setR(k)}>{v.i} {v.t}</button>
         ))}
       </div>
       {r === 'acuerdo' && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="u-d-f u-g-10 u-fwr">
           <label style={{ width: 170 }}>Pagará hasta el
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
           </label>
@@ -611,14 +611,14 @@ function Resultado({ c, busy, rpc, onListo }) {
         </div>
       )}
       {r && (
-        <label style={{ marginTop: 6 }}>Nota{['otro', 'expropiar', 'acuerdo'].includes(r) ? ' (obligatoria)' : ''}
-          <textarea rows="2" value={nota} onChange={e => setNota(e.target.value)} style={{ textTransform: 'none' }}
+        <label className="u-mt-6">Nota{['otro', 'expropiar', 'acuerdo'].includes(r) ? ' (obligatoria)' : ''}
+          <textarea className="u-tt-n" rows="2" value={nota} onChange={e => setNota(e.target.value)}
             placeholder={r === 'acuerdo' ? 'Ej: paga 2 cuotas el 30/10 y el resto en noviembre; se reprograma el cronograma' : ''} />
         </label>
       )}
-      {r === 'acuerdo' && <p className="muted small" style={{ textTransform: 'none' }}>El cronograma se cambia en la ficha del lote (pestaña Cuotas). El caso queda abierto para seguir el acuerdo.</p>}
-      {r === 'escalar' && <p className="muted small" style={{ textTransform: 'none' }}>El caso sigue abierto: crea la carta siguiente desde "Por notificar".</p>}
-      <button className="btn-primary" style={{ marginTop: 8 }} disabled={busy || !r} onClick={guardar}>{busy ? 'Guardando…' : 'Guardar el resultado'}</button>
+      {r === 'acuerdo' && <p className="muted small u-tt-n">El cronograma se cambia en la ficha del lote (pestaña Cuotas). El caso queda abierto para seguir el acuerdo.</p>}
+      {r === 'escalar' && <p className="muted small u-tt-n">El caso sigue abierto: crea la carta siguiente desde "Por notificar".</p>}
+      <button className="btn-primary u-mt-8" disabled={busy || !r} onClick={guardar}>{busy ? 'Guardando…' : 'Guardar el resultado'}</button>
     </div>
   )
 }
@@ -653,9 +653,9 @@ function Plantillas({ pid, projects }) {
   if (ed) return (
     <div className="glass" style={{ padding: 14 }}>
       <b>{ed.id ? 'Editar plantilla' : 'Nueva plantilla'}</b>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+      <div className="u-d-f u-g-10 u-fwr u-mt-8">
         <label style={{ flex: '1 1 260px' }}>Nombre (tipo de carta)
-          <input value={ed.nombre} onChange={e => setEd({ ...ed, nombre: e.target.value })} style={{ textTransform: 'none' }} placeholder="Carta de requerimiento de pago" />
+          <input className="u-tt-n" value={ed.nombre} onChange={e => setEd({ ...ed, nombre: e.target.value })} placeholder="Carta de requerimiento de pago" />
         </label>
         <label style={{ flex: '1 1 200px' }}>Proyecto
           <select value={ed.project_id || ''} onChange={e => setEd({ ...ed, project_id: e.target.value || null })}>
@@ -671,19 +671,19 @@ function Plantillas({ pid, projects }) {
         </label>
       </div>
       <label>Resumen (se ve en la lista de cartas)
-        <input value={ed.asunto || ''} onChange={e => setEd({ ...ed, asunto: e.target.value })} style={{ textTransform: 'none' }} />
+        <input className="u-tt-n" value={ed.asunto || ''} onChange={e => setEd({ ...ed, asunto: e.target.value })} />
       </label>
       <label>Texto de la carta
         <textarea className="carta-texto" value={ed.cuerpo} onChange={e => setEd({ ...ed, cuerpo: e.target.value })} />
       </label>
       <details style={{ margin: '6px 0' }}>
         <summary className="small">Datos que se llenan solos (escríbelos entre llaves)</summary>
-        <table className="small" style={{ textTransform: 'none' }}><tbody>
+        <table className="small u-tt-n"><tbody>
           {VARIABLES.map(([k, t]) => <tr key={k}><td><code>{'{' + k + '}'}</code></td><td className="muted">{t}</td></tr>)}
         </tbody></table>
       </details>
-      {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-      <div style={{ display: 'flex', gap: 8 }}>
+      {err && <p className="error u-tt-n">{err}</p>}
+      <div className="u-d-f u-g-8">
         <button className="btn-primary" disabled={busy} onClick={guardar}>{busy ? 'Guardando…' : 'Guardar'}</button>
         <button className="btn-ghost" onClick={() => { setEd(null); setErr('') }}>Cancelar</button>
       </div>
@@ -692,11 +692,11 @@ function Plantillas({ pid, projects }) {
 
   return (<>
     {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
-    {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-    <p className="muted small" style={{ textTransform: 'none' }}>
+    {err && <p className="error u-tt-n">{err}</p>}
+    <p className="muted small u-tt-n">
       Cada tipo de carta es una plantilla. La del proyecto se usa primero; la general sirve para los proyectos que no tienen la suya.
     </p>
-    <button className="btn-primary" style={{ marginBottom: 10 }}
+    <button className="btn-primary u-mb-10"
       onClick={() => setEd({ nombre: '', project_id: pid || null, asunto: '', cuerpo: (lista || [])[0]?.cuerpo || '', plazo_dias: 7, activa: true })}>+ Nueva plantilla</button>
     {lista === null && <p className="muted">Cargando…</p>}
     {!!lista?.length && (
@@ -705,7 +705,7 @@ function Plantillas({ pid, projects }) {
           <thead><tr><th>Nombre</th><th>Proyecto</th><th>Plazo</th><th>Estado</th><th>Cambiada</th><th></th></tr></thead>
           <tbody>{lista.map(t => (
             <tr key={t.id}>
-              <td style={{ textTransform: 'none' }}><b>{t.nombre}</b>{t.asunto && <div className="muted small">{t.asunto}</div>}</td>
+              <td className="u-tt-n"><b>{t.nombre}</b>{t.asunto && <div className="muted small">{t.asunto}</div>}</td>
               <td className="small">{t.proyecto || 'Todos'}</td>
               <td>{t.plazo_dias} días</td>
               <td>{t.activa ? <span className="st-chip st-ok">activa</span> : <span className="st-chip st-na">inactiva</span>}</td>

@@ -1,3 +1,6 @@
+// PRIMERO las clases chicas (fase 6): así las pocas reglas !important de global.css les ganan,
+// como antes le ganaban al estilo en línea. Ver scripts/estilos-a-clases.mjs
+import './styles/utilidades.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

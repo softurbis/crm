@@ -220,7 +220,7 @@ export default function Bitacora() {
 
       {vista === 'personas' ? (
         <>
-          <p className="muted small" style={{ margin: '0 0 10px' }}>
+          <p className="muted small u-m-0010">
             Una ficha por persona con lo que hizo en el periodo ({periodoTxt}), su ritmo por día y el
             horario en que realmente trabajó. Haz clic en la ficha para ver su detalle acción por acción.
           </p>
@@ -231,17 +231,17 @@ export default function Bitacora() {
               return (
                 <div key={p.u} className="glass" style={{ padding: '12px 14px', cursor: 'pointer' }}
                   onClick={() => verPersona(p.u)} title={'Ver el detalle de ' + nombreDe(p.u)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="u-d-f u-ai-c u-g-10">
                     <Avatar url={perfil?.avatar_url} nombre={nombreDe(p.u)} size={38} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <b style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombreDe(p.u)}</b>
-                      <span className="muted small" style={{ textTransform: 'none' }}>
+                      <span className="muted small u-tt-n">
                         {perfil?.role ? perfil.role.toUpperCase() + ' · ' : ''}{p.u}
                       </span>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div className="u-ta-r">
                       <b style={{ fontSize: '1.3rem' }}>{p.total}</b>
-                      <span className="muted small" style={{ display: 'block' }}>acciones</span>
+                      <span className="muted small u-d-b">acciones</span>
                     </div>
                   </div>
 
@@ -268,19 +268,19 @@ export default function Bitacora() {
                       )
                     })}
                   </div>
-                  <p className="muted small" style={{ margin: '0 0 6px' }}>
+                  <p className="muted small u-m-006">
                     {ejeDias.length > 1 && <>{diaCorto(ejeDias[0])} → {diaCorto(ejeDias[ejeDias.length - 1])} · </>}
                     {p.diaTop ? <>día más activo: <b>{diaCorto(p.diaTop)}</b> ({p.diaTopN})</> : null}
                   </p>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <div className="u-d-f u-fwr u-g-4">
                     {CLASES.map(([k, lbl]) => p.cuentas[k]
-                      ? <span key={k} className="st-chip st-ok" style={{ fontWeight: 600 }}>{p.cuentas[k]} {lbl}</span>
+                      ? <span key={k} className="st-chip st-ok u-fw-6">{p.cuentas[k]} {lbl}</span>
                       : null)}
                     {p.cuentas.otras ? <span className="st-chip st-na">{p.cuentas.otras} otras</span> : null}
                   </div>
 
-                  <p className="muted small" style={{ margin: '8px 0 0' }}>
+                  <p className="muted small u-m-800">
                     última acción: {new Date(p.ultima).toLocaleString('es-PE')} · <span className="accent">ver su detalle →</span>
                   </p>
                 </div>
@@ -289,9 +289,9 @@ export default function Bitacora() {
           </div>
 
           {personas.length > 0 && (
-            <details style={{ marginTop: 14 }}>
-              <summary className="muted small" style={{ cursor: 'pointer' }}>Ver los mismos números como tabla</summary>
-              <div className="glass table-wrap" style={{ marginTop: 8 }}>
+            <details className="u-mt-14">
+              <summary className="muted small u-cp">Ver los mismos números como tabla</summary>
+              <div className="glass table-wrap u-mt-8">
                 <table>
                   <thead><tr><th>Persona</th><th>Pagos reg.</th><th>Cuotas</th><th>Clientes</th><th>Ventas</th><th>Separaciones</th><th>Gastos</th><th>Lotes</th><th>Config. bot</th><th>Total</th></tr></thead>
                   <tbody>
@@ -312,7 +312,7 @@ export default function Bitacora() {
       ) : (
         <>
           {fuser !== 'todos' && (
-            <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
+            <p className="u-d-f u-ai-c u-g-8 u-m-008">
               <Avatar url={perfilDe(fuser)?.avatar_url} nombre={nombreDe(fuser)} size={30} />
               <b>{nombreDe(fuser)}</b> <span className="muted small">{periodoTxt} · {filtradas.length} acciones</span>
               <button className="btn-ghost" onClick={() => { setFuser('todos'); setVista('personas') }}>← Volver a las personas</button>

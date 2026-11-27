@@ -267,8 +267,7 @@ export default function Projects() {
         )}
         <label>Partida / copia literal (PDF o foto) {edit === 'nuevo' && <b className="bad">*</b>}
           <input type="file" accept="image/*,.pdf" onChange={e => setFLiteral(e.target.files[0] || null)} />
-          <input value={f.copia_literal_note || ''} placeholder="nota / comentario del documento"
-            style={{ textTransform: 'none', marginTop: 4 }}
+          <input className="u-tt-n u-mt-4" value={f.copia_literal_note || ''} placeholder="nota / comentario del documento"
             onChange={e => setF(x => ({ ...x, copia_literal_note: e.target.value }))} />
         </label>
         <label>Vencimiento de la partida <b className="bad">*</b>
@@ -277,15 +276,14 @@ export default function Projects() {
         </label>
         <label>Carta poder (si aplica)
           <input type="file" accept="image/*,.pdf" onChange={e => setFPoder(e.target.files[0] || null)} />
-          <input value={f.carta_poder_note || ''} placeholder="nota / comentario del documento"
-            style={{ textTransform: 'none', marginTop: 4 }}
+          <input className="u-tt-n u-mt-4" value={f.carta_poder_note || ''} placeholder="nota / comentario del documento"
             onChange={e => setF(x => ({ ...x, carta_poder_note: e.target.value }))} />
         </label>
         <label>Vigencia del poder
           <input type="date" value={f.poder_expiry || ''}
             onChange={e => setF(x => ({ ...x, poder_expiry: e.target.value }))} />
         </label>
-        <p className="span2" style={{ margin: '8px 0 0' }}><b>✍ CONTRATO CON PODER</b> — si se llena, al generar el contrato se elige: el de siempre (firma el titular) o el de su apoderado, que firma por él.</p>
+        <p className="span2 u-m-800"><b>✍ CONTRATO CON PODER</b> — si se llena, al generar el contrato se elige: el de siempre (firma el titular) o el de su apoderado, que firma por él.</p>
         <label>Apoderado que firma (nombre)
           <input value={f.representante_nombre || ''} placeholder="ej. JOSE MACEDO SANCHEZ"
             onChange={e => setF(x => ({ ...x, representante_nombre: e.target.value }))} />
@@ -295,15 +293,15 @@ export default function Projects() {
             onChange={e => setF(x => ({ ...x, representante_dni: e.target.value }))} />
         </label>
         <label className="span2">Texto que va después de "debidamente representada por" (datos del apoderado y de su poder)
-          <textarea rows={3} value={f.representante_texto || ''} style={{ textTransform: 'none' }}
+          <textarea className="u-tt-n" rows={3} value={f.representante_texto || ''}
             placeholder="el Sr. ..., peruano, identificado con DNI N.º ..., con domicilio en ..., según otorgamiento de poder por escritura pública N.º ..."
             onChange={e => setF(x => ({ ...x, representante_texto: e.target.value }))} />
         </label>
-        <label>Logo del proyecto (para el contrato) {pcur?.logo_url && <a href={pcur.logo_url} target="_blank" rel="noreferrer" style={{ textTransform: 'none' }}>ver actual</a>}
+        <label>Logo del proyecto (para el contrato) {pcur?.logo_url && <a className="u-tt-n" href={pcur.logo_url} target="_blank" rel="noreferrer">ver actual</a>}
           <input type="file" accept="image/*" onChange={e => setFLogo(e.target.files[0] || null)} />
         </label>
-        <p className="span2" style={{ margin: '8px 0 0' }}><b>📎 MATERIAL DEL BOT (WhatsApp)</b> — el agente lo envía en la conversación cuando el cliente pide plano, fotos o video.</p>
-        <label>Plano actualizado (imagen o PDF) {pcur?.plano_url && <a href={pcur.plano_url} target="_blank" rel="noreferrer" style={{ textTransform: 'none' }}>ver actual</a>}
+        <p className="span2 u-m-800"><b>📎 MATERIAL DEL BOT (WhatsApp)</b> — el agente lo envía en la conversación cuando el cliente pide plano, fotos o video.</p>
+        <label>Plano actualizado (imagen o PDF) {pcur?.plano_url && <a className="u-tt-n" href={pcur.plano_url} target="_blank" rel="noreferrer">ver actual</a>}
           <input type="file" accept="image/*,.pdf" onChange={e => setFPlano(e.target.files[0] || null)} />
         </label>
         <label>Brochure (PDF o imagen) {pcur?.brochure_url && <a href={pcur.brochure_url} target="_blank" rel="noreferrer">ver actual</a>}
@@ -333,14 +331,14 @@ export default function Projects() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Proyectos</h1>
+        <h1 className="u-m0 u-f1">Proyectos</h1>
         {puedeCorregir && <button className="btn-ghost" onClick={() => setMigra(!migra)}>&#128229; Migración masiva</button>}
         {canEdit && <button className="btn-primary" onClick={() => abrirForm(null)}>+ Nuevo proyecto</button>}
       </div>
       {msg && !edit && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       {migra && puedeCorregir && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p><b>&#128229; MIGRACION MASIVA DE UN PROYECTO</b> <span className="muted small">(cargar un proyecto que ya venia operando: lotes, clientes, ventas, cuotas y pagos historicos)</span></p>
           <p style={{ margin: '8px 0' }}>
             <a className="btn-primary btn-link" href={import.meta.env.BASE_URL + 'PLANTILLA-MIGRACION-PROYECTO.xlsx'} download>&#11015; Descargar formato Excel</a>
@@ -380,14 +378,14 @@ export default function Projects() {
               const viva = sesionViva(ses)
               return (
                 <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', padding: '9px 0', borderTop: '1px solid rgba(255,255,255,.07)', borderBottom: '1px solid rgba(255,255,255,.07)', margin: '10px 0' }}>
-                  <span style={{ fontSize: 15 }}>{viva ? '☁️' : '⏸'}</span>
-                  <b style={{ fontSize: 13 }}>WhatsApp del proyecto:</b>
+                  <span className="u-fs-15">{viva ? '☁️' : '⏸'}</span>
+                  <b className="u-fs-13">WhatsApp del proyecto:</b>
                   {viva ? (
-                    <span className="muted" style={{ fontSize: 13 }}>
+                    <span className="muted u-fs-13">
                       🟢 <b>+51 960 487 000</b> · número oficial (API de Meta) · aquí entran leads y clientes de todos los proyectos
                     </span>
                   ) : (
-                    <span className="muted" style={{ fontSize: 13 }}>
+                    <span className="muted u-fs-13">
                       sale por el <b>+51 960 487 000</b> (número oficial de todos los proyectos)
                       {ses?.phone ? ' · el número anterior +' + ses.phone + ' quedó apagado: sus chats siguen como historial' : ''}
                     </span>
@@ -438,7 +436,7 @@ export default function Projects() {
               <p key={a.id} className={a.active ? '' : 'muted'}>
                 &#127974; {a.name} {a.account_number ? `| CTA ${a.account_number}` : ''} {a.cci ? `| CCI ${a.cci}` : ''} {a.holder_name ? `| ${a.holder_name}` : ''}
                 {!a.active && ' (INACTIVA)'}
-                {canEdit && <button className="link-btn" style={{ marginLeft: 8 }}
+                {canEdit && <button className="link-btn u-ml-8"
                   onClick={async () => { await supabase.from('financial_accounts').update({ active: !a.active }).eq('id', a.id); load() }}>
                   {a.active ? 'desactivar' : 'activar'}</button>}
               </p>

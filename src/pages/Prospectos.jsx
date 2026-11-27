@@ -173,8 +173,8 @@ export default function Prospectos() {
 
   return (
     <>
-      <div className="toolbar" style={{ alignItems: 'center' }}>
-        <h1 style={{ margin: 0, flex: 1 }}>{esVendedor ? 'Mis prospectos' : 'Prospectos'}</h1>
+      <div className="toolbar u-ai-c">
+        <h1 className="u-m0 u-f1">{esVendedor ? 'Mis prospectos' : 'Prospectos'}</h1>
         <button type="button" className="btn-ghost" onClick={() => irA('/vendedor')}>🏷️ Precios y cuotas</button>
         {puedeRegistrar && <button type="button" className="btn-primary" onClick={() => setNuevo({ source: 'referido', project_id: fProy || (projects.length === 1 ? projects[0].id : '') })}>＋ Nuevo prospecto</button>}
       </div>
@@ -233,7 +233,7 @@ export default function Prospectos() {
 
       <div className="pv-ctrl glass">
         <label style={{ flex: '1 1 220px' }}>Buscar
-          <input style={{ width: '100%' }} value={texto} onChange={e => setTexto(e.target.value)} placeholder="Nombre o celular" />
+          <input className="u-w-100" value={texto} onChange={e => setTexto(e.target.value)} placeholder="Nombre o celular" />
         </label>
         {projects.length > 1 && (
           <label>Proyecto
@@ -277,7 +277,7 @@ export default function Prospectos() {
       {filas === null ? <p className="muted">Cargando…</p>
         : !filas.length ? (
           <div className="glass" style={{ padding: '1.4rem' }}>
-            <p className="muted" style={{ margin: 0 }}>
+            <p className="muted u-m0">
               {esVendedor && fEstado === 'abiertos' && !buscar
                 ? 'Todavía no tienes prospectos. Registra el primero con "Nuevo prospecto", o espera a que te asignen los que entran por WhatsApp.'
                 : 'No hay prospectos con ese filtro.'}
@@ -319,9 +319,9 @@ export default function Prospectos() {
                       {esJefe && <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={marcados.includes(l.id)}
                         onChange={e => setMarcados(m => e.target.checked ? [...m, l.id] : m.filter(x => x !== l.id))} /></td>}
                       <td><b>{l.full_name}</b>{l.interes && <div className="muted small">{l.interes}</div>}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{cel(l.phone)}{l.phone2 && <div className="muted small">{cel(l.phone2)}</div>}</td>
+                      <td className="u-nw">{cel(l.phone)}{l.phone2 && <div className="muted small">{cel(l.phone2)}</div>}</td>
                       <td>{nomProy(l.project_id) || <span className="muted">—</span>}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td className="u-nw">
                         <span className="pr-est" style={{ '--ec': EST[l.status]?.c }}>{EST[l.status]?.t || l.status}</span>
                         {l.temperature && l.temperature !== 'frio' && <span title={TEMP[l.temperature].t}> {TEMP[l.temperature].t.split(' ')[0]}</span>}
                       </td>
@@ -330,7 +330,7 @@ export default function Prospectos() {
                         {a && <span className="small" style={{ color: a.c, fontWeight: a.k === 'luego' ? 400 : 700 }}>{a.t}</span>}
                         {l.status === 'perdido' && l.lost_reason && <span className="muted small">{l.lost_reason}</span>}
                       </td>
-                      <td className="muted small" style={{ whiteSpace: 'nowrap' }}>{l.ultimo_contacto_at ? hace(l.ultimo_contacto_at) : 'nunca'}</td>
+                      <td className="muted small u-nw">{l.ultimo_contacto_at ? hace(l.ultimo_contacto_at) : 'nunca'}</td>
                       {!esVendedor && <td>{l.assigned_to ? nomVend(l.assigned_to) || '…' : <span className="muted">Sin vendedor</span>}</td>}
                     </tr>
                   )
@@ -414,9 +414,9 @@ function Nuevo({ datos, projects, vendedores, esVendedor, onCerrar, onListo }) {
           )}
         </div>
         <label style={{ display: 'block', marginTop: '.9rem' }}>Primera nota (opcional)
-          <textarea rows={2} style={{ width: '100%', textTransform: 'none' }} value={f.nota || ''} onChange={e => set('nota', e.target.value)} />
+          <textarea className="u-w-100 u-tt-n" rows={2} value={f.nota || ''} onChange={e => set('nota', e.target.value)} />
         </label>
-        {aviso && <p className="error" style={{ textTransform: 'none' }}>{aviso}</p>}
+        {aviso && <p className="error u-tt-n">{aviso}</p>}
         <div style={{ display: 'flex', gap: 8, marginTop: '1rem' }}>
           <button className="btn-primary" disabled={ocupado}>{ocupado ? 'Guardando…' : 'Guardar prospecto'}</button>
           <button type="button" className="btn-ghost" onClick={onCerrar}>Cancelar</button>
@@ -600,7 +600,7 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
               <p className="pr-sub">Notas</p>
               {!soloVer && (
                 <div className="pr-nota-nueva">
-                  <div className="pr-chips" style={{ margin: 0 }}>
+                  <div className="pr-chips u-m0">
                     {TIPOS_NOTA.map(([v, t]) => <button key={v} type="button" className={'chip' + (tipo === v ? ' on' : '')} onClick={() => setTipo(v)}>{t}</button>)}
                   </div>
                   <textarea rows={2} value={nota} onChange={e => setNota(e.target.value)} placeholder="Qué pasó, qué dijo, qué quedó pendiente…"

@@ -195,7 +195,7 @@ export default function FirmaPad({ onGuardar, busy, alto = 180 }) {
           borderRadius: 8, border: '1px dashed rgba(0,0,0,.3)', touchAction: 'none', cursor: 'crosshair',
         }}
       />
-      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+      <div className="u-d-f u-g-8 u-mt-8 u-fwr">
         <button type="button" className="btn-primary" disabled={busy || leyendo || trazos < 1} onClick={guardar}>
           {busy ? 'Guardando…' : 'Guardar firma'}
         </button>
@@ -207,7 +207,7 @@ export default function FirmaPad({ onGuardar, busy, alto = 180 }) {
           Borrar y empezar de nuevo
         </button>
       </div>
-      <p className="muted small" style={{ textTransform: 'none', marginTop: 6 }}>
+      <p className="muted small u-tt-n u-mt-6">
         La foto se limpia sola: el papel se vuelve transparente y queda solo el trazo. Revisa cómo quedó en el recuadro antes de guardar.
       </p>
       {error && <p className="error">{error}</p>}

@@ -66,35 +66,35 @@ export default function FirmarCarta({ c, profile, onHecho }) {
             <div className="muted small">Tu firma registrada · {profile?.full_name}</div>
           </div>
         )
-        : <p className="warn" style={{ textTransform: 'none' }}>Todavía no registraste tu firma. Regístrala en <b>Gastos</b> (la misma firma sirve para las dos cosas) y vuelve aquí.</p>}
+        : <p className="warn u-tt-n">Todavía no registraste tu firma. Regístrala en <b>Gastos</b> (la misma firma sirve para las dos cosas) y vuelve aquí.</p>}
 
       {!envio ? (
         <label>Tu contraseña, para confirmar que eres tú
-          <input type="password" autoComplete="current-password" value={pass}
-            onChange={e => setPass(e.target.value)} style={{ textTransform: 'none' }} />
+          <input className="u-tt-n" type="password" autoComplete="current-password" value={pass}
+            onChange={e => setPass(e.target.value)} />
         </label>
       ) : (
         <div>
-          <p className="ok small" style={{ textTransform: 'none' }}>
+          <p className="ok small u-tt-n">
             📲 Te mandamos un código al celular {envio.destino ? <b>{envio.destino}</b> : ''}. Escríbelo aquí:
           </p>
           <input inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={codigo} autoFocus
             onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))} placeholder="000000"
             style={{ fontSize: 30, letterSpacing: 8, textAlign: 'center', width: '100%', fontVariantNumeric: 'tabular-nums' }} />
-          <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+          <p className="muted small u-tt-n u-mt-4">
             {quedan > 0 ? <>Vence en <b>{mmss(quedan)}</b>.</> : <b>El código venció.</b>}{' '}
             <button type="button" className="link-btn" disabled={busy || quedan > 240} onClick={reenviar}>Reenviar</button>
           </p>
         </div>
       )}
-      {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+      {err && <p className="error u-tt-n">{err}</p>}
+      <div className="u-d-f u-g-8 u-mt-8 u-fwr">
         <button className="btn-primary" disabled={busy || !firmaUrl}>
           {busy ? (envio ? 'Firmando…' : 'Enviando el código…') : envio ? '✍ Confirmar y firmar' : 'Continuar'}
         </button>
         {envio && <button type="button" className="btn-ghost" disabled={busy} onClick={() => { setEnvio(null); setErr(''); setCodigo('') }}>Volver</button>}
       </div>
-      <p className="muted small" style={{ textTransform: 'none', marginTop: 8 }}>
+      <p className="muted small u-tt-n u-mt-8">
         Revisa el texto de arriba antes de firmar: firmada, la carta ya no se puede cambiar. Queda registrado quién firmó, cuándo y una huella del texto.
       </p>
     </form>

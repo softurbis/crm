@@ -206,8 +206,8 @@ export default function Visitas() {
     const yaRec = v.reminded_at || v.reminded_dia_at || v.reminded_hora_at
     return (
       <div key={v.id} className="glass" style={{ padding: '8px 10px', borderLeft: `3px solid ${esRec ? '#7ba7f7' : e.c}`, marginBottom: 6 }}>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <b style={{ fontSize: 12, flex: 1 }}>{esRec ? '📞 RECONTACTO' : '🕐 ' + String(v.time).slice(0, 5)} · {v.client_name}</b>
+        <div className="u-d-f u-g-6 u-ai-c">
+          <b className="u-fs-12 u-f1">{esRec ? '📞 RECONTACTO' : '🕐 ' + String(v.time).slice(0, 5)} · {v.client_name}</b>
           <span title={e.t}>{e.i}</span>
         </div>
         <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'}{!esRec && ' · 📍 ' + v.meeting_point}</p>
@@ -217,17 +217,17 @@ export default function Visitas() {
           {RES_LBL[v.resultado] || v.resultado}{v.resultado_note ? <span className="muted" style={{ fontWeight: 400, textTransform: 'none' }}> · {v.resultado_note}</span> : ''}
           {v.recontacto_date && <span className="muted" style={{ fontWeight: 400 }}> · 📅 {v.recontacto_date}</span>}
         </p>}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+        <div className="u-d-f u-g-4 u-fwr u-mt-4">
           {v.status === 'programada' && <>
             {puedeCrear && !esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)' }} onClick={() => abrirCierre(v)}>🏁 CERRAR</button>}
-            {puedeCrear && esRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'realizada')}>✅ HECHO</button>}
-            {puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Editar / reprogramar" onClick={() => setForm({ ...v, time: String(v.time).slice(0, 5) })}>✎</button>}
-            {puedeCrear && !esRec && yaRec && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Reenviar recordatorio" onClick={() => reenviarRecordatorio(v)}>🔁</button>}
-            <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => setEstado(v, 'cancelada')}>🚫</button>
+            {puedeCrear && esRec && <button className="btn-ghost u-fs-10 u-p-1-7" onClick={() => setEstado(v, 'realizada')}>✅ HECHO</button>}
+            {puedeCrear && <button className="btn-ghost u-fs-10 u-p-1-7" title="Editar / reprogramar" onClick={() => setForm({ ...v, time: String(v.time).slice(0, 5) })}>✎</button>}
+            {puedeCrear && !esRec && yaRec && <button className="btn-ghost u-fs-10 u-p-1-7" title="Reenviar recordatorio" onClick={() => reenviarRecordatorio(v)}>🔁</button>}
+            <button className="btn-ghost u-fs-10 u-p-1-7" onClick={() => setEstado(v, 'cancelada')}>🚫</button>
           </>}
-          {v.status !== 'programada' && puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} title="Editar feedback de la visita" onClick={() => abrirCierre(v)}>📝 FEEDBACK</button>}
+          {v.status !== 'programada' && puedeCrear && <button className="btn-ghost u-fs-10 u-p-1-7" title="Editar feedback de la visita" onClick={() => abrirCierre(v)}>📝 FEEDBACK</button>}
           {v.status !== 'programada' && puedeCrear && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px', borderColor: 'rgba(126,167,247,.5)', color: '#7ba7f7' }} title="Reabrir: vuelve a programada y borra el resultado" onClick={() => reabrirVisita(v)}>🔓 REABRIR</button>}
-          {esJefe && <button className="btn-ghost" style={{ fontSize: 10, padding: '1px 7px' }} onClick={() => borrar(v)}>✕</button>}
+          {esJefe && <button className="btn-ghost u-fs-10 u-p-1-7" onClick={() => borrar(v)}>✕</button>}
         </div>
       </div>
     )
@@ -235,9 +235,9 @@ export default function Visitas() {
 
   return (
     <div>
-      <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <div className="page-head u-d-f u-jc-sb u-ai-c u-fwr u-g-10">
         <h1>Visitas</h1>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="u-d-f u-g-6 u-ai-c u-fwr">
           <button className={`chip ${vista === 'mes' ? 'on' : ''}`} onClick={() => setVista('mes')}>🗓️ MES</button>
           <button className={`chip ${vista === 'semana' ? 'on' : ''}`} onClick={() => setVista('semana')}>📅 SEMANA</button>
           <span style={{ width: 8 }} />
@@ -254,7 +254,7 @@ export default function Visitas() {
           {puedeCrear && <button className="btn" onClick={() => setForm({ date: hoy, time: '10:00' })}>+ PROGRAMAR VISITA</button>}
         </div>
       </div>
-      <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+      <p className="muted u-fs-12 u-mb-10">
         El bot recuerda cada visita al cliente y al asesor según la configuración de 🔔 RECORDATORIOS
         {cfg.activo ? <> (hoy: {cfg.diasAntes > 0 ? cfg.diasAntes + ' día(s) antes' : '—'}{cfg.horasAntes > 0 ? ' + ' + cfg.horasAntes + ' h antes' : ''}).</> : <> — <b className="bad">recordatorios APAGADOS</b>.</>}
       </p>
@@ -264,7 +264,7 @@ export default function Visitas() {
           <b style={{ color: '#7ba7f7' }}>🔔 RECORDATORIOS DE VISITA</b>
           <p className="muted" style={{ fontSize: 11, margin: '4px 0 10px' }}>El bot recuerda cada visita al cliente y/o al asesor. Configura cuánto antes. (Los recontactos se avisan al asesor el día que toca.)</p>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+            <label className="u-d-f u-g-6 u-ai-c u-cp">
               <input type="checkbox" checked={cfg.activo} onChange={e => setCfg(c => ({ ...c, activo: e.target.checked }))} /> <b>Recordatorios activos</b>
             </label>
             <span style={{ opacity: cfg.activo ? 1 : .4, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -274,7 +274,7 @@ export default function Visitas() {
             <span style={{ opacity: cfg.activo ? 1 : .4, display: 'flex', gap: 6, alignItems: 'center' }}>
               ⏰ <input type="number" min="0" max="48" value={cfg.horasAntes} onChange={e => setCfg(c => ({ ...c, horasAntes: e.target.value | 0 }))} style={{ width: 50 }} /> hora(s) antes de la visita
             </span>
-            <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span className="u-d-f u-g-12 u-ai-c">
               <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.recCliente} onChange={e => setCfg(c => ({ ...c, recCliente: e.target.checked }))} /> al cliente</label>
               <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.recAsesor} onChange={e => setCfg(c => ({ ...c, recAsesor: e.target.checked }))} /> al asesor</label>
             </span>
@@ -282,15 +282,15 @@ export default function Visitas() {
           <p className="muted" style={{ fontSize: 10, margin: '8px 0 4px' }}>0 = ese recordatorio no se manda. Ej: 1 día antes + 3 horas antes = dos avisos por visita.</p>
 
           <div style={{ borderTop: '1px dashed rgba(255,255,255,.14)', marginTop: 10, paddingTop: 10 }}>
-            <b style={{ fontSize: 12 }}>✍️ MENSAJES (opcional — vacío = texto por defecto)</b>
+            <b className="u-fs-12">✍️ MENSAJES (opcional — vacío = texto por defecto)</b>
             <p className="muted" style={{ fontSize: 10, margin: '2px 0 8px' }}>Variables: <span style={{ fontFamily: 'monospace' }}>{'{cliente} {proyecto} {hora} {fecha} {punto} {notas} {cuando} {asesor}'}</span> — se reemplazan solas.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
-              <label style={{ fontSize: 12 }}>Mensaje al CLIENTE
+              <label className="u-fs-12">Mensaje al CLIENTE
                 <textarea value={cfg.msgCliente} onChange={e => setCfg(c => ({ ...c, msgCliente: e.target.value }))}
                   placeholder="Ej: Hola {cliente} 👋 le recordamos su visita a {proyecto} el {fecha} a las {hora}. 📍 {punto}. ¡Lo esperamos!"
                   style={{ width: '100%', minHeight: 80, textTransform: 'none', fontSize: 12.5, marginTop: 3 }} />
               </label>
-              <label style={{ fontSize: 12 }}>Mensaje al ASESOR
+              <label className="u-fs-12">Mensaje al ASESOR
                 <textarea value={cfg.msgAsesor} onChange={e => setCfg(c => ({ ...c, msgAsesor: e.target.value }))}
                   placeholder="Ej: 📅 VISITA {cuando} — {fecha} {hora}. Cliente: {cliente_full}. Proyecto: {proyecto}. Punto: {punto}. Confirma con el cliente."
                   style={{ width: '100%', minHeight: 80, textTransform: 'none', fontSize: 12.5, marginTop: 3 }} />
@@ -298,9 +298,9 @@ export default function Visitas() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+          <div className="u-d-f u-g-8 u-ai-c u-mt-10">
             <button className="btn" onClick={guardarCfg}>💾 GUARDAR</button>
-            {cfgMsg && <span style={{ fontSize: 12 }}>{cfgMsg}</span>}
+            {cfgMsg && <span className="u-fs-12">{cfgMsg}</span>}
           </div>
         </div>
       )}
@@ -314,13 +314,13 @@ export default function Visitas() {
               placeholder="📝 Feedback de la visita: qué pasó, cómo reaccionó el cliente, qué quedó pendiente, próximos pasos…"
               style={{ width: '100%', minHeight: 110, textTransform: 'none', fontSize: 13, marginBottom: 10 }} />
             <div style={{ fontSize: 11, color: '#e0b34c', fontWeight: 700, marginBottom: 5 }}>RESULTADO:</div>
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div className="u-d-g u-g-6">
               {RESULTADOS.map(r => (
                 <button key={r.v} className="btn-ghost" style={{ textAlign: 'left', borderColor: r.c + '77', color: r.c, padding: '8px 12px', fontSize: 13 }}
                   onClick={() => cerrarVisita(cerrar, r.v)}>{r.t}{cerrar.resultado === r.v ? '  ✓ (actual)' : ''}</button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <div className="u-d-f u-g-8 u-mt-12 u-fwr">
               <button className="btn-ghost" onClick={() => guardarFeedback(cerrar, feedbackTxt)}>💾 SOLO GUARDAR FEEDBACK</button>
               <button className="btn-ghost" onClick={() => setCerrar(null)}>CANCELAR</button>
             </div>
@@ -332,8 +332,8 @@ export default function Visitas() {
         <span>📅 <b style={{ color: '#7ba7f7' }}>{prog(visSem).length}</b> esta semana</span>
         <span>🗓️ <b style={{ color: '#7ba7f7' }}>{prog(visMes).length}</b> del mes · ✅ {visMes.filter(v => v.status === 'realizada').length} realizadas</span>
         {proxima && <span>⏭️ Próxima: <b>{fmtCorta(proxima.date)} {String(proxima.time).slice(0, 5)}</b> · {proxima.client_name}{proxima.encargado_name ? ' · 👤 ' + proxima.encargado_name.split(' ')[0] : ''}</span>}
-        {Object.keys(porProy).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>🏗️ {Object.entries(porProy).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ').slice(-1)[0]}:{n}</span>)}</span>}
-        {Object.keys(porEnc).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>👤 {Object.entries(porEnc).map(([k, n]) => <span key={k} className="muted" style={{ fontSize: 11 }}>{k.split(' ')[0]}:{n}</span>)}</span>}
+        {Object.keys(porProy).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>🏗️ {Object.entries(porProy).map(([k, n]) => <span key={k} className="muted u-fs-11">{k.split(' ').slice(-1)[0]}:{n}</span>)}</span>}
+        {Object.keys(porEnc).length > 0 && <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>👤 {Object.entries(porEnc).map(([k, n]) => <span key={k} className="muted u-fs-11">{k.split(' ')[0]}:{n}</span>)}</span>}
       </div>
 
       {/* VISITAS YA PASADAS SIN CERRAR — aquí están los botones de resultado */}
@@ -344,7 +344,7 @@ export default function Visitas() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
             {pendCerrar.map(v => (
               <div key={v.id} className="glass" style={{ padding: '8px 10px', borderLeft: '3px solid #e0b34c' }}>
-                <b style={{ fontSize: 12 }}>{fmtCorta(v.date)} {String(v.time).slice(0, 5)} · {v.client_name}</b>
+                <b className="u-fs-12">{fmtCorta(v.date)} {String(v.time).slice(0, 5)} · {v.client_name}</b>
                 <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'} · 👤 {(v.encargado_name || '').split(' ')[0] || 'ENCARGADO'}</p>
                 {puedeCrear && (v.tipo === 'recontacto'
                   ? <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginTop: 2 }} onClick={() => setEstado(v, 'realizada')}>✅ MARCAR HECHO</button>
@@ -358,7 +358,7 @@ export default function Visitas() {
       {form && (
         <div className="glass" style={{ padding: 14, marginBottom: 14 }}>
           <b>{form.id ? 'EDITAR VISITA' : 'NUEVA VISITA'}</b>
-          <div className="form-grid" style={{ marginTop: 10 }}>
+          <div className="form-grid u-mt-10">
             <label>Proyecto
               <select value={form.project_id || ''} onChange={e => setForm({ ...form, project_id: e.target.value })}>
                 <option value="">— ELEGIR —</option>
@@ -380,7 +380,7 @@ export default function Visitas() {
             <label className="span2">Punto de encuentro <input value={form.meeting_point || ''} onChange={e => setForm({ ...form, meeting_point: e.target.value })} placeholder="EJ. INGRESO DEL PROYECTO KM 10 / OFICINA URBIS" /></label>
             <label className="span2">Notas <input value={form.notes || ''} onChange={e => setForm({ ...form, notes: e.target.value })} /></label>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div className="u-d-f u-g-8 u-mt-10">
             <button className="btn-primary" style={{ padding: '.5rem 1.2rem' }} onClick={guardar}>GUARDAR</button>
             <button className="btn-ghost" onClick={() => setForm(null)}>CANCELAR</button>
           </div>
@@ -395,8 +395,8 @@ export default function Visitas() {
             const vs = delDia(iso)
             return (
               <div key={iso} className="glass" style={{ padding: 8, minHeight: 150, border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : undefined }}>
-                <div style={{ textAlign: 'center', marginBottom: 6 }}>
-                  <div className="muted" style={{ fontSize: 10, fontWeight: 700 }}>{d.toLocaleDateString('es-PE', { weekday: 'short' }).toUpperCase()}</div>
+                <div className="u-ta-c u-mb-6">
+                  <div className="muted u-fs-10 u-fw-7">{d.toLocaleDateString('es-PE', { weekday: 'short' }).toUpperCase()}</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: iso === hoy ? '#9ccb86' : undefined }}>{d.getDate()}</div>
                 </div>
                 {vs.map(Card)}
@@ -409,9 +409,9 @@ export default function Visitas() {
 
       {/* VISTA MES GRANDE (con las visitas dentro de cada día) */}
       {vista === 'mes' && (
-        <div className="glass" style={{ padding: 12 }}>
+        <div className="glass u-p-12">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 5 }}>
-            {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map(d => <div key={d} className="muted" style={{ fontSize: 11, textAlign: 'center', fontWeight: 700 }}>{d}</div>)}
+            {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map(d => <div key={d} className="muted u-fs-11 u-ta-c u-fw-7">{d}</div>)}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
             {celdas.map((n, i) => {
@@ -420,7 +420,7 @@ export default function Visitas() {
               const vs = visitas.filter(v => v.date === iso).sort((a, b) => String(a.time).localeCompare(String(b.time)))
               return (
                 <div key={i} style={{ minHeight: 116, borderRadius: 8, padding: 5, border: iso === hoy ? '1.5px solid rgba(156,203,134,.6)' : '1px solid rgba(255,255,255,.07)', background: iso === hoy ? 'rgba(156,203,134,.06)' : 'rgba(255,255,255,.02)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="u-d-f u-jc-sb u-ai-c">
                     <span style={{ fontSize: 12, fontWeight: iso === hoy ? 800 : 600, color: iso === hoy ? '#9ccb86' : undefined }}>{n}</span>
                     {puedeCrear && <button className="btn-ghost" style={{ padding: '0 6px', fontSize: 12, lineHeight: 1.3 }} title="Nueva visita" onClick={() => setForm({ date: iso, time: '10:00' })}>+</button>}
                   </div>
@@ -439,7 +439,7 @@ export default function Visitas() {
               )
             })}
           </div>
-          <p className="muted" style={{ fontSize: 10, marginTop: 8 }}>Clic en el <b>+</b> para agregar · clic en una visita para editarla · <b>{prog(visMes).length}</b> programadas este mes.</p>
+          <p className="muted u-fs-10 u-mt-8">Clic en el <b>+</b> para agregar · clic en una visita para editarla · <b>{prog(visMes).length}</b> programadas este mes.</p>
         </div>
       )}
     </div>

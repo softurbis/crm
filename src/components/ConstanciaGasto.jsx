@@ -103,7 +103,7 @@ export function constanciaGasto(g, proyecto, { conFirmas = false } = {}) {
     if (!t) return null
     const mb = t.match(/^\{\{(\w+)\}\}$/)
     if (mb && mb[1] in BLOQ) return <div key={i}>{BLOQ[mb[1]]}</div>
-    if (primera) { primera = false; return <h2 key={i} style={{ textAlign: 'center' }}>{fill(t)}</h2> }
+    if (primera) { primera = false; return <h2 className="u-ta-c" key={i}>{fill(t)}</h2> }
     return <p key={i}>{fill(t)}</p>
   })
 }
@@ -161,7 +161,7 @@ export function FirmasConstancia({ g, verif }) {
 // dos firmas. La usan la ventana de imprimir de Gastos y la de facturación.
 export function HojaConstancia({ g, proyecto, verif }) {
   return <>
-    <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroGasto(g)}</b></p>
+    <p className="small u-ta-r"><b>SOLICITUD N. {numeroGasto(g)}</b></p>
     {g.rejected_at && <p style={{ textAlign: 'center', border: '2px solid #c0392b', color: '#c0392b', padding: 6 }}><b>SOLICITUD RECHAZADA</b> · {g.rejected_reason}</p>}
     {g.plantilla_firmada && proyecto?.expense_template && g.plantilla_firmada !== ((g.plantilla_propia || '').trim() || proyecto.expense_template) && (
       <p className="no-print small" style={{ textAlign: 'center', color: '#6b5a1e', background: '#fff6d6', padding: 4, borderRadius: 4 }}>

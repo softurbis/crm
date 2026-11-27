@@ -347,7 +347,7 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal cp-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>🧾 {pedido ? 'Comprobante' : 'Emitir comprobante'} — {soles(total)}</b>
+          <b className="u-f1">🧾 {pedido ? 'Comprobante' : 'Emitir comprobante'} — {soles(total)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
         <MarcaEmisor proyecto={proyecto} emisor={emisor} />
@@ -360,7 +360,7 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
             </p>
             <p className="muted">{pedido.mensaje || est.ayuda}</p>
             {esPrueba(pedido) && <p className="cp-nota">Salió por el ambiente de <b>pruebas</b> de SUNAT: no tiene valor y no se pone como boleta del pago.</p>}
-            <div className="acc-row" style={{ marginTop: 12 }}>
+            <div className="acc-row u-mt-12">
               {pedido.pdf_url && <a className="btn-primary btn-link" href={pedido.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
               <button className="btn-ghost" onClick={onCerrar}>{enCamino(pedido) ? 'Cerrar (sigue saliendo solo)' : 'Cerrar'}</button>
             </div>
@@ -409,7 +409,7 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
                   <input value={f.direccion} onChange={e => setF(x => ({ ...x, direccion: e.target.value }))} />
                 </label>
                 {busca.f?.estado === 'ok' && rucConProblema(busca.f.situacion) && (
-                  <p className="cp-nota span2" style={{ margin: 0 }}>SUNAT tiene a este RUC como <b>{busca.f.situacion}</b>: una factura a su nombre puede salir rechazada.</p>
+                  <p className="cp-nota span2 u-m0">SUNAT tiene a este RUC como <b>{busca.f.situacion}</b>: una factura a su nombre puede salir rechazada.</p>
                 )}
               </div>
             )}
@@ -481,14 +481,14 @@ export function EmitirComprobante({ grupo, proyecto, cliente, lote, totalCuotas,
             </>}
             <div className="cp-linea cp-total"><span>Total, sin IGV</span><b>{soles(total)}</b></div>
 
-            {err && <p className="error" style={{ textTransform: 'none' }}>{err}</p>}
-            <div className="acc-row" style={{ marginTop: 12 }}>
+            {err && <p className="error u-tt-n">{err}</p>}
+            <div className="acc-row u-mt-12">
               <button className="btn-primary" onClick={emitir} disabled={busy || buscando}>
                 {busy ? 'Pidiendo…' : buscando ? 'Buscando el nombre…' : 'Emitir ' + tipo + ' por ' + soles(total)}
               </button>
               <button type="button" className="btn-ghost" onClick={onCerrar} disabled={busy}>Cancelar</button>
             </div>
-            <p className="muted small" style={{ marginTop: 8, textTransform: 'none' }}>
+            <p className="muted small u-mt-8 u-tt-n">
               Una vez emitida no se corrige: si algo quedó mal, se anula y se emite otra.
             </p>
           </>
@@ -588,12 +588,12 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal cp-modal" onClick={ev => ev.stopPropagation()}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>🧾 {nombreTipo(c)} {nombreComprobante(c)}</b>
+          <b className="u-f1">🧾 {nombreTipo(c)} {nombreComprobante(c)}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
         {proyecto && <MarcaEmisor proyecto={proyecto} />}
         <p className={'cp-grande ' + e.c}>{enCamino(c) && <span className="cp-gira" />}{e.t}{esPrueba(c) ? ' · PRUEBA sin valor' : ''}</p>
-        <p className="muted" style={{ textTransform: 'none' }}>{c.mensaje || e.ayuda}</p>
+        <p className="muted u-tt-n">{c.mensaje || e.ayuda}</p>
         {esNota && (
           <p className="cp-nota">Anula la {c.ref_tipo === 'factura' ? 'factura' : 'boleta'} <b>{c.ref_serie}-{c.ref_numero}</b>
             {ligado ? ' (' + (ESTADOS[ligado.estado] || ESTADOS.pendiente).t + ')' : ''}. Motivo: “{c.nota_motivo}”.</p>
@@ -653,7 +653,7 @@ export function ComprobanteDetalle({ comprobante: inicial, proyecto, onCerrar, o
             </p>
           </div>
         )}
-        <div className="acc-row" style={{ marginTop: 14 }}>
+        <div className="acc-row u-mt-14">
           {c.pdf_url && <a className="btn-primary btn-link" href={c.pdf_url} target="_blank" rel="noreferrer">📄 Ver / imprimir</a>}
           {c.xml_url && <a className="btn-ghost btn-link" href={c.xml_url} target="_blank" rel="noreferrer" title="El archivo firmado: es el comprobante de verdad">XML</a>}
           {c.cdr_url && <a className="btn-ghost btn-link" href={c.cdr_url} target="_blank" rel="noreferrer" title="La constancia de recepción de SUNAT">Constancia</a>}

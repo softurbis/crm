@@ -70,35 +70,35 @@ export function SubirHojaFirmada({ gasto: g, onCerrar, onHecho, onImprimir }) {
         </div>
         <div style={{ textAlign: 'center', margin: '4px 0 12px' }}>
           <div style={{ fontSize: 26, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{soles(g.amount)}</div>
-          <div className="small" style={{ textTransform: 'none' }}>{g.description || g.type}</div>
+          <div className="small u-tt-n">{g.description || g.type}</div>
         </div>
 
         {esperaDigital ? (
-          <p className="warn" style={{ textTransform: 'none' }}>
+          <p className="warn u-tt-n">
             Primero va la firma de la izquierda, que es <b>digital</b>: la pone en el panel quien pide el gasto, con su código.
             Después se imprime la constancia, la firma a mano {g.sender || 'quien entrega el dinero'} y se sube aquí.
           </p>
         ) : (
           <form onSubmit={subir}>
-            <p className="small" style={{ textTransform: 'none', margin: '0 0 6px' }}><b>¿Qué firmas tiene la hoja?</b></p>
+            <p className="small u-tt-n u-m-006"><b>¿Qué firmas tiene la hoja?</b></p>
             {faltan.map(l => (
-              <label key={l} className="inline-check" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '0 0 8px', textTransform: 'none' }}>
+              <label key={l} className="inline-check u-d-f u-g-8 u-ai-fs u-m-008 u-tt-n">
                 <input type="checkbox" checked={lados.includes(l)} onChange={e => marcar(l, e.target.checked)} />
                 <span><b>{personaDe(g, l)}</b><br /><span className="muted small">{LADO[l].t} — {LADO[l].sub}</span></span>
               </label>
             ))}
-            <label style={{ marginTop: 6 }}>Foto o PDF de la hoja firmada
+            <label className="u-mt-6">Foto o PDF de la hoja firmada
               <input type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files[0] || null)} />
             </label>
             <label>Nota (opcional)
-              <input value={nota} onChange={e => setNota(e.target.value)} placeholder="Ej.: firmó en su casa el martes" style={{ textTransform: 'none' }} />
+              <input className="u-tt-n" value={nota} onChange={e => setNota(e.target.value)} placeholder="Ej.: firmó en su casa el martes" />
             </label>
             {err && <p className="error">{err}</p>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <div className="u-d-f u-g-8 u-mt-10 u-fwr">
               <button className="btn-primary" disabled={busy || !lados.length}>{busy ? 'Subiendo…' : 'Subir y registrar la firma'}</button>
               {onImprimir && <button type="button" className="btn-ghost" onClick={() => onImprimir(g)}>🖨 Imprimir la constancia</button>}
             </div>
-            <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
+            <p className="muted small u-tt-n u-mt-10">
               La hoja subida cuenta como la firma: queda registrado que la subiste tú y a qué hora, con un código de verificación.
               Revisa antes que se lean bien las firmas, los nombres y el monto. Si después se corrige el gasto, esta firma se anula y hay que firmar de nuevo.
             </p>
@@ -153,26 +153,26 @@ export function CambiarFirma({ gasto: g, proyecto, opcionesPersonas = [], onCerr
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
         <form onSubmit={guardar}>
-          <p className="sg-sub" style={{ marginTop: 4 }}>Firma 1 · izquierda — quien pide y recibe</p>
+          <p className="sg-sub u-mt-4">Firma 1 · izquierda — quien pide y recibe</p>
           {izqPend ? (
-            <div className="chips" style={{ margin: '0 0 6px' }}>
+            <div className="chips u-m-006">
               {opcion(izq, setIzq, false, '✍ Digital (en el panel, con código)')}
               {opcion(izq, setIzq, true, '📄 En papel (a mano)')}
             </div>
-          ) : <p className="ok small" style={{ textTransform: 'none' }}>✔ Ya está puesta ({g.requester_papel ? 'en papel' : 'digital'}).</p>}
+          ) : <p className="ok small u-tt-n">✔ Ya está puesta ({g.requester_papel ? 'en papel' : 'digital'}).</p>}
           {izqPend && !izq && !g.requester_id && (
-            <p className="warn small" style={{ textTransform: 'none' }}>Para firmar en el panel hay que elegir quién pide el gasto: corrígelo con "editar".</p>
+            <p className="warn small u-tt-n">Para firmar en el panel hay que elegir quién pide el gasto: corrígelo con "editar".</p>
           )}
 
           {conSocia && <>
             <p className="sg-sub">Firma 2 · derecha — quien aprueba y entrega el dinero</p>
             {derPend ? <>
-              <div className="chips" style={{ margin: '0 0 6px' }}>
+              <div className="chips u-m-006">
                 {opcion(der, setDer, false, '✍ Digital (la socia en el panel)')}
                 {opcion(der, setDer, true, '📄 En papel (a mano)')}
               </div>
               {der && (
-                <div className="form-grid" style={{ margin: 0 }}>
+                <div className="form-grid u-m0">
                   <label>¿Quién firma la hoja?
                     <input list="personas-cambiar-firma" value={nombre} placeholder={g.sender || 'JOSE MACEDO SANCHEZ'}
                       onChange={e => { const v = e.target.value, d = dniDe(v); setNombre(v); if (d) setDni(d) }} />
@@ -185,16 +185,16 @@ export function CambiarFirma({ gasto: g, proyecto, opcionesPersonas = [], onCerr
                   </datalist>
                 </div>
               )}
-              {!der && <p className="muted small" style={{ textTransform: 'none' }}>La aprueba la socia del proyecto con su firma y su código, y queda de remitente.</p>}
-            </> : <p className="ok small" style={{ textTransform: 'none' }}>✔ Ya está puesta ({g.approval_papel ? 'en papel' : 'digital'}).</p>}
+              {!der && <p className="muted small u-tt-n">La aprueba la socia del proyecto con su firma y su código, y queda de remitente.</p>}
+            </> : <p className="ok small u-tt-n">✔ Ya está puesta ({g.approval_papel ? 'en papel' : 'digital'}).</p>}
           </>}
 
           {err && <p className="error">{err}</p>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-8 u-mt-12 u-fwr">
             <button className="btn-primary" disabled={busy || (!izqPend && !derPend)}>{busy ? 'Guardando…' : 'Guardar'}</button>
             <button type="button" className="btn-ghost" onClick={onCerrar} disabled={busy}>Cancelar</button>
           </div>
-          <p className="muted small" style={{ textTransform: 'none', marginTop: 10 }}>
+          <p className="muted small u-tt-n u-mt-10">
             En papel: se imprime la constancia, se firma a mano y se sube la hoja; no se piden contraseña ni código y no le llegan avisos de firma.
             Una firma que ya está puesta no se cambia: para eso se corrige la solicitud (se anulan las firmas).
           </p>

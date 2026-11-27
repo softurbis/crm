@@ -181,7 +181,7 @@ export default function Commissions() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Comisiones</h1>
+        <h1 className="u-m0 u-f1">Comisiones</h1>
         <ProjectPicker />
         {canEdit && (
           <button className="btn-ghost" onClick={() => setAdvOpen(!advOpen)}>
@@ -193,7 +193,7 @@ export default function Commissions() {
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
 
       {advOpen && canEdit && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p><b>VENDEDORES / ASESORES</b> <span className="muted small">(no necesitan usuario del sistema, solo el nombre)</span></p>
           <form onSubmit={crearAsesor} className="form-grid">
             <label>Codigo corto <input value={nCode} onChange={e => setNCode(e.target.value)} placeholder="EJ: JUAN" required /></label>
@@ -217,7 +217,7 @@ export default function Commissions() {
                       <td><b>{a.code}</b></td>
                       <td>{a.full_name}</td>
                       <td>{a.active ? <span className="ok">ACTIVO</span> : <span className="muted">INACTIVO</span>}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td className="u-nw">
                         <button className="link-btn" onClick={() => setAdvEdit({ ...a })}>editar</button>{' | '}
                         <button className="link-btn" onClick={() => toggleAsesor(a)}>{a.active ? 'desactivar' : 'activar'}</button>{' | '}
                         <button className="link-btn bad" onClick={() => borrarAsesor(a)}>eliminar</button>
@@ -263,7 +263,7 @@ export default function Commissions() {
                 <td>{soles(r.sale?.total_sale_price)}</td>
                 <td>
                   {amtEdit?.id === r.id ? (
-                    <span style={{ whiteSpace: 'nowrap' }}>
+                    <span className="u-nw">
                       <input type="number" step="0.01" value={amtEdit.amount} onChange={e => setAmtEdit({ ...amtEdit, amount: e.target.value })} style={{ width: '6.5em' }} />{' '}
                       <button className="link-btn ok" onClick={guardarMonto}>ok</button>{' '}
                       <button className="link-btn" onClick={() => setAmtEdit(null)}>x</button>
@@ -299,7 +299,7 @@ export default function Commissions() {
                     ? <button className="link-btn warn" onClick={() => { setPay(r); setPayExtra([]); setRhNum(''); setPayDate(r.paid_date || hoy()) }}>&#9888; registrar RH</button>
                     : '-'}
                 </td>
-                <td style={{ whiteSpace: 'nowrap' }}>
+                <td className="u-nw">
                   {canPay && r.status !== 'pagada' &&
                     <button className="btn-ghost" onClick={() => { setPay(r); setPayExtra([]); setRhNum(r.rh_number || ''); setPayDate(hoy()) }}>Marcar pagada</button>}
                   {puedeCorregir && r.status === 'pagada' &&
@@ -313,7 +313,7 @@ export default function Commissions() {
       </div>
 
       {canEdit && ventasSin.length > 0 && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p><b>&#9888; VENTAS SIN COMISION REGISTRADA ({ventasSin.length})</b> <span className="muted small">Ventas antiguas: registra su comision aqui.</span></p>
           <div className="table-wrap">
             <table>
@@ -360,7 +360,7 @@ export default function Commissions() {
               if (!otras.length) return null
               const totalSel = Number(pay.amount) + otras.filter(o => payExtra.includes(o.id)).reduce((s, o) => s + Number(o.amount), 0)
               return (
-                <div className="hint" style={{ marginBottom: 8 }}>
+                <div className="hint u-mb-8">
                   <p><b>&#128206; ESTE MISMO RH CUBRE TAMBIEN:</b> <span className="muted small">(marca las otras comisiones pendientes de {pay.advisor?.code} que entran en este recibo)</span></p>
                   {otras.map(o => (
                     <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400, margin: '2px 0' }}>
@@ -369,7 +369,7 @@ export default function Commissions() {
                       Lote {o.sale?.lot?.mz}-{o.sale?.lot?.lt} — {o.sale?.client?.full_name || '-'} — <b>{soles(o.amount)}</b>
                     </label>
                   ))}
-                  {payExtra.length > 0 && <p style={{ marginTop: 4 }}>TOTAL DEL RH ({payExtra.length + 1} comisiones): <b className="accent">{soles(totalSel)}</b></p>}
+                  {payExtra.length > 0 && <p className="u-mt-4">TOTAL DEL RH ({payExtra.length + 1} comisiones): <b className="accent">{soles(totalSel)}</b></p>}
                 </div>
               )
             })()}

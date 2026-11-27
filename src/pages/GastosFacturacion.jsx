@@ -104,21 +104,21 @@ export default function GastosFacturacion() {
   const estadoDe = g => {
     const e = estadoGasto(g)
     if (e === 'confirmado') { const d = pagadoEl(g); return <span className="ok">✔ PAGADO{d && <><br /><span className="muted small">{fechaPe(d)}</span></>}</span> }
-    if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
+    if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small u-tt-n">{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'aprobado') return porPagar(g)
       ? <span className="warn">💸 POR PAGAR<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar' : 'falta el voucher'}</span></span>
       : <span className="ok">✍ APROBADO</span>
-    if (e === 'por_firmar') return <span className="warn">⏳ POR FIRMAR<br /><span className="muted small" style={{ textTransform: 'none' }}>{g.pedido_por_nombre ? 'firma ' + g.pedido_por_nombre.split(' ')[0] : 'firma quien lo pide'}</span></span>
-    if (e === 'en_papel') return <span className="warn">📄 FIRMA EN PAPEL<br /><span className="muted small" style={{ textTransform: 'none' }}>falta la hoja de {firmasEnPapelFaltan(g).map(l => String((l === 'solicitud' ? g.recipient : g.sender) || '').split(' ')[0]).filter(Boolean).join(' y ') || 'quien firma'}</span></span>
-    return <span className="warn">⏳ {proyDe[g.project_id]?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}{proyDe[g.project_id]?.expense_approval && <><br /><span className="muted small" style={{ textTransform: 'none' }}>firma la socia</span></>}</span>
+    if (e === 'por_firmar') return <span className="warn">⏳ POR FIRMAR<br /><span className="muted small u-tt-n">{g.pedido_por_nombre ? 'firma ' + g.pedido_por_nombre.split(' ')[0] : 'firma quien lo pide'}</span></span>
+    if (e === 'en_papel') return <span className="warn">📄 FIRMA EN PAPEL<br /><span className="muted small u-tt-n">falta la hoja de {firmasEnPapelFaltan(g).map(l => String((l === 'solicitud' ? g.recipient : g.sender) || '').split(' ')[0]).filter(Boolean).join(' y ') || 'quien firma'}</span></span>
+    return <span className="warn">⏳ {proyDe[g.project_id]?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}{proyDe[g.project_id]?.expense_approval && <><br /><span className="muted small u-tt-n">firma la socia</span></>}</span>
   }
   const doc = (url, titulo, nota) => url
-    ? <><button className="link-btn" onClick={() => setVerDoc({ url, titulo })}>VER</button>{nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}</>
+    ? <><button className="link-btn" onClick={() => setVerDoc({ url, titulo })}>VER</button>{nota && <div className="muted small u-tt-n">{nota}</div>}</>
     : null
   const docConstancia = g => <>
     <button className="link-btn" onClick={() => setPrt({ lista: [g] })}>🖨 imprimir</button>
     {g.request_doc_url && <> · {doc(g.request_doc_url, 'Constancia firmada · ' + numeroGasto(g))}</>}
-    {hojaLista(g) && <div style={{ marginTop: 4 }}>{botonHoja(g)}</div>}
+    {hojaLista(g) && <div className="u-mt-4">{botonHoja(g)}</div>}
   </>
   // SUBIR LO QUE FALTA (sql/147, 14 oct): el RH o la factura (o uno más) y el voucher de un
   // gasto ya pagado que no lo tiene. Nunca reemplaza ni borra: eso es del superusuario.
@@ -151,14 +151,14 @@ export default function GastosFacturacion() {
   // el voucher: el del pago pendiente va por el botón de pago (queda PAGADO); el de un gasto
   // ya pagado que no lo tiene, se sube aquí; sin las dos firmas, nada (sql/147)
   const docVoucher = g => {
-    if (g.voucher_url) return <>{doc(g.voucher_url, 'Voucher del pago · ' + numeroGasto(g), g.voucher_note)}{porPagar(g) && <div style={{ marginTop: 4 }}>{botonPago(g)}</div>}</>
+    if (g.voucher_url) return <>{doc(g.voucher_url, 'Voucher del pago · ' + numeroGasto(g), g.voucher_note)}{porPagar(g) && <div className="u-mt-4">{botonPago(g)}</div>}</>
     if (porPagar(g)) return botonPago(g)
     if (estadoGasto(g) === 'confirmado') return <>{g.voucher_na && <div className="muted small">no aplica</div>}{subirBtn(g, 'voucher_url', '⬆ subir', g.voucher_na ? '' : 'warn')}</>
     if (g.rejected_at) return <span className="muted small">—</span>
-    return <span className="muted small" style={{ textTransform: 'none' }}>{proyDe[g.project_id]?.expense_approval ? 'después de las dos firmas' : '—'}</span>
+    return <span className="muted small u-tt-n">{proyDe[g.project_id]?.expense_approval ? 'después de las dos firmas' : '—'}</span>
   }
   const docRepo = g => g.reposicion
-    ? <>{doc(g.reposicion.voucher_url, 'Reposición a ' + g.reposicion.persona)}<div className="muted small" style={{ textTransform: 'none' }}>a {g.reposicion.persona} · {fechaPe(g.reposicion.fecha)}</div></>
+    ? <>{doc(g.reposicion.voucher_url, 'Reposición a ' + g.reposicion.persona)}<div className="muted small u-tt-n">a {g.reposicion.persona} · {fechaPe(g.reposicion.fecha)}</div></>
     : g.adelanto_por && !g.rejected_at ? <span className="warn small">falta reponer a {g.adelanto_por.split(' ')[0]}</span> : <span className="muted small">—</span>
   const nombreProy = g => proyDe[g.project_id]?.name || ''
   const abrirFicha = g => <button className="link-btn" title="Ver todo de este gasto" onClick={() => setFicha(g)}><b>{numeroGasto(g)}</b></button>
@@ -189,7 +189,7 @@ export default function GastosFacturacion() {
 
   return (
     <>
-      <div className="toolbar"><h1 style={{ margin: 0, flex: 1 }}>Gastos</h1></div>
+      <div className="toolbar"><h1 className="u-m0 u-f1">Gastos</h1></div>
       <p className="muted small" style={{ margin: '-.4rem 0 .8rem', textTransform: 'none' }}>
         Todos los gastos de tus proyectos, también los anteriores. Toca el <b>N° de la solicitud</b> para ver todo el gasto.
         Cuando la socia ya aprobó y pagó un gasto, súbele el voucher del pago: el gasto queda <b>pagado</b>.
@@ -198,9 +198,9 @@ export default function GastosFacturacion() {
 
       {/* LO QUE LE TOCA: los pagos que esperan su voucher, arriba y con su botón */}
       {listaPorPagar.length > 0 && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>💸 FALTA SUBIR O CONFIRMAR EL VOUCHER ({listaPorPagar.length})</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — aprobados por la socia, esperan el voucher del pago (o confirmar el que ya está)</span></p>
+        <div className="glass form-card u-mxw-n">
+          <p className="u-m-008"><b>💸 FALTA SUBIR O CONFIRMAR EL VOUCHER ({listaPorPagar.length})</b>
+            <span className="muted small u-tt-n"> — aprobados por la socia, esperan el voucher del pago (o confirmar el que ya está)</span></p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {listaPorPagar.slice(0, 10).map(g => (
               <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -218,9 +218,9 @@ export default function GastosFacturacion() {
 
       {/* LAS HOJAS FIRMADAS A MANO QUE FALTA SUBIR (sql/183) */}
       {listaHojas.length > 0 && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>📄 HOJAS FIRMADAS POR SUBIR ({listaHojas.length})</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — se imprime la constancia, se firma a mano y se sube la foto: eso cuenta como la firma</span></p>
+        <div className="glass form-card u-mxw-n">
+          <p className="u-m-008"><b>📄 HOJAS FIRMADAS POR SUBIR ({listaHojas.length})</b>
+            <span className="muted small u-tt-n"> — se imprime la constancia, se firma a mano y se sube la foto: eso cuenta como la firma</span></p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {listaHojas.slice(0, 10).map(g => (
               <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -288,17 +288,17 @@ export default function GastosFacturacion() {
       ) : (
         <div className="glass table-wrap">
           <table>
-            <thead><tr><th>N°</th><th>Fecha</th>{proyectos.length > 1 && proy === 'todos' && <th>Proyecto</th>}<th>Estado</th><th>Tipo</th><th>Receptor · motivo</th><th style={{ textAlign: 'right' }}>Monto</th><th>Constancia</th><th>RH / factura</th><th>Voucher del pago</th><th>Reposición</th></tr></thead>
+            <thead><tr><th>N°</th><th>Fecha</th>{proyectos.length > 1 && proy === 'todos' && <th>Proyecto</th>}<th>Estado</th><th>Tipo</th><th>Receptor · motivo</th><th className="u-ta-r">Monto</th><th>Constancia</th><th>RH / factura</th><th>Voucher del pago</th><th>Reposición</th></tr></thead>
             <tbody>
               {pag.pagina.map(g => (
                 <tr key={g.id}>
                   <td>{abrirFicha(g)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(g.issue_date || g.reception_date)}</td>
+                  <td className="u-nw">{fechaPe(g.issue_date || g.reception_date)}</td>
                   {proyectos.length > 1 && proy === 'todos' && <td className="small">{nombreProy(g)}</td>}
                   <td>{estadoDe(g)}</td>
                   <td className="small">{g.type}</td>
-                  <td title={g.description}>{g.recipient || '—'}<div className="muted small" style={{ textTransform: 'none' }}>{(g.description || '').slice(0, 60)}</div></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{soles(g.amount)}</b></td>
+                  <td title={g.description}>{g.recipient || '—'}<div className="muted small u-tt-n">{(g.description || '').slice(0, 60)}</div></td>
+                  <td className="u-ta-r u-nw"><b>{soles(g.amount)}</b></td>
                   <td>{docConstancia(g)}<div>{chipAnexos(g)}</div></td>
                   <td>{docRH(g)}</td>
                   <td>{docVoucher(g)}</td>

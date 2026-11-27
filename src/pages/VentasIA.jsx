@@ -82,7 +82,7 @@ export default function VentasIA() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Agente de ventas</h1>
+        <h1 className="u-m0 u-f1">Agente de ventas</h1>
         {cfg && (
           <span className="small" title={cfg.latido ? 'Último latido del bot: ' + fHora(cfg.latido) : 'El bot nunca reportó'}>
             {vivo ? '🟢 bot corriendo' : '🔴 el bot no reporta'}
@@ -94,7 +94,7 @@ export default function VentasIA() {
       {falta && <p className="error">{falta}</p>}
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
       {!puede && <p className="hint muted">Modo consulta: configurar y resolver pases es del superusuario.</p>}
-      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+      <div className="toolbar u-fwr">
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'btn-primary' : 'btn-ghost'} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!falta && cfg && tab === 'pases' && <Pases puede={puede} profile={profile} setMsg={setMsg} />}
@@ -147,7 +147,7 @@ function Pases({ puede, profile, setMsg }) {
     const tel = telDe(p.lead?.phone)
     const ok = Object.values(p.entendio || {}).filter(v => v === true).length
     return (
-      <div key={p.id} className="glass form-card" style={{ maxWidth: 'none', marginBottom: 10 }}>
+      <div key={p.id} className="glass form-card u-mxw-n u-mb-10">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <b style={{ fontSize: '1.05em' }}>{TIPO_PASE[p.tipo] || p.tipo}{cuandoPase(p) ? ' · ' + cuandoPase(p) : ''}</b>
           <span>{p.lead?.full_name || '—'}</span>
@@ -162,7 +162,7 @@ function Pases({ puede, profile, setMsg }) {
           {p.nota && <><br />📝 {p.nota}</>}
         </p>
         {puede && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-6 u-fwr">
             <button className="btn-primary" disabled={ocupado} onClick={() => resolver(p, 'atendido')}>✅ Ya se atendió</button>
             <button className="btn-ghost" disabled={ocupado} onClick={() => resolver(p, 'cancelado')}>✖ Cancelar</button>
           </div>
@@ -176,7 +176,7 @@ function Pases({ puede, profile, setMsg }) {
       <div className="toolbar">
         <label className="inline-check"><input type="checkbox" checked={verPruebas} onChange={e => setVerPruebas(e.target.checked)} /> Ver las pruebas</label>
       </div>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         {abiertos.length
           ? <><b>{abiertos.length}</b> cliente(s) listos esperando al asesor. Al asesor ya le llegó el aviso por WhatsApp con el resumen; aquí se marca cuando se atendió.</>
           : 'No hay pases pendientes.'}
@@ -324,7 +324,7 @@ function Proyectos({ puede, profile, setMsg }) {
 
   return (
     <>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         Cada proyecto decide quién atiende a los que escriben a su número. Para prender el agente: primero <b>🧪 solo en Probar Bot</b>, pruébalo, y recién ahí <b>✅ sin bot</b>.
         Las cifras (precio, inicial, cuota) salen de los lotes de la base con la regla de abajo: revisa la tabla contra el manual antes de prenderlo.
       </p>
@@ -349,25 +349,25 @@ function Proyectos({ puede, profile, setMsg }) {
       </div>
 
       {proySel && f && (
-        <div className="glass form-card" style={{ maxWidth: 'none', marginTop: 10 }}>
+        <div className="glass form-card u-mxw-n u-mt-10">
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
             <b style={{ flex: 1, fontSize: '1.05em' }}>🏗 {proySel.name}</b>
             {cambiado && <span className="small error">● cambios sin guardar</span>}
           </div>
 
-          <p style={{ marginBottom: 4 }}><b>Quién atiende</b></p>
+          <p className="u-mb-4"><b>Quién atiende</b></p>
           <div className="form-grid">
             <label>Los que escriben a este proyecto
               <select value={f.modo} onChange={campo('modo')} disabled={!puede}>
                 {Object.entries(MODOS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
               </select>
             </label>
-            <label>Nombre del asesor <span className="muted small">(el agente lo nombra al pasar)</span><input value={f.asesor_nombre} onChange={campo('asesor_nombre')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
+            <label>Nombre del asesor <span className="muted small">(el agente lo nombra al pasar)</span><input className="u-tt-n" value={f.asesor_nombre} onChange={campo('asesor_nombre')} disabled={!puede} /></label>
             <label>Celular del asesor <span className="muted small">(le llegan los pases, solo por Telegram)</span><input value={f.asesor_phone} onChange={campo('asesor_phone')} disabled={!puede} placeholder="51987654321" /></label>
           </div>
-          {!manualDe(sel) && f.modo !== 'bot' && <p className="small error" style={{ textTransform: 'none' }}>⚠ Este proyecto no tiene manual: el agente solo tendría la ficha de la landing. Cárgalo en 📘 Manual.</p>}
+          {!manualDe(sel) && f.modo !== 'bot' && <p className="small error u-tt-n">⚠ Este proyecto no tiene manual: el agente solo tendría la ficha de la landing. Cárgalo en 📘 Manual.</p>}
 
-          <p style={{ marginBottom: 4 }}><b>Cómo se arma la cuota</b></p>
+          <p className="u-mb-4"><b>Cómo se arma la cuota</b></p>
           <div className="form-grid">
             <label>Número de cuotas<input type="number" min="1" max="120" value={f.cuotas} onChange={campo('cuotas')} disabled={!puede} /></label>
             <label>Redondeo de la cuota (hacia arriba)
@@ -380,30 +380,30 @@ function Proyectos({ puede, profile, setMsg }) {
             <label>Separación (S/)<input type="number" min="0" value={f.separacion} onChange={campo('separacion')} disabled={!puede} /></label>
           </div>
 
-          <p style={{ marginBottom: 4 }}><b>Escalonamiento</b> <span className="muted small">(el agente solo lo explica si el cliente pregunta si va a subir)</span></p>
+          <p className="u-mb-4"><b>Escalonamiento</b> <span className="muted small">(el agente solo lo explica si el cliente pregunta si va a subir)</span></p>
           <div className="form-grid">
             <label>Sube por m² con cada meta (S/)<input type="number" min="0" value={f.subida_m2} onChange={campo('subida_m2')} disabled={!puede} /></label>
-            <label>Siguiente meta<input value={f.siguiente_meta} onChange={campo('siguiente_meta')} disabled={!puede} style={{ textTransform: 'none' }} placeholder="la construcción del pozo de agua" /></label>
+            <label>Siguiente meta<input className="u-tt-n" value={f.siguiente_meta} onChange={campo('siguiente_meta')} disabled={!puede} placeholder="la construcción del pozo de agua" /></label>
           </div>
           {sube > 0 && (
-            <p className="small muted" style={{ textTransform: 'none' }}>
+            <p className="small muted u-tt-n">
               Con la siguiente meta: {[300, 400, 500].map(a => `${a} m² sube ${soles(a * sube)} (cuota +${soles(a * sube / (Number(f.cuotas) || 48))}, al día +${soles(a * sube / (Number(f.cuotas) || 48) / 30)})`).join(' · ')}
             </p>
           )}
 
-          <label style={{ display: 'block', marginTop: 8 }}>Lotes que NO se ofrecen <span className="muted small">(separados por coma: G-5, H-10)</span>
-            <input value={f.no_ofrecer} onChange={campo('no_ofrecer')} disabled={!puede} style={{ width: '100%' }} />
+          <label className="u-d-b u-mt-8">Lotes que NO se ofrecen <span className="muted small">(separados por coma: G-5, H-10)</span>
+            <input className="u-w-100" value={f.no_ofrecer} onChange={campo('no_ofrecer')} disabled={!puede} />
           </label>
-          {noEstan.length > 0 && <p className="small muted" style={{ textTransform: 'none' }}>No están disponibles hoy (no cambia nada): {noEstan.join(', ')}</p>}
+          {noEstan.length > 0 && <p className="small muted u-tt-n">No están disponibles hoy (no cambia nada): {noEstan.join(', ')}</p>}
 
           {puede && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+            <div className="u-d-f u-g-6 u-fwr u-mt-10">
               <button className="btn-primary" disabled={ocupado || !cambiado} onClick={guardar}>Guardar</button>
               {cambiado && <button className="btn-ghost" disabled={ocupado} onClick={() => setF(formDe(proySel, cfgs[sel]))}>Descartar cambios</button>}
             </div>
           )}
 
-          <p style={{ marginTop: 16, marginBottom: 4 }}><b>Lo que va a decir el agente</b> <span className="muted small">(lotes disponibles de la base, con la regla de arriba)</span></p>
+          <p className="u-mt-16 u-mb-4"><b>Lo que va a decir el agente</b> <span className="muted small">(lotes disponibles de la base, con la regla de arriba)</span></p>
           {!lotes ? <p className="small muted">Leyendo lotes…</p> : !grupos.length ? <p className="small error">No hay lotes disponibles para ofrecer.</p> : (
             <div className="table-wrap">
               <table>
@@ -427,7 +427,7 @@ function Proyectos({ puede, profile, setMsg }) {
               </table>
             </div>
           )}
-          {excluidos.length > 0 && <p className="small muted" style={{ textTransform: 'none' }}>No se ofrecen: {excluidos.join(', ')}</p>}
+          {excluidos.length > 0 && <p className="small muted u-tt-n">No se ofrecen: {excluidos.join(', ')}</p>}
         </div>
       )}
     </>
@@ -541,12 +541,12 @@ function Manual({ cfg, puede, profile, setMsg }) {
 
   return (
     <>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         El manual dice <b>cómo vende</b> el agente: qué contar del entorno, cómo responder objeciones, qué no decir. Un manual puede servir a varios proyectos.
         Manda sobre la ficha de la landing, <b>salvo las cifras</b> (precio, inicial, cuota), que salen de los lotes de la base con la regla de 🏗 Proyectos.
         Las indicaciones de ⚙️ Configuración mandan sobre el manual.
       </p>
-      <p className="small muted" style={{ textTransform: 'none' }}>
+      <p className="small muted u-tt-n">
         {lee === undefined ? '⚠ El bot todavía tiene el código anterior y no lee manuales: falta correr el 07.'
           : lee === null ? '⚠ El bot no encuentra la tabla de manuales: falta correr sql/94.'
           : `🤖 El bot lee ${lee} manual(es)`}
@@ -578,17 +578,17 @@ function Manual({ cfg, puede, profile, setMsg }) {
       {!lista.length && sel !== 'nuevo' && <p className="hint">Todavía no hay manuales.</p>}
 
       {f && (
-        <div className="glass form-card" style={{ maxWidth: 'none', marginTop: 10 }}>
+        <div className="glass form-card u-mxw-n u-mt-10">
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <b style={{ flex: 1 }}>{sel === 'nuevo' ? '📘 Manual nuevo' : '📘 ' + original?.titulo}</b>
+            <b className="u-f1">{sel === 'nuevo' ? '📘 Manual nuevo' : '📘 ' + original?.titulo}</b>
             <span className="small muted">≈ {tokensAprox(f.texto).toLocaleString('en-US')} tokens</span>
             {cambiado && <span className="small error">● cambios sin guardar</span>}
           </div>
           <div className="form-grid">
-            <label>Título<input value={f.titulo} onChange={e => setF(x => ({ ...x, titulo: e.target.value }))} disabled={!puede} style={{ textTransform: 'none' }} /></label>
+            <label>Título<input className="u-tt-n" value={f.titulo} onChange={e => setF(x => ({ ...x, titulo: e.target.value }))} disabled={!puede} /></label>
           </div>
           <p className="small" style={{ margin: '8px 0 4px' }}><b>Sirve a</b></p>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div className="u-d-f u-g-12 u-fwr">
             {conBot.map(p => (
               <label key={p.id} className="inline-check">
                 <input type="checkbox" disabled={!puede} checked={f.proyectos.includes(p.id)}
@@ -597,9 +597,9 @@ function Manual({ cfg, puede, profile, setMsg }) {
             ))}
           </div>
           {puede && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
+            <div className="u-d-f u-g-6 u-fwr u-mt-10 u-ai-c">
               <button className="btn-ghost" disabled={leyendo} onClick={() => archivo.current?.click()}>{leyendo ? 'Leyendo el Word…' : '📄 Cargar desde Word (.docx)'}</button>
-              <input ref={archivo} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: 'none' }} onChange={deWord} />
+              <input className="u-d-n" ref={archivo} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={deWord} />
               <span className="small muted">o pega el texto abajo</span>
             </div>
           )}
@@ -607,10 +607,10 @@ function Manual({ cfg, puede, profile, setMsg }) {
             style={{ width: '100%', marginTop: 8, textTransform: 'none', fontFamily: 'inherit' }}
             placeholder={'El manual de ventas: el rol del agente, qué debe entender el cliente, el entorno, las respuestas a objeciones, lo prohibido…\n\nLas tablas de precios pueden ir, pero las cifras que dice el agente salen siempre de la base.'} />
           {puede && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+            <div className="u-d-f u-g-6 u-fwr u-mt-8">
               <button className="btn-primary" disabled={ocupado || !cambiado} onClick={guardar}>Guardar manual</button>
               {cambiado && sel !== 'nuevo' && <button className="btn-ghost" disabled={ocupado} onClick={() => setF({ titulo: original.titulo, proyectos: [...(original.proyectos || [])], texto: original.texto })}>Descartar cambios</button>}
-              {sel !== 'nuevo' && <button className="btn-ghost" disabled={ocupado} onClick={borrar} style={{ marginLeft: 'auto' }}>🗑 Borrar manual</button>}
+              {sel !== 'nuevo' && <button className="btn-ghost u-ml-a" disabled={ocupado} onClick={borrar}>🗑 Borrar manual</button>}
             </div>
           )}
         </div>
@@ -649,10 +649,10 @@ function Resultados({ cfg }) {
 
   return (
     <>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         El experimento solo corre en los proyectos que siguen con bot: de cada 10 leads que piden asesor, algunos los atiende el agente. Los proyectos sin bot no entran aquí.
       </p>
-      <div className="toolbar" style={{ flexWrap: 'wrap', gap: 8 }}>
+      <div className="toolbar u-fwr u-g-8">
         <label className="small">Desde <input type="date" value={desde} onChange={e => setDesde(e.target.value)} /></label>
         <button className="btn-ghost" onClick={cargar}>Actualizar</button>
       </div>
@@ -671,16 +671,16 @@ function Resultados({ cfg }) {
           </tbody>
         </table>
       </div>
-      <p className="small muted" style={{ textTransform: 'none' }}>
+      <p className="small muted u-tt-n">
         El agente propuso {ia.propuestas_agente} visita(s) y pasó {ia.derivados} lead(s) a una persona. Costo aproximado de Claude: US$ {usd.toFixed(2)}
         {Number(ia.leads) ? ` (US$ ${(usd / Number(ia.leads)).toFixed(2)} por lead)` : ''}.
       </p>
       {Number(ia.intervenidos) > 0 && (
-        <p className="error" style={{ textTransform: 'none' }}>
+        <p className="error u-tt-n">
           ⚠ {ia.intervenidos} lead(s) del agente fueron tocados por una persona (escribió desde el celular o el panel). Esas conversaciones no las terminó el agente: míralas en <b>Leads del agente</b>.
         </p>
       )}
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         <b>Cómo se mide:</b> los dos grupos salen del mismo reparto al azar y se miden igual: una visita cuenta si está en <b>Visitas</b> con el celular del lead
         y fue registrada después del reparto. Las pruebas no cuentan.
         {pocos && <><br />⚠ Todavía son pocos leads: con menos de 10 del agente y 20 del supervisor, una diferencia puede ser suerte.</>}
@@ -736,7 +736,7 @@ function Leads() {
           </table>
         </div>
       )}
-      <p className="small muted" style={{ textTransform: 'none' }}>Las conversaciones completas están en <b>WhatsApp</b>. Si le escribes al lead desde ahí, el agente se calla en ese chat.</p>
+      <p className="small muted u-tt-n">Las conversaciones completas están en <b>WhatsApp</b>. Si le escribes al lead desde ahí, el agente se calla en ese chat.</p>
     </>
   )
 }
@@ -781,17 +781,17 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
 
   return (
     <>
-      <div className="glass form-card" style={{ maxWidth: 'none' }}>
-        <p className="small muted" style={{ textTransform: 'none', marginTop: 0 }}>
+      <div className="glass form-card u-mxw-n">
+        <p className="small muted u-tt-n u-mt-0">
           Bot: {cfg.latido ? 'último latido ' + fHora(cfg.latido) : 'nunca reportó'} · Claude {info.ia ? (info.clave_propia ? '✅ clave propia' : '⚠ usando la clave general') : '❌ sin clave'}
           <br />Qué proyectos atiende el agente se decide en <b>🏗 Proyectos</b>. Para probarlo sin tocar clientes: <b>Probar Bot</b> → perfil lead → escribe como cliente nombrando el proyecto.
         </p>
       </div>
 
-      <form className="glass form-card" style={{ maxWidth: 'none' }} onSubmit={guardarForm}>
+      <form className="glass form-card u-mxw-n" onSubmit={guardarForm}>
         <p><b>El agente</b></p>
         <div className="form-grid">
-          <label>Nombre con el que se presenta <span className="muted small">(vacío = "del equipo de ventas")</span><input value={f.nombre_agente || ''} onChange={campo('nombre_agente')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
+          <label>Nombre con el que se presenta <span className="muted small">(vacío = "del equipo de ventas")</span><input className="u-tt-n" value={f.nombre_agente || ''} onChange={campo('nombre_agente')} disabled={!puede} /></label>
           <label>Modelo
             <select value={f.modelo} onChange={campo('modelo')} disabled={!puede}>
               {MODELOS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
@@ -810,17 +810,17 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
           <label>…máximo (seg)<input type="number" min="0" max="600" value={f.lectura_max_seg} onChange={campo('lectura_max_seg')} disabled={!puede} /></label>
           <label>Celular del dueño <span className="muted small">(alarmas del agente)</span><input value={f.aviso_phone || ''} onChange={campo('aviso_phone')} disabled={!puede} placeholder="51924947651" /></label>
         </div>
-        <p className="small muted" style={{ textTransform: 'none' }}>
+        <p className="small muted u-tt-n">
           Para parecer una persona: espera un rato al azar antes de contestar (y si el cliente sigue escribiendo, espera a que termine), muestra "escribiendo…" según el largo del mensaje y parte las respuestas en mensajes cortos.
           Fuera de horario no contesta: lo hace al abrir.
         </p>
 
-        <label style={{ marginTop: 10, display: 'block' }}>Indicaciones para el agente <span className="muted small">(mandan sobre el manual: una oferta de este mes CONFIRMADA, un cambio de horario de visitas, qué no decir…)</span>
-          <textarea rows="6" value={f.notas || ''} onChange={campo('notas')} disabled={!puede} style={{ textTransform: 'none' }}
+        <label className="u-mt-10 u-d-b">Indicaciones para el agente <span className="muted small">(mandan sobre el manual: una oferta de este mes CONFIRMADA, un cambio de horario de visitas, qué no decir…)</span>
+          <textarea className="u-tt-n" rows="6" value={f.notas || ''} onChange={campo('notas')} disabled={!puede}
             placeholder={'Ej: Las visitas salen de la oficina de Pucallpa a las 9 y a las 3.\nEste sábado la oficina está cerrada.'} />
         </label>
 
-        <p style={{ marginTop: 16 }}><b>Experimento contra el supervisor</b> <span className="muted small">(solo proyectos que siguen con bot)</span></p>
+        <p className="u-mt-16"><b>Experimento contra el supervisor</b> <span className="muted small">(solo proyectos que siguen con bot)</span></p>
         <label className="inline-check" style={{ display: 'flex', margin: '6px 0' }}>
           <input type="checkbox" disabled={!puede} checked={!!cfg.activo} onChange={e => interruptor(e.target.checked)} />
           🧪 Repartir los leads que piden asesor entre el agente y el supervisor
@@ -828,9 +828,9 @@ function Configuracion({ cfg, puede, profile, recargar, setMsg }) {
         <div className="form-grid">
           <label>De cada 10 leads, cuántos al agente<input type="number" min="0" max="10" value={f.ia_por_cada_10} onChange={campo('ia_por_cada_10')} disabled={!puede} /></label>
           <label>Encargado de sus visitas (sale en Visitas)<input value={f.encargado_nombre || ''} onChange={campo('encargado_nombre')} disabled={!puede} placeholder="CESAR" /></label>
-          <label>Punto de encuentro para las visitas<input value={f.punto_encuentro || ''} onChange={campo('punto_encuentro')} disabled={!puede} style={{ textTransform: 'none' }} /></label>
+          <label>Punto de encuentro para las visitas<input className="u-tt-n" value={f.punto_encuentro || ''} onChange={campo('punto_encuentro')} disabled={!puede} /></label>
         </div>
-        {puede && <button className="btn-primary" style={{ marginTop: 10 }}>Guardar configuración</button>}
+        {puede && <button className="btn-primary u-mt-10">Guardar configuración</button>}
       </form>
     </>
   )

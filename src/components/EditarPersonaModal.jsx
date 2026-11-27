@@ -48,12 +48,12 @@ export default function EditarPersonaModal({ persona: inicial, titulo, onCerrar,
     <div className="modal-bg" onClick={busy ? undefined : onCerrar}>
       <div className="glass modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, width: '96%', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="modal-head">
-          <b style={{ flex: 1 }}>&#9998; {titulo || 'Editar datos'} — {inicial.full_name}</b>
+          <b className="u-f1">&#9998; {titulo || 'Editar datos'} — {inicial.full_name}</b>
           <button className="btn-ghost" onClick={onCerrar} disabled={busy} aria-label="Cerrar">&#10005;</button>
         </div>
         <FormPersona persona={p} setPersona={setP} archivo={archivo} setArchivo={setArchivo} onLeyendo={setLeyendo} />
-        {err && <p className="error" style={{ marginTop: 10, textTransform: 'none' }}>{err}</p>}
-        <div className="acc-row" style={{ marginTop: 12 }}>
+        {err && <p className="error u-mt-10 u-tt-n">{err}</p>}
+        <div className="acc-row u-mt-12">
           <button className="btn-primary" onClick={guardar} disabled={busy || leyendo}>
             {busy ? 'Guardando…' : leyendo ? 'Leyendo el DNI…' : 'Guardar datos'}
           </button>

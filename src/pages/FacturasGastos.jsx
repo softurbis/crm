@@ -110,7 +110,7 @@ export default function FacturasGastos() {
         <button className="btn-ghost" onClick={cargar} disabled={cargando}>↻ Actualizar</button>
       </div>
       <p><Link to="/gastos">← Volver a Gastos</Link></p>
-      <p className="hint" style={{ textTransform: 'none' }}>
+      <p className="hint u-tt-n">
         Las facturas que Victor o Alex le emiten al dueño de cada proyecto por un gasto. Se piden en <b>Gastos</b>, columna RH/Factura,
         botón <b>🧾 emitir factura</b>, apenas se crea el gasto (no espera las firmas). Si la factura salió por el portal de SUNAT, se sube su PDF en el gasto y el sistema ya no deja emitir otra. Si el comprobante es un RH o la factura de otra persona, se sigue subiendo.
       </p>
@@ -154,7 +154,7 @@ export default function FacturasGastos() {
             <label className="inline-check" style={{ alignSelf: 'end' }}>
               <input type="checkbox" checked={!!form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} /> Puede emitir</label>
           </div>
-          <p className="muted small" style={{ textTransform: 'none' }}>
+          <p className="muted small u-tt-n">
             La razón social y el domicilio tienen que decir lo mismo que el archivo de su RUC en el servidor: eso es lo que viaja a SUNAT. Aquí es lo que se ve en el panel y en el PDF.
           </p>
           <div className="acc-row">
@@ -176,20 +176,20 @@ export default function FacturasGastos() {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Factura</th><th>Emite</th><th>A nombre de</th><th>Proyecto</th><th>Gastos</th><th style={{ textAlign: 'right' }}>Total</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Factura</th><th>Emite</th><th>A nombre de</th><th>Proyecto</th><th>Gastos</th><th className="u-ta-r">Total</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {visibles.map(c => {
               const e = ESTADOS[c.estado] || ESTADOS.pendiente
               return (
                 <tr key={c.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fechaPe(c.fecha_emision)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}><button className="link-btn" onClick={() => setVer(c)}>{nombreTipo(c)} <b>{c.numero != null ? nombreComprobante(c) : '(sin número aún)'}</b></button>
-                    {c.tipo === 'nota_credito' && <div className="muted small" style={{ textTransform: 'none' }}>anula la factura {c.ref_serie}-{c.ref_numero}</div>}</td>
+                  <td className="u-nw">{fechaPe(c.fecha_emision)}</td>
+                  <td className="u-nw"><button className="link-btn" onClick={() => setVer(c)}>{nombreTipo(c)} <b>{c.numero != null ? nombreComprobante(c) : '(sin número aún)'}</b></button>
+                    {c.tipo === 'nota_credito' && <div className="muted small u-tt-n">anula la factura {c.ref_serie}-{c.ref_numero}</div>}</td>
                   <td>{nombreEmisor(c.ruc)}</td>
                   <td>{c.cliente_nombre}<div className="muted small">{c.cliente_numero}</div></td>
                   <td>{nombreProyecto[c.project_id] || '-'}</td>
                   <td>{gastosDeComprobante(c).length}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b>{c.tipo === 'nota_credito' ? '−' : ''}{soles(c.total)}</b></td>
+                  <td className="u-ta-r u-nw"><b>{c.tipo === 'nota_credito' ? '−' : ''}{soles(c.total)}</b></td>
                   <td><button type="button" className={'cp-chip ' + e.c} title={e.ayuda} onClick={() => setVer(c)}>{e.t}{esPrueba(c) ? ' · prueba' : ''}</button>
                     {['rechazado', 'error'].includes(c.estado) && c.mensaje && <div className="muted small" style={{ textTransform: 'none', maxWidth: 320 }}>{c.mensaje}</div>}</td>
                   <td>{c.pdf_url && <a className="cp-pdf" href={c.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>

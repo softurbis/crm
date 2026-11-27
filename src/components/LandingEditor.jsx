@@ -153,20 +153,20 @@ export default function LandingEditor({ pr, setPub, avisar }) {
   return (
     <div className="sin-mayus" style={{ marginTop: 10, padding: 14, borderRadius: 12, background: 'rgba(0,0,0,.2)', display: 'grid', gap: 12 }}>
       {/* estado + link */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="u-d-f u-g-10 u-ai-c u-fwr">
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>
           <input type="checkbox" checked={!!l.landing_activa} onChange={e => activar(e.target.checked)} /> Página pública activa
         </label>
-        <span className="muted" style={{ fontSize: 12 }}>
+        <span className="muted u-fs-12">
           {l.landing_activa ? '🟢 Cualquiera con el link la ve.' : '⚪ Borrador: el link solo muestra una vista previa a quien tiene sesión.'} Se guarda al marcar.
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12 }}>{linkLanding('')}</span>
+      <div className="u-d-f u-g-8 u-ai-c u-fwr">
+        <span className="muted u-fs-12">{linkLanding('')}</span>
         <input value={l.slug || ''} placeholder={slugify(pr.name)} onChange={e => set('slug', limpiarSlug(e.target.value))} style={{ width: 230 }} />
         {link && <button type="button" className="btn-ghost" onClick={copiar}>🔗 Copiar link</button>}
         {link && <a className="btn-ghost" href={l.landing_activa ? link : linkVistaPrevia(slug)} target="_blank" rel="noreferrer">👁️ Abrir</a>}
-        <button type="button" className="btn" onClick={guardar} disabled={guardando} style={{ marginLeft: 'auto' }}>{guardando ? 'Guardando…' : '💾 Guardar landing'}</button>
+        <button type="button" className="btn u-ml-a" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : '💾 Guardar landing'}</button>
       </div>
 
       {/* portada */}
@@ -177,11 +177,11 @@ export default function LandingEditor({ pr, setPub, avisar }) {
           {campo('marca', 'Quién firma', 'Urbis Group')}
         </div>
         {area('subtitulo', 'Bajada (una o dos líneas)', 'Lotes a aproximadamente 1 km de la laguna…', 2)}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+        <div className="u-d-f u-g-10 u-ai-c u-fwr u-fs-12">
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>Color de marca
             <input type="color" value={l.color || pr.color || '#0f6b4f'} onChange={e => set('color', e.target.value)} style={{ width: 44, height: 30, padding: 2 }} />
           </label>
-          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🏷️ Logo (PNG sin fondo)<input type="file" accept="image/*" onChange={subirLogo} style={{ display: 'none' }} /></label>
+          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🏷️ Logo (PNG sin fondo)<input className="u-d-n" type="file" accept="image/*" onChange={subirLogo} /></label>
           {(l.logo_url || pr.logo_url) && <img src={l.logo_url || pr.logo_url} alt="" style={{ height: 34, background: '#2a3a31', borderRadius: 6, padding: 3 }} />}
           <span className="muted">La portada es la foto marcada con ★ en la galería (o la de 🖼️ Foto de portada).</span>
         </div>
@@ -191,7 +191,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
       <div style={bloque}>
         {titulo('EL PROYECTO')}
         {area('descripcion', 'Descripción', 'Qué es, dónde está y para quién es', 3)}
-        <span className="muted" style={{ fontSize: 12 }}>Razones para elegirlo (hasta 6 tarjetas):</span>
+        <span className="muted u-fs-12">Razones para elegirlo (hasta 6 tarjetas):</span>
         {beneficios.map((b, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 1fr) minmax(200px, 2fr) auto', gap: 6 }}>
             <input value={b.titulo || ''} placeholder="Título" onChange={e => setBen(i, 'titulo', e.target.value)} />
@@ -204,13 +204,13 @@ export default function LandingEditor({ pr, setPub, avisar }) {
 
       {/* galería */}
       <div style={bloque}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="u-d-f u-g-10 u-ai-c u-fwr">
           {titulo(`GALERÍA (${galeria.length})`)}
-          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>📷 Subir fotos<input type="file" accept="image/*" multiple onChange={subirFotos} style={{ display: 'none' }} /></label>
-          {subiendo && <span style={{ fontSize: 12 }}>{subiendo}</span>}
-          <span className="muted" style={{ fontSize: 12 }}>Sube la foto original en alta: se convierte sola a 4 tamaños para web y la página abre rápido en celular. Se guarda al instante.</span>
+          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>📷 Subir fotos<input className="u-d-n" type="file" accept="image/*" multiple onChange={subirFotos} /></label>
+          {subiendo && <span className="u-fs-12">{subiendo}</span>}
+          <span className="muted u-fs-12">Sube la foto original en alta: se convierte sola a 4 tamaños para web y la página abre rápido en celular. Se guarda al instante.</span>
         </div>
-        <div className="muted" style={{ fontSize: 12 }}>
+        <div className="muted u-fs-12">
           Las primeras fotos rotan en la portada (planos y mapas no entran). La foto cuya descripción diga <b>ruta</b>, <b>acceso</b> o <b>cómo llegar</b> se usa en la sección "Cómo llegar".
           {' '}Marca <b>Render</b> en las imágenes que no son fotos reales: salen aparte, en "Así se verá", con la nota "Imagen referencial; las obras se ejecutan por etapas".
         </div>
@@ -231,7 +231,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
                     Render (imagen referencial)
                   </label>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div className="u-d-f u-jc-sb">
                   <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => mover(i, -1)} title="Mover antes">←</button>
                   <button type="button" className="btn-ghost" onClick={() => set('foto_url', g.url)} title="Usar de portada (luego Guardar)">★</button>
                   <button type="button" className="btn-ghost" onClick={() => quitar(i)} title="Quitar">✕</button>
@@ -251,7 +251,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
           {campo('cuotas_txt', 'Cuotas', '48 cuotas sin intereses')}
           {campo('precio_desde_txt', 'Precio desde (si lo dejas vacío sale el menor de tus lotes)', '20100')}
         </div>
-        <span className="muted" style={{ fontSize: 12 }}>Si escribes un precio, ese manda (20100 se muestra como S/ 20,100). Si lo dejas vacío, la página muestra el menor precio de tus lotes disponibles. Los contadores siempre van en vivo.</span>
+        <span className="muted u-fs-12">Si escribes un precio, ese manda (20100 se muestra como S/ 20,100). Si lo dejas vacío, la página muestra el menor precio de tus lotes disponibles. Los contadores siempre van en vivo.</span>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
           <input type="checkbox" checked={l.mostrar_stock !== false} onChange={e => set('mostrar_stock', e.target.checked)} /> Mostrar lotes disponibles y vendidos
         </label>
@@ -266,7 +266,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
         </div>
         {!l.whatsapp && !telSesion && <span style={{ fontSize: 12, color: '#f0a0a0' }}>⚠ Sin número la página solo muestra el formulario.</span>}
         {campanas.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+          <div className="u-d-f u-g-8 u-ai-c u-fwr u-fs-12">
             <select value="" onChange={e => { const c = campanas.find(x => x.id === e.target.value); if (c) set('wa_texto', c.wa_text) }} style={{ maxWidth: 320 }}>
               <option value="">Usar el mensaje de una campaña…</option>
               {campanas.map(c => <option key={c.id} value={c.id}>{c.name} · {c.status}</option>)}
@@ -290,7 +290,7 @@ export default function LandingEditor({ pr, setPub, avisar }) {
       {/* chat de dudas */}
       <div style={bloque}>
         {titulo(`CHAT "¿TIENES DUDAS?" (${faq.length} de 6 preguntas)`)}
-        <span className="muted" style={{ fontSize: 12 }}>Burbuja abajo a la izquierda que aparece al bajar. El cliente toca una pregunta y ve la respuesta al instante; si tiene otra duda, lo manda al WhatsApp. Sin preguntas, la burbuja no sale.</span>
+        <span className="muted u-fs-12">Burbuja abajo a la izquierda que aparece al bajar. El cliente toca una pregunta y ve la respuesta al instante; si tiene otra duda, lo manda al WhatsApp. Sin preguntas, la burbuja no sale.</span>
         {faq.map((q, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(240px, 2fr) auto', gap: 6, alignItems: 'start' }}>
             <input value={q.p || ''} placeholder="Pregunta (ej. ¿Cuánto cuesta un lote?)" onChange={e => setFaq(i, 'p', e.target.value)} />
@@ -307,17 +307,17 @@ export default function LandingEditor({ pr, setPub, avisar }) {
         <label>Fotos 360° (el link de nuestras fotos, p. ej. https://urbisgroupinmobiliaria.com/recorrido/praderas-de-cashibo/fotos/ — o el link / código &lt;iframe&gt; de Panoraven: se queda solo con el link)
           <input value={l.tour_url || ''} placeholder="https://urbisgroupinmobiliaria.com/recorrido/…/fotos/" onChange={e => set('tour_url', srcDeIframe(e.target.value))} />
         </label>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🧊 Subir visor (archivo .html)<input type="file" accept=".html,.htm,text/html" onChange={subirVisor} style={{ display: 'none' }} /></label>
-          <span className="muted" style={{ fontSize: 12 }}>o pega un link (recorrido 3D: https://urbisgroupinmobiliaria.com/recorrido/…/):</span>
+        <div className="u-d-f u-g-10 u-ai-c u-fwr">
+          <label className="btn-ghost" style={{ cursor: 'pointer', flexDirection: 'row' }}>🧊 Subir visor (archivo .html)<input className="u-d-n" type="file" accept=".html,.htm,text/html" onChange={subirVisor} /></label>
+          <span className="muted u-fs-12">o pega un link (recorrido 3D: https://urbisgroupinmobiliaria.com/recorrido/…/):</span>
           <input value={l.visor_url || ''} placeholder="https://urbisgroupinmobiliaria.com/recorrido/…/" onChange={e => set('visor_url', e.target.value)} style={{ flex: '1 1 260px' }} />
           {l.visor_url && <a className="btn-ghost" href={l.visor_url} target="_blank" rel="noreferrer">👁️ Abrir</a>}
           {l.visor_url && <button type="button" className="btn-ghost" onClick={() => set('visor_url', '')} title="Quitar de la landing (luego Guardar)">✕</button>}
         </div>
-        <span className="muted" style={{ fontSize: 12 }}>Salen en la sección "Recorrido virtual" (si hay los dos, con pestañas: primero el 3D). En PC se abren dentro de la página; en celular el 3D y nuestras fotos 360° se abren en pestaña aparte, a pantalla completa.</span>
+        <span className="muted u-fs-12">Salen en la sección "Recorrido virtual" (si hay los dos, con pestañas: primero el 3D). En PC se abren dentro de la página; en celular el 3D y nuestras fotos 360° se abren en pestaña aparte, a pantalla completa.</span>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <div className="u-d-f u-jc-fe">
         <button type="button" className="btn" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : '💾 Guardar landing'}</button>
       </div>
     </div>

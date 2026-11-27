@@ -396,30 +396,30 @@ export default function Migracion() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Cargar archivos de migración</h1>
+        <h1 className="u-m0 u-f1">Cargar archivos de migración</h1>
         <ProjectPicker />
       </div>
       {puedeCorregir && <p><Link to="/conciliacion">Conciliar el Desglosado de Neshuya y descargar respaldo de proyectos</Link></p>}
 
       <div className="glass" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '3px solid var(--accent)' }}>
-        <p style={{ margin: '0 0 6px' }}><b>Cómo se usa</b></p>
-        <p className="muted small" style={{ margin: 0, textTransform: 'none' }}>
+        <p className="u-m-006"><b>Cómo se usa</b></p>
+        <p className="muted small u-m0 u-tt-n">
           1. En Drive, abre la carpeta del proyecto → botón derecho → <b>Descargar</b> (te la baja en un ZIP).<br />
           2. Descomprime el ZIP en tu PC.<br />
           3. Aquí abajo elige esa carpeta. <b>Nada se sube todavía</b>: primero ves el plan.<br />
           4. Revisa el plan y recién entonces dale a subir.
         </p>
-        <p className="hint" style={{ margin: '8px 0 0' }}>
+        <p className="hint u-m-800">
           <b>De los lotes:</b> se reconocen por su nombre — <b>SEPARACION</b>, <b>INICIAL</b>, <b>CUOTA 07</b> (o
           <b> CUOTA 02,03,04</b> si un depósito pagó varias). Las carpetas <b>VOUCHERS</b>, <b>BOLETAS</b>,
           <b> DOCUMENTOS</b> y <b>DNI</b> deciden a dónde va cada uno. Los <b>IMPRIMIR.docx</b> se descartan solos.
         </p>
-        <p className="hint" style={{ margin: '6px 0 0' }}>
+        <p className="hint u-m-600">
           <b>Los Word no hay que convertirlos:</b> si el .docx es una foto pegada en Word (como casi todos los
           vouchers), al subirlo el sistema le saca la foto y guarda esa, tal cual, sin perder calidad. Si el Word
           es un documento de verdad —un contrato, una constancia redactada— se sube completo sin tocarlo.
         </p>
-        <p className="hint" style={{ margin: '6px 0 0' }}>
+        <p className="hint u-m-600">
           <b>De los gastos:</b> también entran los de <b>DOCUMENTOS ADMINISTRATIVOS</b> — las constancias de
           recepción van al espacio de <b>constancia</b> del gasto y los RxH / facturas / vouchers de depósito
           al de <b>sustento</b>. Se emparejan por el lote que nombran, el concepto y el mes. Los que nombran el
@@ -461,7 +461,7 @@ export default function Migracion() {
             <div style={{ height: 8, background: 'rgba(255,255,255,.1)', borderRadius: 4, overflow: 'hidden' }}>
               <div style={{ width: (progreso.hechos / Math.max(1, progreso.total) * 100) + '%', height: '100%', background: 'var(--accent)', transition: 'width .2s' }} />
             </div>
-            <p className="muted small" style={{ textTransform: 'none' }}>{progreso.actual}</p>
+            <p className="muted small u-tt-n">{progreso.actual}</p>
           </div>
         )}
         {listo && (
@@ -472,21 +472,21 @@ export default function Migracion() {
         )}
         {!!errores.length && (
           <div className="hint" style={{ maxHeight: 160, overflowY: 'auto' }}>
-            {errores.map((e, i) => <p key={i} className="small" style={{ margin: 0, textTransform: 'none' }}>✕ {e.nombre}: {e.error}</p>)}
+            {errores.map((e, i) => <p key={i} className="small u-m0 u-tt-n">✕ {e.nombre}: {e.error}</p>)}
           </div>
         )}
       </div>
 
       {!!plan.length && (
         <>
-          <div className="chips" style={{ marginTop: 14 }}>
+          <div className="chips u-mt-14">
             {CHIP.map(([k, l, n]) => (
               <button key={k} className={`chip ${ver === k ? 'on' : ''}`} onClick={() => setVer(k)}>{l} ({n})</button>
             ))}
           </div>
           {porRevisar.length > 0 && (
-            <div className="hint" style={{ margin: '0 0 8px' }}>
-              <p style={{ margin: 0 }}>
+            <div className="hint u-m-008">
+              <p className="u-m0">
                 &#9888; <b>{porRevisar.length} archivos son una sugerencia mía, no una certeza</b> — el nombre no
                 alcanza para estar seguro. <b>No se suben</b> hasta que marques su casilla (columna OK).
                 {' '}Aprobados: <b>{aceptarTodo ? porRevisar.length : [...confirmados].filter(r => porRevisar.some(f => f.ruta === r)).length}</b> de {porRevisar.length}.
@@ -514,7 +514,7 @@ export default function Migracion() {
                       )}
                       {f.estado === 'listo' && <span className="ok">✓</span>}
                     </td>
-                    <td style={{ textTransform: 'none' }}>{f.nombre} <span className="muted small">({f.kb} KB)</span></td>
+                    <td className="u-tt-n">{f.nombre} <span className="muted small">({f.kb} KB)</span></td>
                     <td>{f.etiqueta || '—'}</td>
                     <td>{f.destino ? DESTINO_LBL[f.destino] : '—'}</td>
                     <td>
@@ -525,7 +525,7 @@ export default function Migracion() {
                       {f.estado === 'ignorar' && <span className="st-chip st-na">descartado</span>}
                       {f.estado === 'extra' && <span className="st-chip st-na">sobrante</span>}
                     </td>
-                    <td className="muted small" style={{ textTransform: 'none' }}>
+                    <td className="muted small u-tt-n">
                       {f.detalle}
                       {/* en los documentos de gasto se puede elegir a mano a cuál va */}
                       {f.gasto && !subiendo && (

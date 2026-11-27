@@ -642,16 +642,16 @@ export default function Expenses() {
         {' '}<a href={g[campo]} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
         {!readOnly && <> <button className="link-btn" title={nota || 'sin nota'} onClick={() => notaDoc(g, campo)}>&#128221;</button></>}
         {puedeCorregir && !fijo && <>
-          {' '}<label className="link-btn" title="Reemplazar el documento por otro archivo" style={{ cursor: 'pointer' }}>&#128260;
+          {' '}<label className="link-btn u-cp" title="Reemplazar el documento por otro archivo">&#128260;
             <input type="file" accept="image/*,.pdf,.docx" hidden
               onChange={e => e.target.files[0] && subirDoc(g, e.target.files[0], campo, carpeta)} />
           </label>
           {' '}<button className="link-btn" title="Quitar el documento (queda en bitácora)" onClick={() => quitarDocGasto(g, campo)}>&#128465;</button>
         </>}
-        {nota && <div className="muted small" style={{ textTransform: 'none' }}>{nota}</div>}
+        {nota && <div className="muted small u-tt-n">{nota}</div>}
         {campo === 'receipt_url' && <>
           {rhExtras(g).map((d, i) => (
-            <div key={i} className="small" style={{ textTransform: 'none' }}>
+            <div key={i} className="small u-tt-n">
               <button className="link-btn" onClick={() => setVerDoc({ url: d.url, titulo: 'RH ' + (i + 2) + ' de este gasto' })}>VER RH {i + 2}</button>
               {' '}<a href={d.url} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
               {d.note && <span className="muted"> · {d.note}</span>}
@@ -659,7 +659,7 @@ export default function Expenses() {
             </div>
           ))}
           {!readOnly && rhExtras(g).length < 7 && (
-            <label className="link-btn small" style={{ cursor: 'pointer' }}
+            <label className="link-btn small u-cp"
               title="Un pago puede juntar varios RH (3, 5, hasta 6): agrégalos aquí, cada uno con su nota">
               &#10133; otro RH
               <input type="file" accept="image/*,.pdf,.docx" hidden
@@ -673,7 +673,7 @@ export default function Expenses() {
     if (g[naDe(campo)]) return (
       <>
         <span className="muted" title={g[naMotivo(campo)] || ''}>NO APLICA</span>
-        {g[naMotivo(campo)] && <div className="muted small" style={{ textTransform: 'none' }}>{g[naMotivo(campo)]}</div>}
+        {g[naMotivo(campo)] && <div className="muted small u-tt-n">{g[naMotivo(campo)]}</div>}
         {puedeNA && <button className="link-btn muted small" onClick={() => quitarNoAplica(g, campo)}>volver a pedirlo</button>}
       </>
     )
@@ -902,21 +902,21 @@ export default function Expenses() {
     if (e === 'aprobado') return pagoPendiente(g)
       ? <span className="warn" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>💸 PAGO PENDIENTE<br /><span className="muted small">aprobó {(g.approved_name || '').split(' ')[0]} · {g.voucher_url ? 'voucher subido, falta confirmar el pago' : 'falta comprobante'}</span></span>
       : <span className="ok" title={'Aprobado por ' + (g.approved_name || '') + ' · código ' + (g.approval_code || '')}>✍ APROBADO<br /><span className="muted small">{(g.approved_name || '').split(' ')[0]}{g.approval_papel_por ? ' · en papel' : ''}</span></span>
-    if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small" style={{ textTransform: 'none' }}>{(g.rejected_reason || '').slice(0, 40)}</span></span>
+    if (e === 'rechazado') return <span className="bad" title={g.rejected_reason || ''}>✖ RECHAZADO<br /><span className="muted small u-tt-n">{(g.rejected_reason || '').slice(0, 40)}</span></span>
     if (e === 'por_firmar') return <span className="warn" title={'Espera la firma de ' + nombreFirmante(g)}>&#9203; POR FIRMAR<br /><span className="muted small">{primerFirmante(g)}{g.approval_papel ? ' · después ' + primerNombre(g.sender) + ' en papel' : ''}</span></span>
     // la firma que toca va A MANO (sql/183): falta subir la hoja firmada
     if (e === 'en_papel') {
       const quien = firmasEnPapelFaltan(g).map(l => primerNombre(l === 'solicitud' ? g.recipient : g.sender)).join(' y ')
-      return <span className="warn" title="Se firma a mano: falta subir la foto de la hoja firmada">📄 FIRMA EN PAPEL<br /><span className="muted small" style={{ textTransform: 'none' }}>falta la hoja de {quien || 'quien firma'}</span></span>
+      return <span className="warn" title="Se firma a mano: falta subir la foto de la hoja firmada">📄 FIRMA EN PAPEL<br /><span className="muted small u-tt-n">falta la hoja de {quien || 'quien firma'}</span></span>
     }
-    if (sinSolicitante(g)) return <span className="bad" title="Se registró sin elegir quién pide el gasto: nadie firmó primero">⚠ FALTA QUIÉN LA PIDE<br /><span className="muted small" style={{ textTransform: 'none' }}>corrígela con "editar"</span></span>
+    if (sinSolicitante(g)) return <span className="bad" title="Se registró sin elegir quién pide el gasto: nadie firmó primero">⚠ FALTA QUIÉN LA PIDE<br /><span className="muted small u-tt-n">corrígela con "editar"</span></span>
     return <span className="warn">&#9203; {proyecto?.expense_approval ? 'POR APROBAR' : 'SOLICITADO'}</span>
   }
 
   // firmar, aprobar o (la socia) subir el comprobante; `grande` = botón a lo ancho (celular)
   const accionesFirma = (g, grande) => {
     const st = grande ? { width: '100%', padding: '.8rem', fontSize: '1rem' } : { fontSize: 12, whiteSpace: 'nowrap' }
-    const espera = t => <span className="muted small" style={{ textTransform: 'none' }}>⏳ {t}</span>
+    const espera = t => <span className="muted small u-tt-n">⏳ {t}</span>
     return <>
       {miPuedeFirmar(g) && <button className="btn-primary" style={st} onClick={() => setAprobar({ g, modo: 'solicitar' })}>✍ Firmar</button>}
       {estadoGasto(g) === 'por_firmar' && !miPuedeFirmar(g) && espera('espera la firma de ' + primerFirmante(g))}
@@ -930,7 +930,7 @@ export default function Expenses() {
         : espera('se firma a mano: falta subir la hoja'))}
       {/* cómo se firma: se puede cambiar mientras alguna firma falte */}
       {puedeCambiarFirma && g.status === 'solicitado' && !g.rejected_at && (!g.requester_signed_at || (proyecto?.expense_approval && !g.approved_at)) && (
-        <div><button className="link-btn muted small" style={{ textTransform: 'none' }} title="Cambiar una firma pendiente de digital a papel o al revés"
+        <div><button className="link-btn muted small u-tt-n" title="Cambiar una firma pendiente de digital a papel o al revés"
           onClick={() => setFormaFirma(g)}>✎ {g.requester_papel || g.approval_papel ? 'firma en papel' : 'firma digital'} · cambiar</button></div>
       )}
     </>
@@ -941,17 +941,17 @@ export default function Expenses() {
   const hojaPendiente = g => puedeSubirHoja && estadoGasto(g) === 'en_papel' && hojaListaParaSubir(g)
   // registro directo (sql/200): no hay constancia ni firmas
   const docConstancia = g => g.voucher_grupo
-    ? <span className="muted small" style={{ textTransform: 'none' }} title="Registrado directo con el voucher">— sin constancia<br />(registro directo)</span>
+    ? <span className="muted small u-tt-n" title="Registrado directo con el voucher">— sin constancia<br />(registro directo)</span>
     : <>
     <button className="link-btn" onClick={() => setPrt(g)}>imprimir</button>{' | '}
     {hojaPendiente(g) && !g.request_doc_url
       ? <button type="button" className="upload-btn" onClick={() => setHoja(g)}>📄 subir hoja</button>
       // la aprobación va en papel pero antes firma alguien en el panel: la hoja se sube después
       : firmasEnPapelFaltan(g).length && !g.request_doc_url && estadoGasto(g) === 'por_firmar'
-        ? <span className="muted small" style={{ textTransform: 'none' }}>hoja en papel: después de la firma de {primerFirmante(g)}</span>
+        ? <span className="muted small u-tt-n">hoja en papel: después de la firma de {primerFirmante(g)}</span>
         : <UpBtn g={g} campo="request_doc_url" carpeta="constancias" label="firmada" />}
     {hojaPendiente(g) && g.request_doc_url && <div><button type="button" className="upload-btn" onClick={() => setHoja(g)}>📄 subir hoja con la firma que falta</button></div>}
-    {(g.requester_papel_por || g.approval_papel_por) && <div className="muted small" style={{ textTransform: 'none' }}>firmada a mano{nombreDe(g.approval_papel_por || g.requester_papel_por) ? ' · subió ' + primerNombre(nombreDe(g.approval_papel_por || g.requester_papel_por)) : ''}</div>}
+    {(g.requester_papel_por || g.approval_papel_por) && <div className="muted small u-tt-n">firmada a mano{nombreDe(g.approval_papel_por || g.requester_papel_por) ? ' · subió ' + primerNombre(nombreDe(g.approval_papel_por || g.requester_papel_por)) : ''}</div>}
   </>
 
   // ANEXOS (sql/234): en todo gasto, también los de registro directo. Antes de correr el
@@ -974,7 +974,7 @@ export default function Expenses() {
       const tot = hermanos.reduce((s, x) => s + Number(x.amount || 0), 0)
       return <>
         <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
-        {hermanos.length > 1 && <div className="small" style={{ textTransform: 'none' }}>
+        {hermanos.length > 1 && <div className="small u-tt-n">
           <span className="muted">{hermanos.findIndex(x => x.id === g.id) + 1} de {hermanos.length} gastos del voucher ({soles(tot)})</span>{' '}
           {fGrupo !== g.voucher_grupo && <button type="button" className="link-btn small" onClick={() => setFGrupo(g.voucher_grupo)}>ver los {hermanos.length}</button>}
         </div>}
@@ -982,8 +982,8 @@ export default function Expenses() {
     }
     if (proyecto?.expense_approval && g.status !== 'confirmado' && !g.rejected_at) {
       if (g.voucher_url) return <><UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
-        {pagoPendiente(g) && <div className="warn small" style={{ textTransform: 'none' }}>falta confirmar el pago</div>}</>
-      return <span className="muted small" style={{ textTransform: 'none' }}>{!pagoPendiente(g) ? 'se sube después de las dos firmas'
+        {pagoPendiente(g) && <div className="warn small u-tt-n">falta confirmar el pago</div>}</>
+      return <span className="muted small u-tt-n">{!pagoPendiente(g) ? 'se sube después de las dos firmas'
         : miPuedePagar(g) ? 'con 💸 Subir comprobante' : 'lo sube la socia o su secretaria'}</span>
     }
     return <UpBtn g={g} campo="voucher_url" carpeta="sustentos" label="subir" />
@@ -1016,7 +1016,7 @@ export default function Expenses() {
         <button className="link-btn" onClick={() => setVerDoc({ url: r.voucher_url, titulo: 'Reposición a ' + r.persona })}>VER</button>
         {' '}<a href={r.voucher_url} target="_blank" rel="noreferrer" title="abrir en otra pestaña" className="muted small">↗</a>
         {esJefe && <> <button className="link-btn" title="Quitar la reposición (queda en bitácora)" onClick={() => quitarReposicion(r)}>&#128465;</button></>}
-        <div className="muted small" style={{ textTransform: 'none' }}>
+        <div className="muted small u-tt-n">
           a {r.persona} · {r.fecha}{n > 1 ? ' · cubre ' + n + ' gastos (' + soles(r.monto) + ')' : ''}{r.operacion ? ' · OP ' + r.operacion : ''}
         </div>
       </>
@@ -1103,7 +1103,7 @@ export default function Expenses() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Gastos</h1>
+        <h1 className="u-m0 u-f1">Gastos</h1>
         <ProjectPicker />
         {/* las facturas que Victor y Alex emitieron por gastos, de todos los proyectos (sql/233) */}
         {esJefe && emisores !== null && <Link className="btn-ghost btn-link" to="/facturas-gastos">🧾 Facturas de gastos</Link>}
@@ -1115,9 +1115,9 @@ export default function Expenses() {
       </div>
 
       {tplOpen && puedeCorregir && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
+        <div className="glass form-card u-mxw-n">
           <p><b>PLANTILLA DE CONSTANCIA DE RECEPCION — {proyecto?.name}</b></p>
-          <p className="small warn" style={{ textTransform: 'none' }}>
+          <p className="small warn u-tt-n">
             🔒 Los gastos que ya están firmados conservan el texto con que se firmaron. Cambiar la plantilla solo afecta a las solicitudes que todavía no tienen firma.
           </p>
           <p className="small">VARIABLES: {GASTO_VARS.map(v => <code key={v} className="tok">{'{{' + v + '}}'}</code>)}</p>
@@ -1171,14 +1171,14 @@ export default function Expenses() {
       {/* lo que se le debe a cada persona que adelantó dinero, con su botón */}
       {deudaPorPersona.length > 0 && (
         <div className="glass form-card" style={{ maxWidth: 'none', padding: '10px 14px' }}>
-          <p style={{ margin: '0 0 6px' }}><b>💸 FALTA REPONER</b> <span className="muted small" style={{ textTransform: 'none' }}>— dinero que alguien adelantó y todavía no se le devolvió</span></p>
+          <p className="u-m-006"><b>💸 FALTA REPONER</b> <span className="muted small u-tt-n">— dinero que alguien adelantó y todavía no se le devolvió</span></p>
           {deudaPorPersona.map(d => (
             <div key={d.persona} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '3px 0' }}>
               <b style={{ minWidth: 180 }}>{d.persona}</b>
               <span className="muted small">{d.ids.length} gasto{d.ids.length > 1 ? 's' : ''}</span>
               <b style={{ fontVariantNumeric: 'tabular-nums' }}>{soles(d.total)}</b>
               <button type="button" className="link-btn small" onClick={() => { setFest('falta_reponer'); setFb({ ...FILTRO_VACIO, q: d.persona }) }}>ver</button>
-              {puedeReponer && <button type="button" className="btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }}
+              {puedeReponer && <button type="button" className="btn-ghost u-ml-a u-fs-12"
                 onClick={() => setReponer({ persona: d.persona, ids: d.ids })}>💸 Subir reposición</button>}
             </div>
           ))}
@@ -1188,26 +1188,26 @@ export default function Expenses() {
 
       {/* REGISTRO DIRECTO (sql/200): sin solicitud ni firmas; un voucher, varios gastos */}
       {proyecto?.gasto_directo && (
-        <p className="hint" style={{ textTransform: 'none' }}>
+        <p className="hint u-tt-n">
           📌 En <b>{proyecto.name}</b> los gastos no se solicitan: se registran directo con el voucher, ya pagados, sin constancia ni firmas.
           Un voucher puede tener varios gastos. El RH o la factura se sube después en cada uno.
         </p>
       )}
       {fGrupo && (
-        <p className="hint" style={{ textTransform: 'none' }}>
+        <p className="hint u-tt-n">
           🧾 Mostrando solo los gastos de un voucher ({soles(list.filter(g => g.voucher_grupo === fGrupo).reduce((s, g) => s + Number(g.amount || 0), 0))}).{' '}
           <button type="button" className="link-btn" onClick={() => setFGrupo(null)}>ver todos ✕</button>
         </p>
       )}
       {esSuper && proyecto && 'gasto_directo' in proyecto && (
-        <label className="inline-check" style={{ display: 'block', margin: '0 0 6px' }}>
+        <label className="inline-check u-d-b u-m-006">
           <input type="checkbox" checked={!!proyecto.gasto_directo} onChange={e => toggleDirecto(e.target.checked)} />
           {' '}Este proyecto registra los gastos <b>directo con el voucher</b> (sin solicitud ni firmas)
         </label>
       )}
       {/* exigir o no la firma del socio es una regla del proyecto: la decide solo el superusuario */}
       {esSuper && proyecto && 'expense_approval' in proyecto && !proyecto.gasto_directo && (
-        <label className="inline-check" style={{ display: 'block', margin: '0 0 10px' }}>
+        <label className="inline-check u-d-b u-m-0010">
           <input type="checkbox" checked={!!proyecto.expense_approval} onChange={e => toggleAprobacion(e.target.checked)} />
           {' '}Este proyecto exige la <b>aprobación firmada de un socio</b> antes de confirmar el pago
         </label>
@@ -1218,9 +1218,9 @@ export default function Expenses() {
       {((meToca && !tengoFirma) || cambiarFirma) && (
         <div className="glass form-card">
           <p><b>✍ {tengoFirma ? 'CAMBIAR' : 'REGISTRA'} TU FIRMA</b></p>
-          <p className="muted small" style={{ textTransform: 'none' }}>Dibújala con el dedo o el mouse, como firmas en papel. Se usa cada vez que firmes, junto con tu contraseña.</p>
+          <p className="muted small u-tt-n">Dibújala con el dedo o el mouse, como firmas en papel. Se usa cada vez que firmes, junto con tu contraseña.</p>
           <FirmaPad busy={firmaBusy} onGuardar={guardarFirma} />
-          {cambiarFirma && <button className="btn-ghost" style={{ marginTop: 8 }} onClick={() => setCambiarFirma(false)}>Cancelar</button>}
+          {cambiarFirma && <button className="btn-ghost u-mt-8" onClick={() => setCambiarFirma(false)}>Cancelar</button>}
         </div>
       )}
       {!cambiarFirma && tengoFirma && (meToca || proyecto?.expense_approval) && (
@@ -1231,12 +1231,12 @@ export default function Expenses() {
       )}
 
       {show && !readOnly && (
-        <form className="glass form-card sg" style={{ maxWidth: 'none' }} onSubmit={guardar} noValidate>
+        <form className="glass form-card sg u-mxw-n" onSubmit={guardar} noValidate>
           <div className="sg-cab">
             <b>{editId ? 'CORREGIR LA SOLICITUD ' + numeroDe(list.find(g => g.id === editId) || {}) : 'NUEVA SOLICITUD DE GASTO'}
               {/* a qué proyecto va: si alguien cambia de proyecto con el formulario abierto, lo ve */}
               {' · '}<span style={{ color: 'var(--accent, #c9a24a)' }}>{proyectoListo ? proyecto.name : 'cargando el proyecto…'}</span></b>
-            <span className="muted small" style={{ textTransform: 'none' }}>
+            <span className="muted small u-tt-n">
               {editId ? 'Se mantiene el mismo número. Si ya tenía firmas, hay que volver a firmarla.' : 'Cuatro pasos. Al final ves la constancia tal como se va a firmar.'}
             </span>
           </div>
@@ -1253,7 +1253,7 @@ export default function Expenses() {
           {paso === 1 && (
             <div className="sg-paso">
               <p className="sg-preg">1. ¿Qué se paga?</p>
-              <div className="chips" style={{ margin: '0 0 12px' }}>
+              <div className="chips u-m-0012">
                 {ATAJOS.map(a => (
                   <button key={a.t} type="button" className={'chip' + (atajoActivo(a) ? ' on' : '')} style={{ textTransform: 'none' }}
                     onClick={() => elegirQue(a)}>{a.t}</button>
@@ -1272,7 +1272,7 @@ export default function Expenses() {
                     <option>EL PROYECTO</option>
                   </select>
                 </label>
-                <label className="span2">Motivo <span className="muted small" style={{ textTransform: 'none' }}>(en la constancia sale: "este monto corresponde al pago por …")</span>
+                <label className="span2">Motivo <span className="muted small u-tt-n">(en la constancia sale: "este monto corresponde al pago por …")</span>
                   <input value={f.description || ''} placeholder={EJEMPLO_TIPO[f.type] || ATAJOS[0].ej}
                     onChange={e => { setF(x => ({ ...x, description: e.target.value })); setFaltaPaso('') }} />
                   <span className="sg-ej">Ej.: {EJEMPLO_TIPO[f.type] || ATAJOS[0].ej}</span>
@@ -1281,12 +1281,12 @@ export default function Expenses() {
               {/* El detalle se llena como una tabla, no escribiendo con barras: cada
                   fila sale igual en la constancia y el total puede llenar el monto. */}
               {!conDetalle ? (
-                <button type="button" className="link-btn" style={{ marginTop: 8 }} onClick={() => setConDetalle(true)}>
+                <button type="button" className="link-btn u-mt-8" onClick={() => setConDetalle(true)}>
                   + Agregar el detalle en una tabla <span className="muted">(opcional: cuando un pago junta varias cosas)</span>
                 </button>
               ) : (
-                <div style={{ marginTop: 10 }}>
-                  <label style={{ marginBottom: 4 }}>Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
+                <div className="u-mt-10">
+                  <label className="u-mb-4">Detalle del gasto <span className="muted small">(opcional — sale como tabla en la constancia)</span></label>
                   <div style={{ overflowX: 'auto' }}>
                     <table className="ctable" style={{ fontSize: 12, minWidth: 440 }}>
                       <thead><tr><th style={{ width: 130 }}>Fecha</th><th>Descripción</th><th style={{ width: 110 }}>Monto S/</th><th style={{ width: 34 }}></th></tr></thead>
@@ -1294,10 +1294,10 @@ export default function Expenses() {
                         {filasVista.map((r, i) => (
                           <tr key={i}>
                             <td>{esFechaDmy(r.fecha) || !r.fecha
-                              ? <input type="date" value={aIso(r.fecha)} style={{ width: '100%' }} onChange={e => setFila(i, 'fecha', e.target.value)} />
-                              : <input value={r.fecha} style={{ width: '100%', textTransform: 'none' }} title="Este gasto viejo no usa fecha en esta columna" onChange={e => setFila(i, 'fecha', e.target.value)} />}</td>
-                            <td><input value={r.desc} style={{ width: '100%', textTransform: 'none' }} placeholder="VENENO PARA FUMIGACION" onChange={e => setFila(i, 'desc', e.target.value)} /></td>
-                            <td><input type="number" step="0.01" value={r.monto} style={{ width: '100%' }} onChange={e => setFila(i, 'monto', e.target.value)} /></td>
+                              ? <input className="u-w-100" type="date" value={aIso(r.fecha)} onChange={e => setFila(i, 'fecha', e.target.value)} />
+                              : <input className="u-w-100 u-tt-n" value={r.fecha} title="Este gasto viejo no usa fecha en esta columna" onChange={e => setFila(i, 'fecha', e.target.value)} />}</td>
+                            <td><input className="u-w-100 u-tt-n" value={r.desc} placeholder="VENENO PARA FUMIGACION" onChange={e => setFila(i, 'desc', e.target.value)} /></td>
+                            <td><input className="u-w-100" type="number" step="0.01" value={r.monto} onChange={e => setFila(i, 'monto', e.target.value)} /></td>
                             <td>{filasVista.length > 1 && <button type="button" className="link-btn bad" title="Quitar esta fila"
                               onClick={() => guardarFilas(filasVista.filter((_, j) => j !== i))}>✕</button>}</td>
                           </tr>
@@ -1305,7 +1305,7 @@ export default function Expenses() {
                       </tbody>
                     </table>
                   </div>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                  <div className="u-d-f u-g-10 u-ai-c u-mt-6 u-fwr">
                     <button type="button" className="btn-ghost" onClick={() => guardarFilas([...filasVista, { fecha: '', desc: '', monto: '' }])}>+ Agregar fila</button>
                     {totalDetalle > 0 && <>
                       <b>TOTAL {soles(totalDetalle)}</b>
@@ -1325,7 +1325,7 @@ export default function Expenses() {
                 {/* El solicitante es la persona que despues FIRMA la solicitud en el
                     panel (sql/74). Con firma de socio es obligatorio (sql/136): sin
                     él no hay primera firma y la socia no puede aprobar. */}
-                <label className="span2">¿Quién pide el gasto? <span className="muted small" style={{ textTransform: 'none' }}>(firma 1, la de la izquierda{proyecto?.expense_approval ? ' · obligatoria' : ''})</span>
+                <label className="span2">¿Quién pide el gasto? <span className="muted small u-tt-n">(firma 1, la de la izquierda{proyecto?.expense_approval ? ' · obligatoria' : ''})</span>
                   {firmantes.length > 0 ? (
                     <select value={f.requester_id || ''}
                       onChange={e => {
@@ -1345,20 +1345,20 @@ export default function Expenses() {
                       ))}
                     </select>
                   ) : (
-                    <span className="muted small" style={{ textTransform: 'none' }}>Falta correr sql/74: la constancia se firma en papel.</span>
+                    <span className="muted small u-tt-n">Falta correr sql/74: la constancia se firma en papel.</span>
                   )}
                   {!f.requester_papel && <span className="sg-ej">Le llega un aviso por WhatsApp y Telegram para firmar con su código. Ej.: VICTOR, que pide el pago de su comisión.</span>}
                   <span className="sg-ej">¿No aparece quien pide? Aquí salen solo los usuarios del panel que tienen <b>este proyecto</b> asignado (se marca en Usuarios). La socia no sale: ella firma del otro lado.</span>
                   {solicitante && !solicitante.tiene_firma && !f.requester_papel && (
-                    <span className="warn small" style={{ textTransform: 'none' }}>⚠ {primerNombre(solicitante.full_name)} todavía no registró su firma: se la pide el panel la primera vez que entre a Gastos.</span>
+                    <span className="warn small u-tt-n">⚠ {primerNombre(solicitante.full_name)} todavía no registró su firma: se la pide el panel la primera vez que entre a Gastos.</span>
                   )}
                 </label>
                 {/* CÓMO FIRMA (sql/183, 5 nov): digital en el panel o a mano en la hoja impresa.
                     Sin quién la pida (proyecto sin firma de socia) se firma en papel como siempre. */}
                 {(proyecto?.expense_approval || f.requester_id) && (
                   <div className="span2">
-                    <p className="sg-sub" style={{ margin: '0 0 4px' }}>¿Cómo firma? <span className="muted small" style={{ textTransform: 'none' }}>(firma 1, la de la izquierda)</span></p>
-                    <div className="chips" style={{ margin: 0 }}>
+                    <p className="sg-sub u-m-004">¿Cómo firma? <span className="muted small u-tt-n">(firma 1, la de la izquierda)</span></p>
+                    <div className="chips u-m0">
                       <button type="button" className={'chip' + (!f.requester_papel ? ' on' : '')} style={{ textTransform: 'none' }}
                         onClick={() => setF(x => ({ ...x, requester_papel: false }))}>✍ Firma digital (en el panel, con su código)</button>
                       <button type="button" className={'chip' + (f.requester_papel ? ' on' : '')} style={{ textTransform: 'none' }}
@@ -1376,7 +1376,7 @@ export default function Expenses() {
                     }} />
                   <span className="sg-ej">Ej.: el vendedor que cobra su comisión, o el proveedor (el dueño de la excavadora).</span>
                   {solicitante && String(f.recipient || '').trim().toUpperCase() !== String(solicitante.full_name || '').toUpperCase() && (
-                    <button type="button" className="link-btn small" style={{ textAlign: 'left' }}
+                    <button type="button" className="link-btn small u-ta-l"
                       onClick={() => setF(x => ({ ...x, recipient: solicitante.full_name, recipient_dni: solicitante.dni || dniDe(solicitante.full_name) || x.recipient_dni || '' }))}>
                       👤 lo recibe {primerNombre(solicitante.full_name)}, el mismo que lo pide
                     </button>
@@ -1386,7 +1386,7 @@ export default function Expenses() {
                   <input value={f.recipient_dni || ''} inputMode="numeric" onChange={e => { setFaltaPaso(''); setF(x => ({ ...x, recipient_dni: e.target.value })) }} />
                 </label>
                 {hay125 && (
-                  <label className="span2">¿Alguien lo pagó con su propio dinero? <span className="muted small" style={{ textTransform: 'none' }}>(opcional: queda en "falta reponer" hasta que se le devuelva)</span>
+                  <label className="span2">¿Alguien lo pagó con su propio dinero? <span className="muted small u-tt-n">(opcional: queda en "falta reponer" hasta que se le devuelva)</span>
                     <input list="personas-gasto" value={f.adelanto_por || ''} placeholder="vacío = lo paga Urbis o el proyecto"
                       disabled={!!(editId && list.find(x => x.id === editId)?.reposicion_id)}
                       onChange={e => setF(x => ({ ...x, adelanto_por: e.target.value }))} />
@@ -1420,11 +1420,11 @@ export default function Expenses() {
                   <span className="sg-ej">Ej.: RH, si cobra con recibo por honorarios.</span>
                 </label>
                 <div className="span2">
-                  <p className="sg-sub">¿Quién entrega el dinero? <span className="muted small" style={{ textTransform: 'none' }}>(firma 2, la de la derecha)</span></p>
+                  <p className="sg-sub">¿Quién entrega el dinero? <span className="muted small u-tt-n">(firma 2, la de la derecha)</span></p>
                   {/* CÓMO FIRMA LA APROBACIÓN (sql/183, 5 nov): la socia en el panel, o a mano en
                       la hoja (José, "hasta que se adapte"): esa firma en papel es la aprobación */}
                   {proyecto?.expense_approval && (
-                    <div className="chips" style={{ margin: '0 0 8px' }}>
+                    <div className="chips u-m-008">
                       <button type="button" className={'chip' + (!f.approval_papel ? ' on' : '')} style={{ textTransform: 'none' }}
                         onClick={() => { setFaltaPaso(''); setF(x => ({ ...x, approval_papel: false })) }}>✍ Firma digital (la socia en el panel)</button>
                       <button type="button" className={'chip' + (f.approval_papel ? ' on' : '')} style={{ textTransform: 'none' }}
@@ -1437,7 +1437,7 @@ export default function Expenses() {
                   )}
                   {proyecto?.expense_approval && f.approval_papel ? (
                     <>
-                      <div className="form-grid" style={{ margin: 0 }}>
+                      <div className="form-grid u-m0">
                         <label>¿Quién firma la hoja?
                           <input list="personas-gasto" value={f.sender || ''} placeholder="JOSE MACEDO SANCHEZ"
                             onChange={e => {
@@ -1456,7 +1456,7 @@ export default function Expenses() {
                     sociaFija ? (
                       <div className="sg-fija">
                         <b>{sociaFija.full_name}</b>{sociaFija.dni ? ' · DNI ' + sociaFija.dni : <span className="warn"> · ⚠ sin DNI: cárgalo en Usuarios</span>}
-                        <div className="muted small" style={{ textTransform: 'none' }}>Es la socia del proyecto: aprueba, entrega el dinero y sube el voucher del pago. La pone el sistema.</div>
+                        <div className="muted small u-tt-n">Es la socia del proyecto: aprueba, entrega el dinero y sube el voucher del pago. La pone el sistema.</div>
                       </div>
                     ) : socias.length > 1 ? (
                       <select value={f.sender || ''} onChange={e => { const s = socias.find(x => x.full_name === e.target.value); setFaltaPaso(''); setF(x => ({ ...x, sender: e.target.value, sender_dni: s?.dni || '' })) }}>
@@ -1464,10 +1464,10 @@ export default function Expenses() {
                         {socias.map(s => <option key={s.id} value={s.full_name}>{s.full_name}</option>)}
                       </select>
                     ) : (
-                      <p className="bad small" style={{ textTransform: 'none' }}>Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios.</p>
+                      <p className="bad small u-tt-n">Este proyecto no tiene socia asignada: nadie podría aprobar el gasto. Pídele al superusuario que se la asigne en Usuarios.</p>
                     )
                   ) : (
-                    <div className="form-grid" style={{ margin: 0 }}>
+                    <div className="form-grid u-m0">
                       <label>Nombre
                         <input list="personas-gasto" value={f.sender || ''}
                           onChange={e => {
@@ -1504,13 +1504,13 @@ export default function Expenses() {
                   <div>
                     <span className="muted small">FIRMA 1 · IZQUIERDA</span>
                     <b>{izqPapel ? (f.recipient || quienPide) : quienPide || (conSocia ? '⚠ falta elegir' : 'se firma en papel')}</b>
-                    <span className="small" style={{ textTransform: 'none' }}>{mismo ? 'pide el gasto y recibe el dinero' : 'pide el gasto' + (recibe ? ' · el dinero lo recibe ' + recibe : '')}</span>
+                    <span className="small u-tt-n">{mismo ? 'pide el gasto y recibe el dinero' : 'pide el gasto' + (recibe ? ' · el dinero lo recibe ' + recibe : '')}</span>
                     {(quienPide || conSocia) && tipo(izqPapel)}
                   </div>
                   <div>
                     <span className="muted small">FIRMA 2 · DERECHA</span>
                     <b>{entrega || '—'}</b>
-                    <span className="small" style={{ textTransform: 'none' }}>{conSocia ? 'aprueba y entrega el dinero' : 'entrega el dinero'}</span>
+                    <span className="small u-tt-n">{conSocia ? 'aprueba y entrega el dinero' : 'entrega el dinero'}</span>
                     {conSocia && tipo(derPapel)}
                   </div>
                 </div>
@@ -1530,10 +1530,10 @@ export default function Expenses() {
                 {/* VISTA PREVIA: la MISMA constancia que se imprime, armada con lo que
                     está escrito ahora. Así nadie descubre un error recién cuando la
                     imprime para hacerla firmar. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
-                  <b style={{ fontSize: 13 }}>👁️ ASÍ SALE LA CONSTANCIA</b>
-                  {(f.plantilla_propia || '').trim() && !editTexto && <span className="warn small" style={{ textTransform: 'none' }}>con texto propio de esta solicitud</span>}
-                  <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setEditTexto(x => !x)}>
+                <div className="u-d-f u-ai-c u-g-10 u-fwr u-mt-10">
+                  <b className="u-fs-13">👁️ ASÍ SALE LA CONSTANCIA</b>
+                  {(f.plantilla_propia || '').trim() && !editTexto && <span className="warn small u-tt-n">con texto propio de esta solicitud</span>}
+                  <button type="button" className="btn-ghost u-fs-12" onClick={() => setEditTexto(x => !x)}>
                     {editTexto ? '✓ Listo' : '✏️ Editar el texto de esta constancia'}
                   </button>
                 </div>
@@ -1544,7 +1544,7 @@ export default function Expenses() {
                   const firmada = editId && (filaEdit => filaEdit && (filaEdit.requester_signed_at || filaEdit.approved_at))(list.find(g => g.id === editId))
                   return (
                     <div className="sg-texto">
-                      <p className="muted small" style={{ textTransform: 'none', margin: '0 0 6px' }}>
+                      <p className="muted small u-tt-n u-m-006">
                         Cambia solo <b>esta</b> constancia; la plantilla del proyecto queda igual. Lo que está entre <code>{'{{ }}'}</code> se llena
                         solo con los datos de la solicitud (nombre, DNI, monto…): puedes moverlo, pero no lo borres.
                         {firmada && <b className="warn"> Esta solicitud ya tiene firmas: al guardarla con otro texto hay que volver a firmarla.</b>}
@@ -1573,7 +1573,7 @@ export default function Expenses() {
                 })()}
                 <div className="print-area contract"
                   style={{ background: '#fff', color: '#111', padding: '20px 22px', borderRadius: 8, marginTop: 6, maxHeight: 460, overflow: 'auto' }}>
-                  <p style={{ textAlign: 'right' }} className="small"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
+                  <p className="small u-ta-r"><b>SOLICITUD N. {numeroDe(editId ? (list.find(g => g.id === editId) || {}) : {})}</b></p>
                   {constanciaDe({
                     ...f,
                     sender: entrega || f.sender,
@@ -1594,28 +1594,28 @@ export default function Expenses() {
                     </td>
                   </tr></tbody></table>
                 </div>
-                <p className="muted small" style={{ textTransform: 'none', marginTop: 4 }}>
+                <p className="muted small u-tt-n u-mt-4">
                   Las firmas y sus códigos aparecen al imprimirla, cuando ya esté firmada.
                 </p>
                 {/* ANEXOS (sql/234): opcionales; se suben al registrar (necesitan el gasto
                     ya creado). Los que ya tiene una solicitud se manejan con 📎 en la lista. */}
                 {hay234 && (
-                  <div className="sg-texto" style={{ marginTop: 12 }}>
-                    <b style={{ fontSize: 13 }}>📎 ANEXOS <span className="muted small" style={{ textTransform: 'none', fontWeight: 400 }}>(opcional: fotos, boletas, cotizaciones… no cambian las firmas)</span></b>
+                  <div className="sg-texto u-mt-12">
+                    <b className="u-fs-13">📎 ANEXOS <span className="muted small" style={{ textTransform: 'none', fontWeight: 400 }}>(opcional: fotos, boletas, cotizaciones… no cambian las firmas)</span></b>
                     {editId && anexosDe(list.find(g => g.id === editId)).length > 0 && (
                       <p className="muted small" style={{ textTransform: 'none', margin: '4px 0' }}>
                         Ya tiene {anexosDe(list.find(g => g.id === editId)).length} anexo(s): se ven y se quitan con 📎 en la lista. Los de aquí se agregan a esos.
                       </p>
                     )}
                     {anexosNuevos.map((a, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                      <div className="u-d-f u-g-8 u-ai-c u-mt-6" key={i}>
                         <span className="small" style={{ textTransform: 'none', minWidth: 0, flex: '0 1 40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.file.name}>{i + 1}. {a.file.name}</span>
-                        <input value={a.nota} placeholder="nota (opcional): de qué es" maxLength={140} style={{ flex: 1, textTransform: 'none' }}
+                        <input className="u-f1 u-tt-n" value={a.nota} placeholder="nota (opcional): de qué es" maxLength={140}
                           onChange={e => setAnexosNuevos(xs => xs.map((x, j) => j === i ? { ...x, nota: e.target.value } : x))} />
                         <button type="button" className="btn-ghost" title="Sacar este archivo" onClick={() => setAnexosNuevos(xs => xs.filter((_, j) => j !== i))}>✕</button>
                       </div>
                     ))}
-                    <label className="upload-btn" style={{ marginTop: 8, display: 'inline-block', cursor: 'pointer' }}>
+                    <label className="upload-btn u-mt-8 u-d-ib u-cp">
                       + {anexosNuevos.length ? 'Otro anexo' : 'Agregar anexo'}
                       <input type="file" accept="image/*,.pdf,.docx,.doc,.xlsx" multiple hidden
                         onChange={e => { const fs = [...e.target.files]; e.target.value = ''; setAnexosNuevos(xs => [...xs, ...fs.map(file => ({ file, nota: '' }))]) }} />
@@ -1629,13 +1629,13 @@ export default function Expenses() {
           <datalist id="personas-gasto">
             {opcionesPersonas.map(([n, d]) => <option key={n} value={n}>{d ? 'DNI ' + d : ''}</option>)}
           </datalist>
-          {faltaPaso && <p className="error" style={{ textTransform: 'none', margin: '10px 0 0' }}>{faltaPaso}</p>}
+          {faltaPaso && <p className="error u-tt-n u-m-1000">{faltaPaso}</p>}
           <div className="sg-botones">
             {paso > 1 && <button type="button" className="btn-ghost" onClick={() => { setPaso(paso - 1); setFaltaPaso('') }}>← Atrás</button>}
             {paso < 4
               ? <button className="btn-primary">Siguiente →</button>
               : <button className="btn-primary" disabled={busy}>{busy ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Registrar solicitud')}</button>}
-            <button type="button" className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setShow(false)} disabled={busy}>Cancelar</button>
+            <button type="button" className="btn-ghost u-ml-a" onClick={() => setShow(false)} disabled={busy}>Cancelar</button>
           </div>
         </form>
       )}
@@ -1643,8 +1643,8 @@ export default function Expenses() {
       {/* LO QUE TE TOCA, arriba y con su botón: antes había que buscar la fila en
           la tabla y correrla hasta la última columna. */}
       {pendientesMias.length > 0 && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>✍ TE TOCA ({pendientesMias.length})</b></p>
+        <div className="glass form-card u-mxw-n">
+          <p className="u-m-008"><b>✍ TE TOCA ({pendientesMias.length})</b></p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {pendientesMias.slice(0, 8).map(({ g, modo }) => (
               <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1667,9 +1667,9 @@ export default function Expenses() {
       {/* FIRMAS EN PAPEL (sql/183): las hojas que hay que imprimir, hacer firmar a mano y
           subir. La foto subida pone la firma. */}
       {puedeSubirHoja && hojasPorSubir.length > 0 && (
-        <div className="glass form-card" style={{ maxWidth: 'none' }}>
-          <p style={{ margin: '0 0 8px' }}><b>📄 HOJAS FIRMADAS POR SUBIR ({hojasPorSubir.length})</b>
-            <span className="muted small" style={{ textTransform: 'none' }}> — se imprimen, se firman a mano y se sube la foto: eso cuenta como la firma</span></p>
+        <div className="glass form-card u-mxw-n">
+          <p className="u-m-008"><b>📄 HOJAS FIRMADAS POR SUBIR ({hojasPorSubir.length})</b>
+            <span className="muted small u-tt-n"> — se imprimen, se firman a mano y se sube la foto: eso cuenta como la firma</span></p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: esCelular ? 14 : 8 }}>
             {hojasPorSubir.slice(0, 8).map(g => (
               <div key={g.id} style={{ display: 'flex', gap: esCelular ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1693,7 +1693,7 @@ export default function Expenses() {
           Mientras carga el proyecto: la silueta de la tabla (fase 3), no una lista vacía. */}
       {cargandoGastos ? <SiluetaTabla filas={8} columnas={esCelular ? 3 : 8} /> : esCelular ? (
         <div className="gastos-cards">
-          {filtrada.length === 0 && <p className="muted" style={{ padding: 12 }}>No hay gastos con estos filtros.</p>}
+          {filtrada.length === 0 && <p className="muted u-p-12">No hay gastos con estos filtros.</p>}
           {pag.pagina.map(tarjetaGasto)}
         </div>
       ) : (

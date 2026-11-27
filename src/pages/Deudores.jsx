@@ -64,7 +64,7 @@ export default function Deudores() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Lotes con deuda</h1>
+        <h1 className="u-m0 u-f1">Lotes con deuda</h1>
         <button className="btn-primary" disabled={bajando || !vista.length} onClick={excel} title="Baja un Excel con el resumen por proyecto, los lotes con deuda y cada cuota vencida con los datos del cliente">
           {bajando ? 'Armando…' : '📥 Informe Excel'}
         </button>
@@ -100,8 +100,8 @@ export default function Deudores() {
           <table>
             <thead><tr>
               <th>Proyecto · lote</th><th>Cliente</th><th>Celular</th><th>Dirección</th>
-              <th style={{ textAlign: 'right' }}>Vencidas</th><th>Desde</th><th style={{ textAlign: 'right' }}>Deuda vencida</th>
-              <th style={{ textAlign: 'right' }}>Cuota</th><th style={{ textAlign: 'right' }}>Pagadas</th><th style={{ textAlign: 'right' }}>Saldo total</th>
+              <th className="u-ta-r">Vencidas</th><th>Desde</th><th className="u-ta-r">Deuda vencida</th>
+              <th className="u-ta-r">Cuota</th><th className="u-ta-r">Pagadas</th><th className="u-ta-r">Saldo total</th>
             </tr></thead>
             <tbody>
               {vista.map(f => (
@@ -111,14 +111,14 @@ export default function Deudores() {
                   <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 170 }}><b>{f.cliente}</b>
                     <div className="muted">{f.doc_type || 'DNI'} {f.doc_number}</div>
                     {f.co_cliente && <div className="muted">+ {f.co_cliente}</div>}</td>
-                  <td className="small" style={{ whiteSpace: 'nowrap' }}>{f.telefono || <span className="muted">—</span>}{f.telefono2 && <div className="muted">{f.telefono2}</div>}</td>
+                  <td className="small u-nw">{f.telefono || <span className="muted">—</span>}{f.telefono2 && <div className="muted">{f.telefono2}</div>}</td>
                   <td className="small" style={{ textTransform: 'none', whiteSpace: 'normal', minWidth: 160, maxWidth: 260 }}>{f.direccion || <span className="muted">—</span>}</td>
-                  <td style={{ textAlign: 'right' }}><b className="bad">{f.n_vencidas}</b><div className="muted small">de {f.n_cuotas}</div></td>
-                  <td className="small" style={{ whiteSpace: 'nowrap' }}>{fechaPe(f.vencida_desde)}<div className="muted">{f.dias_atraso} días</div></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><b className="bad">{soles(f.deuda_vencida)}</b></td>
-                  <td className="small" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(f.cuota_mensual)}</td>
-                  <td className="small" style={{ textAlign: 'right' }}>{f.n_pagadas}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{soles(f.saldo)}<div className="muted small">de {soles(f.precio)}</div></td>
+                  <td className="u-ta-r"><b className="bad">{f.n_vencidas}</b><div className="muted small">de {f.n_cuotas}</div></td>
+                  <td className="small u-nw">{fechaPe(f.vencida_desde)}<div className="muted">{f.dias_atraso} días</div></td>
+                  <td className="u-ta-r u-nw"><b className="bad">{soles(f.deuda_vencida)}</b></td>
+                  <td className="small u-ta-r u-nw">{soles(f.cuota_mensual)}</td>
+                  <td className="small u-ta-r">{f.n_pagadas}</td>
+                  <td className="u-ta-r u-nw">{soles(f.saldo)}<div className="muted small">de {soles(f.precio)}</div></td>
                 </tr>
               ))}
             </tbody>

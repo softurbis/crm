@@ -253,7 +253,7 @@ export default function Portada() {
           <div className="pt-aparece">
             <h4>Horario</h4>
             <p>Lunes a viernes<br /><span className="pt-suave">9:00 a. m. – 1:00 p. m. · 3:00 – 6:00 p. m.</span></p>
-            <p style={{ marginTop: 8 }}>Sábados<br /><span className="pt-suave">9:00 a. m. – 1:00 p. m.</span></p>
+            <p className="u-mt-8">Sábados<br /><span className="pt-suave">9:00 a. m. – 1:00 p. m.</span></p>
             <Abierto />
           </div>
           <div className="pt-aparece">
@@ -441,7 +441,7 @@ function Calculadora({ proys, lotes }) {
         <input className="pt-rango" type="range" min={MIN} max={MAX} step={10} value={monto} onChange={e => setMonto(Number(e.target.value))}
           style={{ '--pt-p': pct + '%' }} aria-label="Cuánto puedes pagar al mes, en soles" />
         <div className="pt-rango-ext"><span>{soles(MIN)}</span><span>{soles(MAX)}</span></div>
-        {filas.length > 0 && <p className="pt-calc-nota" style={{ marginTop: 12 }}><b>{alcanzan === 0 ? 'Todavía ningún proyecto' : `Te alcanzan ${alcanzan} de ${filas.length} proyectos`}</b>{alcanzan === 0 ? ': sube un poco la cuota o pregunta por más inicial.' : '.'}</p>}
+        {filas.length > 0 && <p className="pt-calc-nota u-mt-12"><b>{alcanzan === 0 ? 'Todavía ningún proyecto' : `Te alcanzan ${alcanzan} de ${filas.length} proyectos`}</b>{alcanzan === 0 ? ': sube un poco la cuota o pregunta por más inicial.' : '.'}</p>}
       </div>
       <div>
         <div className="pt-alc">
@@ -502,7 +502,7 @@ function HojaWa({ proys, onClose }) {
             <span className="pt-hoja-wa"><IcoWa /></span>
           </a>
         ))}
-        {!con.length && <p style={{ fontSize: 14 }}>Cargando…</p>}
+        {!con.length && <p className="u-fs-14">Cargando…</p>}
       </div>
     </div>
   </>)

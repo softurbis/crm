@@ -75,7 +75,7 @@ export default function UsoIA() {
   return (
     <>
       <div className="toolbar">
-        <h1 style={{ margin: 0, flex: 1 }}>Uso de la IA</h1>
+        <h1 className="u-m0 u-f1">Uso de la IA</h1>
         <label className="small">Desde <input type="date" value={desde} max={hasta} onChange={e => e.target.value && setDesde(e.target.value)} /></label>
         <label className="small">Hasta <input type="date" value={hasta} min={desde} max={hoy} onChange={e => e.target.value && setHasta(e.target.value)} /></label>
       </div>
@@ -112,7 +112,7 @@ export default function UsoIA() {
                   const [o, m] = x.k.split(' · ')
                   return (
                     <tr key={x.k}>
-                      <td style={{ textTransform: 'none' }}><b>{ORIGEN[o] || o}</b><div className="muted small">{m}</div></td>
+                      <td className="u-tt-n"><b>{ORIGEN[o] || o}</b><div className="muted small">{m}</div></td>
                       <td style={der}>{num(x.llamadas)}</td>
                       <td style={der}>{x.fallidas ? <b className="bad">{num(x.fallidas)}</b> : <span className="muted">—</span>}</td>
                       <td style={der} className="small">{num(x.tin)}</td><td style={der} className="small">{num(x.cr)}</td>
@@ -151,9 +151,9 @@ export default function UsoIA() {
               <tbody>
                 {verUltimas.map(f => (
                   <tr key={f.id}>
-                    <td className="small" style={{ whiteSpace: 'nowrap' }}>{fechaPe(diaPe(f.created_at))} {horaPe(f.created_at)}</td>
-                    <td style={{ textTransform: 'none' }}>{ORIGEN[f.origen] || f.origen}{f.ref && <div className="muted small">{f.ref}</div>}</td>
-                    <td className="small" style={{ textTransform: 'none' }}>{f.modelo || '—'}</td>
+                    <td className="small u-nw">{fechaPe(diaPe(f.created_at))} {horaPe(f.created_at)}</td>
+                    <td className="u-tt-n">{ORIGEN[f.origen] || f.origen}{f.ref && <div className="muted small">{f.ref}</div>}</td>
+                    <td className="small u-tt-n">{f.modelo || '—'}</td>
                     <td style={der} className="small">{num(f.tokens_in)}</td>
                     <td style={der} className="small">{num(f.tokens_cache_r + f.tokens_cache_w)}</td>
                     <td style={der} className="small">{num(f.tokens_out)}</td>

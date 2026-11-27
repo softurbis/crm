@@ -61,7 +61,7 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
     <div className="modal-bg" onClick={onCerrar}>
       <div className="glass modal fg-modal" onClick={ev => ev.stopPropagation()}>
         <div className="modal-head">
-          <h2 style={{ flex: 1 }}>{numeroGasto(g)} <span className={cls + ' small'} style={{ marginLeft: 8 }}>{txt}</span></h2>
+          <h2 className="u-f1">{numeroGasto(g)} <span className={cls + ' small'} style={{ marginLeft: 8 }}>{txt}</span></h2>
           {onImprimir && <button className="btn-ghost" onClick={() => onImprimir(g)}>🖨 Imprimir constancia</button>}
           <button className="btn-ghost" onClick={onCerrar} aria-label="Cerrar">✕</button>
         </div>
@@ -70,7 +70,7 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
           <div className="fg-monto">{soles(g.amount)}</div>
           <div><b>{g.recipient || '—'}</b>{g.recipient_dni ? <span className="muted"> · DNI {g.recipient_dni}</span> : null}</div>
           <div className="fg-motivo">{g.description || g.type}</div>
-          {g.rejected_at && <div className="bad small" style={{ textTransform: 'none' }}>Motivo del rechazo: {g.rejected_reason || '—'}</div>}
+          {g.rejected_at && <div className="bad small u-tt-n">Motivo del rechazo: {g.rejected_reason || '—'}</div>}
         </div>
 
         <div className="fg-grid">
@@ -86,8 +86,8 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
             {dato('Comprobante que presenta', g.document_type)}
             {dato('Lo adelantó', g.adelanto_por)}
             {items.length > 0 && (
-              <table className="fg-detalle"><thead><tr><th>Fecha</th><th>Detalle</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
-                <tbody>{items.map((a, i) => <tr key={i}><td>{a[0]}</td><td>{a[1]}</td><td style={{ textAlign: 'right' }}>{a[2] ? soles(a[2]) : ''}</td></tr>)}</tbody>
+              <table className="fg-detalle"><thead><tr><th>Fecha</th><th>Detalle</th><th className="u-ta-r">Monto</th></tr></thead>
+                <tbody>{items.map((a, i) => <tr key={i}><td>{a[0]}</td><td>{a[1]}</td><td className="u-ta-r">{a[2] ? soles(a[2]) : ''}</td></tr>)}</tbody>
               </table>
             )}
           </div>
@@ -111,11 +111,11 @@ export default function FichaGasto({ g, proyecto, onCerrar, onImprimir }) {
         <p className="fg-sub">Documentos</p>
         {!docs.length && <p className="muted small">Todavía no tiene documentos.</p>}
         {docs.length > 0 && <>
-          <div className="chips" style={{ marginBottom: 6 }}>
+          <div className="chips u-mb-6">
             {docs.map(d => <button key={d.url} type="button" className={'chip' + (doc?.url === d.url ? ' on' : '')} onClick={() => setDoc(d)}>{d.t}</button>)}
           </div>
           {doc && <>
-            <p className="muted small" style={{ textTransform: 'none', margin: '0 0 4px' }}>{doc.nota ? doc.nota + ' · ' : ''}<a href={doc.url} target="_blank" rel="noreferrer">abrir aparte ↗</a></p>
+            <p className="muted small u-tt-n u-m-004">{doc.nota ? doc.nota + ' · ' : ''}<a href={doc.url} target="_blank" rel="noreferrer">abrir aparte ↗</a></p>
             <VisorDoc key={doc.url} url={doc.url} titulo={doc.t} alto={460} />
           </>}
         </>}
