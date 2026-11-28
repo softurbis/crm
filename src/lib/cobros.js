@@ -273,7 +273,12 @@ export async function registrarSeparacion({ pidOp, lote, clienteId, nuevaPersona
   if (e1) throw new Error('No se pudo crear la separación: ' + e1.message)
   const base = filaPago({ pidOp, loteId: lote.id, clienteId, pago, profile, subida })
   const { error: e2 } = await supabase.from('daily_income').insert({ ...base, amount: Number(pago.monto), income_type: 'separacion', separation_id: sep.id })
-  if (e2) throw new Error('La separación se creó pero el pago NO se registró: ' + e2.message)
+  if (e2) {
+    // 28 nov 2026 (sql/255): sin pago, la separación se deshace — si no, el reintento choca con
+    // el candado del lote (pasó en El Encanto R-5: dos separaciones de la misma persona)
+    const { error: eDel } = await supabase.from('separations').delete().eq('id', sep.id)
+    throw new Error('El pago NO se registró' + (eDel ? ' y la separación quedó creada (bórrala en la ficha antes de reintentar)' : '; la separación se deshizo, puedes reintentar') + ': ' + e2.message)
+  }
   const { error: e3 } = await supabase.from('lots').update({ status: 'separado' }).eq('id', lote.id)
   if (e3) throw new Error('Separación y pago registrados, pero el lote no cambió a SEPARADO: ' + e3.message)
   await avanzarLead({ leadId, clienteId, pid: pidOp, estado: 'negociacion' })
