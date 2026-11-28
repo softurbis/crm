@@ -276,6 +276,9 @@ async function brain(k) {
 // ---------- IA CONVERSACIONAL (Claude) ----------
 const IA_KEY = process.env.ANTHROPIC_API_KEY || ''
 const IA_MODEL = process.env.IA_MODEL || 'claude-haiku-4-5-20251001'
+// cierre del día con IA (28 nov 2026, seguimiento_ia.js). Se apaga desde el panel
+// (bot_settings.seg_ia = '0'); sin clave o si falla, sigue la lectura por números.
+const SEG_IA = require('./seguimiento_ia')({ supabase, log: (...a) => log(...a), clave: IA_KEY })
 
 // tamaño (bytes) de una URL vía HEAD, con cache — para decidir si un video sale
 // como VIDEO o como DOCUMENTO (WhatsApp rechaza videos muy pesados como video,
@@ -372,7 +375,7 @@ async function tieneChecklistAbierto(phone) {
   const { data: sec } = await supabase.from('secretaries').select('id').ilike('phone', '%' + String(phone).slice(-9)).limit(1)
   if (!sec || !sec.length) return false
   const { data: ab } = await supabase.from('secretary_tasks').select('id')
-    .eq('secretary_id', sec[0].id).eq('date', secHoy()).eq('status', 'pendiente')
+    .eq('secretary_id', sec[0].id).eq('date', secHoy()).in('status', ['pendiente', 'en_proceso'])
     .is('answered_at', null).not('asked_at', 'is', null).limit(1)
   return !!(ab && ab.length)
 }
@@ -891,7 +894,7 @@ async function comandoDirecto(texto, opts = {}) {
     }
     if (/pendientes|tareas pend|checklist/.test(t)) {
       const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
-      let qTk = supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).eq('status', 'pendiente').neq('cancelada', true).order('time')
+      let qTk = supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true).order('time')
       // quien no es gerencia ve solo lo suyo (la agenda de los demás no es de su incumbencia)
       if (!ger) {
         const p9 = String(opts.phone || '').replace(/\D/g, '').slice(-9)
@@ -1418,6 +1421,49 @@ async function visitasTick() {
   finally { _visBusy = false }
 }
 
+// A3 (28 nov 2026): lo abierto de días pasados pasa a hoy; las pausadas con fecha vuelven.
+const EST_TXT = { pendiente: 'pendiente', en_proceso: 'en proceso', no_hecha: 'no hecha', sin_respuesta: 'sin respuesta' }
+async function arrastrarTareas(hoy) {
+  const limpio = { ask_index: null, asked_at: null, reminded_at: null, answered_at: null, notified_at: null, answer: null }
+  // pausadas cuya fecha para retomarlas ya llegó
+  const { data: pausadas } = await supabase.from('secretary_tasks').select('id, date, motivo, reanudar_el').eq('status', 'pausada').not('reanudar_el', 'is', null).lte('reanudar_el', hoy)
+  for (const t of (pausadas || [])) {
+    const { error } = await supabase.from('secretary_tasks').update({ ...limpio, status: 'pendiente', date: hoy, motivo: null, reanudar_el: null }).eq('id', t.id).eq('status', 'pausada')
+    if (!error) await supabase.from('tarea_notas').insert({ task_id: t.id, tipo: 'sistema', texto: 'Retomada hoy (estaba pausada' + (t.motivo ? ': ' + t.motivo : '') + ')', via: 'sistema' })
+  }
+  // lo abierto de días pasados (no rutinas, no extras). Solo de los últimos 14 días: al
+  // estrenarlo (28 nov) había tareas abiertas desde julio que ya no aplican y habrían llenado
+  // el pase de lista; lo más viejo queda en su día, a la vista en el panel.
+  const desde = new Date(hoy + 'T12:00:00'); desde.setDate(desde.getDate() - 14)
+  const { data: viejas } = await supabase.from('secretary_tasks').select('id, date, status, arrastres, fecha_original')
+    .lt('date', hoy).gte('date', desde.toLocaleDateString('en-CA')).in('status', ['pendiente', 'en_proceso', 'no_hecha', 'sin_respuesta'])
+    .neq('cancelada', true).is('routine_id', null).neq('category', 'extra').limit(2000)
+  let n = 0
+  for (const t of (viejas || [])) {
+    const { error } = await supabase.from('secretary_tasks').update({
+      ...limpio, date: hoy, arrastres: (t.arrastres || 0) + 1, fecha_original: t.fecha_original || t.date,
+      status: t.status === 'en_proceso' ? 'en_proceso' : 'pendiente',
+    }).eq('id', t.id).eq('date', t.date)
+    if (error) { log('ARRASTRE ' + t.id + ':', error.message); continue }
+    n++
+    await supabase.from('tarea_notas').insert({ task_id: t.id, tipo: 'arrastre', texto: 'Pasó del ' + fmtFechaEs(t.date) + ' (quedó ' + (EST_TXT[t.status] || t.status) + ') · arrastre ' + ((t.arrastres || 0) + 1), via: 'sistema' })
+  }
+  log('ARRASTRE ' + hoy + ': ' + n + ' tarea(s) pasaron a hoy, ' + (pausadas || []).length + ' pausada(s) retomada(s)')
+}
+// ¿hay que resaltarla? 3+ arrastres o 3 días hábiles (lun-sáb) sin novedad, contados desde la
+// última novedad o desde que la tarea VENCE (fecha_original), lo más reciente: una tarea
+// creada hace una semana para hoy no está estancada.
+function diasHabilesDesde(t, hoy) {
+  const nov = t.ultima_novedad_at ? new Date(t.ultima_novedad_at).toLocaleDateString('en-CA', SEC_TZ) : null
+  const desde = [nov, t.fecha_original || t.date].filter(Boolean).sort().pop()
+  if (!desde) return 0
+  let d = new Date(desde + 'T12:00:00'), n = 0
+  const fin = new Date(hoy + 'T12:00:00')
+  while (d < fin) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0) n++ }
+  return n
+}
+const resaltada = (t, hoy) => (t.arrastres || 0) >= 3 || diasHabilesDesde(t, hoy) >= 3
+
 async function secretariaTick() {
   try {
     if (!(await flag('bot_activo'))) return
@@ -1426,6 +1472,14 @@ async function secretariaTick() {
     const md = await brain('secretaria')
     const { data: secs } = await supabase.from('secretaries').select('*').eq('active', true).neq('seguimiento', false)
     if (!secs || !secs.length) return
+
+    // 0) ARRASTRE (28 nov 2026, A3): una vez al día, pasada la medianoche y ANTES del saludo,
+    //    lo que quedó abierto en días anteriores pasa solo a hoy (con contador) y las pausadas
+    //    cuya fecha llegó vuelven a pendiente. Las rutinas no se arrastran: se repiten solas.
+    if (hhmm >= '00:05' && (await ajuste('sec_arrastre_fecha', '')) !== hoy) {
+      await setAjuste('sec_arrastre_fecha', hoy)
+      await arrastrarTareas(hoy).catch(e => log('ARRASTRE:', String(e.message || e)))
+    }
 
     // 1) generar tareas del dia desde las rutinas (idempotente)
     const { data: rutinas } = await supabase.from('secretary_routines').select('*').eq('active', true)
@@ -1444,7 +1498,7 @@ async function secretariaTick() {
       const saludoHora = String(await ajuste('sec_saludo_hora', '07:30')).slice(0, 5)
       if (hhmm >= saludoHora && (await ajuste('sec_saludo', '')) !== hoy) {
         await setAjuste('sec_saludo', hoy)
-        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').neq('cancelada', true)
+        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true)
         const porSec = {}
         for (const tk of (hoyTasks || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
         for (const sec of secs) {
@@ -1467,7 +1521,7 @@ async function secretariaTick() {
       if (hhmm < hora) continue
       if ((await ajuste('sec_ci_' + hora, '')) === hoy) continue   // ya se hizo hoy a esa hora
       await setAjuste('sec_ci_' + hora, hoy)
-      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).neq('cancelada', true)
+      const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).is('answered_at', null).neq('cancelada', true)
       // el pase de la MAÑANA pregunta solo lo de la mañana (lo que dice la pantalla de Tareas:
       // 🌅 / 🌇 = cuándo pasa lista); desde la 1 p. m. pregunta todo lo que siga abierto
       const deTurno = tk => hora >= '13:00' || (tk.time ? String(tk.time).slice(0, 5) < '13:00' : tk.slot !== 'tarde')
@@ -1502,7 +1556,7 @@ async function secretariaTick() {
     // 3) recordatorio unico a los 45 min sin respuesta (configurable: se puede apagar)
     const lim = new Date(Date.now() - 45 * 60000).toISOString()
     const { data: sinResp } = (await ajuste('sec_recordatorio', '1')) === '0' ? { data: [] }
-      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim).neq('cancelada', true)
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).is('answered_at', null).is('reminded_at', null).not('asked_at', 'is', null).lt('asked_at', lim).neq('cancelada', true)
     const porSec2 = {}
     for (const tk of (sinResp || [])) (porSec2[tk.secretary_id] = porSec2[tk.secretary_id] || []).push(tk)
     for (const [sid, tareas] of Object.entries(porSec2)) {
@@ -1602,9 +1656,21 @@ async function secretariaTick() {
           if (!ts.length) continue
           const extras = ts.filter(tk => tk.category === 'extra').length
           const base = ts.filter(tk => tk.category !== 'extra')
-          detalle += '\n*' + sec.full_name + '* — ' + base.filter(tk => tk.status === 'hecha').length + '/' + base.length + ' cumplidas' + (extras ? ' · ' + extras + ' extra(s) 💪' : '') + '\n'
-          for (const tk of ts) detalle += (tk.status === 'hecha' ? '  ✅ ' : tk.status === 'no_hecha' ? '  ❌ ' : tk.status === 'sin_respuesta' ? '  😶 ' : '  ⏳ ') + (tk.category === 'gerencia' ? '[G] ' : tk.category === 'extra' ? '[EXTRA] ' : '') + tk.title + '\n'
+          // 28 nov 2026: con los estados nuevos (en proceso, pausada con motivo) y lo arrastrado
+          const cuenta = s => base.filter(tk => tk.status === s).length
+          detalle += '\n*' + sec.full_name + '* — ' + cuenta('hecha') + '/' + base.length + ' cumplidas'
+            + (cuenta('en_proceso') ? ' · ' + cuenta('en_proceso') + ' en proceso' : '') + (cuenta('pausada') ? ' · ' + cuenta('pausada') + ' pausada(s)' : '')
+            + (extras ? ' · ' + extras + ' extra(s) 💪' : '') + '\n'
+          const ICONO = { hecha: '✅', en_proceso: '◐', pausada: '⏸', no_hecha: '❌', sin_respuesta: '😶', pendiente: '⏳' }
+          for (const tk of ts) detalle += '  ' + (ICONO[tk.status] || '⏳') + ' ' + (tk.category === 'gerencia' ? '[G] ' : tk.category === 'extra' ? '[EXTRA] ' : '') + tk.title
+            + (tk.status === 'en_proceso' && tk.avance_total ? ' (' + (tk.avance_hecho ?? 0) + ' de ' + tk.avance_total + ')' : '')
+            + (tk.status === 'pausada' ? ' (' + (tk.motivo || 'sin motivo') + (tk.reanudar_el ? ' → ' + fmtFechaEs(tk.reanudar_el) : ', sin fecha') + ')' : '')
+            + (tk.arrastres ? ' ↪×' + tk.arrastres : '') + (tk.status !== 'hecha' && resaltada(tk, hoy) ? ' ⚠️' : '') + '\n'
         }
+        // A3: lo que se arrastró 3+ veces o lleva 3 días hábiles sin novedad entra aparte al resumen
+        const ojo = todas.filter(tk => !['hecha', 'pausada'].includes(tk.status) && tk.category !== 'extra' && resaltada(tk, hoy))
+        if (ojo.length) detalle += '\n⚠️ *PARA MIRAR* (arrastradas 3+ veces o 3 días hábiles sin novedad):\n'
+          + ojo.map(tk => '  • ' + ((secs.find(s => s.id === tk.secretary_id)?.full_name || '').split(' ')[0]) + ': ' + tk.title + (tk.arrastres ? ' ↪×' + tk.arrastres : '')).join('\n') + '\n'
         let destinos = []
         try { const d = JSON.parse(await ajuste('sec_resumen_destinos', '[]')); if (Array.isArray(d)) destinos = d.map(x => String(x).replace(/\D/g, '')).filter(x => x.length >= 9) } catch {}
         if (!destinos.length && ADMIN) destinos = [ADMIN]
@@ -1621,7 +1687,12 @@ async function manejarSecretaria(jid, phone, texto) {
   const hoy = secHoy()
   const md = await brain('secretaria')
   const nombre = (sec.full_name || '').split(' ')[0]
-  const { data: abiertas } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).not('asked_at', 'is', null).order('ask_index')
+  const { data: abiertas } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).in('status', ['pendiente', 'en_proceso']).is('answered_at', null).not('asked_at', 'is', null).order('ask_index')
+  const conIA = SEG_IA.activa() && (await ajuste('seg_ia', '1')) !== '0'
+  // "anota llamar al notario el lunes" sin pase de lista abierto: la IA lo propone igual
+  if (conIA && (!abiertas || !abiertas.length) && pideAnotar(texto)) {
+    if (await cierreConIA(jid, sec, texto, nombre, hoy, { sinLista: true })) return
+  }
   if (!abiertas || !abiertas.length) {
     // ¿esta pendiente su feedback del dia?
     if (sec.feedback_asked === hoy && sec.feedback_done !== hoy) {
@@ -1644,6 +1715,9 @@ async function manejarSecretaria(jid, phone, texto) {
     }
     return
   }
+  // CIERRE CON IA (28 nov 2026, A4): entiende la respuesta como la escribe la persona.
+  // Si la IA no está, falla o no devuelve nada útil, sigue la lectura por números de abajo.
+  if (conIA && await cierreConIA(jid, sec, texto, nombre, hoy, { abiertas })) return
   const t = (texto || '').toLowerCase()
 
   // reprogramar: "mueve la 2 para mañana", "la 1 para el 15 a las 10", "cambia la 3 al viernes"
@@ -1701,6 +1775,85 @@ async function manejarSecretaria(jid, phone, texto) {
     await enviar(jid, secTpl(md, 'PENDIENTE', { nombre }, 'Anotado {nombre}, quedan como pendientes. Cualquier avance escríbeme *LISTO* o los números. 💪'), { tipo: 'secretaria', interno: true })
   }
   if (faltan.length && ADMIN) await enviar(ADMIN, '⚠️ *' + sec.full_name + '* reporta pendientes: ' + faltan.map(x => x.title).join(' | '), { tipo: 'aviso_admin', interno: true })
+}
+
+// ---------------------------------------------------------------------------------------
+// CIERRE DEL DÍA CON IA (28 nov 2026, pedido de gerencia A4) — ver seguimiento_ia.js.
+// Devuelve true si atendió el mensaje; false = que siga la lectura por números.
+const pideAnotar = t => /^\s*(anota|an[oó]tame|agenda|ag[eé]ndame|apunta|ap[uú]ntame|recu[eé]rdame|recordarme|hay que|tengo que)\b/i.test(String(t || ''))
+async function cierreConIA(jid, sec, texto, nombre, hoy, { abiertas = [], sinLista = false } = {}) {
+  const { data: deHoy } = await supabase.from('secretary_tasks').select('*').eq('secretary_id', sec.id).eq('date', hoy).neq('cancelada', true)
+    .in('status', ['pendiente', 'en_proceso', 'no_hecha', 'sin_respuesta'])
+    .order('ask_index', { ascending: true, nullsFirst: false }).order('time', { ascending: true, nullsFirst: false })
+  if ((!deHoy || !deHoy.length) && !sinLista) return false
+  // la numeración es la del último pase de lista; lo que no se preguntó va después
+  let max = Math.max(0, ...(deHoy || []).map(x => x.ask_index || 0))
+  const tareas = (deHoy || []).map(x => ({ ...x, n: x.ask_index || ++max }))
+  const porN = new Map(tareas.map(x => [x.n, x]))
+  const r = await SEG_IA.interpretar({ nombre, hoy, hora: secHora(), tareas, texto })
+  if (!r) return false
+  if (!r.acciones.length && !r.nuevas.length) {
+    // ya contestó lo que se le preguntó y escribe "gracias" / "ok": no se insiste
+    if (abiertas.length && abiertas.every(x => String(x.answer || '').startsWith(AUN_NO))) { log('SEG IA: ' + sec.full_name + ' ya había contestado, no se insiste'); return true }
+    if (sinLista) return false
+    await enviar(jid, r.pregunta || r.respuesta || ('🤔 ' + nombre + ', no me quedó claro. ¿Qué pasó con tus tareas?'), { tipo: 'secretaria', interno: true })
+    return true
+  }
+  const { hechas, propuestas } = await SEG_IA.aplicar({ sec, porN, r, texto, hoy, horaAhora: secHora(), slotDeHora, AUN_NO })
+  // la respuesta de la IA solo si TODO lo que dijo quedó aplicado; si no, la arma el código
+  // (y nunca si dice "anoté" habiendo tareas nuevas que todavía esperan el botón)
+  const todoBien = !r.descartadas && hechas.length === r.acciones.length && !(r.nuevas.length && /\banot[eé]\b|\bagend[eé]\b|\bapunt[eé]\b/i.test(r.respuesta || ''))
+  const msj = todoBien && r.respuesta ? r.respuesta : (SEG_IA.resumenCodigo(nombre, hechas) || (propuestas.length ? null : r.respuesta))
+  if (msj) await enviar(jid, msj, { tipo: 'secretaria', interno: true })
+  if (propuestas.length) await mandarPropuestas(sec, propuestas)
+  return true
+}
+
+const ddmmE = f => f ? String(f).slice(8, 10) + '/' + String(f).slice(5, 7) : ''
+function textoPropuestas(filas) {
+  const ic = { propuesta: '•', anotada: '✅', descartada: '✖' }
+  const pend = filas.filter(p => p.estado === 'propuesta').length
+  return '📝 *Entendí ' + (filas.length === 1 ? 'esta tarea nueva' : 'estas tareas nuevas') + ':*\n'
+    + filas.map(p => ic[p.estado] + ' ' + p.texto + ' — ' + (p.fecha ? ddmmE(p.fecha) : 'hoy') + (p.hora ? ' ' + String(p.hora).slice(0, 5) : '')).join('\n')
+    + (pend ? '\n\n¿' + (filas.length === 1 ? 'La anoto' : 'Las anoto') + '?' : '\n\nListo 👍')
+}
+function botonesPropuestas(filas) {
+  const pend = filas.filter(p => p.estado === 'propuesta')
+  const b = pend.map((p, i) => [{ t: '✅ Anotar' + (filas.length > 1 ? ' ' + (filas.indexOf(p) + 1) : ''), d: 'tp:ok:' + p.id }, { t: '✖ No', d: 'tp:no:' + p.id }])
+  if (pend.length > 1) b.push([{ t: '✅ Anotar todas', d: 'tp:all:' + pend[0].id }])
+  return b
+}
+async function mandarPropuestas(sec, props) {
+  const chat = TGREG ? await TGREG.chatDe(String(sec.phone || '').replace(/\D/g, '')) : null
+  if (!chat) { log('SEG IA: ' + sec.full_name + ' sin Telegram, las propuestas quedan en el panel'); return }
+  const filas = props.map(p => ({ ...p, estado: 'propuesta' }))
+  await TG.tgEnviarBotones(chat, textoPropuestas(filas), botonesPropuestas(filas))
+}
+// botón ✅ / ✖ de una propuesta. Solo la persona dueña de la propuesta puede resolverla.
+async function botonPropuesta(chatId, dato, msgId, phone) {
+  const [, acc, id] = dato.split(':')
+  const { data: p } = await supabase.from('tarea_propuestas').select('*, sec:secretaries(id, full_name, phone, tipo)').eq('id', id).maybeSingle()
+  if (!p) { await TG.tgEditar(chatId, msgId, '⚠️ Esa propuesta ya no existe.', null); return }
+  if (String(p.sec?.phone || '').replace(/\D/g, '').slice(-9) !== String(phone).slice(-9)) { await TG.tgEnviar(chatId, '🔒 Esa propuesta no es tuya.'); return }
+  const t0 = new Date(new Date(p.created_at).getTime() - 120000).toISOString(), t1 = new Date(new Date(p.created_at).getTime() + 120000).toISOString()
+  const lote = async () => (await supabase.from('tarea_propuestas').select('*').eq('secretary_id', p.secretary_id).eq('origen', p.origen).gte('created_at', t0).lte('created_at', t1).order('created_at')).data || [p]
+  const antes = await lote()
+  const objetivo = (acc === 'all' ? antes : antes.filter(x => x.id === p.id)).filter(x => x.estado === 'propuesta')
+  const hoy = secHoy(), ahora = new Date().toISOString()
+  for (const x of objetivo) {
+    if (acc === 'no') { await supabase.from('tarea_propuestas').update({ estado: 'descartada', resuelta_at: ahora }).eq('id', x.id).eq('estado', 'propuesta'); continue }
+    const hh = x.hora ? String(x.hora).slice(0, 5) : null
+    const { data: tk, error } = await supabase.from('secretary_tasks').insert({
+      secretary_id: x.secretary_id, title: x.texto, date: x.fecha || hoy, time: hh, slot: hh ? slotDeHora(hh) : 'manana',
+      category: p.sec?.tipo === 'gerencia' ? 'gerencia' : 'administrativa', sigue_de: x.sigue_de || null,
+    }).select('id').single()
+    if (error) { log('SEG IA anotar:', error.message); continue }
+    await supabase.from('tarea_propuestas').update({ estado: 'anotada', task_id: tk.id, resuelta_at: ahora }).eq('id', x.id)
+    await supabase.from('tarea_notas').insert({ task_id: tk.id, tipo: 'sistema', texto: 'Anotada desde Telegram (lo entendió la IA de: "' + String(x.origen || '').slice(0, 200) + '")', autor_nombre: p.sec?.full_name || null, via: 'ia' })
+  }
+  const despues = await lote()
+  const pend = despues.filter(x => x.estado === 'propuesta')
+  await TG.tgEditar(chatId, msgId, textoPropuestas(despues), pend.length ? botonesPropuestas(despues) : null)
 }
 
 // Cobranza CONFIGURABLE por BUCKET de cuotas vencidas (bot_brains 'cobranza_cfg' = JSON):
@@ -4171,6 +4324,8 @@ async function manejarBotonTg(chatId, dato, msgId) {
   const esAdmin = ADMIN && phone.slice(-9) === ADMIN.slice(-9)
   // ✅/❌ del voucher repetido (sql/154): solo el superusuario
   if (dato.startsWith('vap:')) { await LECTOR_VOUCHERS.boton(chatId, dato, msgId, phone); return }
+  // ✅/✖ de las tareas nuevas que propuso la IA en el cierre del día (sql/246)
+  if (dato.startsWith('tp:')) { await botonPropuesta(chatId, dato, msgId, phone); return }
 
   if (dato === 'sr_check') {
     // re-mira los chats sin respuesta AHORA y edita la alarma con la foto fresca
@@ -4441,7 +4596,7 @@ async function manejarTelegram(chatId, texto, info) {
   // datos sensibles se lo comía y la tarea nunca se marcaba. Solo lo que EMPIEZA con un
   // comando va a los comandos (también para gerencia, que antes no podía usarlos con el
   // checklist abierto).
-  if (!empiezaConComando(t) && (await tieneChecklistAbierto(phone) || await feedbackPendiente(phone))) {
+  if (!empiezaConComando(t) && (await tieneChecklistAbierto(phone) || await feedbackPendiente(phone) || pideAnotar(t))) {
     log('TG: ' + phone + ' responde su pase de lista (' + (esGerencia ? 'gerencia' : tnum || 'sin tipo') + ')')
     await manejarSecretaria(phone, phone, t).catch(e => log('TG sec:', String(e.message || e)))
     return

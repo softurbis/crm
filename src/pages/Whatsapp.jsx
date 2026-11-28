@@ -418,7 +418,7 @@ export default function Whatsapp() {
         if (r.key === 'admin_phone') setAdminPhone(r.value || '')
         else if (r.key === 'wa_estado' || r.key === 'wa_qr') { /* del chip (Baileys): ya no se usa */ }
         else if (r.key === 'wa_latido') setWaLatido(r.value || '')
-        else if (r.key.startsWith('sec_') || ['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha'].includes(r.key)) { /* config, no es flag */ }
+        else if (r.key.startsWith('sec_') || ['hora_corte_manana', 'hora_corte_tarde', 'hora_resumen_sec', 'hora_feedback_sec', 'wa_relink', 'wa_restart', 'hora_aviso_sep', 'sep_aviso_fecha', 'seg_ia', 'tarea_motivos'].includes(r.key)) { /* config, no es flag */ }
         else f[r.key] = r.value !== '0'
       })
       setFlags(f)
@@ -434,6 +434,8 @@ export default function Whatsapp() {
         avisoHora: kv.sec_aviso_hora !== '0',
         feedback: kv.sec_feedback !== '0',
         feedbackHora: (kv.hora_feedback_sec || '17:30').slice(0, 5),
+        segIA: kv.seg_ia !== '0',
+        motivos: (() => { try { const m = JSON.parse(kv.tarea_motivos || '[]'); return Array.isArray(m) && m.length ? m.join(', ') : '' } catch { return '' } })(),
         saludoActivo: kv.sec_saludo_activo !== '0',
         saludoHora: (kv.sec_saludo_hora || '07:30').slice(0, 5),
         resumenHora: (kv.hora_resumen_sec || '18:00').slice(0, 5),
@@ -693,6 +695,8 @@ export default function Whatsapp() {
       { key: 'sec_checkins', value: JSON.stringify(secCfg.checkins.map(h => String(h).slice(0, 5))), updated_at: now },
       { key: 'sec_recordatorio', value: secCfg.recordatorio ? '1' : '0', updated_at: now },
       { key: 'sec_aviso_hora', value: secCfg.avisoHora ? '1' : '0', updated_at: now },
+      { key: 'seg_ia', value: secCfg.segIA === false ? '0' : '1', updated_at: now },
+      ...(String(secCfg.motivos || '').trim() ? [{ key: 'tarea_motivos', value: JSON.stringify(String(secCfg.motivos).split(',').map(x => x.trim()).filter(Boolean).slice(0, 15)), updated_at: now }] : []),
       { key: 'sec_feedback', value: secCfg.feedback ? '1' : '0', updated_at: now },
       { key: 'hora_feedback_sec', value: String(secCfg.feedbackHora).slice(0, 5), updated_at: now },
       { key: 'sec_saludo_activo', value: secCfg.saludoActivo ? '1' : '0', updated_at: now },
@@ -1172,6 +1176,16 @@ export default function Whatsapp() {
                     </label>
                   )}
                 </div>
+                {/* 28 nov 2026: el cierre del día lo entiende la IA (seguimiento_ia.js) */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, marginTop: 10 }}>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={secCfg.segIA !== false} onChange={e => setSecCfg(c => ({ ...c, segIA: e.target.checked }))} /> 🧠 Entender las respuestas con IA (Claude Haiku 5.5, ≈ USD 0.0004 por respuesta)
+                  </label>
+                </div>
+                <p className="muted u-fs-10 u-mt-4">Con la IA, cada uno responde como habla ("4 hecho, quedó en venir el 15", "6 pausa por lluvia hasta el viernes"). Lo nuevo que mencione se propone con un botón para confirmar. Apagada, o si falla, el bot entiende solo números y "listo".</p>
+                <label className="u-fs-12" style={{ display: 'block', marginTop: 8 }}>⏸ Motivos para pausar una tarea (separados por coma)
+                  <input className="u-w-100 u-tt-n" value={secCfg.motivos || ''} onChange={e => setSecCfg(c => ({ ...c, motivos: e.target.value }))} placeholder="Lluvia, Espera de un tercero, Falta de dinero, Salud, Reprogramada, Descartada" style={{ fontSize: 12, marginTop: 3 }} />
+                </label>
                 {/* 27 nov 2026: el resumen del día ya no va solo al administrador: se elige a quién */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, marginTop: 10 }}>
                   <label className="u-fs-12">📋 Resumen del día a las{' '}

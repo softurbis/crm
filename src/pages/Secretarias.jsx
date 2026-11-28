@@ -1,15 +1,34 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
-import { avisar, confirmar } from '../lib/dialogos'
+import { avisar, confirmar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 
 const DIAS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']]
+// 28 nov 2026 (sql/246): EN PROCESO (con avance "4 de 6") y PAUSADA (motivo + fecha para retomarla)
 const EST = {
   pendiente: { t: 'PENDIENTE', c: '#e0b34c', i: '⏳' },
+  en_proceso: { t: 'EN PROCESO', c: '#7ba7f7', i: '◐' },
   hecha: { t: 'HECHA', c: '#6fdd9b', i: '✅' },
+  pausada: { t: 'PAUSADA', c: '#b8a1d9', i: '⏸' },
   no_hecha: { t: 'NO HECHA', c: '#ff8e7a', i: '❌' },
   sin_respuesta: { t: 'SIN RESPUESTA', c: '#9daab6', i: '😶' },
+}
+const MOTIVOS_DEF = ['Lluvia', 'Espera de un tercero', 'Falta de dinero', 'Salud', 'Reprogramada', 'Descartada']
+const ICONO_NOTA = { nota: '📝', resultado: '🏁', estado: '🔄', arrastre: '↪', sistema: '⚙' }
+const ddmm = f => f ? String(f).slice(8, 10) + '/' + String(f).slice(5, 7) : ''
+const horaLima = ts => new Date(ts).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+// 3 arrastres o 3 días hábiles (lun-sáb) sin novedad = se resalta (A3). Se cuenta desde la
+// última novedad o desde que la tarea VENCE (fecha_original), lo que sea más reciente: una
+// tarea creada hace una semana para hoy no está estancada.
+const diasSinNovedad = (t, hoy) => {
+  const nov = t.ultima_novedad_at ? new Date(t.ultima_novedad_at).toLocaleDateString('en-CA', { timeZone: 'America/Lima' }) : null
+  const vence = t.fecha_original || t.date
+  const desde = [nov, vence].filter(Boolean).sort().pop()
+  if (!desde) return 0
+  const d = new Date(desde + 'T12:00:00'), fin = new Date(hoy + 'T12:00:00')
+  let n = 0; while (d < fin) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0) n++ }
+  return n
 }
 const CATS = { gerencia: { t: 'GERENCIA', c: '#e7c15a' }, administrativa: { t: 'ADMINISTRATIVA', c: '#7ba7f7' }, extra: { t: 'EXTRA', c: '#6fdd9b' } }
 const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
@@ -35,6 +54,10 @@ export default function Secretarias() {
   const [editT, setEditT] = useState(null)     // edición en línea (título/hora/nota) — aplica solo a ese día
   const [scope, setScope] = useState(null)      // diálogo: borrar solo este día o toda la rutina
   const [reasig, setReasig] = useState(null)    // reasignar tarea a otra persona
+  const [motivos, setMotivos] = useState(MOTIVOS_DEF)
+  const [notas, setNotas] = useState({})        // task_id -> historial (tarea_notas)
+  const [verHist, setVerHist] = useState(null)  // id de la tarea con el historial abierto
+  const [notaTxt, setNotaTxt] = useState({})    // task_id -> nota que se está escribiendo
 
   // registro propio: la persona del equipo vinculada a este usuario del sistema
   const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
@@ -53,15 +76,25 @@ export default function Secretarias() {
     const d1 = mes + '-01'
     const fin = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate()
     const d2 = mes + '-' + String(fin).padStart(2, '0')
-    const [a, b, c, u, sa] = await Promise.all([
+    const [a, b, c, u, sa, mo] = await Promise.all([
       supabase.from('secretaries').select('*').order('created_at'),
       supabase.from('secretary_routines').select('*').order('created_at'),
       supabase.from('secretary_tasks').select('*').gte('date', d1).lte('date', d2).order('time', { nullsFirst: true }),
       supabase.from('profiles').select('id, full_name, role').order('full_name'),
       supabase.from('seguimiento_access').select('*'),
+      supabase.from('bot_settings').select('value').eq('key', 'tarea_motivos').maybeSingle(),
     ])
     setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || []); setAccesos(sa.data || [])
+    try { const m = JSON.parse(mo.data?.value || '[]'); if (Array.isArray(m) && m.length) setMotivos(m.map(String)) } catch { /* lista por defecto */ }
   }
+  // historial de las tareas del día elegido (se recarga con las tareas)
+  const idsDia = tareas.filter(t => t.date === diaSel).map(t => t.id).join(',')
+  useEffect(() => {
+    if (!idsDia) { setNotas({}); return }
+    supabase.from('tarea_notas').select('*').in('task_id', idsDia.split(',')).order('created_at').then(({ data }) => {
+      const m = {}; for (const n of (data || [])) (m[n.task_id] = m[n.task_id] || []).push(n); setNotas(m)
+    })
+  }, [idsDia, tareas])
   useEffect(() => { cargar() }, [mes])
   useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 15000); return () => clearInterval(t) }, [mes])
 
@@ -113,9 +146,71 @@ export default function Secretarias() {
     if (error) { await avisar('ERROR: ' + error.message); return }
     setExtra(null); savedFx(); cargar()
   }
-  const marcar = async (t, status) => {
-    await supabase.from('secretary_tasks').update({ status, answered_at: new Date().toISOString(), answer: 'MARCADO EN EL PANEL POR ' + (profile?.full_name || role).toUpperCase() }).eq('id', t.id)
-    cargar()
+  // VISTA DE CIERRE (28 nov 2026, A1/A2/A5): el estado se cambia con su dato (motivo y fecha
+  // al pausar, avance al poner en proceso) y cada nota queda en el historial con autor y hora.
+  const nota = async (t, texto, tipo = 'nota') => {
+    const x = String(texto || '').trim()
+    if (!x) return true
+    const { error } = await supabase.from('tarea_notas').insert({ task_id: t.id, tipo, texto: x, via: 'panel' })
+    if (error) { await avisar('No se guardó la nota: ' + error.message, { tono: 'error' }); return false }
+    return true
+  }
+  const cambiarEstado = async (t, status) => {
+    if (status === t.status) return
+    const firma = 'MARCADO EN EL PANEL POR ' + (profile?.full_name || role).toUpperCase()
+    let upd = { status, motivo: null, reanudar_el: null, answered_at: new Date().toISOString(), answer: firma }
+    let txt = ''
+    if (status === 'pendiente') upd = { status, motivo: null, reanudar_el: null, answered_at: null, answer: null }
+    if (status === 'en_proceso') {
+      const r = await pedirDatos({ titulo: '◐ EN PROCESO', mensaje: t.title, aceptar: 'Guardar', campos: [
+        { clave: 'h', etiqueta: 'Cuánto va (opcional)', tipo: 'numero', valor: t.avance_hecho ?? '' },
+        { clave: 'tot', etiqueta: 'De cuánto (opcional)', tipo: 'numero', valor: t.avance_total ?? '' },
+        { clave: 'nota', etiqueta: 'Nota (opcional)', tipo: 'largo' }] })
+      if (!r) return
+      const h = r.h === '' || r.h == null ? null : Number(r.h), tot = r.tot === '' || r.tot == null ? null : Number(r.tot)
+      upd = { ...upd, avance_hecho: tot ? Math.min(h ?? 0, tot) : null, avance_total: tot || null }
+      txt = r.nota
+    }
+    if (status === 'pausada') {
+      const r = await pedirDatos({ titulo: '⏸ PAUSAR', mensaje: t.title, aceptar: 'Pausar', campos: [
+        { clave: 'motivo', etiqueta: 'Motivo', tipo: 'opcion', obligatorio: true, opciones: motivos.map(m => ({ valor: m, etiqueta: m })) },
+        { clave: 'fecha', etiqueta: 'Retomarla el (vacío = sin fecha)', tipo: 'fecha' },
+        { clave: 'nota', etiqueta: 'Nota (opcional)', tipo: 'largo' }] })
+      if (!r) return
+      if (r.fecha && r.fecha < hoy) { await avisar('La fecha para retomarla no puede ser pasada.', { tono: 'error' }); return }
+      upd = { ...upd, motivo: r.motivo, reanudar_el: r.fecha || null }
+      txt = r.nota
+    }
+    if (status === 'no_hecha') {
+      const r = await pedirDatos({ titulo: '❌ NO HECHA', mensaje: t.title, aceptar: 'Guardar', campos: [{ clave: 'nota', etiqueta: '¿Qué pasó? (opcional)', tipo: 'largo' }] })
+      if (!r) return
+      txt = r.nota
+    }
+    const { error } = await supabase.from('secretary_tasks').update(upd).eq('id', t.id)
+    if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); return }
+    await nota(t, txt)
+    savedFx(); cargar()
+  }
+  const guardarNotaRapida = async t => {
+    if (await nota(t, notaTxt[t.id])) { setNotaTxt(n => ({ ...n, [t.id]: '' })); cargar() }
+  }
+  // A5: la tarea siguiente enlazada, con la misma persona y proyecto; solo pide fecha y texto
+  const seguimiento = async t => {
+    const r = await pedirDatos({ titulo: '➕ SEGUIMIENTO', mensaje: 'Nace de: ' + t.title, aceptar: 'Crear', campos: [
+      { clave: 'texto', etiqueta: '¿Qué hay que hacer?', obligatorio: true, placeholder: 'Ej: llamar al cliente para su separación' },
+      { clave: 'fecha', etiqueta: 'Fecha', tipo: 'fecha', obligatorio: true, valor: hoy },
+      { clave: 'hora', etiqueta: 'Hora (opcional, HH:MM)', placeholder: '10:00' }] })
+    if (!r) return
+    const hora = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(r.hora || '').trim()) ? r.hora.trim() : null
+    if (r.fecha < hoy) { await avisar('La fecha no puede ser pasada.', { tono: 'error' }); return }
+    const { error } = await supabase.from('secretary_tasks').insert({
+      secretary_id: t.secretary_id, title: String(r.texto).trim().toUpperCase().slice(0, 200), date: r.fecha, time: hora,
+      slot: hora ? (hora < '13:00' ? 'manana' : 'tarde') : (t.slot || 'manana'), category: t.category === 'extra' ? 'administrativa' : (t.category || 'administrativa'),
+      project_id: t.project_id || null, sigue_de: t.id,
+    })
+    if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); return }
+    await nota(t, 'Seguimiento creado para el ' + ddmm(r.fecha) + (hora ? ' ' + hora : '') + ': ' + String(r.texto).trim(), 'sistema')
+    savedFx(); cargar()
   }
   const quitarTarea = async t => { await supabase.from('secretary_tasks').delete().eq('id', t.id); cargar() }
   const guardarMover = async () => {
@@ -138,9 +233,12 @@ export default function Secretarias() {
     let id = editT.id
     if (!id && editT.routine) { const t = await materializar(editT.routine, editT.date); id = t?.id }
     if (!id) return
-    const upd = { title: (editT.title || '').toUpperCase().trim(), time: editT.time || null, note: (editT.note || '').trim() || null }
+    const upd = { title: (editT.title || '').toUpperCase().trim(), time: editT.time || null }
     if (editT.time) upd.slot = editT.time < '13:00' ? 'manana' : 'tarde'
     await supabase.from('secretary_tasks').update(upd).eq('id', id)
+    // la nota ya no se pisa: si cambió, entra al historial (y queda como la última)
+    const antes = (tareas.find(x => x.id === id)?.note || '').trim(), ahora = (editT.note || '').trim()
+    if (ahora && ahora !== antes) await nota({ id }, ahora)
     setEditT(null); cargar()
   }
   const reasignar = async (t, sid) => { if (sid) await supabase.from('secretary_tasks').update({ secretary_id: sid }).eq('id', t.id); setReasig(null); cargar() }
@@ -365,8 +463,10 @@ export default function Secretarias() {
                       </div>
                     </div>
                   )
+                  const ojo = !proj && !['hecha', 'pausada'].includes(t.status) && ((t.arrastres || 0) >= 3 || diasSinNovedad(t, hoy) >= 3)
+                  const hist = notas[t.id] || []
                   return (
-                    <div key={t.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)', opacity: proj ? .85 : 1 }}>
+                    <div key={t.id} style={{ padding: '5px 0 5px ' + (ojo ? '6px' : '0'), borderBottom: '1px solid rgba(255,255,255,.06)', borderLeft: ojo ? '3px solid #e0b34c' : undefined, opacity: proj ? .85 : 1 }}>
                       {enEdicion ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '2px 0 6px' }}>
                           <input value={editT.title} onChange={ev => setEditT({ ...editT, title: ev.target.value })} placeholder="Actividad" />
@@ -384,8 +484,15 @@ export default function Secretarias() {
                           <span style={{ flex: 1, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
                             {t.ask_index ? <b style={{ color: '#9ccb86' }}>{t.ask_index}. </b> : null}{t.title}
                           </span>
-                          {editable && !proj && t.status !== 'hecha' && <button className="btn-ghost u-p-1-7 u-fs-11" title="Marcar hecha" onClick={() => marcar(t, 'hecha')}>✓</button>}
-                          {editable && !proj && t.status === 'hecha' && <button className="btn-ghost u-p-1-7 u-fs-11" title="Desmarcar" onClick={() => marcar(t, 'pendiente')}>↩</button>}
+                          {editable && !proj && t.status !== 'hecha' && <button className="btn-ghost u-p-1-7 u-fs-11" title="Marcar hecha" onClick={() => cambiarEstado(t, 'hecha')}>✓</button>}
+                          {editable && !proj && (
+                            <select className="u-fs-11" value={t.status} title="Estado de la tarea" onChange={ev => cambiarEstado(t, ev.target.value)}
+                              style={{ padding: '1px 4px', maxWidth: 120, color: e.c, borderColor: e.c + '66' }}>
+                              {['pendiente', 'en_proceso', 'hecha', 'pausada', 'no_hecha'].map(s => <option key={s} value={s}>{EST[s].i} {EST[s].t}</option>)}
+                              {t.status === 'sin_respuesta' && <option value="sin_respuesta">{EST.sin_respuesta.i} {EST.sin_respuesta.t}</option>}
+                            </select>
+                          )}
+                          {editable && !proj && <button className="btn-ghost u-p-1-7 u-fs-11" title="Seguimiento: crear la tarea siguiente enlazada a esta" onClick={() => seguimiento(t)}>➕</button>}
                           {editable && <button className="btn-ghost u-p-1-7 u-fs-11" title="Editar (este día)" onClick={() => setEditT(proj ? { routine: t.routine, date: diaSel, title: t.title, time: '', note: '' } : { id: t.id, title: t.title, time: t.time ? String(t.time).slice(0, 5) : '', note: t.note || '' })}>✎</button>}
                           {editable && !proj && <button className="btn-ghost u-p-1-7 u-fs-11" title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
                           {editable && !proj && <button className="btn-ghost u-p-1-7 u-fs-11" title="Reasignar" onClick={() => setReasig(t)}>👤</button>}
@@ -394,9 +501,34 @@ export default function Secretarias() {
                         <div style={{ display: 'flex', gap: 6, marginLeft: 26, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 9, fontWeight: 700, color: cat.c, border: `1px solid ${cat.c}55`, borderRadius: 8, padding: '0 6px' }}>{cat.t}</span>
                           <span className="muted u-fs-10">{t.time ? '🕐 ' + String(t.time).slice(0, 5) : (t.slot === 'manana' ? '🌅 EN LA MAÑANA' : '🌇 EN LA TARDE')}{esRutina ? ' · RUTINA' + (proj ? ' (proyectada)' : '') : ''}</span>
-                          {t.note && <span className="muted u-fs-9 u-tt-n" title={t.note}>📝 {String(t.note).slice(0, 40)}</span>}
-                          {t.answer && <span className="muted u-fs-9 u-tt-n" title={t.answer}>· {String(t.answer).slice(0, 40)}</span>}
+                          {t.status === 'en_proceso' && t.avance_total && <span className="u-fs-10" style={{ color: EST.en_proceso.c }}>◐ {t.avance_hecho ?? 0} de {t.avance_total}</span>}
+                          {t.status === 'pausada' && <span className="u-fs-10" style={{ color: EST.pausada.c }}>⏸ {t.motivo || 'sin motivo'} · {t.reanudar_el ? 'vuelve el ' + ddmm(t.reanudar_el) : 'sin fecha'}</span>}
+                          {t.arrastres > 0 && <span className="u-fs-10" style={{ color: ojo ? '#e0b34c' : 'var(--muted)' }} title={'Programada originalmente para el ' + ddmm(t.fecha_original)}>↪ ARRASTRADA ×{t.arrastres}</span>}
+                          {ojo && <span className="u-fs-10" style={{ color: '#e0b34c', fontWeight: 700 }}>⚠️ {(t.arrastres || 0) >= 3 ? 'SE ARRASTRA HACE DÍAS' : 'SIN NOVEDAD HACE 3+ DÍAS'}</span>}
+                          {t.sigue_de && <span className="muted u-fs-10" title="Nació como seguimiento de otra tarea">🔗 SEGUIMIENTO</span>}
+                          {t.resultado && <span className="u-fs-10 u-tt-n" style={{ color: '#6fdd9b' }}>🏁 {t.resultado}</span>}
                         </div>
+                        {/* A2: la última nota completa + su historial; una línea para escribir otra */}
+                        {!proj && (t.note || hist.length > 0 || editable) && (
+                          <div style={{ marginLeft: 26, marginTop: 3 }}>
+                            {t.note && <div className="muted u-fs-11 u-tt-n" style={{ whiteSpace: 'pre-wrap' }}>📝 {t.note}</div>}
+                            <div className="u-d-f u-g-6 u-ai-c u-mt-4">
+                              {editable && <input className="u-f1 u-fs-11 u-tt-n" style={{ padding: '2px 6px', minWidth: 120 }} placeholder="Escribe una nota y Enter…" value={notaTxt[t.id] || ''}
+                                onChange={ev => setNotaTxt(n => ({ ...n, [t.id]: ev.target.value }))} onKeyDown={ev => { if (ev.key === 'Enter') guardarNotaRapida(t) }} />}
+                              {hist.length > 0 && <button className="btn-ghost u-p-1-7 u-fs-10" title="Historial de la tarea" onClick={() => setVerHist(verHist === t.id ? null : t.id)}>🕘 {hist.length}</button>}
+                            </div>
+                            {verHist === t.id && (
+                              <div style={{ margin: '4px 0 2px', padding: '4px 8px', borderLeft: '2px solid rgba(255,255,255,.12)' }}>
+                                {hist.map(n => (
+                                  <div key={n.id} className="u-fs-10 u-tt-n" style={{ padding: '1px 0' }}>
+                                    <span className="muted">{horaLima(n.created_at)} · {n.autor_nombre || (n.via === 'sistema' ? 'sistema' : '—')}{n.via === 'ia' ? ' (por Telegram)' : ''}</span>{' '}
+                                    {ICONO_NOTA[n.tipo] || '📝'} {n.tipo === 'estado' ? (EST[n.estado_antes]?.t || n.estado_antes) + ' → ' + (EST[n.estado_despues]?.t || n.estado_despues) + (n.texto ? ' · ' + n.texto : '') : n.texto}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {mover?.id === t.id && (
                           <div style={{ display: 'flex', gap: 6, margin: '6px 0 2px 26px', alignItems: 'center' }}>
                             <input type="date" value={mover.date} onChange={ev => setMover({ ...mover, date: ev.target.value })} />

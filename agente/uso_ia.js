@@ -6,7 +6,9 @@
 
 // USD por millón de tokens: [entrada, salida]. Caché: lectura 0.1x, escritura 1.25x.
 // Es una tarifa aproximada; la cuenta exacta es la de la consola de Anthropic.
-const TARIFAS = [['opus', 5, 25], ['sonnet', 2, 10], ['haiku', 1, 5]]
+// 28 nov 2026: Haiku 5.5 cuesta 0.10 / 0.50 (10 veces menos que Haiku 4.5) y Opus 5.5
+// 4 / 20: van antes que la familia para que no se cobren a la tarifa vieja.
+const TARIFAS = [['haiku-5', 0.1, 0.5], ['opus-5-5', 4, 20], ['opus', 5, 25], ['sonnet', 2, 10], ['haiku', 1, 5]]
 
 function costoUsd(modelo, u) {
   const t = TARIFAS.find(x => String(modelo || '').includes(x[0])) || TARIFAS[0]
