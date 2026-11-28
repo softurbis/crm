@@ -51,6 +51,8 @@ const Instituciones = lazy(() => import('./pages/Instituciones'))
 const MetasAsesores = lazy(() => import('./pages/MetasAsesores'))
 const ResultadosCanal = lazy(() => import('./pages/ResultadosCanal'))
 const ReporteSemanal = lazy(() => import('./pages/ReporteSemanal'))
+const Precios = lazy(() => import('./pages/Precios'))
+const ListaPrecios = lazy(() => import('./pages/ListaPrecios'))
 const EntrarVendedor = lazy(() => import('./pages/EntrarVendedor'))
 const EquipoVentas = lazy(() => import('./pages/EquipoVentas'))
 const Publico = lazy(() => import('./pages/Publico'))
@@ -159,6 +161,9 @@ export default function App() {
           <Route path="metas-asesores" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'manager', 'asesor'].includes(a.role)}><MetasAsesores /></Vedada>} />
           <Route path="resultados-canal" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'manager'].includes(a.role)}><ResultadosCanal /></Vedada>} />
           <Route path="reporte-semanal" element={<Vedada para={a => !['superuser', 'admin', 'manager'].includes(a.role)}><ReporteSemanal /></Vedada>} />
+          {/* 3.1 (sql/255): precios, bonos e inventario; la lista para asesores la ve todo el equipo */}
+          <Route path="precios" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'manager', 'socio'].includes(a.role)}><Precios /></Vedada>} />
+          <Route path="lista-precios" element={<Vedada para={a => a.role === 'facturacion'}><ListaPrecios /></Vedada>} />
           {/* alta de vendedores en un paso: nombre + celular (12 nov): solo el superusuario */}
           <Route path="equipo-ventas" element={<Vedada para={a => !a.esSuper}><EquipoVentas /></Vedada>} />
           <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />

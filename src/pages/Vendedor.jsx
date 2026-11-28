@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
@@ -60,6 +60,13 @@ export default function Vendedor() {
   const [cuantos, setCuantos] = useState(60)
   const [copiado, setCopiado] = useState(false)
 
+  const [bonos, setBonos] = useState([])
+  useEffect(() => {
+    if (!pidOp) return
+    const hoy = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10)
+    supabase.from('bonos').select('*').eq('project_id', pidOp).eq('activo', true).lte('desde', hoy).or('hasta.is.null,hasta.gte.' + hoy).order('desde')
+      .then(({ data }) => setBonos(data || []), () => setBonos([]))
+  }, [pidOp])
   useEffect(() => {
     if (!pidOp) return
     let vivo = true
@@ -126,8 +133,17 @@ export default function Vendedor() {
       <div className="toolbar">
         <h1 className="u-m0">Panel del vendedor</h1>
         <ProjectPicker />
+        {/* D6 (sql/255): la lista de precios sale del sistema, sin totales */}
+        <Link className="btn-ghost btn-link" to="/lista-precios">🖨 Lista de precios</Link>
       </div>
       {error && <p className="error">{error}</p>}
+      {/* D2 (sql/255): solo los bonos y campañas vigentes hoy */}
+      {bonos.length > 0 && (
+        <div className="glass u-p-8 u-mb-10">
+          <b>🎁 Bonos vigentes</b>
+          <ul className="u-mb-4 small">{bonos.map(b => <li key={b.id}><b>{b.nombre}</b>{b.condiciones ? ' — ' + b.condiciones : ''}{b.hasta ? ' (hasta el ' + b.hasta.split('-').reverse().join('/') + ')' : ''}</li>)}</ul>
+        </div>
+      )}
       {!datos && !error && <p className="muted">Cargando precios…</p>}
       {datos && !lotes.length && <p className="hint">Este proyecto todavía no tiene lotes cargados.</p>}
 

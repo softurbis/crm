@@ -1,15 +1,16 @@
 // Estados de un lote: el mismo color y el mismo nombre en el mapa, en el
 // buscador y en la ficha del lote.
-// 28 nov 2026 (sql/251): RESERVADO = reserva verbal hasta una fecha; nadie más lo separa
+// 28 nov 2026 (sql/251): RESERVADO = reserva verbal hasta una fecha o bloque apartado (sql/255,
+// con motivo e institución); nadie más lo separa. APORTE = aporte o parque: no se vende (sql/255).
 export const COLORS = {
   disponible: '#4caf72', reservado: '#c9b13a', separado: '#e0913f', vendido: '#4f83c2',
   entregado: '#3fb6a8', invadido: '#c94f4f', expropiado: '#9a6bc9',
-  eliminado: '#6d6f74',
+  eliminado: '#6d6f74', aporte: '#7d9a6a',
 }
 export const LBL = {
   disponible: 'Disponible', reservado: 'Reservado', separado: 'Separado', vendido: 'Vendido',
   entregado: 'Entregado', invadido: 'Invadido', expropiado: 'Expropiado',
-  eliminado: 'Eliminado',
+  eliminado: 'Eliminado', aporte: 'Aporte / parque',
 }
 // Un lote ELIMINADO ya no existe en el terreno (expropiacion, cambio de trazo o
 // marcador de migracion). No se puede borrar de la base porque arrastra ventas y

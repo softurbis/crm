@@ -1827,6 +1827,19 @@ async function avisarReservasPorVencer(hoy) {
     if (a) await enviar(a, '🔖 *Hoy vence la reserva* del lote ' + (r.lot ? r.lot.mz + '-' + r.lot.lt + ' (' + (r.lot.project?.name || '') + ')' : '') + ' a nombre de *' + r.cliente_nombre + '*' + (r.telefono ? ' (+' + r.telefono + ')' : '') + '. Si no se separa hoy, mañana el lote vuelve a quedar disponible.', { tipo: 'secretaria', interno: true })
   }
 }
+// D3 (3.1, sql/255): las subidas de precio programadas POR FECHA se aplican solas ese día (00:05)
+// y se avisa a quien la programó (o al ADMIN) por Telegram. Las de meta de obra van con botón.
+async function subidasDelDia(hoy) {
+  const { data: ss } = await supabase.from('subidas_precio').select('id, nombre, created_by, project:projects(name)')
+    .eq('estado', 'programada').eq('condicion', 'fecha').lte('fecha', hoy)
+  for (const s of (ss || [])) {
+    const { data: r, error } = await supabase.rpc('aplicar_subida', { p_subida: s.id })
+    const a = await quienReservo({ created_by: s.created_by })
+    if (error) { log('SUBIDA ' + s.nombre + ':', error.message); if (a) await enviar(a, '⚠️ No se pudo aplicar la subida de precios *' + s.nombre + '* (' + (s.project?.name || '') + '): ' + error.message, { tipo: 'secretaria', interno: true }); continue }
+    log('SUBIDA DE PRECIOS aplicada: ' + s.nombre + ' · ' + (r?.lotes ?? 0) + ' lotes')
+    if (a) await enviar(a, '📈 *Subida de precios aplicada*: ' + s.nombre + ' (' + (s.project?.name || '') + ') · ' + (r?.lotes ?? 0) + ' lote(s) con el precio nuevo. El detalle y el historial: panel → Ventas → Precios y bonos.', { tipo: 'secretaria', interno: true })
+  }
+}
 // C6: ventas que llevan más de venta_alerta_dias sin avanzar (misma regla que el panel, AvanceVenta.jsx)
 async function ventasDetenidas() {
   const alerta = parseInt(await ajuste('venta_alerta_dias', '7')) || 7
@@ -1941,6 +1954,7 @@ async function secretariaTick() {
       await setAjuste('sec_arrastre_fecha', hoy)
       await arrastrarTareas(hoy).catch(e => log('ARRASTRE:', String(e.message || e)))
       await vencerReservas(hoy).catch(e => log('RESERVAS:', String(e.message || e)))
+      await subidasDelDia(hoy).catch(e => log('SUBIDAS DE PRECIO:', String(e.message || e)))
     }
     // 0b) ausencias (cada 5 min) y aviso de tareas asignadas con su acuse (A6)
     await aplicarAusencias(hoy).catch(e => log('AUSENCIAS:', String(e.message || e)))

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { savedFx } from '../lib/saveFx'
+import { avisar, confirmar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import BuscarLote from '../components/BuscarLote'
@@ -13,7 +14,8 @@ import { tienePlano } from '../lib/plano'
 // El mapa del proyecto. Cada lote abre su ficha a pantalla completa
 // (pages/FichaLote.jsx), donde esta todo lo del dia a dia.
 export default function Lots() {
-  const { esJefe } = useAuth()   // administrador, superusuario y operador
+  const { esJefe, puedeCorregir } = useAuth()   // administrador, superusuario y operador · puedeCorregir = superusuario u operador
+  const [porMz, setPorMz] = useState(false)   // D1 (sql/255): el conteo por manzana sale solo
   const { pidOp, projects } = useProject()
   const irA = useNavigate()
   const esCelular = useEsCelular()   // en el celular no se abre el teclado solo
@@ -121,6 +123,7 @@ export default function Lots() {
     const nv = vencidos.get(l.id) || 0
     const alerta = (nv ? ' — ' + nv + (nv === 1 ? ' CUOTA VENCIDA' : ' CUOTAS VENCIDAS') : '')
       + (l.aviso ? '\n⚠ ' + l.aviso : '')   // aviso del lote (sql/188)
+      + (l.reservado_motivo ? '\n🏷 ' + l.reservado_motivo : '')   // reservado / aporte (sql/255)
     if (!contacto) return base + alerta
     return `${base}${alerta}\n${contacto.tipo}: ${contacto.full_name}\nCelular: ${contacto.phone || 'sin celular'}\nDocumento: ${contacto.doc_number || 'sin documento'}`
   }
@@ -147,6 +150,45 @@ export default function Lots() {
     for (const k in g) g[k].sort((a, b) => Number(a.lt) - Number(b.lt) || String(a.lt).localeCompare(String(b.lt)))
     return g
   }, [lots, activos, filter, vencidos, expropiados])
+
+  // D1 (28 nov 2026, sql/255): apartar en bloque — manzanas o lotes a RESERVADO (con motivo y, si
+  // es para una institución, su convenio), APORTE / PARQUE (no se vende) o de vuelta a DISPONIBLE.
+  // Solo se tocan lotes sin cliente: sin venta activa, sin separación vigente ni reserva verbal.
+  async function marcarEnBloque() {
+    const { data: ins } = await supabase.from('instituciones').select('id, nombre, project_id').neq('estado', 'descartada').order('nombre')
+    const d = await pedirDatos({
+      titulo: '🏷 MARCAR LOTES EN BLOQUE', aceptar: 'Revisar',
+      mensaje: 'Escribe manzanas (H, L, P, T) o lotes (A-1, A-2). Solo cambian los lotes que no tienen cliente.',
+      campos: [
+        { clave: 'que', etiqueta: 'Manzanas o lotes', obligatorio: true, placeholder: 'H, L, P, T' },
+        { clave: 'estado', etiqueta: 'Pasan a', tipo: 'opcion', valor: 'reservado', opciones: [{ valor: 'reservado', etiqueta: 'Reservado (apartado)' }, { valor: 'aporte', etiqueta: 'Aporte / parque (no se vende)' }, { valor: 'disponible', etiqueta: 'Disponible (se libera)' }] },
+        { clave: 'motivo', etiqueta: 'Motivo', placeholder: 'Apartado para la institución…, aporte reglamentario…' },
+        { clave: 'inst', etiqueta: 'Institución (si es para un convenio)', tipo: 'opcion', valor: '', opciones: [{ valor: '', etiqueta: '— Ninguna —' }, ...(ins || []).filter(i => !i.project_id || i.project_id === pidOp).map(i => ({ valor: i.id, etiqueta: i.nombre }))] },
+      ],
+    })
+    if (!d) return
+    const fichas = String(d.que).toUpperCase().split(/[\s,;]+/).map(x => x.trim()).filter(Boolean)
+    const mzs = new Set(fichas.filter(x => !x.includes('-'))), lts = new Set(fichas.filter(x => x.includes('-')))
+    const pedidos = activos.filter(l => mzs.has(String(l.mz).toUpperCase()) || lts.has((l.mz + '-' + l.lt).toUpperCase()))
+    if (!pedidos.length) { await avisar('No encontré lotes con eso en este proyecto.'); return }
+    const ids = pedidos.map(l => l.id)
+    const [{ data: seps }, { data: ventas }, { data: res }] = await Promise.all([
+      supabase.from('separations').select('lot_id').in('lot_id', ids).eq('status', 'vigente'),
+      supabase.from('sales').select('lot_id').in('lot_id', ids).in('status', ['en_proceso', 'pagado']),
+      supabase.from('reservas').select('lot_id').in('lot_id', ids).eq('estado', 'vigente'),
+    ])
+    const tomados = new Set([...(seps || []), ...(ventas || []), ...(res || [])].map(x => x.lot_id))
+    const libres = pedidos.filter(l => !tomados.has(l.id) && (['disponible', 'reservado', 'aporte'].includes(l.status) || (l.status === 'separado' && /^URBIS/i.test(l.associated_to || ''))))
+    const fuera = pedidos.length - libres.length
+    if (!libres.length) { await avisar('Ninguno de esos ' + pedidos.length + ' lotes se puede marcar: todos tienen cliente (venta, separación o reserva).'); return }
+    if (!await confirmar(libres.length + ' lote(s) pasan a ' + (LBL[d.estado] || d.estado).toUpperCase() + (fuera ? '. Quedan fuera ' + fuera + ' con cliente.' : '.') + ' ¿Seguimos?', { aceptar: 'Sí, marcar' })) return
+    const cambio = { status: d.estado, reservado_motivo: d.estado === 'disponible' ? null : (String(d.motivo || '').trim().toUpperCase() || null), institucion_id: d.estado === 'reservado' ? (d.inst || null) : null }
+    for (let i = 0; i < libres.length; i += 100) {
+      const { error } = await supabase.from('lots').update(cambio).in('id', libres.slice(i, i + 100).map(l => l.id))
+      if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); loadLots(); return }
+    }
+    savedFx(); loadLots()
+  }
 
   const counts = useMemo(() => {
     const vivos = new Set(activos.map(l => l.id))
@@ -188,12 +230,9 @@ export default function Lots() {
     }
     if (!rows.length) { setCMsg('ERROR: TODOS ESOS LOTES YA EXISTEN EN LA MZ ' + mz + '.'); return }
     setCBusy(true); setCMsg(null)
-    const { data, error } = await supabase.from('lots').insert(rows).select('id, total_price, area_m2, price_per_m2')
+    const { error } = await supabase.from('lots').insert(rows)
     if (error) { setCMsg('ERROR: ' + error.message); setCBusy(false); return }
-    const sinTotal = (data || []).filter(r => r.total_price === null || r.total_price === undefined)
-    for (const r of sinTotal) {
-      await supabase.from('lots').update({ total_price: Number(r.area_m2) * Number(r.price_per_m2) }).eq('id', r.id)
-    }
+    // total_price lo calcula la base: área × m² redondeado hacia arriba (sql/255, D2)
     setCMsg('OK: ' + rows.length + ' LOTES CREADOS EN MZ ' + mz + (saltados.length ? ' | YA EXISTIAN (saltados): ' + saltados.join(', ') : '')); savedFx()
     setCBusy(false)
     loadLots()
@@ -230,7 +269,7 @@ export default function Lots() {
       </div>
 
       <div className="chips">
-        {['todos', 'disponible', 'reservado', 'separado', 'vendido', 'entregado', 'invadido'].map(s => (
+        {['todos', 'disponible', 'reservado', 'separado', 'vendido', 'entregado', 'invadido', 'aporte'].map(s => (
           <button key={s} className={`chip ${filter === s ? 'on' : ''}`}
             style={s !== 'todos' ? { '--dot': COLORS[s] } : {}}
             onClick={() => setFilter(s)}>
@@ -263,11 +302,33 @@ export default function Lots() {
           </button>
         )}
         <span className="u-f1" />
+        <button className={`chip ${porMz ? 'on' : ''}`} title="Cuántos lotes hay en cada estado, por manzana" onClick={() => setPorMz(x => !x)}>📊 Por manzana</button>
+        {puedeCorregir && <button className="chip" title="Reservar, marcar como aporte o liberar manzanas o lotes sin cliente" onClick={marcarEnBloque}>🏷 Marcar en bloque</button>}
         {hayPlanoReal && <button className={`chip ${vistaVer === 'real' ? 'on' : ''}`} onClick={() => cambiarVista('real')}>📐 Plano real</button>}
         <button className={`chip ${vistaVer === 'plano' ? 'on' : ''}`} onClick={() => cambiarVista('plano')}>🗺️ {hayPlanoReal ? 'Cuadros' : 'Plano'}</button>
         <button className={`chip ${vistaVer === 'lista' ? 'on' : ''}`} onClick={() => cambiarVista('lista')}>☰ Lista</button>
       </div>
 
+      {porMz && (() => {
+        const EST = ['disponible', 'reservado', 'separado', 'vendido', 'entregado', 'invadido', 'aporte'].filter(e => counts[e])
+        const mzs = [...new Set(activos.map(l => l.mz))].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
+        const de = (mz, e) => activos.filter(l => l.mz === mz && l.status === e).length
+        return (
+          <div className="glass table-wrap u-mb-10">
+            <table>
+              <thead><tr><th>Mz</th>{EST.map(e => <th key={e} style={{ color: COLORS[e] }}>{LBL[e]}</th>)}<th>Total</th><th>Disponible m²</th></tr></thead>
+              <tbody>
+                {mzs.map(mz => (
+                  <tr key={mz}><td><b>{mz}</b></td>{EST.map(e => <td key={e}>{de(mz, e) || ''}</td>)}<td>{activos.filter(l => l.mz === mz).length}</td>
+                    <td className="u-nw">{activos.filter(l => l.mz === mz && l.status === 'disponible').reduce((s, l) => s + Number(l.area_m2 || 0), 0).toLocaleString('es-PE', { maximumFractionDigits: 2 }) || ''}</td></tr>
+                ))}
+                <tr style={{ fontWeight: 700 }}><td>TOTAL</td>{EST.map(e => <td key={e}>{counts[e]}</td>)}<td>{counts.todos}</td>
+                  <td className="u-nw">{activos.filter(l => l.status === 'disponible').reduce((s, l) => s + Number(l.area_m2 || 0), 0).toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
       {filter === 'eliminado' && (
         <p className="hint" style={{ margin: '-.7rem 0 1rem' }}>
           &#9888; Estos lotes <b>ya no existen</b> en el terreno, por eso no cuentan en el total del

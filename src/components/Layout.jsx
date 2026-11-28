@@ -92,6 +92,7 @@ const MENU = [
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
   // 2.3 (28 nov 2026, sql/254): convenios y metas de asesores; `roles` = solo esos roles lo ven
   { to: '/instituciones', label: 'Instituciones y convenios', icon: '🏛️', color: '#9fc5e8', grupo: 'Ventas', roles: ['superuser', 'admin', 'operador', 'secretary', 'manager'] },
+  { to: '/precios', label: 'Precios y bonos', icon: '💲', color: '#8fd16f', proy: true, grupo: 'Ventas', roles: ['superuser', 'admin', 'operador', 'manager', 'socio'] },
   { to: '/metas-asesores', label: 'Metas de asesores', icon: '🏆', color: '#f0c05a', grupo: 'Ventas', roles: ['superuser', 'admin', 'operador', 'manager'] },
 
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos', tambien: ['/facturas-gastos'] },

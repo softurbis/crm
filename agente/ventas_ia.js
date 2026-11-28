@@ -458,6 +458,11 @@ module.exports = function crearVentasIA({ supabase, log }) {
     lista.sort(input.orden === 'area' ? (a, b) => b.l.area_m2 - a.l.area_m2
       : input.orden === 'cuota' ? (a, b) => a.q.cuota - b.q.cuota
       : (a, b) => a.l.total_price - b.l.total_price)
+    // D2 (28 nov 2026, sql/255): los bonos y campañas VIGENTES hoy (activos y dentro de sus fechas)
+    const hoyB = hoyLima()
+    const { data: bonosV } = await supabase.from('bonos').select('nombre, tipo, valor, condiciones, hasta, precios_m2')
+      .eq('project_id', pp.pid).eq('activo', true).lte('desde', hoyB).or('hasta.is.null,hasta.gte.' + hoyB)
+      .then(r => r, () => ({ data: [] }))
     const out = {
       proyecto: pp.nombre,
       numero_de_cuotas: N,
@@ -474,8 +479,15 @@ module.exports = function crearVentasIA({ supabase, log }) {
         ...(dto > 0 ? { precio_al_contado: soles(Math.round(Number(l.total_price) * (100 - dto)) / 100) } : {}),
       })),
       ...(dto > 0 ? { descuento_al_contado: dto + '% sobre el precio total, solo si paga todo de una vez' } : {}),
+      ...((bonosV || []).length ? { bonos_vigentes: bonosV.map(b => ({
+        bono: b.nombre, ...(b.condiciones ? { condiciones: b.condiciones } : {}), ...(b.hasta ? { vence: b.hasta.split('-').reverse().join('/') } : {}),
+        ...(b.tipo === 'regalo' ? {} : { da: b.tipo === 'porcentaje' ? b.valor + '% menos del precio' : soles(b.valor) + (b.tipo === 'descuento_inicial' ? ' menos en la inicial' : b.tipo === 'descuento_m2' ? ' menos por m²' : ' menos en el precio') }),
+        ...(b.precios_m2?.length ? { solo_lotes_de_m2: b.precios_m2.map(p => soles(p)).join(', ') } : {}),
+      })) } : {}),
       hay_mas_opciones: lista.length > 8,
       para_ti: 'Precio, inicial y cuota se dicen juntos. No digas cuántos lotes hay o quedan.' +
+        // sin bonos cargados no se dice nada: los manuales pueden traer sus propias promociones
+        ((bonosV || []).length ? ' Bonos: menciona los de bonos_vigentes con sus condiciones y hasta cuándo valen; no descuentes tú el precio.' : '') +
         (dto > 0 ? ' El precio al contado solo si pregunta por pagar al contado o de una vez, o si lo ves con la plata para hacerlo; con el monto exacto de precio_al_contado.' : ''),
     }
     if (buscado && !lista.length) out.para_ti = fuera.has(buscado)

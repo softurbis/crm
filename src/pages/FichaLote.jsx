@@ -181,6 +181,23 @@ export default function FichaLote() {
     logCambio('sales', venta.id, { cambio: 'convenio', antes: venta.convenio_id || null, despues: cambios.convenio_id, institucion: inst?.nombre || null })
     setMsg({ ok: true, t: inst ? 'VENTA LIGADA AL CONVENIO ' + inst.nombre : 'CONVENIO QUITADO' }); savedFx(); reload()
   }
+  // D4 (3.1, sql/255): renombrar por un plano nuevo — queda en la tabla de equivalencias y en el aviso
+  async function renombrarLote() {
+    const d = await pedirDatos({
+      titulo: '✎ RENOMBRAR ' + sel.mz + '-' + sel.lt, aceptar: 'Renombrar',
+      mensaje: 'La venta, la separación, los pagos y las tareas siguen con el lote. Si tiene contrato firmado con el nombre viejo, hará falta una adenda.',
+      campos: [
+        { clave: 'mz', etiqueta: 'Manzana nueva', obligatorio: true, valor: sel.mz },
+        { clave: 'lt', etiqueta: 'Lote nuevo', obligatorio: true, valor: sel.lt },
+        { clave: 'version', etiqueta: 'Versión del plano', placeholder: 'Plano de 354 lotes (13/11/2026)' },
+        { clave: 'motivo', etiqueta: 'Motivo', placeholder: 'La calle se corrió 10 m…' },
+      ],
+    })
+    if (!d) return
+    const { data, error } = await supabase.rpc('renombrar_lote', { p_lot: sel.id, p_mz: d.mz, p_lt: d.lt, p_version: d.version || null, p_motivo: d.motivo || null })
+    if (error) { await avisar('No se pudo renombrar: ' + error.message, { tono: 'error' }); return }
+    setMsg({ ok: true, t: 'LOTE RENOMBRADO: ' + sel.mz + '-' + sel.lt + ' → ' + data }); savedFx(); reload()
+  }
   const pidOp = sel?.project_id || null
 
   const [emsg, setEmsg] = useState(null)
@@ -327,13 +344,17 @@ export default function FichaLote() {
       const ordenados = pagosR.data.slice().sort((a, b) =>
         (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
       // 2.2 (sql/251): la reserva verbal vigente, la venta en una línea y los cambios al plan tras la firma
-      const [{ data: reserva }, { data: avance }, { data: cambiosPlan }] = await Promise.all([
+      const [{ data: reserva }, { data: avance }, { data: cambiosPlan }, { data: equiv }, { data: precios }, { data: instLote }] = await Promise.all([
         supabase.from('reservas').select('*').eq('lot_id', l.id).eq('estado', 'vigente').maybeSingle().then(r => r, () => ({ data: null })),
         sale ? supabase.from('ventas_avance').select('*').eq('sale_id', sale.id).maybeSingle().then(r => r, () => ({ data: null })) : Promise.resolve({ data: null }),
         sale ? supabase.from('plan_pago_cambios').select('*').eq('sale_id', sale.id).order('created_at', { ascending: false }).limit(30).then(r => r, () => ({ data: [] })) : Promise.resolve({ data: [] }),
+        // 3.1 (sql/255): cómo se llamaba antes, su historial de precios y la institución del bloque
+        supabase.from('lote_equivalencias').select('antes, despues, version, fecha').eq('lot_id', l.id).order('fecha').then(r => r, () => ({ data: [] })),
+        supabase.from('lote_precios').select('*').eq('lot_id', l.id).order('created_at', { ascending: false }).limit(15).then(r => r, () => ({ data: [] })),
+        l.institucion_id ? supabase.from('instituciones').select('id, nombre').eq('id', l.institucion_id).maybeSingle().then(r => r, () => ({ data: null })) : Promise.resolve({ data: null }),
       ])
       setSel(l)
-      setDetail({ sale, inst, sep, iniPagado, sepPagado, grupo, hermanosLotes, expropiaciones, reserva, avance, cambiosPlan: cambiosPlan || [] })
+      setDetail({ sale, inst, sep, iniPagado, sepPagado, grupo, hermanosLotes, expropiaciones, reserva, avance, cambiosPlan: cambiosPlan || [], equiv: equiv || [], precios: precios || [], instLote })
       setPagos(ordenados); setNaOk(pagosR.na)
       setHistorial(hist || [])
       setEstado('ok')
@@ -1030,7 +1051,9 @@ export default function FichaLote() {
         reason: chgReason.toUpperCase(), document_url: docUrl, changed_by: profile?.id,
       })
       if (e1) throw e1
-      const { error: e2 } = await supabase.from('lots').update({ status: chgTo }).eq('id', sel.id)
+      // D1 (sql/255): el reservado y el aporte guardan su motivo; al liberar se borra
+      const extra = ['reservado', 'aporte'].includes(chgTo) ? { reservado_motivo: chgReason.toUpperCase() } : chgTo === 'disponible' ? { reservado_motivo: null, institucion_id: null } : {}
+      const { error: e2 } = await supabase.from('lots').update({ status: chgTo, ...extra }).eq('id', sel.id)
       if (e2) throw e2
       // expropiar tambien marca la venta activa como expropiada
       if (chgTo === 'expropiado' && detail?.sale) {
@@ -1407,6 +1430,9 @@ export default function FichaLote() {
           K-20/K-21, renumerados por el plano nuevo con el contrato firmado aún como K-8/K-9.
           Se quita borrándolo en "Editar datos". */}
       {sel.aviso && <p className="fl-aviso warn" style={{ margin: '0 0 .6rem', whiteSpace: 'pre-wrap', border: '1px solid rgba(224,178,63,.45)' }}>&#9888; {sel.aviso}</p>}
+      {/* D1 (sql/255): apartado en bloque o aporte / parque */}
+      {sel.status === 'aporte' && <p className="fl-aviso" style={{ margin: '0 0 .6rem' }}>🌳 <b>APORTE / PARQUE</b>: este lote no se vende.{sel.reservado_motivo ? ' ' + sel.reservado_motivo : ''}</p>}
+      {sel.status === 'reservado' && !detail.reserva && <p className="fl-aviso warn" style={{ margin: '0 0 .6rem' }}>🏷 <b>RESERVADO</b>{detail.instLote ? <> para <b>{detail.instLote.nombre}</b> (su convenio es la lista de precios)</> : ''}{sel.reservado_motivo ? ' · ' + sel.reservado_motivo : ''}</p>}
 
       {/* ---- lo que se puede hacer con este lote AHORA, segun su estado ---- */}
       <div className="fl-acciones">
@@ -1415,8 +1441,12 @@ export default function FichaLote() {
           <button className="btn-act" onClick={() => setCobro('inicial')}>&#128181; Vender directo (inicial)</button>
           <button className="btn-act alt" title="Reserva de palabra hasta una fecha: nadie más lo puede separar; vence sola" onClick={reservar}>🔖 Reservar (verbal)</button>
         </>)}
+        {cobrar && sel.status === 'reservado' && !detail.reserva && !detail.sep && !sale && (<>
+          <button className="btn-primary" onClick={() => setCobro('separacion')}>&#10133; Separar</button>
+          <button className="btn-act" onClick={() => setCobro('inicial')}>&#128181; Vender directo (inicial)</button>
+        </>)}
         {/* C5 (sql/251): la reserva verbal vigente */}
-        {sel.status === 'reservado' && (<>
+        {sel.status === 'reservado' && detail.reserva && (<>
           <span className="fl-aviso warn">🔖 RESERVADO{detail.reserva ? <> a nombre de <b>{detail.reserva.cliente_nombre}</b>{detail.reserva.telefono ? ' (' + detail.reserva.telefono + ')' : ''} hasta el {String(detail.reserva.vence).split('-').reverse().join('/')}{detail.reserva.motivo ? ' · ' + detail.reserva.motivo : ''}</> : ''}</span>
           {cobrar && detail.reserva && <button className="btn-primary" onClick={() => resolverReserva('separada')}>&#10133; Separar (usa la reserva)</button>}
           {cobrar && detail.reserva && <button className="btn-act" onClick={() => resolverReserva('liberada')}>🔓 Liberar</button>}
@@ -1768,6 +1798,8 @@ export default function FichaLote() {
               <dt>Precio lista</dt><dd>{soles(sel.total_price)}</dd>
               <dt>Inicial sugerida</dt><dd>{soles(sel.initial_payment_default)}</dd>
               {sel.associated_to && <><dt>Asociado a</dt><dd>{sel.associated_to}</dd></>}
+              {(detail.equiv || []).length > 0 && <><dt>Antes se llamaba</dt><dd>{detail.equiv.map(e => e.antes + ' (' + (e.version ? e.version + ', ' : '') + fechaPe(e.fecha) + ')').join(' → ')}</dd></>}
+              {sel.reservado_motivo && <><dt>{sel.status === 'aporte' ? 'Aporte' : 'Reservado'}</dt><dd>{sel.reservado_motivo}{detail.instLote ? ' · ' + detail.instLote.nombre : ''}</dd></>}
               {sel.boundaries?.medidas && <><dt>Medidas</dt><dd>{Object.entries(sel.boundaries.medidas).map(([k, v]) => `${k} ${v}`).join(' | ')}</dd></>}
               {sel.status === 'entregado' && <><dt>Entregado el</dt><dd><b>{sel.delivered_at ? fechaPe(sel.delivered_at) : '- (sin fecha)'}</b>
                 {puedeCorregir && <button className="fecha-edit u-ml-6" onClick={() => editarFechaLote('delivered_at', 'fecha de entrega', sel.delivered_at, 'lots', sel.id)} title="Corregir fecha de entrega">&#9998;</button>}</dd></>}
@@ -1782,6 +1814,7 @@ export default function FichaLote() {
                 {puedeCorregir && sel.status === 'disponible' && (
                   <button className="btn-ghost" style={{ color: '#ff8e7a', borderColor: 'rgba(255,142,122,.5)' }} onClick={borrarLote}>🗑 Eliminar lote</button>
                 )}
+                {role === 'superuser' && <button className="btn-ghost" title="Cambia la manzana o el número por un plano nuevo: la venta, la separación y los pagos siguen con el lote, y queda en la tabla de equivalencias" onClick={renombrarLote}>✎ Renombrar (plano nuevo)</button>}
               </p>
             ) : (
               <form className="form-grid" onSubmit={guardarEdicion}>
@@ -1797,6 +1830,17 @@ export default function FichaLote() {
                 </div>
               </form>
             ))}
+            {(detail.precios || []).length > 0 && (
+              <details className="u-mt-8">
+                <summary className="muted small" style={{ cursor: 'pointer' }}>📈 Historial de precios ({detail.precios.length})</summary>
+                <ul className="small u-mb-4">{detail.precios.map(p => (
+                  <li key={p.id}>{fechaPe(String(p.created_at).slice(0, 10))}: {soles(p.total_antes)} → <b>{soles(p.total_despues)}</b>
+                    {Number(p.ppm2_antes) !== Number(p.ppm2_despues) ? ' (m² ' + soles(p.ppm2_antes) + ' → ' + soles(p.ppm2_despues) + ')' : ''}
+                    {Number(p.inicial_antes) !== Number(p.inicial_despues) ? ' · inicial ' + soles(p.inicial_antes) + ' → ' + soles(p.inicial_despues) : ''}
+                    {p.motivo ? <span className="muted"> · {p.motivo}</span> : null}</li>
+                ))}</ul>
+              </details>
+            )}
             {chg && esAdmin && (
               <form onSubmit={cambiarEstado} className="chg-box">
                 <p className="bad"><b>CAMBIO DE ESTADO - REQUIERE JUSTIFICACION</b></p>
@@ -1805,6 +1849,9 @@ export default function FichaLote() {
                     <option value="disponible">DISPONIBLE (liberar)</option>
                     <option value="separado">SEPARADO ADMINISTRATIVO (asunto interno)</option>
                     <option value="invadido">INVADIDO</option>
+                    {/* D1 (sql/255): apartado (reservado con motivo) y aporte / parque, que no se vende */}
+                    {!detail?.sale && !detail?.sep && <option value="reservado">RESERVADO (apartado, con motivo)</option>}
+                    {!detail?.sale && !detail?.sep && <option value="aporte">APORTE / PARQUE (no se vende)</option>}
                     {puedeCorregir && <option value="expropiado">EXPROPIADO (tramite formal, con documento)</option>}
                   </select>
                 </label>
