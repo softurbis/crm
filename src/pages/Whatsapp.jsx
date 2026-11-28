@@ -396,7 +396,8 @@ export default function Whatsapp() {
   const [brainTxt, setBrainTxt] = useState('')
   const [brainMsg, setBrainMsg] = useMsg('')
   const [ensenaTxt, setEnsenaTxt] = useState('')
-  const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30', saludoActivo: true, saludoHora: '07:30' })
+  const [secCfg, setSecCfg] = useState({ checkins: ['11:00', '16:30'], recordatorio: true, avisoHora: true, feedback: true, feedbackHora: '17:30', saludoActivo: true, saludoHora: '07:30', resumenHora: '18:00', resumenDestinos: [] })
+  const [equipoSeg, setEquipoSeg] = useState([])     // personas de Tareas del equipo (destinatarios del resumen)
   const [secMsg, setSecMsg] = useMsg('')
   const [projQ, setProjQ] = useState([])
   const [projNotify, setProjNotify] = useState('')
@@ -435,7 +436,11 @@ export default function Whatsapp() {
         feedbackHora: (kv.hora_feedback_sec || '17:30').slice(0, 5),
         saludoActivo: kv.sec_saludo_activo !== '0',
         saludoHora: (kv.sec_saludo_hora || '07:30').slice(0, 5),
+        resumenHora: (kv.hora_resumen_sec || '18:00').slice(0, 5),
+        resumenDestinos: (() => { try { const d = JSON.parse(kv.sec_resumen_destinos || '[]'); return Array.isArray(d) ? d.map(String) : [] } catch { return [] } })(),
       })
+      const { data: eq } = await supabase.from('secretaries').select('full_name, phone, tipo').eq('active', true).order('full_name')
+      setEquipoSeg(eq || [])
     }
   }
   const reiniciarBot = async () => {
@@ -692,6 +697,8 @@ export default function Whatsapp() {
       { key: 'hora_feedback_sec', value: String(secCfg.feedbackHora).slice(0, 5), updated_at: now },
       { key: 'sec_saludo_activo', value: secCfg.saludoActivo ? '1' : '0', updated_at: now },
       { key: 'sec_saludo_hora', value: String(secCfg.saludoHora).slice(0, 5), updated_at: now },
+      { key: 'hora_resumen_sec', value: String(secCfg.resumenHora || '18:00').slice(0, 5), updated_at: now },
+      { key: 'sec_resumen_destinos', value: JSON.stringify(secCfg.resumenDestinos || []), updated_at: now },
     ]
     const { error } = await supabase.from('bot_settings').upsert(rows)
     setSecMsg(error ? 'ERROR: ' + error.message : '✅ GUARDADO — el bot lo aplica en máx. 1 minuto')
@@ -1164,6 +1171,34 @@ export default function Whatsapp() {
                       <input type="time" value={secCfg.feedbackHora} onChange={e => setSecCfg(c => ({ ...c, feedbackHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
                     </label>
                   )}
+                </div>
+                {/* 27 nov 2026: el resumen del día ya no va solo al administrador: se elige a quién */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, marginTop: 10 }}>
+                  <label className="u-fs-12">📋 Resumen del día a las{' '}
+                    <input type="time" value={secCfg.resumenHora} onChange={e => setSecCfg(c => ({ ...c, resumenHora: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px' }} />
+                  </label>
+                  <span>para:</span>
+                  {(() => {
+                    const dig = s => String(s || '').replace(/\D/g, '')
+                    // nombre + primer apellido: "YOMAIRA DEL CARMEN MACEDO ORBEZO" -> "YOMAIRA MACEDO"
+                    const corto = n => { const w = String(n || '').trim().split(/\s+/); return w.length >= 4 ? w[0] + ' ' + w[w.length - 2] : w.slice(0, 2).join(' ') }
+                    const opciones = [
+                      ...(adminPhone ? [{ phone: dig(adminPhone), nombre: 'ADMINISTRADOR' }] : []),
+                      ...equipoSeg.filter(p => dig(p.phone).slice(-9) !== dig(adminPhone).slice(-9))
+                        .sort((a, b) => (a.tipo === 'gerencia' ? 0 : 1) - (b.tipo === 'gerencia' ? 0 : 1))
+                        .map(p => ({ phone: dig(p.phone), nombre: (p.tipo === 'gerencia' ? '👔 ' : '') + corto(p.full_name) })),
+                    ]
+                    const marcado = ph => (secCfg.resumenDestinos || []).includes(ph)
+                    const alternar = ph => setSecCfg(c => ({ ...c, resumenDestinos: marcado(ph) ? c.resumenDestinos.filter(x => x !== ph) : [...(c.resumenDestinos || []), ph] }))
+                    return opciones.map(o => (
+                      <label key={o.phone} style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={marcado(o.phone)} onChange={() => alternar(o.phone)} /> {o.nombre}
+                      </label>
+                    ))
+                  })()}
+                </div>
+                <p className="muted u-fs-10 u-mt-4">Llega por Telegram. Si no marcas a nadie, va al administrador. Quien no vinculó su Telegram no lo recibe.</p>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, marginTop: 8 }}>
                   <button className="btn" onClick={guardarSecCfg}>💾 GUARDAR HORARIOS</button>
                   {secMsg && <span className="u-fs-12">{secMsg}</span>}
                 </div>

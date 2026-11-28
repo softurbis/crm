@@ -92,8 +92,9 @@ export default function Prospectos() {
   // el texto se busca medio segundo después de dejar de escribir
   useEffect(() => { const t = setTimeout(() => setBuscar(texto.trim()), 400); return () => clearTimeout(t) }, [texto])
 
-  const cargar = useCallback(async () => {
-    let q = supabase.from('leads').select(COLS, { count: 'exact' }).or('is_test.is.null,is_test.eq.false')
+  // los filtros de la pantalla (los usan la lista y el Excel)
+  const filtrar = useCallback(q => {
+    q = q.or('is_test.is.null,is_test.eq.false')
     if (fEstado === 'abiertos') q = q.in('status', ABIERTOS)
     else if (fEstado === 'toca') q = q.in('status', ABIERTOS).lte('next_action_date', hoy)
     else if (fEstado !== 'todos') q = q.eq('status', fEstado)
@@ -107,6 +108,11 @@ export default function Prospectos() {
       if (d.length >= 3 && d.length === limpio.replace(/\s/g, '').length) q = q.or(`phone.ilike.%${d}%,phone2.ilike.%${d}%`)
       else if (limpio) q = q.ilike('full_name', '%' + limpio + '%')
     }
+    return q
+  }, [fEstado, fProy, fVend, fTemp, buscar, hoy])
+
+  const cargar = useCallback(async () => {
+    let q = filtrar(supabase.from('leads').select(COLS, { count: 'exact' }))
     // el vendedor: primero lo que toca antes; el jefe: lo más nuevo arriba
     q = esVendedor || fEstado === 'toca'
       ? q.order('next_action_date', { ascending: true, nullsFirst: false }).order('next_action_time', { ascending: true, nullsFirst: true }).order('created_at', { ascending: false })
@@ -114,7 +120,7 @@ export default function Prospectos() {
     const { data, error, count } = await q.range(0, limite - 1)
     if (error) { setError(falta190(error) ? FALTA : error.message); setFilas([]); return }
     setError(''); setFilas(data || []); setTotal(count || 0)
-  }, [fEstado, fProy, fVend, fTemp, buscar, limite, esVendedor, hoy])
+  }, [filtrar, fEstado, limite, esVendedor])
 
   const cargarResumen = useCallback(async () => {
     if (!esVendedor) return
@@ -152,6 +158,27 @@ export default function Prospectos() {
   const vend = id => vendedores.find(v => v.id === id)
   const nomVend = id => { const v = vend(id); return v ? (v.usuario || v.full_name || v.code) : '' }
 
+  // EXCEL (27 nov 2026): lo que está filtrado, completo (no solo la página cargada)
+  const [bajando, setBajando] = useState(false)
+  async function bajarExcel() {
+    setBajando(true)
+    try {
+      const { traerTodos, excelProspectos } = await import('../lib/excelProspectos')
+      const todos = await traerTodos(() => filtrar(supabase.from('leads').select(COLS)).order('created_at', { ascending: false }).order('id'))
+      // todos los vendedores, también los inactivos: sus prospectos no deben salir "sin vendedor"
+      const { data: vs } = await supabase.rpc('vendedores_lista')
+      const nomV = id => { const v = (vs || []).find(x => x.id === id); return v ? (v.usuario || v.full_name || v.code) : '' }
+      const partes = [
+        fEstado === 'abiertos' ? 'En seguimiento' : fEstado === 'toca' ? 'Toca hoy o vencido' : fEstado === 'todos' ? 'Todos los estados' : EST[fEstado]?.t,
+        fProy && nomProy(fProy), fVend === 'ninguno' ? 'Sin vendedor' : fVend && nomV(fVend), fTemp && TEMP[fTemp]?.t, buscar && 'Búsqueda: ' + buscar,
+      ].filter(Boolean)
+      await excelProspectos({ filas: todos, nomProy, nomVend: nomV, filtro: partes.join(' · ') })
+      setMsg({ ok: true, t: `Excel listo: ${todos.length} prospectos.` })
+    } catch (e) {
+      setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) })
+    } finally { setBajando(false) }
+  }
+
   async function repartir() {
     if (!marcados.length || !darA) return
     setOcupado(true)
@@ -176,6 +203,7 @@ export default function Prospectos() {
       <div className="toolbar u-ai-c">
         <h1 className="u-m0 u-f1">{esVendedor ? 'Mis prospectos' : 'Prospectos'}</h1>
         <button type="button" className="btn-ghost" onClick={() => irA('/vendedor')}>🏷️ Precios y cuotas</button>
+        {esJefe && <button type="button" className="btn-ghost" disabled={bajando} title="Baja a Excel los prospectos con el filtro que tienes puesto (todos, no solo los de la pantalla)" onClick={bajarExcel}>{bajando ? 'Armando…' : '📥 Excel'}</button>}
         {puedeRegistrar && <button type="button" className="btn-primary" onClick={() => setNuevo({ source: 'referido', project_id: fProy || (projects.length === 1 ? projects[0].id : '') })}>＋ Nuevo prospecto</button>}
       </div>
       {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}

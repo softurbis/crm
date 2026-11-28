@@ -93,18 +93,26 @@ export default function Visitas() {
   if (!['admin', 'superuser', 'operador', 'secretary', 'manager'].includes(role)) return <div className="glass" style={{ padding: 24 }}>Sin acceso.</div>
   const puedeCrear = role !== 'manager'
 
+  // 27 nov 2026 (pedido de gerencia): el celular del cliente es OPCIONAL (antes se ponía el
+  // de gerencia para poder guardar), cada visita puede apagar el recordatorio al cliente, y
+  // existe la visita SIN ACOMPAÑANTE (el cliente va solo: no hay encargado del equipo).
   const guardar = async () => {
     const cp = String(form.client_phone || '').replace(/\D/g, '')
     const ep = String(form.encargado_phone || '').replace(/\D/g, '')
-    if (!form.client_name?.trim() || cp.length < 9 || !form.date || !form.time || !form.meeting_point?.trim() || ep.length < 9) {
-      await avisar('Completa: cliente, celular (9+ dígitos), encargado y su celular, fecha, hora y punto de encuentro.'); return
+    const sola = !!form.sin_acompanante
+    if (!form.client_name?.trim() || !form.date || !form.time || !form.meeting_point?.trim() || (!sola && ep.length < 9)) {
+      await avisar('Completa: cliente, fecha, hora y punto de encuentro' + (sola ? '.' : ', y el encargado con su celular (o marca "sin acompañante").')); return
     }
+    if (cp && cp.length < 9) { await avisar('El celular del cliente tiene menos de 9 dígitos. Corrígelo o déjalo vacío: es opcional.'); return }
     const payload = {
       project_id: form.project_id || null,
-      client_name: form.client_name.trim().toUpperCase(), client_phone: cp.length === 9 ? '51' + cp : cp,
-      encargado_name: (form.encargado_name || '').trim().toUpperCase() || null, encargado_phone: ep.length === 9 ? '51' + ep : ep,
+      client_name: form.client_name.trim().toUpperCase(), client_phone: cp ? (cp.length === 9 ? '51' + cp : cp) : null,
+      encargado_name: sola ? null : (form.encargado_name || '').trim().toUpperCase() || null,
+      encargado_phone: sola ? null : (ep.length === 9 ? '51' + ep : ep),
       date: form.date, time: form.time, meeting_point: form.meeting_point.trim().toUpperCase(),
       notes: (form.notes || '').trim() || null,
+      recordar_cliente: cp ? form.recordar_cliente !== false : false,
+      sin_acompanante: sola,
     }
     const { error } = form.id
       ? await supabase.from('visits').update({ ...payload, reminded_at: null }).eq('id', form.id)
@@ -211,7 +219,11 @@ export default function Visitas() {
           <span title={e.t}>{e.i}</span>
         </div>
         <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>{v.project?.name || 'SIN PROYECTO'}{!esRec && ' · 📍 ' + v.meeting_point}</p>
-        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>👤 {v.encargado_name || 'ENCARGADO'} · +{v.encargado_phone} · CLIENTE +{v.client_phone}{yaRec ? ' · 🔔 RECORDADO' : ''}</p>
+        <p className="muted" style={{ fontSize: 10, margin: '2px 0' }}>
+          {v.sin_acompanante ? '🚶 SIN ACOMPAÑANTE' : '👤 ' + (v.encargado_name || 'ENCARGADO') + (v.encargado_phone ? ' · +' + v.encargado_phone : '')}
+          {' · '}{v.client_phone ? 'CLIENTE +' + v.client_phone : 'CLIENTE SIN CELULAR'}
+          {v.client_phone && v.recordar_cliente === false && !esRec ? ' · 🔕 SIN RECORDATORIO AL CLIENTE' : ''}{yaRec ? ' · 🔔 RECORDADO' : ''}
+        </p>
         {v.notes && <p className="muted" style={{ fontSize: 10, margin: '2px 0', textTransform: 'none' }}>📝 {v.notes}</p>}
         {v.resultado && <p style={{ fontSize: 10, margin: '2px 0', color: (RESULTADOS.find(r => r.v === v.resultado)?.c) || '#9daab6', fontWeight: 700 }}>
           {RES_LBL[v.resultado] || v.resultado}{v.resultado_note ? <span className="muted" style={{ fontWeight: 400, textTransform: 'none' }}> · {v.resultado_note}</span> : ''}
@@ -366,15 +378,28 @@ export default function Visitas() {
               </select>
             </label>
             <label>Cliente <input value={form.client_name || ''} onChange={e => setForm({ ...form, client_name: e.target.value })} /></label>
-            <label>Celular del cliente <input value={form.client_phone || ''} onChange={e => setForm({ ...form, client_phone: e.target.value })} placeholder="9XXXXXXXX" /></label>
-            <label>Encargado (del equipo)
-              <select value="" onChange={e => elegirEncargado(e.target.value)}>
-                <option value="">— ELEGIR DEL EQUIPO —</option>
-                {equipo.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-              </select>
+            <label>Celular del cliente (opcional) <input value={form.client_phone || ''} onChange={e => setForm({ ...form, client_phone: e.target.value })} placeholder="9XXXXXXXX" /></label>
+            <label className="span2 u-d-f u-g-6 u-ai-c" style={{ flexDirection: 'row', cursor: 'pointer', opacity: String(form.client_phone || '').replace(/\D/g, '').length >= 9 ? 1 : .5 }}
+              title={cfg.recCliente ? '' : 'Los recordatorios al cliente están apagados para todas las visitas (⚙ RECORDATORIOS)'}>
+              <input type="checkbox" disabled={String(form.client_phone || '').replace(/\D/g, '').length < 9}
+                checked={String(form.client_phone || '').replace(/\D/g, '').length >= 9 && form.recordar_cliente !== false}
+                onChange={e => setForm({ ...form, recordar_cliente: e.target.checked })} />
+              🔔 Recordarle esta visita al cliente por WhatsApp{!cfg.recCliente && ' (hoy apagado para todas)'}
             </label>
-            <label>Nombre encargado <input value={form.encargado_name || ''} onChange={e => setForm({ ...form, encargado_name: e.target.value })} /></label>
-            <label>Celular encargado <input value={form.encargado_phone || ''} onChange={e => setForm({ ...form, encargado_phone: e.target.value })} placeholder="9XXXXXXXX" /></label>
+            <label className="span2 u-d-f u-g-6 u-ai-c" style={{ flexDirection: 'row', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!form.sin_acompanante} onChange={e => setForm({ ...form, sin_acompanante: e.target.checked })} />
+              🚶 Sin acompañante: el cliente va solo, nadie del equipo lo acompaña
+            </label>
+            {!form.sin_acompanante && <>
+              <label>Encargado (del equipo)
+                <select value="" onChange={e => elegirEncargado(e.target.value)}>
+                  <option value="">— ELEGIR DEL EQUIPO —</option>
+                  {equipo.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+              </label>
+              <label>Nombre encargado <input value={form.encargado_name || ''} onChange={e => setForm({ ...form, encargado_name: e.target.value })} /></label>
+              <label>Celular encargado <input value={form.encargado_phone || ''} onChange={e => setForm({ ...form, encargado_phone: e.target.value })} placeholder="9XXXXXXXX" /></label>
+            </>}
             <label>Fecha <input type="date" value={form.date || ''} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
             <label>Hora <input type="time" value={form.time || ''} onChange={e => setForm({ ...form, time: e.target.value })} /></label>
             <label className="span2">Punto de encuentro <input value={form.meeting_point || ''} onChange={e => setForm({ ...form, meeting_point: e.target.value })} placeholder="EJ. INGRESO DEL PROYECTO KM 10 / OFICINA URBIS" /></label>

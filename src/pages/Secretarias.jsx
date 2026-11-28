@@ -81,6 +81,19 @@ export default function Secretarias() {
   }
   const toggleActiva = async s => { await supabase.from('secretaries').update({ active: !s.active }).eq('id', s.id); cargar() }
   const toggleSeguimiento = async s => { await supabase.from('secretaries').update({ seguimiento: s.seguimiento === false }).eq('id', s.id); cargar() }
+  // GERENCIA (27 nov 2026): el bot de Telegram le da comandos de gerencia (comisiones, gastos,
+  // resumen completo) y su agenda no la ve el resto del equipo. Solo se toca whatsapp_numbers
+  // si la fila la creó esta pantalla (secretaria/gerencia): no pisa un número marcado de otra forma.
+  const toggleGerencia = async s => {
+    const tipo = s.tipo === 'gerencia' ? 'secretaria' : 'gerencia'
+    if (!await confirmar(tipo === 'gerencia'
+      ? `¿Marcar a ${s.full_name} como GERENCIA?\n\nEn el bot de Telegram verá comisiones, gastos y el resumen completo, y el resto del equipo deja de ver su agenda.`
+      : `¿Quitarle GERENCIA a ${s.full_name}?\n\nEn el bot verá solo lo operativo y su agenda vuelve a ser visible para el equipo.`, { aceptar: 'Sí, cambiar' })) return
+    const { error } = await supabase.from('secretaries').update({ tipo }).eq('id', s.id)
+    if (error) { await avisar('ERROR: ' + error.message); return }
+    await supabase.from('whatsapp_numbers').update({ tipo, note: s.full_name + ' (' + tipo.toUpperCase() + ')' }).eq('phone', s.phone).in('tipo', ['secretaria', 'gerencia'])
+    savedFx(); cargar()
+  }
   const vincularUsuario = async (s, uid) => { await supabase.from('secretaries').update({ user_id: uid || null }).eq('id', s.id); cargar() }
   const quitarSec = async s => {
     if (!await confirmar(`¿Quitar a ${s.full_name}? Se borran sus rutinas y su historial.`, { peligro: true, aceptar: 'Sí, quitar' })) return
@@ -161,8 +174,10 @@ export default function Secretarias() {
     const d = new Date(anio, mnum - 1 + paso, 1)
     setMes(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
   }
+  // el % cuenta solo lo que ya debía estar cerrado: días pasados y, de hoy, lo ya contestado.
+  // Antes sumaba las saltadas (🚫) y lo de hoy que todavía no tocaba, y el % salía bajo.
   const kpi = sid => {
-    const ts = tareas.filter(t => t.secretary_id === sid && t.date <= hoy)
+    const ts = tareas.filter(t => t.secretary_id === sid && !t.cancelada && (t.date < hoy || (t.date === hoy && t.status !== 'pendiente')))
     const base = ts.filter(t => t.category !== 'extra')
     const hechas = base.filter(t => t.status === 'hecha').length
     const extras = ts.filter(t => t.category === 'extra').length
@@ -212,7 +227,8 @@ export default function Secretarias() {
           {esJefe && secSel !== 'todas' && (() => { const s = secs.find(x => x.id === secSel); return s && (
             <span className="u-d-f u-g-6 u-fwr u-ai-c">
               <button className="btn-ghost u-fs-12" onClick={() => setAbierta(abierta === s.id ? null : s.id)}>⚙ RUTINA</button>
-              {role === 'superuser' && <button className="btn-ghost u-fs-12" title="Si está apagado, el bot no le escribe por WhatsApp" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>}
+              {role === 'superuser' && <button className="btn-ghost u-fs-12" title="Si está apagado, el bot no le pasa lista por Telegram" onClick={() => toggleSeguimiento(s)}>{s.seguimiento === false ? '🔕 BOT: NO' : '📡 BOT: SÍ'}</button>}
+              {role === 'superuser' && <button className="btn-ghost u-fs-12" title="Gerencia: en el bot ve comisiones, gastos y el resumen completo; su agenda no la ve el resto del equipo" onClick={() => toggleGerencia(s)}>{s.tipo === 'gerencia' ? '👔 GERENCIA: SÍ' : '👔 GERENCIA: NO'}</button>}
               {role === 'superuser' && <button className="btn-ghost u-fs-12" onClick={() => toggleActiva(s)}>{s.active ? 'PAUSAR' : 'ACTIVAR'}</button>}
               {role === 'superuser' && <button className="btn-ghost u-fs-12" onClick={() => quitarSec(s)}>QUITAR</button>}
               {role === 'superuser' && <select className="u-fs-12" value={s.user_id || ''} title="Usuario del sistema vinculado: podrá ver y marcar sus propias actividades"
@@ -228,7 +244,7 @@ export default function Secretarias() {
       {abierta && (esJefe || (mia && abierta === mia.id)) && (() => { const s = secs.find(x => x.id === abierta); if (!s) return null; const rs = rutinas.filter(r => r.secretary_id === s.id); return (
         <div className="glass u-p-12 u-mb-12">
           <b className="u-fs-13">RUTINA FIJA — {s.full_name}</b> <span className="muted u-fs-11">(se repite cada semana, todo el mes)</span>
-          <p className="muted" style={{ fontSize: 10, margin: '2px 0 6px' }}>🌅 <b>Mañana</b> / 🌇 <b>Tarde</b> = cuándo el bot pasa lista por WhatsApp. Si pones una <b>hora exacta</b> (al editar el día), el bot avisa a esa hora.</p>
+          <p className="muted" style={{ fontSize: 10, margin: '2px 0 6px' }}>🌅 <b>Mañana</b> / 🌇 <b>Tarde</b> = cuándo el bot pasa lista por Telegram: el pase de la mañana pregunta lo de la mañana; desde la 1 p. m. pregunta todo lo que siga abierto. Si pones una <b>hora exacta</b> (al editar el día), el bot avisa a esa hora.</p>
           {rs.length === 0 && <p className="muted u-fs-12">Sin rutina aún.</p>}
           {rs.map(r => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>

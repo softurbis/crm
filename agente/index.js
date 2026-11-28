@@ -337,7 +337,28 @@ async function enviarArchivo(jid, url, clase, caption, ses) {
 // ¿este número puede usar el Q&A interno confidencial? Solo GERENCIA y el ADMIN.
 async function puedeQA(phone) {
   if (ADMIN && (String(phone).endsWith(ADMIN.slice(-9)) || ADMIN.endsWith(String(phone).slice(-9)))) return true
-  return (await tipoNumero(phone)) === 'gerencia'
+  return (await tipoNumero(phone)) === 'gerencia' || await esGerenciaSeguimiento(phone)
+}
+// ¿la persona figura como GERENCIA en Tareas del equipo? (27 nov 2026). Hasta hoy la
+// gerencia salía SOLO de whatsapp_numbers, y quienes se registraron antes quedaron como
+// secretaria: el bot les bloqueaba comisiones y gastos y no les dejaba usar comandos.
+async function esGerenciaSeguimiento(phone) {
+  const p9 = String(phone || '').replace(/\D/g, '').slice(-9)
+  if (p9.length < 9) return false
+  const { data } = await supabase.from('secretaries').select('id').ilike('phone', '%' + p9).eq('tipo', 'gerencia').eq('active', true).limit(1)
+  return !!(data && data.length)
+}
+// ¿le preguntamos "¿algo extra?" hoy y todavía no contestó?
+async function feedbackPendiente(phone) {
+  const { data } = await supabase.from('secretaries').select('feedback_asked, feedback_done').ilike('phone', '%' + String(phone).slice(-9)).limit(1)
+  const s = (data || [])[0], hoy = secHoy()
+  return !!(s && s.feedback_asked === hoy && s.feedback_done !== hoy)
+}
+// ¿el mensaje EMPIEZA con un comando? Con el pase de lista abierto, solo esos van a los
+// comandos; todo lo demás es la respuesta al checklist (aunque diga "lote" o "cliente").
+function empiezaConComando(texto) {
+  const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+  return /^\/?(ayuda|comandos|menu|opciones|resumen|reporte|panorama|lotes\b|lote\s+\w|cliente\s+\w|contratos?\b|comisiones?\b|gastos?\b|visitas\b|vencidas\b|morosos\b|cobranza\b|ventas\b|ingresos\b|caja\b|separaciones\b|clientes\b|cartera\b|leads\b|prospectos\b|pagos de hoy|entregados\b|top asesor|pendientes\b|cumplimiento\b|migracion\b|tarea\s+\w|aprende:)/.test(t)
 }
 
 // ¿el mensaje parece una PREGUNTA/consulta (no una respuesta de checklist)?
@@ -440,12 +461,37 @@ const PIE_COMANDO = '\n\n💡 ¿Necesitas algo más específico? Escríbeme la p
 
 // COMANDOS DIRECTOS: responden leyendo la base y armando una plantilla, SIN IA (gratis).
 // Devuelve el texto de respuesta, o null si el mensaje no es un comando conocido.
-async function comandoDirecto(texto) {
+// opts.gerencia === false (27 nov 2026): quien NO es gerencia ve el menú sin lo de dinero de
+// la empresa, el resumen sin gastos ni comisiones y "pendientes" solo con lo suyo. Antes
+// "resumen" le mostraba los gastos del mes y las comisiones por cobrar a cualquiera.
+async function comandoDirecto(texto, opts = {}) {
   try {
+    const ger = opts.gerencia !== false
     const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
     const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE')
     const { data: proys } = await supabase.from('projects').select('id, name').order('name')
     const nombreProy = id => (proys || []).find(p => p.id === id)?.name || '—'
+
+    if (!ger && /^(ayuda|comandos|menu|men[uú]|opciones|help|hola|buenas|buenos dias|buenas tardes|buenas noches|hey|que tal|qu[eé] tal)[!.\s]*$/.test(t)) {
+      return '👋 *ASISTENTE URBIS* — escríbeme cualquiera de estas palabras:\n\n' +
+        '📊 *PANORAMA*\n' +
+        '• *resumen* — el día en una pantalla\n' +
+        '• *lotes* — disponibles y precios por proyecto\n' +
+        '• *entregados* — lotes ya entregados\n\n' +
+        '🏷️ *COMERCIAL Y COBRANZA*\n' +
+        '• *vencidas* — cuotas vencidas por proyecto\n' +
+        '• *ventas* — ventas y su estado\n' +
+        '• *separaciones* — vigentes y vencidas\n' +
+        '• *clientes* — cartera de clientes\n' +
+        '• *leads* — embudo de prospectos\n' +
+        '• *visitas* — próximas programadas\n' +
+        '• *contratos* — ventas sin contrato firmado\n\n' +
+        '🔎 *BUSCAR* (escribe la palabra + el dato)\n' +
+        '• *lote V-1* — ficha completa de un lote\n' +
+        '• *cliente Percy* — estado de cuenta de un cliente\n\n' +
+        '📋 *TUS TAREAS*\n' +
+        '• *pendientes* — lo tuyo sin cerrar hoy'
+    }
 
     if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola|buenas|buenos dias|buenas tardes|buenas noches|hey|que tal|qu[eé] tal)[!.\s]*$/.test(t)) {
       return '👋 *ASISTENTE URBIS* — escríbeme cualquiera de estas palabras:\n\n' +
@@ -645,17 +691,19 @@ async function comandoDirecto(texto) {
         out += '\n   🏘️ ' + x.disp + ' disponibles · ' + x.vend + ' vendidos'
         out += '\n   💰 ' + x.proc + ' ventas en proceso · ' + x.pag + ' pagadas'
         if (x.vN) out += '\n   ⚠️ *' + x.vN + ' cuotas vencidas · ' + soles(x.vS) + '*'
-        if (x.gas) out += '\n   💸 Gastos del mes: ' + soles(x.gas)
+        if (x.gas && ger) out += '\n   💸 Gastos del mes: ' + soles(x.gas)
         if (x.vis) out += '\n   📅 ' + x.vis + ' visita(s) programada(s)'
       }
-      // las comisiones no son de un proyecto sino del asesor: van aparte, al final
-      const { data: coms } = await supabase.from('commissions').select('amount').eq('status', 'pendiente')
-      const comTot = (coms || []).reduce((s, c) => s + Number(c.amount || 0), 0)
       const prox = (vis || [])[0]
       out += '\n\n━━━━━━━━━━'
       out += '\n⚠️ Vencido total: *' + soles(T.vS) + '* (' + T.vN + ' cuotas)'
-      out += '\n💼 Comisiones por cobrar: *' + soles(comTot) + '*'
-      out += '\n💸 Gastos del mes: *' + soles(T.gas) + '*'
+      if (ger) {
+        // las comisiones no son de un proyecto sino del asesor: van aparte, al final
+        const { data: coms } = await supabase.from('commissions').select('amount').eq('status', 'pendiente')
+        const comTot = (coms || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+        out += '\n💼 Comisiones por cobrar: *' + soles(comTot) + '*'
+        out += '\n💸 Gastos del mes: *' + soles(T.gas) + '*'
+      }
       if (prox) out += '\n📅 Próxima visita: ' + String(prox.date).split('-').reverse().join('/') + ' ' + String(prox.time || '').slice(0, 5) + ' — ' + (prox.client_name || '') + ' (' + (prox.project?.name || '—') + ')'
       return out + PIE_COMANDO
     }
@@ -843,7 +891,15 @@ async function comandoDirecto(texto) {
     }
     if (/pendientes|tareas pend|checklist/.test(t)) {
       const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
-      const { data: tk } = await supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).eq('status', 'pendiente').order('time')
+      let qTk = supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).eq('status', 'pendiente').neq('cancelada', true).order('time')
+      // quien no es gerencia ve solo lo suyo (la agenda de los demás no es de su incumbencia)
+      if (!ger) {
+        const p9 = String(opts.phone || '').replace(/\D/g, '').slice(-9)
+        const { data: yo } = p9.length === 9 ? await supabase.from('secretaries').select('id').ilike('phone', '%' + p9).limit(1) : { data: [] }
+        if (!yo || !yo.length) return '📋 No figuras en Tareas del equipo, así que no tengo pendientes tuyos.'
+        qTk = qTk.eq('secretary_id', yo[0].id)
+      }
+      const { data: tk } = await qTk
       if (!tk || !tk.length) return '📋 *PENDIENTES DE HOY*\nNo hay tareas pendientes. 🎉' + PIE_COMANDO
       const bySec = {}; for (const x of tk) { const k = x.secretary?.full_name || '—'; (bySec[k] = bySec[k] || []).push(x) }
       let out = '📋 *PENDIENTES DE HOY*\n'
@@ -1011,6 +1067,17 @@ async function enviar(phone, texto, meta = {}) {
     // Avisos que van SOLO por Telegram (los del agente de ventas al asesor): si la persona
     // no vinculó su Telegram, no salen por el WhatsApp del proyecto. Quien llama decide.
     if (meta.soloTelegram) { log('SOLO TELEGRAM: +' + (digTg || phone) + ' no tiene Telegram vinculado, no se envía [' + (meta.tipo || 'msj') + ']'); return false }
+    // 27 nov 2026 (decisión del dueño): TODO el seguimiento interno va SOLO por Telegram.
+    // Quien no vinculó su Telegram no recibe estos avisos por el WhatsApp de clientes: los
+    // ve en el panel. Antes caían por WhatsApp y su respuesta el bot la tomaba como un lead.
+    if (meta.interno && !conversacional && await seguimientoEnTelegram()) {
+      log('SOLO TELEGRAM (seguimiento): +' + (digTg || phone) + ' no tiene Telegram vinculado, no se envía [' + (meta.tipo || 'msj') + ']')
+      await supabase.from('scheduled_messages').insert({
+        recipient_phone: digTg || String(phone).replace(/\D/g, ''), body: meta.registro ?? texto, tipo: meta.tipo || 'manual',
+        scheduled_for: new Date().toISOString(), status: 'fallido', last_error: 'sin Telegram vinculado (el seguimiento va solo por Telegram)',
+      }).then(() => {}, () => {})
+      return false
+    }
   }
   if (!S || !S.sock) { log('SIN SESION DE WHATSAPP CONECTADA, no se envia a', phone); espejo('⛔ SIN SESIÓN de WhatsApp: no se pudo enviar a +' + phone); return false }
   if (new Date().toDateString() !== diaActual) { diaActual = new Date().toDateString(); enviadosHoy = 0; for (const x of SESSIONS.values()) x.enviados = 0 }
@@ -1171,6 +1238,85 @@ function extraerExtra(texto) {
 }
 const fmtFechaEs = iso => { const [y, mo, dd] = iso.split('-'); return dd + '/' + mo + '/' + y }
 
+// LEER LA RESPUESTA A UN PASE DE LISTA (27 nov 2026). Antes los números ganaban siempre:
+// "1 no" marcaba la tarea 1 como HECHA, y un "no" suelto dejaba todo como no hecho sin
+// volver a preguntar. Ahora cada número toma el sí o el no que lo acompaña:
+//   "1 listo, 2 todavía no" · "la 3 no" · "todas menos la 2" · "1 y 3 ya, el resto falta"
+// Las fechas y horas no cuentan como números de tarea ("quedó en venir el 15 de diciembre",
+// "a las 3"). Si no queda claro (dice sí y no sin números), NO adivina: pide los números.
+// Devuelve { hechas: [tareas], faltan: [tareas], ambiguo: bool }.
+const CK_SI = new Set(['listo', 'lista', 'listos', 'listas', 'hecho', 'hecha', 'hechos', 'hechas', 'ya', 'si', 'ok', 'okey', 'okay', 'completo', 'completa', 'completado', 'completada', 'completados', 'completadas', 'terminado', 'terminada', 'terminados', 'terminadas', 'realizado', 'realizada', 'realizados', 'realizadas', 'cumplido', 'cumplida', 'cumplidos', 'cumplidas', 'conforme'])
+// "pausa", "suspendida": hasta que exista el estado PAUSADA cuentan como "todavía no"
+const CK_NO = new Set(['no', 'aun', 'todavia', 'falta', 'faltan', 'pendiente', 'pendientes', 'nada', 'tampoco', 'nop', 'ninguna', 'ninguno', 'pausa', 'pausada', 'pausado', 'suspendida', 'suspendido', 'postergada', 'postergado'])
+const CK_EXC = new Set(['menos', 'excepto', 'salvo'])
+const CK_TODO = new Set(['todo', 'todas', 'todos', 'resto', 'demas', 'otras', 'otros'])
+const CK_RELLENO = new Set(['la', 'el', 'las', 'los', 'tarea', 'tareas', 'numero', 'n', 'nro', 'y', 'e', 'de', 'del'])
+const CK_MESES = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre'
+function leerChecklist(texto, abiertas) {
+  let s = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  // fuera fechas, horas, montos y cantidades: no son números de tarea
+  s = s.replace(/\b\d{1,2}\s*[\/\-]\s*\d{1,2}(?:\s*[\/\-]\s*\d{2,4})?\b/g, ' ')
+    .replace(new RegExp('\\b\\d{1,2}\\s+de\\s+(?:' + CK_MESES + ')\\b', 'g'), ' ')
+    .replace(/\ba\s+las?\s+\d{1,2}(?::\d{2})?\b/g, ' ').replace(/\b\d{1,2}:\d{2}\b/g, ' ')
+    .replace(/s\/\s*\d+(?:[.,]\d+)?/g, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:soles|am|pm|hrs?|horas?|min|minutos|dias|semanas|meses|m2|metros|lotes?|cuotas?|personas|unidades|de\s+\d+)\b/g, ' ')
+  const tokens = s.match(/[a-z]+|\d+|[,;.\n]/g) || []
+  const porIndice = new Map(abiertas.map(x => [x.ask_index, x]))
+  const asignado = new Map()               // ask_index -> true (hecha) | false (falta)
+  let pendientes = [], segPol = null, ultPol = null, invertir = null, segConPalabras = false
+  let marcaTodo = false, polTodo = null, enSegTodo = false, haySi = false, hayNo = false, vioNumero = false
+  const asignar = (nums, pol) => { for (const n of nums) if (porIndice.has(n) && !asignado.has(n)) asignado.set(n, pol) }
+  const cerrarSegmento = () => {
+    if (pendientes.length && segConPalabras) { asignar(pendientes, segPol ?? ultPol ?? true); pendientes = [] }
+    if (enSegTodo) { polTodo = segPol ?? polTodo ?? true; enSegTodo = false }
+    segPol = null; invertir = null; segConPalabras = false
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    const tk = tokens[i], sig = tokens[i + 1] || ''
+    if (/^[,;.\n]$/.test(tk)) { cerrarSegmento(); continue }
+    if (/^\d+$/.test(tk)) {
+      const n = parseInt(tk)
+      // "venir el 15", "el día 15" después de haber contestado otra tarea = una fecha.
+      // "1 listo, el 3 no" y "la 2 y el 5" sí son tareas.
+      const prev = tokens[i - 1] || '', prev2 = tokens[i - 2] || ''
+      const esFecha = asignado.size > 0 && !pendientes.length && !CK_SI.has(sig) && !CK_NO.has(sig)
+        && (prev === 'dia' || (prev === 'el' && prev2 && !/^[,;.\n]$/.test(prev2) && !CK_RELLENO.has(prev2)))
+      if (esFecha) continue
+      vioNumero = true
+      if (invertir !== null) asignar([n], !invertir)
+      else pendientes.push(n)
+      continue
+    }
+    if (!CK_RELLENO.has(tk)) segConPalabras = true
+    if (CK_EXC.has(tk)) { invertir = segPol ?? ultPol ?? true; continue }
+    if (CK_TODO.has(tk)) { marcaTodo = true; enSegTodo = true; continue }
+    let pol = null
+    if (CK_SI.has(tk)) pol = CK_NO.has(sig) ? false : true        // "ya no" = no
+    else if (CK_NO.has(tk)) pol = false                            // "no listo", "aún no" = no
+    if (pol === null) continue
+    if (pol) haySi = true; else hayNo = true
+    if (CK_SI.has(sig) || CK_NO.has(sig)) i++                      // la palabra siguiente ya se leyó
+    asignar(pendientes, pol); pendientes = []
+    segPol = pol; ultPol = pol
+  }
+  cerrarSegmento()
+  if (pendientes.length) asignar(pendientes, ultPol ?? true)
+  // "el resto listo", "todas menos la 2": lo que no se nombró toma esa respuesta
+  if (marcaTodo && asignado.size) for (const x of abiertas) if (!asignado.has(x.ask_index)) asignado.set(x.ask_index, polTodo ?? true)
+  if (!asignado.size) {
+    // nombró números que no están en la lista ("13 listo" con 5 tareas): no se marca todo
+    if (vioNumero) return { hechas: [], faltan: [], ambiguo: true }
+    if (haySi && hayNo) return { hechas: [], faltan: [], ambiguo: true }
+    if (haySi || (marcaTodo && polTodo !== false)) return { hechas: [...abiertas], faltan: [], ambiguo: false }
+    if (hayNo) return { hechas: [], faltan: [...abiertas], ambiguo: false }
+    return { hechas: [], faltan: [], ambiguo: false }
+  }
+  const hechas = [], faltan = []
+  for (const x of abiertas) if (asignado.has(x.ask_index)) (asignado.get(x.ask_index) ? hechas : faltan).push(x)
+  return { hechas, faltan, ambiguo: false }
+}
+const AUN_NO = 'AÚN NO'   // así empieza la respuesta de una tarea que contestaron que falta
+
 
 function secTpl(md, tag, vars, def) {
   let s = seccionDe(md, tag) || def
@@ -1187,11 +1333,14 @@ async function mandarRecordatorioVisita(v, fecha, recCliente, recAsesor, cuando,
   const nomCli = (v.client_name || '').split(' ')[0]
   const vars = { cliente: nomCli, cliente_full: v.client_name || '', proyecto: proy, hora, fecha: fmtFechaEs(fecha), punto: v.meeting_point || '', notas: v.notes || '', cuando, asesor: (v.encargado_name || '').split(' ')[0] }
   const fill = t => String(t).replace(/\{(\w+)\}/g, (m, k) => vars[k] !== undefined ? vars[k] : m)
-  const defAsesor = '📅 *VISITA ' + cuando.toUpperCase() + '* — ' + fmtFechaEs(fecha) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '* (+' + v.client_phone + ')\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\nConfirma con el cliente. 🙌'
+  const defAsesor = '📅 *VISITA ' + cuando.toUpperCase() + '* — ' + fmtFechaEs(fecha) + ' a las ' + hora + '\n\nCliente: *' + v.client_name + '*' + (v.client_phone ? ' (+' + v.client_phone + ')' : ' (sin celular)') + '\nProyecto: *' + proy + '*\nPunto de encuentro: ' + v.meeting_point + (v.notes ? '\nNotas: ' + v.notes : '') + '\n\n' + (v.client_phone ? 'Confirma con el cliente. 🙌' : 'Recuerda que el cliente no dejó celular. 🙌')
   const defCliente = 'Hola ' + nomCli + ' 👋 le saludamos de *Urbis Group* 🌳\n\nLe recordamos su visita a *' + proy + '* programada para *' + cuando + '* (' + fmtFechaEs(fecha) + ') a las *' + hora + '*.\n\n📍 Punto de encuentro: ' + v.meeting_point + '\n\n¡Lo esperamos! Cualquier consulta, escríbanos por aquí. 🙌'
   const meta = { tipo: 'secretaria', project_id: v.project_id || null }
-  if (recAsesor && v.encargado_phone) await enviar(v.encargado_phone, (tplAsesor && tplAsesor.trim()) ? fill(tplAsesor) : defAsesor, meta)
-  if (recCliente && v.client_phone) await enviar(v.client_phone, (tplCliente && tplCliente.trim()) ? fill(tplCliente) : defCliente, meta)
+  // al asesor: aviso interno (solo Telegram). Al cliente: por WhatsApp, salvo que esa
+  // visita tenga apagado el recordatorio (27 nov 2026: "apagar el recordatorio al cliente
+  // en una visita puntual") o no tenga celular.
+  if (recAsesor && v.encargado_phone) await enviar(v.encargado_phone, (tplAsesor && tplAsesor.trim()) ? fill(tplAsesor) : defAsesor, { ...meta, interno: true })
+  if (recCliente && v.client_phone && v.recordar_cliente !== false) await enviar(v.client_phone, (tplCliente && tplCliente.trim()) ? fill(tplCliente) : defCliente, meta)
 }
 
 // Motor PROPIO de recordatorios de visita (independiente de las secretarias).
@@ -1249,7 +1398,7 @@ async function visitasTick() {
         .eq('date', hoy).eq('tipo', 'recontacto').eq('status', 'programada').is('reminded_dia_at', null)
       for (const r of (recs || [])) {
         await supabase.from('visits').update({ reminded_dia_at: new Date().toISOString() }).eq('id', r.id)
-        if (r.encargado_phone) await enviar(r.encargado_phone, '📞 *RECONTACTAR HOY* — ' + fmtFechaEs(hoy) + '\n\nCliente: *' + r.client_name + '* (+' + r.client_phone + ')\nProyecto: *' + (r.project?.name || '-') + '*' + (r.notes ? '\n📝 ' + r.notes : '') + '\n\nQuedaste en contactarlo hoy. 🙌', { tipo: 'secretaria', project_id: r.project_id || null })
+        if (r.encargado_phone) await enviar(r.encargado_phone, '📞 *RECONTACTAR HOY* — ' + fmtFechaEs(hoy) + '\n\nCliente: *' + r.client_name + '*' + (r.client_phone ? ' (+' + r.client_phone + ')' : ' (sin celular)') + '\nProyecto: *' + (r.project?.name || '-') + '*' + (r.notes ? '\n📝 ' + r.notes : '') + '\n\nQuedaste en contactarlo hoy. 🙌', { tipo: 'secretaria', project_id: r.project_id || null, interno: true })
         log('RECONTACTO recordado al asesor:', r.client_name, hoy)
       }
     }
@@ -1261,7 +1410,7 @@ async function visitasTick() {
         .not('resultado', 'is', null).not('closed_at', 'is', null).is('admin_avisado_at', null).limit(20)
       for (const v of (cerradas || [])) {
         await supabase.from('visits').update({ admin_avisado_at: new Date().toISOString() }).eq('id', v.id)
-        await enviar(ADMIN, '📋 *VISITA CERRADA*\nCliente: *' + v.client_name + '*\nProyecto: ' + (v.project?.name || '-') + '\nAsesor: ' + (v.encargado_name || '-') + '\nResultado: *' + (RES_LBL[v.resultado] || v.resultado) + '*' + (v.resultado_note ? '\n📝 ' + v.resultado_note : '') + (v.recontacto_date ? '\n📅 Recontactar: ' + fmtFechaEs(v.recontacto_date) : ''), { tipo: 'reporte' })
+        await enviar(ADMIN, '📋 *VISITA CERRADA*\nCliente: *' + v.client_name + '*\nProyecto: ' + (v.project?.name || '-') + '\nAsesor: ' + (v.encargado_name || (v.sin_acompanante ? 'sin acompañante' : '-')) + '\nResultado: *' + (RES_LBL[v.resultado] || v.resultado) + '*' + (v.resultado_note ? '\n📝 ' + v.resultado_note : '') + (v.recontacto_date ? '\n📅 Recontactar: ' + fmtFechaEs(v.recontacto_date) : ''), { tipo: 'reporte', interno: true })
         log('ADMIN avisado de visita cerrada:', v.client_name, v.resultado)
       }
     }
@@ -1304,7 +1453,7 @@ async function secretariaTick() {
           const nombre = (sec.full_name || '').split(' ')[0]
           const lista = tareas.map(tk => '• ' + (tk.time ? String(tk.time).slice(0, 5) + ' — ' : '') + tk.title).join('\n')
           const msj = secTpl(md, 'SALUDO', { nombre, lista }, '¡Buenos días {nombre}! ☀️ Estos son tus pendientes de hoy:\n\n{lista}\n\n¡Que tengas un gran día! 💪')
-          await enviar(sec.phone, msj, { tipo: 'secretaria' })
+          await enviar(sec.phone, msj, { tipo: 'secretaria', interno: true })
         }
       }
     }
@@ -1319,8 +1468,11 @@ async function secretariaTick() {
       if ((await ajuste('sec_ci_' + hora, '')) === hoy) continue   // ya se hizo hoy a esa hora
       await setAjuste('sec_ci_' + hora, hoy)
       const { data: pend } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('answered_at', null).neq('cancelada', true)
+      // el pase de la MAÑANA pregunta solo lo de la mañana (lo que dice la pantalla de Tareas:
+      // 🌅 / 🌇 = cuándo pasa lista); desde la 1 p. m. pregunta todo lo que siga abierto
+      const deTurno = tk => hora >= '13:00' || (tk.time ? String(tk.time).slice(0, 5) < '13:00' : tk.slot !== 'tarde')
       const porSec = {}
-      for (const tk of (pend || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
+      for (const tk of (pend || []).filter(deTurno)) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
       const momento = hhmm < '12:00' ? 'la mañana' : hhmm < '18:00' ? 'la tarde' : 'hoy'
       for (const [sid, tareas] of Object.entries(porSec)) {
         const sec = secs.find(s => s.id === sid)
@@ -1331,7 +1483,7 @@ async function secretariaTick() {
         for (const tk of tareas) await supabase.from('secretary_tasks').update({ ask_index: tk.ask_index, asked_at: new Date().toISOString(), reminded_at: null }).eq('id', tk.id)
         const nombre = (sec.full_name || '').split(' ')[0]
         const msj = secTpl(md, 'PREGUNTA', { nombre, lista, momento }, 'Hola {nombre} 👋 ¿cómo va todo? Pasando lista de tus actividades de {momento}:\n\n{lista}\n\nRespóndeme *LISTO* si ya completaste todo, o los *números* de lo que ya está (ej: 1 y 3). 🙌')
-        await enviar(sec.phone, msj, { tipo: 'secretaria' })
+        await enviar(sec.phone, msj, { tipo: 'secretaria', interno: true })
       }
     }
 
@@ -1344,7 +1496,7 @@ async function secretariaTick() {
       if (!sec) continue
       await supabase.from('secretary_tasks').update({ notified_at: new Date().toISOString() }).eq('id', tk.id)
       const nombre = (sec.full_name || '').split(' ')[0]
-      await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora: String(tk.time).slice(0, 5) }, '📌 {nombre}, recordatorio: *{titulo}* — programado para las {hora} de hoy. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria' })
+      await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora: String(tk.time).slice(0, 5) }, '📌 {nombre}, recordatorio: *{titulo}* — programado para las {hora} de hoy. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria', interno: true })
     }
 
     // 3) recordatorio unico a los 45 min sin respuesta (configurable: se puede apagar)
@@ -1359,7 +1511,7 @@ async function secretariaTick() {
       const lista = tareas.map(tk => '*' + tk.ask_index + '.* ' + tk.title).join('\n')
       const nombre = (sec.full_name || '').split(' ')[0]
       for (const tk of tareas) await supabase.from('secretary_tasks').update({ reminded_at: new Date().toISOString() }).eq('id', tk.id)
-      await enviar(sec.phone, secTpl(md, 'RECORDATORIO', { nombre, lista }, 'Hola {nombre}, te reenvío el checklist pendiente:\n\n{lista}\n\n¿Cómo vamos? Respóndeme *LISTO* o los números de lo avanzado 💪'), { tipo: 'secretaria' })
+      await enviar(sec.phone, secTpl(md, 'RECORDATORIO', { nombre, lista }, 'Hola {nombre}, te reenvío el checklist pendiente:\n\n{lista}\n\n¿Cómo vamos? Respóndeme *LISTO* o los números de lo avanzado 💪'), { tipo: 'secretaria', interno: true })
     }
 
     // 3b) feedback de fin de dia: ¿hiciste algo extra? (configurable: se puede apagar)
@@ -1373,7 +1525,7 @@ async function secretariaTick() {
         if (sec.feedback_asked === hoy) continue
         await supabase.from('secretaries').update({ feedback_asked: hoy }).eq('id', sec.id)
         const nombre = (sec.full_name || '').split(' ')[0]
-        await enviar(sec.phone, secTpl(md, 'FEEDBACK', { nombre }, '{nombre}, antes de cerrar el día 📝 ¿hiciste hoy algo EXTRA fuera de tus actividades programadas? Si sí, cuéntame brevemente qué fue; si no, respóndeme *NO*. 🙌'), { tipo: 'secretaria' })
+        await enviar(sec.phone, secTpl(md, 'FEEDBACK', { nombre }, '{nombre}, antes de cerrar el día 📝 ¿hiciste hoy algo EXTRA fuera de tus actividades programadas? Si sí, cuéntame brevemente qué fue; si no, respóndeme *NO*. 🙌'), { tipo: 'secretaria', interno: true })
       }
     }
 
@@ -1400,13 +1552,13 @@ async function secretariaTick() {
         const creadora = secs.find(s => s.user_id === it.sp.created_by)
         if (!creadora) continue
         await supabase.from('separations').update({ aviso_previo_at: new Date().toISOString() }).eq('id', it.sp.id)
-        await enviar(creadora.phone, '⏳ *SEPARACION POR VENCER* — ' + it.lote + '\nCliente: *' + it.cli + '*\nLimite: *' + fmtFechaEs(it.lim) + '* (' + txtDias(it.dias) + ')\n\nCoordina el pago de la inicial, o pide al administrador extender el plazo antes de que el lote se bloquee. 🙌', { tipo: 'secretaria' })
+        await enviar(creadora.phone, '⏳ *SEPARACION POR VENCER* — ' + it.lote + '\nCliente: *' + it.cli + '*\nLimite: *' + fmtFechaEs(it.lim) + '* (' + txtDias(it.dias) + ')\n\nCoordina el pago de la inicial, o pide al administrador extender el plazo antes de que el lote se bloquee. 🙌', { tipo: 'secretaria', interno: true })
       }
       for (const it of vencidas) {
         if (it.sp.aviso_vencida_at) continue
         await supabase.from('separations').update({ aviso_vencida_at: new Date().toISOString() }).eq('id', it.sp.id)
         const creadora = it.sp.created_by ? secs.find(s => s.user_id === it.sp.created_by) : null
-        if (creadora) await enviar(creadora.phone, '🔒 *SEPARACION VENCIDA* — ' + it.lote + '\nCliente: *' + it.cli + '*\nVencio el ' + fmtFechaEs(it.lim) + '.\n\nEl lote quedo BLOQUEADO (no se puede vender ni liberar) hasta que el administrador decida: extender el plazo o marcar perdida.', { tipo: 'secretaria' })
+        if (creadora) await enviar(creadora.phone, '🔒 *SEPARACION VENCIDA* — ' + it.lote + '\nCliente: *' + it.cli + '*\nVencio el ' + fmtFechaEs(it.lim) + '.\n\nEl lote quedo BLOQUEADO (no se puede vender ni liberar) hasta que el administrador decida: extender el plazo o marcar perdida.', { tipo: 'secretaria', interno: true })
       }
       // resumen agrupado al administrador (se repite cada dia mientras haya vencidas sin resolver)
       if ((porVencer.length || vencidas.length) && ADMIN) {
@@ -1423,7 +1575,7 @@ async function secretariaTick() {
           if (vencidas.length) { m += '\n🔒 *VENCIDAS — lote bloqueado, decide extender o perdida (Mapa de lotes):*\n'; for (const it of vencidas) m += '• ' + it.lote + ' — ' + it.cli + ' (vencio ' + fmtFechaEs(it.lim) + ')\n' }
           if (porVencer.length) { m += '\n⏳ *POR VENCER:*\n'; for (const it of porVencer) m += '• ' + it.lote + ' — ' + it.cli + ' (' + txtDias(it.dias) + ', ' + fmtFechaEs(it.lim) + ')\n' }
           m += '\n_Este aviso solo vuelve cuando cambie la lista._'
-          await enviar(ADMIN, m.trim(), { tipo: 'aviso_admin' })
+          await enviar(ADMIN, m.trim(), { tipo: 'aviso_admin', interno: true })
         } else {
           log('separaciones: la lista no cambio, no se repite el aviso')
         }
@@ -1432,13 +1584,18 @@ async function secretariaTick() {
       }
     }
 
-    // 4) resumen diario al administrador
+    // 4) resumen diario: al administrador o a quienes se elijan en el panel (27 nov 2026:
+    //    "debe llegar a gerencia y ser configurable"). sec_resumen_destinos = ["51...", ...]
     const hres = await ajuste('hora_resumen_sec', '18:00')
     if (hhmm >= hres && (await ajuste('sec_resumen_fecha', '')) !== hoy) {
       await setAjuste('sec_resumen_fecha', hoy)
       const { data: todas } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).neq('cancelada', true)
       if (todas && todas.length) {
-        for (const tk of todas) if (tk.status === 'pendiente' && tk.asked_at && !tk.answered_at) { tk.status = 'sin_respuesta'; await supabase.from('secretary_tasks').update({ status: 'sin_respuesta' }).eq('id', tk.id) }
+        // lo preguntado y sin cerrar: si contestó "todavía no" queda NO HECHA; si nunca contestó, SIN RESPUESTA
+        for (const tk of todas) if (tk.status === 'pendiente' && tk.asked_at && !tk.answered_at) {
+          tk.status = String(tk.answer || '').startsWith(AUN_NO) ? 'no_hecha' : 'sin_respuesta'
+          await supabase.from('secretary_tasks').update({ status: tk.status, answered_at: tk.status === 'no_hecha' ? new Date().toISOString() : null }).eq('id', tk.id)
+        }
         let detalle = ''
         for (const sec of secs) {
           const ts = todas.filter(tk => tk.secretary_id === sec.id)
@@ -1448,7 +1605,10 @@ async function secretariaTick() {
           detalle += '\n*' + sec.full_name + '* — ' + base.filter(tk => tk.status === 'hecha').length + '/' + base.length + ' cumplidas' + (extras ? ' · ' + extras + ' extra(s) 💪' : '') + '\n'
           for (const tk of ts) detalle += (tk.status === 'hecha' ? '  ✅ ' : tk.status === 'no_hecha' ? '  ❌ ' : tk.status === 'sin_respuesta' ? '  😶 ' : '  ⏳ ') + (tk.category === 'gerencia' ? '[G] ' : tk.category === 'extra' ? '[EXTRA] ' : '') + tk.title + '\n'
         }
-        if (detalle && ADMIN) await enviar(ADMIN, secTpl(md, 'RESUMEN', { detalle }, '📋 *RESUMEN DEL DÍA — SECRETARIAS*\n{detalle}'), { tipo: 'secretaria' })
+        let destinos = []
+        try { const d = JSON.parse(await ajuste('sec_resumen_destinos', '[]')); if (Array.isArray(d)) destinos = d.map(x => String(x).replace(/\D/g, '')).filter(x => x.length >= 9) } catch {}
+        if (!destinos.length && ADMIN) destinos = [ADMIN]
+        if (detalle) for (const dest of new Set(destinos)) await enviar(dest, secTpl(md, 'RESUMEN', { detalle }, '📋 *RESUMEN DEL DÍA — SECRETARIAS*\n{detalle}'), { tipo: 'secretaria', interno: true })
       }
     }
   } catch (e) { log('SEC tick:', e.message) }
@@ -1468,17 +1628,17 @@ async function manejarSecretaria(jid, phone, texto) {
       // si es una PREGUNTA no la tomes como "extra". Solo gerencia/admin la responden con datos.
       if (pareceConsulta(texto)) {
         if (await puedeQA(phone) && await atenderInterno(jid, phone, texto, 'GERENCIA')) return
-        await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, 'Si hiciste algo EXTRA hoy, cuéntamelo sin forma de pregunta 🙌 (ej: "entregué documentos en la esquina").'), { tipo: 'secretaria' })
+        await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, 'Si hiciste algo EXTRA hoy, cuéntamelo sin forma de pregunta 🙌 (ej: "entregué documentos en la esquina").'), { tipo: 'secretaria', interno: true })
         return
       }
       const tf = (texto || '').toLowerCase().trim()
       await supabase.from('secretaries').update({ feedback_done: hoy }).eq('id', sec.id)
       if (/^(no|nada|ninguna|ninguno|no hice|nop|negativo)\b/.test(tf) || tf.length < 3) {
-        await enviar(jid, secTpl(md, 'FEEDBACK_NO', { nombre }, '¡Perfecto {nombre}, día cerrado! Gracias por tu trabajo de hoy. 🙌'), { tipo: 'secretaria' })
+        await enviar(jid, secTpl(md, 'FEEDBACK_NO', { nombre }, '¡Perfecto {nombre}, día cerrado! Gracias por tu trabajo de hoy. 🙌'), { tipo: 'secretaria', interno: true })
       } else {
         await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: String(texto).slice(0, 200).toUpperCase(), date: hoy, slot: 'tarde', category: 'extra', status: 'hecha', answered_at: new Date().toISOString(), answer: 'REPORTADO EN FEEDBACK DEL DIA' })
-        await enviar(jid, secTpl(md, 'FEEDBACK_SI', { nombre }, '💪 ¡Anotado como EXTRA del día, {nombre}! Eso suma a tu productividad. ¡Gracias! 🙌'), { tipo: 'secretaria' })
-        if (ADMIN) await enviar(ADMIN, '💪 EXTRA reportado por *' + sec.full_name + '*: ' + String(texto).slice(0, 200), { tipo: 'aviso_admin' })
+        await enviar(jid, secTpl(md, 'FEEDBACK_SI', { nombre }, '💪 ¡Anotado como EXTRA del día, {nombre}! Eso suma a tu productividad. ¡Gracias! 🙌'), { tipo: 'secretaria', interno: true })
+        if (ADMIN) await enviar(ADMIN, '💪 EXTRA reportado por *' + sec.full_name + '*: ' + String(texto).slice(0, 200), { tipo: 'aviso_admin', interno: true })
       }
       return
     }
@@ -1498,38 +1658,49 @@ async function manejarSecretaria(jid, phone, texto) {
       if (tarea) {
         const nd = fh.date || hoy
         await supabase.from('secretary_tasks').update({ date: nd, time: fh.time, slot: fh.time ? slotDeHora(fh.time) : tarea.slot, status: 'pendiente', ask_index: null, asked_at: null, reminded_at: null, answered_at: null, notified_at: null, answer: 'REPROGRAMADA POR CHAT: ' + String(texto).slice(0, 200) }).eq('id', tarea.id)
-        await enviar(jid, secTpl(md, 'REPROGRAMADA', { nombre, titulo: tarea.title, fecha: fmtFechaEs(nd), hora: fh.time ? ' a las ' + fh.time : '' }, '🔄 Listo {nombre}, moví *{titulo}* para el {fecha}{hora}. Yo te lo recuerdo. 🙌'), { tipo: 'secretaria' })
-        if (ADMIN) await enviar(ADMIN, '🔄 *' + sec.full_name + '* reprogramó "' + tarea.title + '" para el ' + fmtFechaEs(nd) + (fh.time ? ' ' + fh.time : ''), { tipo: 'aviso_admin' })
+        await enviar(jid, secTpl(md, 'REPROGRAMADA', { nombre, titulo: tarea.title, fecha: fmtFechaEs(nd), hora: fh.time ? ' a las ' + fh.time : '' }, '🔄 Listo {nombre}, moví *{titulo}* para el {fecha}{hora}. Yo te lo recuerdo. 🙌'), { tipo: 'secretaria', interno: true })
+        if (ADMIN) await enviar(ADMIN, '🔄 *' + sec.full_name + '* reprogramó "' + tarea.title + '" para el ' + fmtFechaEs(nd) + (fh.time ? ' ' + fh.time : ''), { tipo: 'aviso_admin', interno: true })
         return
       }
-      await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Para mover una tarea dime el número y la fecha, ej: *mueve la 2 para mañana a las 10*.'), { tipo: 'secretaria' })
+      await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Para mover una tarea dime el número y la fecha, ej: *mueve la 2 para mañana a las 10*.'), { tipo: 'secretaria', interno: true })
       return
     }
   }
 
-  const nums = [...t.matchAll(/\d+/g)].map(m => parseInt(m[0]))
-  const esSi = /(listo|hecho|\bya\b|\bsi\b|\bsí\b|todo|complet|termin|\bok\b)/.test(t)
-  const esNo = /(\bno\b|\baun\b|\baún\b|todav|falta)/.test(t)
-  let hechas = []
-  if (nums.length) hechas = abiertas.filter(x => nums.includes(x.ask_index))
-  else if (esSi && !esNo) hechas = abiertas
-  if (hechas.length) {
-    for (const x of hechas) await supabase.from('secretary_tasks').update({ status: 'hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
-    // ¿mencionó una actividad EXTRA junto a la respuesta? -> registrarla en el calendario
-    const ex = extraerExtra(texto)
-    if (ex) {
-      await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: ex.toUpperCase(), date: hoy, slot: slotDeHora(secHora()), category: 'extra', status: 'hecha', answered_at: new Date().toISOString(), answer: 'REPORTADO JUNTO AL CHECKLIST' })
-      if (ADMIN) await enviar(ADMIN, '💪 EXTRA de *' + sec.full_name + '*: ' + ex, { tipo: 'aviso_admin' })
-    }
-    const resumen = (hechas.length === abiertas.length ? 'todo tu checklist quedó al día' : 'marqué: ' + hechas.map(x => x.title).join(', ')) + (ex ? '. Y anoté como EXTRA: ' + ex : '')
-    await enviar(jid, secTpl(md, 'CONFIRMACION', { nombre, resumen }, '✅ ¡Anotado, {nombre}! {resumen}. ¡Gracias! 🙌'), { tipo: 'secretaria' })
-  } else if (esNo) {
-    for (const x of abiertas) await supabase.from('secretary_tasks').update({ status: 'no_hecha', answered_at: new Date().toISOString(), answer: String(texto).slice(0, 300) }).eq('id', x.id)
-    await enviar(jid, secTpl(md, 'PENDIENTE', { nombre }, 'Anotado {nombre}, quedan como pendientes. Cualquier avance escríbeme *LISTO* o los números. 💪'), { tipo: 'secretaria' })
-    if (ADMIN) await enviar(ADMIN, '⚠️ *' + sec.full_name + '* reporta pendientes: ' + abiertas.map(x => x.title).join(' | '), { tipo: 'aviso_admin' })
-  } else {
-    await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Respóndeme *LISTO* si completaste todo, o los números de lo que ya está (ej: 1 y 3).'), { tipo: 'secretaria' })
+  // cada número con su sí o su no (ver leerChecklist). Lo que FALTA no se cierra como
+  // "no hecha": sigue pendiente y se vuelve a preguntar en el próximo pase de lista
+  // (el mensaje siempre dijo "quedan como pendientes"; ahora es verdad). Si al cierre
+  // de las 18:00 sigue así, recién ahí queda NO HECHA (no "sin respuesta": sí contestó).
+  const { hechas, faltan, ambiguo } = leerChecklist(texto, abiertas)
+  const ahora = new Date().toISOString()
+  if (ambiguo) {
+    await enviar(jid, '🤔 ' + nombre + ', no me quedó claro. Dime los números de lo que ya está y de lo que falta, ej: *1 y 3 listo, 2 todavía no*.', { tipo: 'secretaria', interno: true })
+    return
   }
+  if (!hechas.length && !faltan.length) {
+    // ya contestó todo lo que se le preguntó ("gracias", "ok, ya voy"): no se insiste
+    if (abiertas.every(x => String(x.answer || '').startsWith(AUN_NO))) { log('SEC: ' + sec.full_name + ' escribió sin números ni sí/no; ya había contestado, no se insiste'); return }
+    await enviar(jid, secTpl(md, 'NO_ENTENDI', { nombre }, '{nombre}, no te entendí 😅 Respóndeme *LISTO* si completaste todo, o los números de lo que ya está (ej: 1 y 3).'), { tipo: 'secretaria', interno: true })
+    return
+  }
+  for (const x of hechas) await supabase.from('secretary_tasks').update({ status: 'hecha', answered_at: ahora, answer: String(texto).slice(0, 300) }).eq('id', x.id)
+  // lo que falta: queda pendiente, sin el recordatorio de los 45 min (ya contestó)
+  for (const x of faltan) await supabase.from('secretary_tasks').update({ reminded_at: ahora, answer: (AUN_NO + ' · ' + secHora() + ' · ' + String(texto)).slice(0, 300) }).eq('id', x.id)
+  // ¿mencionó una actividad EXTRA junto a la respuesta? -> registrarla en el calendario
+  const ex = hechas.length ? extraerExtra(texto) : null
+  if (ex) {
+    await supabase.from('secretary_tasks').insert({ secretary_id: sec.id, title: ex.toUpperCase(), date: hoy, slot: slotDeHora(secHora()), category: 'extra', status: 'hecha', answered_at: ahora, answer: 'REPORTADO JUNTO AL CHECKLIST' })
+    if (ADMIN) await enviar(ADMIN, '💪 EXTRA de *' + sec.full_name + '*: ' + ex, { tipo: 'aviso_admin', interno: true })
+  }
+  if (hechas.length) {
+    const resumen = (hechas.length === abiertas.length ? 'todo tu checklist quedó al día' : 'marqué: ' + hechas.map(x => x.title).join(', '))
+      + (faltan.length ? '. Siguen pendientes: ' + faltan.map(x => x.title).join(', ') + ' (te pregunto de nuevo en el próximo pase de lista)' : '')
+      + (ex ? '. Y anoté como EXTRA: ' + ex : '')
+    await enviar(jid, secTpl(md, 'CONFIRMACION', { nombre, resumen }, '✅ ¡Anotado, {nombre}! {resumen}. ¡Gracias! 🙌'), { tipo: 'secretaria', interno: true })
+  } else {
+    await enviar(jid, secTpl(md, 'PENDIENTE', { nombre }, 'Anotado {nombre}, quedan como pendientes. Cualquier avance escríbeme *LISTO* o los números. 💪'), { tipo: 'secretaria', interno: true })
+  }
+  if (faltan.length && ADMIN) await enviar(ADMIN, '⚠️ *' + sec.full_name + '* reporta pendientes: ' + faltan.map(x => x.title).join(' | '), { tipo: 'aviso_admin', interno: true })
 }
 
 // Cobranza CONFIGURABLE por BUCKET de cuotas vencidas (bot_brains 'cobranza_cfg' = JSON):
@@ -4241,11 +4412,11 @@ async function manejarTelegram(chatId, texto, info) {
   }
   // ---- misma atención que por WhatsApp, según el tipo de número ----
   const tnum = await tipoNumero(phone)
-  const esGerencia = tnum === 'gerencia' || phone === ADMIN
+  const esGerencia = tnum === 'gerencia' || phone === ADMIN || await esGerenciaSeguimiento(phone)
 
   // Saludo o "menú": TODOS (también las secretarias) ven la lista de comandos.
   if (/^\/?(ayuda|help|start|comandos|menu|men[uú]|opciones|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|qu[eé] tal)[!.\s]*$/i.test(t)) {
-    const menu = await comandoDirecto('hola')
+    const menu = await comandoDirecto('hola', { gerencia: esGerencia, phone })
     await TG.tgEnviar(chatId, (menu || '🤖 *Asistente interno URBIS*') +
       '\n\n📋 Del pase de lista: responde *LISTO* o los *números* de lo que ya hiciste.'
       + (ADMIN && String(phone).slice(-9) === ADMIN.slice(-9)
@@ -4265,22 +4436,32 @@ async function manejarTelegram(chatId, texto, info) {
   // Comandos de consulta para el equipo. Los datos sensibles (dinero de la
   // empresa: comisiones, cartera, ingresos, gastos, ranking) quedan solo para
   // gerencia; el resto del equipo consulta lo operativo de su día a día.
+  // ¿está respondiendo su pase de lista (o el "¿algo extra?")? Entonces el mensaje es para
+  // el checklist aunque diga "lote", "cliente" o "caja": antes un comando o el candado de
+  // datos sensibles se lo comía y la tarea nunca se marcaba. Solo lo que EMPIEZA con un
+  // comando va a los comandos (también para gerencia, que antes no podía usarlos con el
+  // checklist abierto).
+  if (!empiezaConComando(t) && (await tieneChecklistAbierto(phone) || await feedbackPendiente(phone))) {
+    log('TG: ' + phone + ' responde su pase de lista (' + (esGerencia ? 'gerencia' : tnum || 'sin tipo') + ')')
+    await manejarSecretaria(phone, phone, t).catch(e => log('TG sec:', String(e.message || e)))
+    return
+  }
+
   if (!esGerencia) {
-    const sensible = /comision|cartera|deuda total|por cobrar|saldo total|ingres|recaud|cobrado|caja|gastos?\b|top asesor|mejor asesor|ranking/i.test(t)
+    const sensible = /comision|cartera|deuda total|por cobrar|saldo total|ingres|recaud|cobrado|caja|gastos?\b|top asesor|mejor asesor|ranking|pagos de hoy|cumplimiento|cumplieron|productividad|reporte sec/i.test(t)
     if (sensible) {
       await TG.tgEnviar(chatId, '🔒 Esa información es solo para gerencia. Escribe *hola* para ver lo que sí puedes consultar.')
       return
     }
-    const resp = await comandoDirecto(t)
+    // el resumen, el menú y "pendientes" salen recortados para quien no es gerencia
+    const resp = await comandoDirecto(t, { gerencia: false, phone })
     if (resp) { await TG.tgEnviar(chatId, resp); return }
   }
 
   if (esGerencia) {
     if (await comandosPrivilegiados(phone, phone, t)) return
-    if (!(await tieneChecklistAbierto(phone))) {
-      if (await comandosGerencia(phone, phone, t)) return
-      if (await atenderInterno(phone, phone, t, 'GERENCIA')) return
-    }
+    if (await comandosGerencia(phone, phone, t)) return
+    if (await atenderInterno(phone, phone, t, 'GERENCIA')) return
   }
   // ultima parada: si manejarSecretaria tampoco reconoce el mensaje, no contesta
   // nada. Queda escrito para que "no responde" tenga una linea que lo explique.
