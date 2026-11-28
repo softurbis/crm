@@ -14,7 +14,7 @@ import { tienePlano } from '../lib/plano'
 // (pages/FichaLote.jsx), donde esta todo lo del dia a dia.
 export default function Lots() {
   const { esJefe } = useAuth()   // administrador, superusuario y operador
-  const { pidOp } = useProject()
+  const { pidOp, projects } = useProject()
   const irA = useNavigate()
   const esCelular = useEsCelular()   // en el celular no se abre el teclado solo
   const [lots, setLots] = useState([])
@@ -209,6 +209,24 @@ export default function Lots() {
         {esJefe && (
           <button className="btn-ghost" onClick={() => { setCrear(true); setCMsg(null) }}>➕ Crear lotes</button>
         )}
+        {/* B6 (28 nov 2026): los lotes del filtro puesto, a Excel (solo datos) */}
+        {Object.keys(byMz).length > 0 && <button className="btn-ghost" onClick={async () => {
+          const { descargarLista } = await import('../lib/excelLista')
+          const filas = Object.keys(byMz).sort((a, b) => a.localeCompare(b, 'es', { numeric: true })).flatMap(mz => byMz[mz])
+          await descargarLista({
+            hoja: 'Lotes', tituloLibro: 'Lotes — ' + (projects.find(p => p.id === pidOp)?.name || ''), filas,
+            sub: 'Filtro: ' + (filter === 'todos' ? 'todos' : LBL[filter] || filter) + ' · al ' + new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10).split('-').reverse().join('/'),
+            columnas: [
+              { t: 'Mz', w: 6, v: l => l.mz }, { t: 'Lt', w: 6, v: l => l.lt }, { t: 'Área m²', w: 9, f: 'num', v: l => l.area_m2, total: true },
+              { t: 'Precio m²', w: 10, f: 'soles', v: l => l.price_per_m2 }, { t: 'Precio de lista', w: 13, f: 'soles', v: l => l.total_price, total: true },
+              { t: 'Inicial sugerida', w: 12, f: 'soles', v: l => l.initial_payment_default },
+              { t: 'Estado', w: 12, v: l => (LBL[l.status] || l.status || '').toUpperCase() },
+              { t: 'Titular / separación', w: 32, v: l => contactosLote.get(l.id)?.full_name },
+              { t: 'Cuotas vencidas', w: 9, f: 'num', v: l => vencidos.get(l.id) || null },
+              { t: 'Asociado / aviso', w: 30, v: l => [l.associated_to, l.aviso].filter(Boolean).join(' · ') },
+            ],
+          })
+        }}>📥 Excel</button>}
       </div>
 
       <div className="chips">

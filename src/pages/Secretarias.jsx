@@ -749,6 +749,24 @@ export default function Secretarias() {
           <button className="btn-ghost" onClick={() => cambiarMes(-1)}>‹</button>
           <b style={{ minWidth: 150, textAlign: 'center' }}>{MESES[mnum - 1]} {anio}</b>
           <button className="btn-ghost" onClick={() => cambiarMes(1)}>›</button>
+          {/* B6 (28 nov 2026): las tareas del mes con los filtros puestos (persona, proyecto, área), a Excel */}
+          <button className="btn-ghost" title="Bajar a Excel las tareas del mes con los filtros puestos" onClick={async () => {
+            const { descargarLista } = await import('../lib/excelLista')
+            const nomSec = id => secs.find(s => s.id === id)?.full_name || ''
+            const filas = tareas.filter(t => !t.cancelada && filtroSec(t)).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time || '').localeCompare(String(b.time || '')))
+            await descargarLista({
+              hoja: 'Tareas ' + mes, tituloLibro: 'Tareas del equipo — ' + MESES[mnum - 1] + ' ' + anio, filas,
+              columnas: [
+                { t: 'Fecha', w: 11, f: 'fecha', v: t => t.date }, { t: 'Hora', w: 7, v: t => t.time ? String(t.time).slice(0, 5) : '' },
+                { t: 'Persona', w: 24, v: t => nomSec(t.secretary_id) }, { t: 'Tarea', w: 46, v: t => t.title },
+                { t: 'Estado', w: 14, v: t => (EST[t.status]?.t || t.status || '').replace(/^[^\p{L}]+/u, '').toUpperCase() },
+                { t: 'Tipo', w: 13, v: t => (t.category || '').toUpperCase() }, { t: 'Proyecto', w: 24, v: t => projects.find(p => p.id === t.project_id)?.name },
+                { t: 'Área', w: 14, v: t => t.area }, { t: 'Arrastrada', w: 9, f: 'num', v: t => t.arrastres || null },
+                { t: 'Motivo / resultado', w: 36, v: t => [t.motivo, t.resultado, t.note].filter(Boolean).join(' · ') },
+                { t: 'Asignada por', w: 20, v: t => t.creada_por_nombre },
+              ],
+            })
+          }}>📥 Excel</button>
         </div>
       </div>
 

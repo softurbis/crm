@@ -361,7 +361,7 @@ async function feedbackPendiente(phone) {
 // comandos; todo lo demás es la respuesta al checklist (aunque diga "lote" o "cliente").
 function empiezaConComando(texto) {
   const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
-  return /^\/?(ayuda|comandos|menu|opciones|resumen|reporte|panorama|lotes\b|lote\s+\w|cliente\s+\w|contratos?\b|comisiones?\b|gastos?\b|visitas\b|vencidas\b|morosos\b|cobranza\b|ventas\b|ingresos\b|caja\b|separaciones\b|clientes\b|cartera\b|leads\b|prospectos\b|pagos de hoy|entregados\b|top asesor|pendientes\b|cumplimiento\b|migracion\b|tarea\s+\w|aprende:|agenda\b|mi agenda|que tengo hoy|llamadas\b|morosos?\s+de\b|leads? sin atender|sin atender\b)/.test(t)
+  return /^\/?(ayuda|comandos|menu|opciones|resumen|reporte|panorama|lotes\b|lote\s+\w|cliente\s+\w|contratos?\b|comisiones?\b|gastos?\b|visitas\b|vencidas\b|morosos\b|cobranza\b|ventas\b|ingresos\b|caja\b|separaciones\b|clientes\b|cartera\b|leads\b|prospectos\b|pagos de hoy|entregados\b|top asesor|pendientes\b|cumplimiento\b|semanal\b|reporte semanal|migracion\b|tarea\s+\w|aprende:|agenda\b|mi agenda|que tengo hoy|llamadas\b|morosos?\s+de\b|leads? sin atender|sin atender\b)/.test(t)
 }
 
 // ¿el mensaje parece una PREGUNTA/consulta (no una respuesta de checklist)?
@@ -529,7 +529,8 @@ async function comandoDirecto(texto, opts = {}) {
         '• *agenda* — el día del equipo (*mi agenda* = solo lo tuyo)\n' +
         '• *pendientes* — tareas sin cerrar\n' +
         '• *pendientes de Cami* — lo abierto de una persona\n' +
-        '• *cumplimiento* — productividad del equipo\n\n' +
+        '• *cumplimiento* — productividad del equipo\n' +
+        '• *semanal* — el reporte de la semana (*semanal pasada* = la anterior)\n\n' +
         '📞 *SEGUIMIENTO*\n' +
         '• *llamadas* — prospectos y recontactos de hoy\n' +
         '• *leads sin atender* — por proyecto y sin vendedor\n' +
@@ -769,6 +770,15 @@ async function comandoDirecto(texto, opts = {}) {
       return out + PIE_COMANDO
     }
 
+    // B3 (2.3): el reporte semanal a pedido (lunes a domingo de esta semana, o la pasada si es lunes temprano)
+    if (ger && /^\/?((reporte|resumen)\s+(de la\s+)?)?semana(l)?\b/.test(t)) {
+      const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+      const dw = new Date(hoyL + 'T12:00:00').getDay()
+      const lun = masDias(hoyL, -((dw + 6) % 7)), desde = /pasada|anterior/.test(t) ? masDias(lun, -7) : lun
+      const partes = await armarSemanal(desde, masDias(desde, 6) < hoyL ? masDias(desde, 6) : hoyL, opts.phone ? await visorDe(opts.phone) : { superuser: false, gerencia: true, secId: null })
+      if (opts.phone) for (const p of partes.slice(0, -1)) await enviar(opts.phone, p, { tipo: 'secretaria', interno: true })
+      return partes[partes.length - 1] + PIE_COMANDO
+    }
     if (/resumen|reporte|dashboard|panorama|balance|como vamos|c[oó]mo vamos/.test(t)) {
       const hoy = new Date().toISOString().slice(0, 10), mes = hoy.slice(0, 7)
       const [{ data: lots }, { data: sales }, { data: venc }, { data: gastos }, { data: vis }] = await Promise.all([
@@ -1830,6 +1840,57 @@ async function ventasDetenidas() {
   return { n: filas.filter(a => a.status !== 'expropiado' && !completa(a) && a.ultimo_paso_at && Math.floor((Date.now() - new Date(a.ultimo_paso_at)) / 86400000) > alerta).length, alerta }
 }
 
+// B3 (2.3, sql/254): el REPORTE SEMANAL para la reunión del lunes — lo arma reporte_semanal() en
+// la base (sin el tope de 1000 filas). Sale el domingo en la noche (sec_semanal_hora, 20:00) a
+// los destinatarios del resumen que sean gerencia o superusuario, y a pedido con "semanal".
+// Las tareas arrastradas respetan la privacidad de cada una (el superusuario ve todo).
+function partirMensaje(texto, max = 3800) {
+  const partes = []; let cur = ''
+  for (const bloque of String(texto).split('\n\n')) {
+    if (cur && (cur.length + bloque.length + 2) > max) { partes.push(cur); cur = '' }
+    cur += (cur ? '\n\n' : '') + (bloque.length > max ? bloque.slice(0, max - 2) + '…' : bloque)
+  }
+  if (cur) partes.push(cur)
+  return partes
+}
+async function armarSemanal(desde, hasta, v) {
+  const { data: r, error } = await supabase.rpc('reporte_semanal', { p_desde: desde, p_hasta: hasta })
+  if (error) throw new Error(error.message)
+  const soles = n => 'S/ ' + Math.round(Number(n || 0)).toLocaleString('es-PE')
+  const corto = s => String(s || '').replace(/^(LAS|LOS|EL|LA)\s+/i, '')
+  const suma = (l, k) => (l || []).reduce((s, x) => s + Number(x[k] || 0), 0)
+  let m = '📆 *REPORTE SEMANAL* — ' + diaCorto(desde) + ' al ' + diaCorto(hasta)
+  m += '\n\n✅ *CUMPLIMIENTO*\n' + ((r.tareas || []).length
+    ? r.tareas.map(t => '• ' + t.persona.split(' ')[0] + ': ' + t.hechas + '/' + t.total + (t.total ? ' (' + Math.round(t.hechas / t.total * 100) + '%)' : '') + (t.pausadas ? ' · ' + t.pausadas + ' pausada(s)' : '') + (t.extras ? ' · ' + t.extras + ' extra(s)' : '')).join('\n')
+    : 'Sin tareas esta semana.')
+  const arr = (r.arrastradas || []).filter(t => puedeVerTarea(t, v))
+  if (arr.length) m += '\n\n↪ *ARRASTRADAS 3+ VECES (' + arr.length + ')*\n' + arr.slice(0, 20).map(t => '• ' + t.persona.split(' ')[0] + ': ' + t.title + ' ↪×' + t.arrastres).join('\n') + (arr.length > 20 ? '\n…y ' + (arr.length - 20) + ' más' : '')
+  m += '\n\n💼 *EMBUDO POR PROYECTO*\n_(leads nuevos · con seguimiento · visitas · separaciones · ventas)_\n' + ((r.embudo_proyecto || []).length
+    ? r.embudo_proyecto.map(p => '• ' + corto(p.proyecto) + ': ' + [p.leads, p.contactados, p.visitas, p.separaciones, p.ventas].join(' · ')).join('\n')
+    : 'Sin movimiento comercial.')
+  if ((r.embudo_asesor || []).length) m += '\n\n🧑‍💼 *POR ASESOR*\n_(leads asignados · seguimientos · separaciones · ventas)_\n' + r.embudo_asesor.slice(0, 15).map(a => '• ' + a.asesor + ': ' + [a.asignados, a.seguimientos, a.separaciones, a.ventas].join(' · ')).join('\n')
+  if ((r.cobranza || []).length) m += '\n\n💵 *COBRANZA*\n' + r.cobranza.map(c => '• ' + corto(c.proyecto) + ': cobrado ' + soles(c.cobrado) + (c.morosos ? ' · ' + c.morosos + ' con vencidas (' + soles(c.vencido) + ')' : '')).join('\n')
+    + '\n*Total:* cobrado ' + soles(suma(r.cobranza, 'cobrado')) + ' · vencido ' + soles(suma(r.cobranza, 'vencido'))
+  if ((r.gastos || []).length) m += '\n\n🧾 *GASTOS*\n' + r.gastos.map(g => '• ' + corto(g.proyecto) + ': ' + soles(g.pagado) + ' pagado' + (g.n_pagados ? ' (' + g.n_pagados + ')' : '') + (g.por_aprobar ? ' · ' + g.por_aprobar + ' por aprobar' : '')).join('\n')
+    + '\n*Total pagado:* ' + soles(suma(r.gastos, 'pagado'))
+  m += '\n\n📎 Detalle e impresión: panel → Reportes → Reporte semanal.'
+  return partirMensaje(m)
+}
+async function enviarSemanal(hoy) {
+  let destinos = []
+  try { const d = JSON.parse(await ajuste('sec_resumen_destinos', '[]')); if (Array.isArray(d)) destinos = d.map(x => soloDig(x)).filter(x => x.length >= 9) } catch {}
+  if (!destinos.length && ADMIN) destinos = [ADMIN]
+  const desde = masDias(hoy, -6)
+  let n = 0
+  for (const dest of new Set(destinos)) {
+    const v = await visorDe(dest)
+    if (!v.superuser && !v.gerencia) continue   // lleva montos: solo gerencia y superusuario
+    for (const parte of await armarSemanal(desde, hoy, v)) await enviar(dest, parte, { tipo: 'secretaria', interno: true })
+    n++
+  }
+  log('SEMANAL: reporte ' + desde + ' al ' + hoy + ' enviado a ' + n + ' persona(s)')
+}
+
 // B2: lo comercial del día para el cierre de las 18:00 (solo gerencia y superusuario)
 async function comercialDelDia(hoy) {
   const desde = desdeLima(hoy)
@@ -2043,6 +2104,13 @@ async function secretariaTick() {
       } else if (ADMIN) {
         await setAjuste('sep_huella', '')   // no queda ninguna: la proxima que aparezca vuelve a avisar
       }
+    }
+
+    // 3b) REPORTE SEMANAL (B3, 2.3): el domingo en la noche, para la reunión del lunes
+    if (dow === 7 && (await ajuste('sec_semanal_activo', '1')) !== '0'
+        && hhmm >= String(await ajuste('sec_semanal_hora', '20:00')).slice(0, 5) && (await ajuste('sec_semanal_fecha', '')) !== hoy) {
+      await setAjuste('sec_semanal_fecha', hoy)
+      await enviarSemanal(hoy).catch(e => log('SEMANAL:', String(e.message || e)))
     }
 
     // 4) resumen diario: al administrador o a quienes se elijan en el panel (27 nov 2026:

@@ -23,6 +23,7 @@ import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobant
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 import { NOMBRES_BANCOS } from '../lib/bancos'
 import AvanceVenta from '../components/AvanceVenta'
+import { rebajaConvenio } from '../lib/convenios'
 
 // cierre economico de una expropiacion (sql/50)
 const COLS_CIERRE = 'expr_fecha_cierre, expr_monto_recuperado, expr_monto_devuelto, expr_saldo, expr_acuerdo_url, expr_notas, expr_cierre_at'
@@ -142,6 +143,44 @@ export default function FichaLote() {
     autPendiente.current = { sale: venta.id, motivo: r.motivo, autorizo: r.autorizo }
     return { ok: true }
   }
+  // C8 (2.3, sql/254): la venta guarda su CONVENIO de origen — rebaja en la inicial, lo que se le
+  // paga a la institución (dato interno) y el precio de lista aparte, así la rebaja se ve sola
+  async function ligarConvenio() {
+    const venta = detail?.sale
+    if (!venta) return
+    if (venta.convenio_pagado_at) { await avisar('A la institución ya se le pagó por esta venta: el convenio ya no se cambia.'); return }
+    const { data: ins, error } = await supabase.from('instituciones').select('id, nombre, project_id, descuento_inicial, pago_institucion, rebaja_tipo, rebaja_valor, manzanas, estado').neq('estado', 'descartada').order('nombre')
+    if (error) { await avisar('No se pudo leer las instituciones: ' + error.message, { tono: 'error' }); return }
+    const lista = (ins || []).filter(i => !i.project_id || i.project_id === sel.project_id)
+    if (!lista.length && !venta.convenio_id) { await avisar('No hay instituciones de este proyecto. Agrégala primero en Ventas → Instituciones y convenios.'); return }
+    const d = await pedirDatos({
+      titulo: '🤝 CONVENIO DE LA VENTA', aceptar: 'Guardar',
+      mensaje: 'La rebaja en la inicial y el pago a la institución salen del convenio si los dejas vacíos. El pago a la institución es un dato interno: no va al contrato.',
+      campos: [
+        { clave: 'inst', etiqueta: 'Institución', tipo: 'opcion', valor: venta.convenio_id || '', opciones: [{ valor: '', etiqueta: '— Sin convenio —' }, ...lista.map(i => ({ valor: i.id, etiqueta: i.nombre }))] },
+        { clave: 'lista', etiqueta: 'Precio de lista (sin la rebaja del convenio)', tipo: 'monto', valor: venta.precio_lista ?? '', ayuda: 'Vacío = se calcula con la rebaja del convenio. Precio de venta: ' + soles(venta.total_sale_price) },
+        { clave: 'dto', etiqueta: 'Rebaja en la inicial (S/)', tipo: 'monto', valor: venta.convenio_descuento ?? '' },
+        { clave: 'pago', etiqueta: 'Pago a la institución (S/)', tipo: 'monto', valor: venta.convenio_pago ?? '' },
+      ],
+    })
+    if (!d) return
+    const inst = lista.find(i => i.id === d.inst) || (ins || []).find(i => i.id === d.inst)
+    let cambios
+    if (!inst) cambios = { convenio_id: null, precio_lista: null, convenio_descuento: null, convenio_pago: null }
+    else {
+      const reb = rebajaConvenio(inst, sel)
+      const lp = d.lista === '' ? (reb ? Number(venta.total_sale_price) + reb : null) : Number(d.lista)
+      cambios = {
+        convenio_id: inst.id, precio_lista: lp && Math.abs(lp - Number(venta.total_sale_price)) > 0.5 ? lp : null,
+        convenio_descuento: d.dto === '' ? Number(inst.descuento_inicial || 0) : Number(d.dto),
+        convenio_pago: d.pago === '' ? Number(inst.pago_institucion || 0) : Number(d.pago),
+      }
+    }
+    const { error: e2 } = await supabase.from('sales').update(cambios).eq('id', venta.id)
+    if (e2) { setMsg({ ok: false, t: 'ERROR: ' + e2.message }); return }
+    logCambio('sales', venta.id, { cambio: 'convenio', antes: venta.convenio_id || null, despues: cambios.convenio_id, institucion: inst?.nombre || null })
+    setMsg({ ok: true, t: inst ? 'VENTA LIGADA AL CONVENIO ' + inst.nombre : 'CONVENIO QUITADO' }); savedFx(); reload()
+  }
   const pidOp = sel?.project_id || null
 
   const [emsg, setEmsg] = useState(null)
@@ -216,7 +255,7 @@ export default function FichaLote() {
       }
       const [{ data: sale }, { data: sps }, { data: hist }] = await Promise.all([
         supabase.from('sales')
-          .select('*, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name)')
+          .select('*, client:clients!sales_client_id_fkey(*), co_client:clients!sales_co_client_id_fkey(*), advisor:advisors(code, full_name), convenio:instituciones!sales_convenio_id_fkey(nombre)')
           .eq('lot_id', saleLotId).in('status', ['en_proceso', 'pagado']).maybeSingle(),
         supabase.from('separations')
           .select('*, client:clients(*), advisor:advisors(code, full_name)')
@@ -1522,6 +1561,14 @@ export default function FichaLote() {
                 <dt>Inicial</dt><dd>{soles(resumen.iniReal)}</dd>
                 <dt>Financiado</dt><dd>{soles(sale.financed_amount)} en {sale.installments_count} cuotas{sale.monthly_amount ? ' de ~' + soles(sale.monthly_amount) : ''}</dd>
                 <dt>Asesor</dt><dd>{sale.advisor?.code || '—'}</dd>
+                <dt>Convenio</dt><dd>
+                  {sale.convenio_id
+                    ? <>🤝 {sale.convenio?.nombre || 'institución'} · −{soles(sale.convenio_descuento)} en la inicial
+                        {sale.precio_lista ? <div className="muted small">Lista {soles(sale.precio_lista)} − rebaja {soles(Number(sale.precio_lista) - Number(sale.total_sale_price))} = {soles(sale.total_sale_price)}</div> : null}
+                        {esAdmin && <div className="muted small">A la institución (interno): {soles(sale.convenio_pago)} · {sale.convenio_pagado_at ? '✔ pagado ' + fechaPe(sale.convenio_pagado_at) : 'por pagar'}</div>}</>
+                    : <span className="muted">—</span>}
+                  {puedeEditar && !sale.convenio_pagado_at && <button className="link-btn u-ml-6" onClick={ligarConvenio}>{sale.convenio_id ? '✎' : '＋ ligar'}</button>}
+                </dd>
                 <dt>Contrato</dt><dd>
                   {/* ver, subir, nota, documentos de respaldo y quitar: la misma pieza de la lista
                       "Ventas y contratos", así nada del contrato obliga a salir de la ficha */}

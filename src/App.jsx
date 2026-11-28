@@ -47,6 +47,10 @@ const Deudores = lazy(() => import('./pages/Deudores'))
 const Vendedor = lazy(() => import('./pages/Vendedor'))
 const Prospectos = lazy(() => import('./pages/Prospectos'))
 const ListaEspera = lazy(() => import('./pages/ListaEspera'))
+const Instituciones = lazy(() => import('./pages/Instituciones'))
+const MetasAsesores = lazy(() => import('./pages/MetasAsesores'))
+const ResultadosCanal = lazy(() => import('./pages/ResultadosCanal'))
+const ReporteSemanal = lazy(() => import('./pages/ReporteSemanal'))
 const EntrarVendedor = lazy(() => import('./pages/EntrarVendedor'))
 const EquipoVentas = lazy(() => import('./pages/EquipoVentas'))
 const Publico = lazy(() => import('./pages/Publico'))
@@ -151,6 +155,10 @@ export default function App() {
           {/* seguimiento de leads: el vendedor ve solo los suyos, el equipo todos (sql/190) */}
           <Route path="prospectos" element={<Vedada para={a => ['socio', 'facturacion'].includes(a.role)}><Prospectos /></Vedada>} />
           <Route path="lista-espera" element={<Vedada para={a => ['socio', 'facturacion'].includes(a.role)}><ListaEspera /></Vedada>} />
+          <Route path="instituciones" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'secretary', 'manager'].includes(a.role)}><Instituciones /></Vedada>} />
+          <Route path="metas-asesores" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'manager', 'asesor'].includes(a.role)}><MetasAsesores /></Vedada>} />
+          <Route path="resultados-canal" element={<Vedada para={a => !['superuser', 'admin', 'operador', 'manager'].includes(a.role)}><ResultadosCanal /></Vedada>} />
+          <Route path="reporte-semanal" element={<Vedada para={a => !['superuser', 'admin', 'manager'].includes(a.role)}><ReporteSemanal /></Vedada>} />
           {/* alta de vendedores en un paso: nombre + celular (12 nov): solo el superusuario */}
           <Route path="equipo-ventas" element={<Vedada para={a => !a.esSuper}><EquipoVentas /></Vedada>} />
           <Route path="conciliacion" element={<Vedada para={a => !a.puedeCorregir}><Conciliacion /></Vedada>} />

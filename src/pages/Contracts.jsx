@@ -11,7 +11,7 @@ import Paginador, { usePaginacion } from '../components/Paginador'
 import { VARIABLES, BLOQUES, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
 import { fechaPe, cobradoDeVenta } from '../lib/lotes'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
-import AvanceVenta, { diasDetenida } from '../components/AvanceVenta'
+import AvanceVenta, { diasDetenida, pasosVenta } from '../components/AvanceVenta'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const EST = {
@@ -196,6 +196,25 @@ export default function Contracts() {
             title={'Ventas que llevan más de ' + alerta + ' días sin avanzar: separación → contrato → firmado → comisión solicitada → hoja firmada → pagada'}>
             🧾 Detenidas{detenidas ? ` (${detenidas})` : ''}
           </button>
+          {/* B6 (28 nov 2026): la lista que se está viendo, a Excel (solo datos) */}
+          {filtradas.length > 0 && <button type="button" className="btn-ghost" onClick={async () => {
+            const { descargarLista } = await import('../lib/excelLista')
+            await descargarLista({
+              hoja: 'Ventas', tituloLibro: 'Ventas y contratos — ' + (proyecto?.name || ''), filas: filtradas,
+              columnas: [
+                { t: 'Lote', w: 9, v: v => (v.lot?.mz || '') + '-' + (v.lot?.lt || '') }, { t: 'Cliente', w: 32, v: v => v.client?.full_name },
+                { t: 'Co-comprador', w: 26, v: v => v.co_client?.full_name }, { t: 'DNI', w: 11, v: v => v.client?.doc_number },
+                { t: 'Fecha de venta', w: 11, f: 'fecha', v: v => v.sale_date }, { t: 'Asesor', w: 12, v: v => v.advisor?.code },
+                { t: 'Precio', w: 13, f: 'soles', v: v => v.total_sale_price, total: true }, { t: 'Cobrado', w: 13, f: 'soles', v: v => cobradoDeVenta(v).cobrado, total: true },
+                { t: 'Saldo', w: 13, f: 'soles', v: v => cobradoDeVenta(v).saldo, total: true },
+                { t: 'Cuotas pagadas', w: 9, v: v => cobradoDeVenta(v).cuotasPagadas + ' / ' + (v.installments_count || 0) },
+                { t: 'Estado', w: 12, v: v => (EST[v.status]?.lbl || v.status || '').toUpperCase() },
+                { t: 'Contrato firmado', w: 9, v: v => v.signed_contract_url ? 'SÍ' : 'NO' },
+                { t: 'Sigue (avance)', w: 22, v: v => { const p = pasosVenta(avance[v.id]).find(x => !x.hecho); return avance[v.id] ? (p ? p.t : 'COMPLETA') : '' } },
+                { t: 'Días sin avanzar', w: 9, f: 'num', v: v => diasDetenida(avance[v.id]) },
+              ],
+            })
+          }}>📥 Excel</button>}
         </div>
       )}
 

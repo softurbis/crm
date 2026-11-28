@@ -16,6 +16,7 @@ export default function BarraVendedor({ pendientes, onCuenta }) {
       {Tab('/prospectos', '🎯', 'Prospectos', pendientes)}
       {Tab('/whatsapp', '💬', 'Chats')}
       {Tab('/vendedor', '🏷️', 'Lotes')}
+      {Tab('/metas-asesores', '🏆', 'Mi meta')}
       <button type="button" className="vend-tab" onClick={onCuenta}><span className="vend-tab-ico">👤</span>Mi cuenta</button>
     </nav>
   )

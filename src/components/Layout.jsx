@@ -90,6 +90,9 @@ const MENU = [
   { to: '/clientes', label: 'Clientes', icon: '👥', color: '#b792e8', grupo: 'Ventas' },
   { to: '/equipo-ventas', label: 'Vendedores', icon: '🧑‍💼', admin: true, color: '#f08fb0', grupo: 'Ventas' },
   { to: '/comisiones', label: 'Comisiones', icon: '🪙', color: '#e8b04f', proy: true, grupo: 'Ventas' },
+  // 2.3 (28 nov 2026, sql/254): convenios y metas de asesores; `roles` = solo esos roles lo ven
+  { to: '/instituciones', label: 'Instituciones y convenios', icon: '🏛️', color: '#9fc5e8', grupo: 'Ventas', roles: ['superuser', 'admin', 'operador', 'secretary', 'manager'] },
+  { to: '/metas-asesores', label: 'Metas de asesores', icon: '🏆', color: '#f0c05a', grupo: 'Ventas', roles: ['superuser', 'admin', 'operador', 'manager'] },
 
   { to: '/gastos', label: 'Gastos', icon: '🧾', color: '#f2785c', proy: true, grupo: 'Gastos', tambien: ['/facturas-gastos'] },
 
@@ -104,6 +107,8 @@ const MENU = [
 
   { to: '/', label: 'Dashboard', icon: '📊', end: true, color: '#56c7d6', grupo: 'Reportes' },
   // cuánta gente entra a la portada, a cada landing y a los recorridos, y cuántos escriben (sql/231)
+  { to: '/reporte-semanal', label: 'Reporte semanal', icon: '📆', color: '#56c7d6', grupo: 'Reportes', roles: ['superuser', 'admin', 'manager'] },
+  { to: '/resultados-canal', label: 'Resultado por canal', icon: '📣', color: '#f0a35c', grupo: 'Reportes', roles: ['superuser', 'admin', 'operador', 'manager'] },
   { to: '/visitas-web', label: 'Visitas de la web', icon: '🌐', staff: true, siempre: true, color: '#4a87c9', grupo: 'Reportes' },
 
   { to: '/proyectos', label: 'Proyectos', icon: '🏗️', color: '#e7c15a', grupo: 'Configuración' },
@@ -257,7 +262,7 @@ export default function Layout() {
   const hayFacturador = projects.some(p => p.fact_activo)
   // `permiso`: el superusuario y quien tenga ese permiso especial en Usuarios (la planilla, sql/132)
   const tienePermiso = p => esSuper || (profile?.permisos || []).includes(p)
-  const verItem = m => !!m && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.permiso || tienePermiso(m.permiso)) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
+  const verItem = m => !!m && (!m.roles || m.roles.includes(role)) && (!m.admin || esSuper) && (!m.corrige || puedeCorregir) && (!m.permiso || tienePermiso(m.permiso)) && (!m.staff || ['admin', 'superuser'].includes(role)) && (!m.cobranza || tieneCobranza) && (!m.fact || hayFacturador) && enPanel(m)
 
   // latido de presencia del usuario actual (cada 45s)
   useEffect(() => {
@@ -459,8 +464,8 @@ export default function Layout() {
           {/* el VENDEDOR (rol asesor) solo ve sus prospectos, sus chats de WhatsApp y el panel
               de precios y cuotas (sin datos de clientes), nada más del CRM */}
           {role === 'asesor'
-            ? ['/prospectos', '/whatsapp', '/vendedor'].map(to => MENU.find(m => m.to === to)).filter(Boolean)
-                .map(m => Item(m.to === '/prospectos' ? { ...m, label: 'Mis prospectos', badge: pendProsp } : m))
+            ? ['/prospectos', '/whatsapp', '/vendedor', '/metas-asesores'].map(to => MENU.find(m => m.to === to)).filter(Boolean)
+                .map(m => Item(m.to === '/prospectos' ? { ...m, label: 'Mis prospectos', badge: pendProsp } : m.to === '/metas-asesores' ? { ...m, label: 'Mi meta del mes' } : m))
             : esFacturacion ? <>{Item({ ...MENU_FACTURACION, badge: pendFact })}{Item({ ...MENU_FACT_GASTOS, badge: pendGastos })}{Item({ ...MENU_FACT_CARTAS, badge: pendCartas })}{Item(MENU_FACT_DEUDORES)}</>
             : (<>
                 {/* EL PROYECTO, ARRIBA Y GRANDE (26 nov, pedido del dueño: "más cerrado por

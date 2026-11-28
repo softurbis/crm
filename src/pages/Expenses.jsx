@@ -1118,6 +1118,14 @@ export default function Expenses() {
         <ProjectPicker />
         {/* las facturas que Victor y Alex emitieron por gastos, de todos los proyectos (sql/233) */}
         {esJefe && emisores !== null && <Link className="btn-ghost btn-link" to="/facturas-gastos">🧾 Facturas de gastos</Link>}
+        {/* B6 (28 nov 2026): baja a Excel lo que está viendo (el mismo libro que el de la secretaria socia, sin links) */}
+        {esJefe && filtrada.length > 0 && <button className="btn-ghost" onClick={async () => {
+          try {
+            const { descargarExcelGastos } = await import('../lib/excelGastos')
+            const r = await descargarExcelGastos(filtrada, { proyDe: proyecto ? { [proyecto.id]: proyecto } : {}, usuario: profile?.full_name || '', filtro: [proyecto?.name, fb.q?.trim() && 'búsqueda "' + fb.q.trim() + '"'].filter(Boolean).join(' · ') })
+            setMsg({ ok: true, t: 'EXCEL DESCARGADO: ' + r.gastos + ' gasto(s)' })
+          } catch (e) { setMsg({ ok: false, t: 'No se pudo armar el Excel: ' + (e.message || e) }) }
+        }}>📥 Excel</button>}
         {puedeCorregir && (
           <button className="btn-ghost" onClick={() => setTplOpen(!tplOpen)}>
             {tplOpen ? 'Cerrar plantilla' : 'Plantilla de constancia (superusuario)'}

@@ -257,6 +257,11 @@ h2.sub { font-size: 1.1rem; margin: 1.2rem 0 .6rem; color: var(--muted); }
   .print-area { position: absolute; top: 0; left: 0; width: 100%; border-radius: 0; max-width: none; color: #111 !important; }
   .print-area * { color: #111 !important; }
   .no-print { display: none !important; }
+  /* reporte semanal (28 nov 2026): se imprime tal cual, en blanco */
+  .reporte-semanal, .reporte-semanal * { visibility: visible; }
+  .reporte-semanal { position: absolute; top: 0; left: 0; width: 100%; }
+  .reporte-semanal * { color: #111 !important; background: transparent !important; box-shadow: none !important; border-color: #ccc !important; }
+  .reporte-semanal .glass { break-inside: avoid; }
 }
 
 /* ---- miniaturas DNI ---- */
