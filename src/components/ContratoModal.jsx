@@ -350,12 +350,15 @@ export default function ContratoModal({ saleId, onClose }) {
   const titulo = `Contrato ${p.name || ''} Mz ${l.mz} Lt ${l.lt} - ${c.full_name || ''}`
   // arriba de cada hoja (pedido del 30 sep); todos los proyectos son habilitación urbana progresiva
   const encabezado = 'Contrato de Compromiso de Compraventa - H.U.P. ' + (p.name || '').trim()
+  // C6 (28 nov 2026, sql/251): "contrato generado" = alguien lo descargó o lo imprimió (la primera vez)
+  const marcarGenerado = () => { if (gen?.id) supabase.from('sales').update({ contrato_generado_at: new Date().toISOString() }).eq('id', gen.id).is('contrato_generado_at', null).then(() => {}, () => {}) }
   async function descargar(tipo) {
     setEditDoc(false)
     setBajando(tipo)
     setListo(null)
     try {
       setListo({ tipo, ...(await prepararArchivo(tipo, hoja.current, titulo, encabezado)) })
+      marcarGenerado()
     } catch (e) {
       const m = String(e?.message || e)
       // pestaña abierta desde antes de publicar una versión nueva: la librería vieja ya no está
@@ -373,7 +376,7 @@ export default function ContratoModal({ saleId, onClose }) {
           <button className="btn-ghost" onClick={() => setEditDoc(!editDoc)}>{editDoc ? '✔ TERMINAR EDICIÓN' : '✎ EDITAR TEXTO'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('pdf')}>{bajando === 'pdf' ? 'Armando PDF…' : '⬇ Descargar PDF'}</button>
           <button className="btn-ghost" disabled={!!bajando} onClick={() => descargar('word')}>{bajando === 'word' ? 'Armando Word…' : '⬇ Descargar Word'}</button>
-          <button className="btn-primary" onClick={() => { setEditDoc(false); setTimeout(() => imprimirConPie(encabezado), 100) }}>🖨 Imprimir</button>
+          <button className="btn-primary" onClick={() => { setEditDoc(false); marcarGenerado(); setTimeout(() => imprimirConPie(encabezado), 100) }}>🖨 Imprimir</button>
           <button className="btn-ghost" onClick={onClose}>&#10005;</button>
         </div>
         {listo && (

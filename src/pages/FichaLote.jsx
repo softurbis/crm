@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { upload } from '../lib/archivos'
@@ -22,6 +22,7 @@ import DocsDeposito from '../components/DocsDeposito'
 import { useComprobantes, comprobanteDeGrupo, estaVivo } from '../lib/comprobantes'
 import { ComprobanteChip, EmitirComprobante, ComprobanteDetalle } from '../components/Comprobante'
 import { NOMBRES_BANCOS } from '../lib/bancos'
+import AvanceVenta from '../components/AvanceVenta'
 
 // cierre economico de una expropiacion (sql/50)
 const COLS_CIERRE = 'expr_fecha_cierre, expr_monto_recuperado, expr_monto_devuelto, expr_saldo, expr_acuerdo_url, expr_notas, expr_cierre_at'
@@ -97,7 +98,50 @@ export default function FichaLote() {
   const [naOk, setNaOk] = useState(true)          // false = sql/49 sin correr: sin "no aplica"
   const [historial, setHistorial] = useState([])
   const [ver, setVer] = useState(0)
-  const reload = () => setVer(v => v + 1)
+  // C7 (28 nov 2026, sql/251): con el contrato FIRMADO, el plan de pago solo lo cambia el superusuario
+  // y queda registrado (antes, después, motivo y quién lo autorizó). El motivo se guarda al recargar.
+  const autPendiente = useRef(null)
+  const reload = () => {
+    if (autPendiente.current) { const a = autPendiente.current; autPendiente.current = null; supabase.rpc('plan_pago_autorizar', { p_sale: a.sale, p_motivo: a.motivo, p_autorizo: a.autorizo }).then(() => {}, () => {}) }
+    setVer(v => v + 1)
+  }
+  // C5 (sql/251): reserva VERBAL — el lote queda reservado hasta una fecha y vence solo
+  async function reservar() {
+    const en3 = new Date(Date.now() - 5 * 3600e3 + 3 * 86400e3).toISOString().slice(0, 10)
+    const r = await pedirDatos({ titulo: '🔖 RESERVAR ' + sel.mz + '-' + sel.lt, aceptar: 'Reservar',
+      mensaje: 'Una reserva de palabra: nadie más lo puede separar hasta la fecha. Si no se separa, vence sola y el lote vuelve a quedar disponible.',
+      campos: [{ clave: 'nombre', etiqueta: 'A nombre de', obligatorio: true }, { clave: 'tel', etiqueta: 'Celular (opcional)', placeholder: '9XXXXXXXX' },
+        { clave: 'vence', etiqueta: 'Hasta el', tipo: 'fecha', obligatorio: true, valor: en3 }, { clave: 'motivo', etiqueta: 'Motivo (opcional)', placeholder: 'Viene a separar el sábado, institución…' }] })
+    if (!r) return
+    const { error } = await supabase.rpc('reservar_lote', { p_lot: sel.id, p_nombre: r.nombre, p_tel: r.tel || null, p_vence: r.vence, p_motivo: r.motivo || null })
+    if (error) { await avisar('No se pudo reservar: ' + error.message, { tono: 'error' }); return }
+    await logCambio('lots', sel.id, { cambio: 'reserva_verbal', lote: sel.mz + '-' + sel.lt, a_nombre: r.nombre, hasta: r.vence })
+    reload()
+  }
+  async function resolverReserva(estado) {
+    const res = detail.reserva
+    if (estado === 'liberada' && !await confirmar('¿Liberar la reserva de ' + res.cliente_nombre + '? El lote vuelve a quedar disponible.', { aceptar: 'Sí, liberar' })) return
+    const { error } = await supabase.rpc('liberar_reserva', { p_reserva: res.id, p_estado: estado })
+    if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); return }
+    await logCambio('lots', sel.id, { cambio: estado === 'separada' ? 'reserva_a_separacion' : 'reserva_liberada', lote: sel.mz + '-' + sel.lt, a_nombre: res.cliente_nombre })
+    reload()
+    // separar: el lote ya quedó disponible; se abre el cobro de la separación
+    if (estado === 'separada') setTimeout(() => { setCobro('separacion'); avisar('Separa a nombre de ' + res.cliente_nombre + (res.telefono ? ' (' + res.telefono + ')' : '') + '.') }, 900)
+  }
+  async function autorizarCambioPlan() {
+    const venta = detail?.sale
+    if (!venta?.signed_contract_url) return { ok: true }
+    if (role !== 'superuser') {
+      await avisar('El contrato de esta venta ya está FIRMADO: el plan de pago solo lo cambia el superusuario, con autorización registrada.', { tono: 'error' })
+      return { ok: false }
+    }
+    const r = await pedirDatos({ titulo: '🔏 CONTRATO FIRMADO', aceptar: 'Continuar',
+      mensaje: 'Cambiar el plan de pago después de la firma queda registrado: el antes, el después, el motivo y quién lo autorizó.',
+      campos: [{ clave: 'motivo', etiqueta: 'Motivo', tipo: 'largo', obligatorio: true }, { clave: 'autorizo', etiqueta: '¿Quién lo autorizó?', obligatorio: true, placeholder: 'Gerencia, la socia del proyecto…' }] })
+    if (!r || String(r.motivo || '').trim().length < 5 || !String(r.autorizo || '').trim()) return { ok: false }
+    autPendiente.current = { sale: venta.id, motivo: r.motivo, autorizo: r.autorizo }
+    return { ok: true }
+  }
   const pidOp = sel?.project_id || null
 
   const [emsg, setEmsg] = useState(null)
@@ -243,8 +287,14 @@ export default function FichaLote() {
       const numDe = qid => inst.find(q => q.id === qid)?.installment_number ?? 999
       const ordenados = pagosR.data.slice().sort((a, b) =>
         (a.date || '').localeCompare(b.date || '') || (numDe(a.installment_id) - numDe(b.installment_id)))
+      // 2.2 (sql/251): la reserva verbal vigente, la venta en una línea y los cambios al plan tras la firma
+      const [{ data: reserva }, { data: avance }, { data: cambiosPlan }] = await Promise.all([
+        supabase.from('reservas').select('*').eq('lot_id', l.id).eq('estado', 'vigente').maybeSingle().then(r => r, () => ({ data: null })),
+        sale ? supabase.from('ventas_avance').select('*').eq('sale_id', sale.id).maybeSingle().then(r => r, () => ({ data: null })) : Promise.resolve({ data: null }),
+        sale ? supabase.from('plan_pago_cambios').select('*').eq('sale_id', sale.id).order('created_at', { ascending: false }).limit(30).then(r => r, () => ({ data: [] })) : Promise.resolve({ data: [] }),
+      ])
       setSel(l)
-      setDetail({ sale, inst, sep, iniPagado, sepPagado, grupo, hermanosLotes, expropiaciones })
+      setDetail({ sale, inst, sep, iniPagado, sepPagado, grupo, hermanosLotes, expropiaciones, reserva, avance, cambiosPlan: cambiosPlan || [] })
       setPagos(ordenados); setNaOk(pagosR.na)
       setHistorial(hist || [])
       setEstado('ok')
@@ -388,6 +438,7 @@ export default function FichaLote() {
   // ligados a ella. Esto redistribuye el TOTAL ya pagado en cuotas, en orden (1, 2, 3...),
   // sin tocar los pagos reales de caja (vouchers, fechas y montos quedan intactos).
   async function recuadrarCuotas() {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const inst = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
     const total = r2(inst.reduce((s, i) => s + Number(i.amount_paid), 0))
     let rest = total
@@ -607,6 +658,7 @@ export default function FichaLote() {
   // Esto arma el cronograma completo de una sola vez, con la misma cuenta que usa
   // la pantalla de Cuotas al registrar una venta nueva.
   async function generarCronograma() {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const sale = detail.sale
     if (detail.inst.length) { await avisar('Esta venta YA tiene cronograma. Para corregirlo usa las columnas de cada cuota.'); return }
     const precio = Number(sale.total_sale_price || 0)
@@ -671,6 +723,7 @@ export default function FichaLote() {
   // ---- INSERTAR CUOTA FALTANTE (superusuario) ----
   // Migración con hueco (ej. falta la 11). Crea solo esa cuota; NO toca las demás.
   async function insertarCuota() {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const sale = detail.sale
     const nums = detail.inst.map(i => i.installment_number)
     const max = nums.length ? Math.max(...nums) : 0
@@ -714,6 +767,7 @@ export default function FichaLote() {
   // importe se replica hasta la penultima cuota y la ultima absorbe el ajuste
   // de centavos para que el cronograma siga sumando exactamente lo financiado.
   async function editarMontoCuotasDesde(q) {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const inst = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
     const inicio = inst.findIndex(i => i.id === q.id)
     const ultima = inst.length - 1
@@ -809,6 +863,7 @@ export default function FichaLote() {
   // la 1 y la 2 el 30 y el resto el 9; la secretaria pidio cuadrarlo a fin de mes).
   // Los montos y los pagos no se tocan; las cuotas pagadas siguen pagadas.
   async function editarVence(q) {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const desde = [...detail.inst].sort((a, b) => a.installment_number - b.installment_number)
       .filter(i => i.installment_number >= q.installment_number)
     const mas = desde.length - 1
@@ -1071,6 +1126,7 @@ export default function FichaLote() {
   }
 
   async function ajustarPrecio() {
+    const aut = await autorizarCambioPlan(); if (!aut.ok) return   // C7: contrato firmado = solo superusuario con autorización
     const sale = detail.sale
     // precio y motivo en un solo dialogo (antes eran dos ventanas seguidas)
     const datos = await pedirDatos({
@@ -1318,6 +1374,13 @@ export default function FichaLote() {
         {cobrar && sel.status === 'disponible' && !detail.sep && (<>
           <button className="btn-primary" onClick={() => setCobro('separacion')}>&#10133; Separar</button>
           <button className="btn-act" onClick={() => setCobro('inicial')}>&#128181; Vender directo (inicial)</button>
+          <button className="btn-act alt" title="Reserva de palabra hasta una fecha: nadie más lo puede separar; vence sola" onClick={reservar}>🔖 Reservar (verbal)</button>
+        </>)}
+        {/* C5 (sql/251): la reserva verbal vigente */}
+        {sel.status === 'reservado' && (<>
+          <span className="fl-aviso warn">🔖 RESERVADO{detail.reserva ? <> a nombre de <b>{detail.reserva.cliente_nombre}</b>{detail.reserva.telefono ? ' (' + detail.reserva.telefono + ')' : ''} hasta el {String(detail.reserva.vence).split('-').reverse().join('/')}{detail.reserva.motivo ? ' · ' + detail.reserva.motivo : ''}</> : ''}</span>
+          {cobrar && detail.reserva && <button className="btn-primary" onClick={() => resolverReserva('separada')}>&#10133; Separar (usa la reserva)</button>}
+          {cobrar && detail.reserva && <button className="btn-act" onClick={() => resolverReserva('liberada')}>🔓 Liberar</button>}
         </>)}
         {cobrar && detail.sep && !sale && (sepInfo?.vencida
           ? <span className="fl-aviso bad">&#128274; Separación vencida: el administrador debe extender el plazo o marcarla perdida antes de cobrar la inicial.</span>
@@ -1337,6 +1400,22 @@ export default function FichaLote() {
               title={'CONTRATO NUEVO (reemplaza al firmado)\nPara cuando el cliente tiene que firmar otra vez, por ejemplo por el plano nuevo de Neshuya.\nArma el contrato con los datos de HOY del lote; en Neshuya eliges el formato (el de siempre o CON PODER).\nGenerar NO cambia nada: el firmado de ahora sigue vigente hasta que subas el nuevo firmado en "Contrato" → "Contrato nuevo" → "2 · Subir firmado". El de antes queda en "contratos anteriores".'}>&#128196; Contrato nuevo</button>)}
       </div>
 
+      {/* C6 (sql/251): la venta en una línea; C7: lo que cambió en el plan de pago después de la firma */}
+      {sale && detail.avance && sale.status !== 'expropiado' && <AvanceVenta a={detail.avance} />}
+      {sale && (detail.cambiosPlan || []).length > 0 && (
+        <details className="glass" style={{ padding: '6px 10px', margin: '0 0 10px' }}>
+          <summary className="u-fs-11" style={{ cursor: 'pointer' }}>🔏 {detail.cambiosPlan.length} cambio(s) al plan de pago después de la firma{detail.cambiosPlan.some(c => !c.motivo) ? ' · ⚠️ alguno sin motivo' : ''}</summary>
+          {detail.cambiosPlan.map(c => (
+            <div key={c.id} className="u-fs-10 u-tt-n" style={{ padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+              <span className="muted">{new Date(c.created_at).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>{' · '}
+              {c.accion === 'cambio' ? 'Cuota ' + (c.despues?.cuota ?? '') + ': ' + (c.antes?.monto !== c.despues?.monto ? 'S/ ' + c.antes?.monto + ' → S/ ' + c.despues?.monto + ' ' : '') + (c.antes?.vence !== c.despues?.vence ? 'vence ' + c.antes?.vence + ' → ' + c.despues?.vence : '')
+                : c.accion === 'cuota nueva' ? 'Cuota nueva ' + (c.despues?.cuota ?? '') + ': S/ ' + c.despues?.monto + ', vence ' + c.despues?.vence
+                : 'Cuota borrada ' + (c.antes?.cuota ?? '') + ': S/ ' + c.antes?.monto}
+              {c.motivo ? <> · <b>{c.motivo}</b> · autorizó {c.autorizo}</> : <span style={{ color: '#ff8e7a' }}> · sin motivo registrado</span>}
+            </div>
+          ))}
+        </details>
+      )}
       {emsg && <p className={emsg.startsWith('ERROR') || emsg.startsWith('NO SE') ? 'error' : 'ok'} style={{ margin: '0 0 10px' }}>{emsg}</p>}
       {msg && <p className={msg.ok ? 'ok' : 'error'} style={{ margin: '0 0 10px' }}>{msg.t}</p>}
 

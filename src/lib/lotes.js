@@ -1,12 +1,13 @@
 // Estados de un lote: el mismo color y el mismo nombre en el mapa, en el
 // buscador y en la ficha del lote.
+// 28 nov 2026 (sql/251): RESERVADO = reserva verbal hasta una fecha; nadie más lo separa
 export const COLORS = {
-  disponible: '#4caf72', separado: '#e0913f', vendido: '#4f83c2',
+  disponible: '#4caf72', reservado: '#c9b13a', separado: '#e0913f', vendido: '#4f83c2',
   entregado: '#3fb6a8', invadido: '#c94f4f', expropiado: '#9a6bc9',
   eliminado: '#6d6f74',
 }
 export const LBL = {
-  disponible: 'Disponible', separado: 'Separado', vendido: 'Vendido',
+  disponible: 'Disponible', reservado: 'Reservado', separado: 'Separado', vendido: 'Vendido',
   entregado: 'Entregado', invadido: 'Invadido', expropiado: 'Expropiado',
   eliminado: 'Eliminado',
 }

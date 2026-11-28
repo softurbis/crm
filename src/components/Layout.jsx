@@ -82,6 +82,8 @@ const MENU = [
   // `siempre`: lo ve todo el equipo aunque tenga los paneles recortados; el asesor también
   // seguimiento de leads (sql/190): el vendedor ve solo los suyos; el equipo, todos, y los reparte
   { to: '/prospectos', label: 'Prospectos', icon: '🎯', color: '#f08fb0', grupo: 'Ventas' },
+  // lista de espera de una preventa, con el bono ofrecido a cada persona (sql/251, 28 nov 2026)
+  { to: '/lista-espera', label: 'Lista de espera', icon: '📝', color: '#c9b13a', proy: true, grupo: 'Ventas' },
   { to: '/vendedor', label: 'Panel del vendedor', icon: '🏷️', color: '#f0c05a', proy: true, siempre: true, grupo: 'Ventas' },
   // ventas y contratos en una sola lista (antes dos pantallas con casi la misma tabla)
   { to: '/ventas', label: 'Ventas y contratos', icon: '📄', color: '#7bb6e0', proy: true, grupo: 'Ventas', tambien: ['/contratos'] },

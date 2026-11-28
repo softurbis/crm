@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { subirRuta } from '../lib/archivos'
 import { useMsg } from '../lib/saveFx'
-import { confirmar } from '../lib/dialogos'
+import { confirmar, avisar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
 import LoteLink from '../components/LoteLink'
@@ -24,6 +24,7 @@ export default function Commissions() {
   const canEdit = esJefe   // administrador, superusuario y operador
   const canPay = esJefe || role === 'secretary'
   const [rows, setRows] = useState([])
+  const [gastosCom, setGastosCom] = useState([])   // C6: gastos PAGO DE COMISIÓN del proyecto (sql/251)
   const [ventasSin, setVentasSin] = useState([])
   const [advisors, setAdvisors] = useState([])
   const [msg, setMsg] = useMsg(null)
@@ -60,6 +61,9 @@ export default function Commissions() {
       supabase.from('advisors').select('*').order('code'),
     ])
     setRows(c.data || [])
+    // C6 (28 nov 2026, sql/251): los gastos PAGO DE COMISIÓN del proyecto, para ligar cada comisión con el suyo
+    if (pidOp) supabase.from('expenses').select('id, request_number, amount, recipient, issue_date, created_at, approved_at, status').eq('project_id', pidOp).ilike('type', 'PAGO DE COMISI%').order('created_at', { ascending: false }).limit(400)
+      .then(({ data }) => setGastosCom(data || []), () => {})
     setAdvisors(a.data || [])
     if (pidOp) {
       const ids = (c.data || []).map(x => x.sale_id)
@@ -87,7 +91,7 @@ export default function Commissions() {
   }, [rows, q, fEst, fAdv])
 
   const totPend = filtradas.filter(r => r.status === 'pendiente').reduce((s, r) => s + Number(r.amount), 0)
-  const totPag = filtradas.filter(r => r.status === 'pagada').reduce((s, r) => s + Number(r.amount), 0)
+  const totPag = filtradas.filter(r => r.status === 'pagado').reduce((s, r) => s + Number(r.amount), 0)
   const totUrbis = filtradas.reduce((s, r) => s + Number(r.urbis_amount || 0), 0)
 
   const porAsesor = useMemo(() => {
@@ -98,7 +102,7 @@ export default function Commissions() {
       m[k].n++
       m[k].total += Number(r.amount)
       m[k].urbis += Number(r.urbis_amount || 0)
-      if (r.status === 'pagada') m[k].pag += Number(r.amount)
+      if (r.status === 'pagado') m[k].pag += Number(r.amount)
       else m[k].pend += Number(r.amount)
     }
     return Object.entries(m).sort((x, y) => y[1].total - x[1].total)
@@ -141,13 +145,28 @@ export default function Commissions() {
       if (rhFile) url = await subirRH(pay.id, rhFile)
       const ids = [pay.id, ...payExtra]
       const { error } = await supabase.from('commissions').update({
-        status: 'pagada', rh_number: rhNum.trim().toUpperCase(), rh_url: url, paid_date: payDate,
+        status: 'pagado', rh_number: rhNum.trim().toUpperCase(), rh_url: url, paid_date: payDate,
       }).in('id', ids)
       if (error) throw error
       setMsg({ ok: true, t: ids.length > 1 ? ids.length + ' COMISIONES PAGADAS CON EL MISMO RH' : 'COMISION MARCADA COMO PAGADA' })
       setPay(null); setPayExtra([]); setRhNum(''); setRhFile(null); load()
     } catch (err) { setMsg({ ok: false, t: 'ERROR: ' + (err.message || err) }) }
     setBusy(false)
+  }
+
+  // C6: la comisión queda ligada al gasto que la paga → la venta muestra "comisión solicitada" y "hoja firmada"
+  async function ligarGasto(r) {
+    const usados = new Set(rows.filter(x => x.gasto_id && x.id !== r.id).map(x => x.gasto_id))
+    const libres = gastosCom.filter(g => !usados.has(g.id))
+    if (!libres.length) { await avisar('No hay gastos PAGO DE COMISIÓN de este proyecto sin ligar. Primero regístralo en Gastos.'); return }
+    const sol = g => (g.request_number ? 'SOL-' + g.request_number : 'GASTO') + ' · S/ ' + Number(g.amount || 0).toFixed(2) + ' · ' + (g.recipient || '') + ' · ' + String(g.issue_date || g.created_at || '').slice(0, 10)
+    const d = await pedirDatos({ titulo: '🔗 LIGAR EL GASTO DE ESTA COMISIÓN', aceptar: 'Ligar',
+      mensaje: (r.advisor?.code || '') + ' · ' + (r.sale?.lot ? r.sale.lot.mz + '-' + r.sale.lot.lt : '') + ' · comisión S/ ' + Number(r.amount || 0).toFixed(2),
+      campos: [{ clave: 'g', etiqueta: 'Gasto PAGO DE COMISIÓN', tipo: 'opcion', obligatorio: true, valor: r.gasto_id || '', opciones: [{ valor: '', etiqueta: '— Sin ligar —' }, ...libres.map(g => ({ valor: g.id, etiqueta: sol(g) }))] }] })
+    if (!d) return
+    const { error } = await supabase.from('commissions').update({ gasto_id: d.g || null }).eq('id', r.id)
+    if (error) { setMsg({ ok: false, t: 'ERROR: ' + error.message }); return }
+    setMsg({ ok: true, t: d.g ? 'GASTO LIGADO A LA COMISIÓN' : 'GASTO DESLIGADO' }); load()
   }
 
   async function volverPendiente(r) {
@@ -270,7 +289,7 @@ export default function Commissions() {
                     </span>
                   ) : (<>
                     <b>{soles(r.amount)}</b>
-                    {canEdit && r.status !== 'pagada' && <>{' '}<button className="link-btn muted" onClick={() => setAmtEdit({ id: r.id, amount: r.amount, urbis: r.urbis_amount || 0 })}>editar</button></>}
+                    {canEdit && r.status !== 'pagado' && <>{' '}<button className="link-btn muted" onClick={() => setAmtEdit({ id: r.id, amount: r.amount, urbis: r.urbis_amount || 0 })}>editar</button></>}
                   </>)}
                 </td>
                 <td>
@@ -278,7 +297,7 @@ export default function Commissions() {
                     ? <input type="number" step="0.01" value={amtEdit.urbis} onChange={e => setAmtEdit({ ...amtEdit, urbis: e.target.value })} style={{ width: '6.5em' }} title="Comision Urbis" />
                     : soles(r.urbis_amount || 0)}
                 </td>
-                <td>{r.status === 'pagada' ? <span className="st-chip st-ok">PAGADA</span> : <span className="st-chip st-per">PENDIENTE</span>}</td>
+                <td>{r.status === 'pagado' ? <span className="st-chip st-ok">PAGADA</span> : <span className="st-chip st-per">PENDIENTE</span>}</td>
                 <td>
                   {r.rh_number ? <>
                     {r.rh_number}{' '}
@@ -295,14 +314,15 @@ export default function Commissions() {
                           }} />
                         </label>}
                     <br /><span className="muted small">{r.paid_date || ''}</span>
-                  </> : r.status === 'pagada' && canPay
+                  </> : r.status === 'pagado' && canPay
                     ? <button className="link-btn warn" onClick={() => { setPay(r); setPayExtra([]); setRhNum(''); setPayDate(r.paid_date || hoy()) }}>&#9888; registrar RH</button>
                     : '-'}
                 </td>
                 <td className="u-nw">
-                  {canPay && r.status !== 'pagada' &&
+                  {canPay && <button className="link-btn" title="El gasto PAGO DE COMISIÓN que paga esta comisión" onClick={() => ligarGasto(r)}>{r.gasto_id ? '🔗 ' + ((gastosCom.find(g => g.id === r.gasto_id)?.request_number && 'SOL-' + gastosCom.find(g => g.id === r.gasto_id).request_number) || 'gasto ligado') : '🔗 ligar gasto'}</button>}{' '}
+                  {canPay && r.status !== 'pagado' &&
                     <button className="btn-ghost" onClick={() => { setPay(r); setPayExtra([]); setRhNum(r.rh_number || ''); setPayDate(hoy()) }}>Marcar pagada</button>}
-                  {puedeCorregir && r.status === 'pagada' &&
+                  {puedeCorregir && r.status === 'pagado' &&
                     <button className="link-btn muted" onClick={() => volverPendiente(r)}>volver a pendiente</button>}
                 </td>
               </tr>
@@ -356,7 +376,7 @@ export default function Commissions() {
             </div>
             <p className="muted">Lote {pay.sale?.lot?.mz}-{pay.sale?.lot?.lt} | {pay.sale?.client?.full_name} | Comision: <b className="accent">{soles(pay.amount)}</b></p>
             {(() => {
-              const otras = rows.filter(x => x.id !== pay.id && x.status !== 'pagada' && x.advisor?.id && x.advisor?.id === pay.advisor?.id)
+              const otras = rows.filter(x => x.id !== pay.id && x.status !== 'pagado' && x.advisor?.id && x.advisor?.id === pay.advisor?.id)
               if (!otras.length) return null
               const totalSel = Number(pay.amount) + otras.filter(o => payExtra.includes(o.id)).reduce((s, o) => s + Number(o.amount), 0)
               return (

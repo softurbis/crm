@@ -11,6 +11,7 @@ import Paginador, { usePaginacion } from '../components/Paginador'
 import { VARIABLES, BLOQUES, DEFAULT_TEMPLATE, COLS_VENTA_CONTRATO } from '../lib/contrato'
 import { fechaPe, cobradoDeVenta } from '../lib/lotes'
 import { useProject, ProjectPicker } from '../context/ProjectContext'
+import AvanceVenta, { diasDetenida } from '../components/AvanceVenta'
 
 const soles = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })
 const EST = {
@@ -34,6 +35,10 @@ export default function Contracts() {
   const [q, setQ] = useState('')
   const [est, setEst] = useState('todos')
   const [soloSinFirmar, setSoloSinFirmar] = useState(false)
+  // C6 (28 nov 2026, sql/251): la venta en una línea y las detenidas
+  const [avance, setAvance] = useState({})
+  const [alerta, setAlerta] = useState(7)
+  const [soloDetenidas, setSoloDetenidas] = useState(false)
   const [gen, setGen] = useState(null)   // id de la venta cuyo contrato se esta generando
   const [msg, setMsg] = useMsg(null)
   const [tplOpen, setTplOpen] = useState(false)
@@ -50,6 +55,14 @@ export default function Contracts() {
       supabase.from('projects').select('*').eq('id', pidOp).single(),
     ])
     setVentas(v.data || []); setProyecto(p.data || null)
+    const ids = (v.data || []).map(x => x.id)
+    const av = {}
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await supabase.from('ventas_avance').select('*').in('sale_id', ids.slice(i, i + 200))
+      for (const a of (data || [])) av[a.sale_id] = a
+    }
+    setAvance(av)
+    supabase.from('bot_settings').select('value').eq('key', 'venta_alerta_dias').maybeSingle().then(({ data }) => setAlerta(parseInt(data?.value) || 7), () => {})
     setTplText((p.data?.contract_template) || DEFAULT_TEMPLATE)
   }
   useEffect(() => { load() }, [pidOp])
@@ -67,13 +80,14 @@ export default function Contracts() {
     return ventas.filter(v => {
       if (est !== 'todos' && v.status !== est) return false
       if (soloSinFirmar && (v.signed_contract_url || !VIVA.includes(v.status))) return false
+      if (soloDetenidas && !(VIVA.includes(v.status) && (diasDetenida(avance[v.id]) ?? -1) > alerta)) return false
       if (!t) return true
       return (v.client?.full_name || '').toLowerCase().includes(t) ||
         (v.co_client?.full_name || '').toLowerCase().includes(t) ||
         (v.client?.doc_number || '').toLowerCase().includes(t) ||
         `${v.lot?.mz}-${v.lot?.lt}`.toLowerCase().includes(t)
     })
-  }, [ventas, q, est, soloSinFirmar, soloVenta])
+  }, [ventas, q, est, soloSinFirmar, soloVenta, soloDetenidas, avance, alerta])
   const pag = usePaginacion(filtradas, 50)
 
   const tot = filtradas.reduce((s, v) => {
@@ -81,6 +95,7 @@ export default function Contracts() {
     return { precio: s.precio + Number(v.total_sale_price), cobrado: s.cobrado + c.cobrado, saldo: s.saldo + c.saldo }
   }, { precio: 0, cobrado: 0, saldo: 0 })
   const sinFirmar = ventas.filter(v => VIVA.includes(v.status) && !v.signed_contract_url).length
+  const detenidas = ventas.filter(v => VIVA.includes(v.status) && (diasDetenida(avance[v.id]) ?? -1) > alerta).length
 
   // corregir la fecha de venta (superusuario): aquí, donde se revisan los contratos,
   // es donde se descubre que la fecha no coincide con el papel firmado.
@@ -177,6 +192,10 @@ export default function Contracts() {
             title="Ventas vigentes que todavía no tienen el contrato firmado subido">
             &#9888; Sin contrato firmado{sinFirmar ? ` (${sinFirmar})` : ''}
           </button>
+          <button type="button" className={`chip ${soloDetenidas ? 'on' : ''}`} onClick={() => setSoloDetenidas(x => !x)}
+            title={'Ventas que llevan más de ' + alerta + ' días sin avanzar: separación → contrato → firmado → comisión solicitada → hoja firmada → pagada'}>
+            🧾 Detenidas{detenidas ? ` (${detenidas})` : ''}
+          </button>
         </div>
       )}
 
@@ -187,7 +206,7 @@ export default function Contracts() {
 
       <div className="glass table-wrap">
         <table>
-          <thead><tr><th>Lote</th><th>Cliente</th><th>Fecha</th><th>Precio</th><th>Cobrado</th><th>Saldo</th><th>Cuotas</th><th>Estado</th><th>Contrato</th></tr></thead>
+          <thead><tr><th>Lote</th><th>Cliente</th><th>Fecha</th><th>Precio</th><th>Cobrado</th><th>Saldo</th><th>Cuotas</th><th>Estado</th><th title="Separación → contrato generado → firmado → comisión solicitada → hoja firmada → comisión pagada">Avance</th><th>Contrato</th></tr></thead>
           <tbody>
             {pag.pagina.map(v => {
               const c = cobradoDeVenta(v)
@@ -206,6 +225,7 @@ export default function Contracts() {
                   <td>{soles(c.saldo)}</td>
                   <td>{c.cuotasPagadas} / {v.installments_count}</td>
                   <td><span style={{ color: e.color, fontWeight: 700 }}>{e.lbl}</span></td>
+                  <td>{avance[v.id] && v.status !== 'expropiado' ? <AvanceVenta a={avance[v.id]} alerta={alerta} compacto /> : <span className="muted">—</span>}</td>
                   <td style={{ whiteSpace: 'normal', minWidth: 190 }}>
                     {VIVA.includes(v.status)
                       ? <>

@@ -98,6 +98,13 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
   const [nombre, setNombre] = useState('')
   const [hallado, setHallado] = useState(null)       // { clientes, lead }
   const [clienteSel, setClienteSel] = useState('nuevo')
+  // C5 (28 nov 2026, sql/251): separación sin DNI confirmada y monto mínimo del proyecto
+  const [aceptaIncompleto, setAceptaIncompleto] = useState(false)
+  const [minSep, setMinSep] = useState(0)
+  useEffect(() => {
+    if (modo !== 'separacion' || !lote?.project_id) return
+    supabase.from('projects').select('separacion_minima').eq('id', lote.project_id).maybeSingle().then(({ data }) => setMinSep(Number(data?.separacion_minima) || 0), () => {})
+  }, [modo, lote?.project_id])
   const [vence, setVence] = useState(sumarDias(hoyPe(), 7))
   const [advisorId, setAdvisorId] = useState(sep?.advisor_id || '')
   const [recordarA, setRecordarA] = useState([])
@@ -212,6 +219,10 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
     if (modo === 'separacion') {
       if (!celularValido(cel)) return 'Escribe un celular válido (9 dígitos).'
       if (clienteSel === 'nuevo' && nombre.trim().length < 5) return 'Escribe el nombre completo de quien separa.'
+      // C5 (sql/251): sin DNI, se confirma que es el comprador real; y el mínimo del proyecto
+      if ((clienteSel === 'nuevo' || esPendiente(hallado?.clientes.find(c => c.id === clienteSel) || {})) && !aceptaIncompleto)
+        return 'Marca la casilla de DATOS INCOMPLETOS: confirma que la separación va a nombre de quien compra.'
+      if (minSep > 0 && Number(pago.monto) < minSep) return 'El mínimo para separar en este proyecto es S/ ' + minSep + '.'
       if (ePago) return ePago
       if (!vence || vence < pago.fecha) return 'La fecha de vencimiento no puede ser antes del pago.'
       if (!advisorId) return 'Elige el vendedor (asesor).'
@@ -422,6 +433,14 @@ export default function CobroModal({ tipo, lote, detail, onClose, onListo, onCon
                   </label>
                 </div>
               )}
+              {/* C5 (28 nov 2026): la separación es a nombre del comprador REAL; sin DNI queda marcada */}
+              {(clienteSel === 'nuevo' || esPendiente(hallado?.clientes.find(c => c.id === clienteSel) || {})) && (
+                <label className="cobro-opcion small" style={{ alignItems: 'flex-start', borderLeft: '3px solid #e0b34c', paddingLeft: 8 }}>
+                  <input type="checkbox" checked={aceptaIncompleto} onChange={e => setAceptaIncompleto(e.target.checked)} />
+                  <span>⚠️ Queda con <b>DATOS INCOMPLETOS</b> (sin DNI). Confirmo que es a nombre de quien <b>compra</b>, no de otra persona; el DNI y los datos se completan en la inicial.</span>
+                </label>
+              )}
+              {minSep > 0 && <p className="hint small u-m0">Mínimo para separar en este proyecto: <b>S/ {minSep}</b></p>}
               {hallado?.lead && (
                 <p className="hint small">&#128227; Es un lead de WhatsApp: <b>{hallado.lead.full_name}</b> ({String(hallado.lead.status).replace('_', ' ')}). Al separar pasa a <b>en negociación</b> y Campañas lo cuenta.</p>
               )}

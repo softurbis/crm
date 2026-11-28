@@ -212,7 +212,7 @@ export default function Lots() {
       </div>
 
       <div className="chips">
-        {['todos', 'disponible', 'separado', 'vendido', 'entregado', 'invadido'].map(s => (
+        {['todos', 'disponible', 'reservado', 'separado', 'vendido', 'entregado', 'invadido'].map(s => (
           <button key={s} className={`chip ${filter === s ? 'on' : ''}`}
             style={s !== 'todos' ? { '--dot': COLORS[s] } : {}}
             onClick={() => setFilter(s)}>

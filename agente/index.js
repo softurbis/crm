@@ -1794,6 +1794,42 @@ async function resumenManana(secs, hoy, md) {
   }
 }
 
+// C5 (2.2, sql/251): las reservas VERBALES vencen solas (00:05) y se avisa el día antes (7:30)
+async function quienReservo(r) {
+  if (r.created_by) { const { data } = await supabase.from('secretaries').select('phone').eq('user_id', r.created_by).eq('active', true).limit(1); if (data && data[0]?.phone) return data[0].phone }
+  return ADMIN || null
+}
+async function vencerReservas(hoy) {
+  const { data: rs } = await supabase.from('reservas').select('id, cliente_nombre, vence, created_by, lot:lots(mz, lt, project:projects(name))').eq('estado', 'vigente').lt('vence', hoy)
+  for (const r of (rs || [])) {
+    const { data: ok } = await supabase.rpc('liberar_reserva', { p_reserva: r.id, p_estado: 'vencida' })
+    if (!ok) continue
+    const a = await quienReservo(r)
+    if (a) await enviar(a, '🔖 *Venció la reserva* del lote ' + (r.lot ? r.lot.mz + '-' + r.lot.lt + ' (' + (r.lot.project?.name || '') + ')' : '') + ' a nombre de *' + r.cliente_nombre + '*. El lote volvió a quedar *disponible*.', { tipo: 'secretaria', interno: true })
+  }
+  if ((rs || []).length) log('RESERVAS: ' + rs.length + ' vencida(s), lotes liberados')
+}
+async function avisarReservasPorVencer(hoy) {
+  const { data: rs } = await supabase.from('reservas').select('id, cliente_nombre, telefono, vence, created_by, lot:lots(mz, lt, project:projects(name))').eq('estado', 'vigente').eq('vence', hoy).is('aviso_previo_at', null)
+  for (const r of (rs || [])) {
+    await supabase.from('reservas').update({ aviso_previo_at: new Date().toISOString() }).eq('id', r.id)
+    const a = await quienReservo(r)
+    if (a) await enviar(a, '🔖 *Hoy vence la reserva* del lote ' + (r.lot ? r.lot.mz + '-' + r.lot.lt + ' (' + (r.lot.project?.name || '') + ')' : '') + ' a nombre de *' + r.cliente_nombre + '*' + (r.telefono ? ' (+' + r.telefono + ')' : '') + '. Si no se separa hoy, mañana el lote vuelve a quedar disponible.', { tipo: 'secretaria', interno: true })
+  }
+}
+// C6: ventas que llevan más de venta_alerta_dias sin avanzar (misma regla que el panel, AvanceVenta.jsx)
+async function ventasDetenidas() {
+  const alerta = parseInt(await ajuste('venta_alerta_dias', '7')) || 7
+  let filas = []
+  for (let desde = 0; ; desde += 1000) {
+    const { data } = await supabase.from('ventas_avance').select('*').in('status', ['en_proceso', 'pagado']).range(desde, desde + 999)
+    filas = filas.concat(data || []); if (!data || data.length < 1000) break
+  }
+  const completa = a => (a.venta_directa || a.separacion_at) && (a.contrato_generado_at || a.firmado_at) && a.firmado_at
+    && (!a.comision_id || ((a.comision_solicitada_at || a.comision_pagada_at) && (a.hoja_firmada_at || a.comision_pagada_at) && a.comision_pagada_at))
+  return { n: filas.filter(a => a.status !== 'expropiado' && !completa(a) && a.ultimo_paso_at && Math.floor((Date.now() - new Date(a.ultimo_paso_at)) / 86400000) > alerta).length, alerta }
+}
+
 // B2: lo comercial del día para el cierre de las 18:00 (solo gerencia y superusuario)
 async function comercialDelDia(hoy) {
   const desde = desdeLima(hoy)
@@ -1825,6 +1861,7 @@ async function comercialDelDia(hoy) {
     + '• Separaciones: ' + (seps.data || []).length + ((seps.data || []).length ? ' (' + soles(suma(seps)) + ')' : '') + ' · Ventas: ' + (ventas.data || []).length + '\n'
     + '• Pagos recibidos: ' + (pagos.data || []).length + ' por ' + soles(suma(pagos)) + '\n'
     + '• Gastos por aprobar: ' + (gastos.data || []).length + ((gastos.data || []).length ? ' por ' + soles(suma(gastos)) : '') + '\n'
+    + await ventasDetenidas().then(v => v.n ? '• 🧾 Ventas detenidas (más de ' + v.alerta + ' días sin avanzar): ' + v.n + ' (Ventas y contratos → Detenidas)\n' : '', () => '')
 }
 
 async function secretariaTick() {
@@ -1842,6 +1879,7 @@ async function secretariaTick() {
     if (hhmm >= '00:05' && (await ajuste('sec_arrastre_fecha', '')) !== hoy) {
       await setAjuste('sec_arrastre_fecha', hoy)
       await arrastrarTareas(hoy).catch(e => log('ARRASTRE:', String(e.message || e)))
+      await vencerReservas(hoy).catch(e => log('RESERVAS:', String(e.message || e)))
     }
     // 0b) ausencias (cada 5 min) y aviso de tareas asignadas con su acuse (A6)
     await aplicarAusencias(hoy).catch(e => log('AUSENCIAS:', String(e.message || e)))
@@ -1866,6 +1904,7 @@ async function secretariaTick() {
         await setAjuste('sec_saludo', hoy)
         // B1 (28 nov 2026): lo de hoy + urgente + esperando respuesta + próximos 3 días, y el día del equipo a gerencia
         await resumenManana(secs, hoy, md).catch(e => log('RESUMEN MAÑANA:', String(e.message || e)))
+        await avisarReservasPorVencer(hoy).catch(e => log('RESERVAS POR VENCER:', String(e.message || e)))
       }
     }
 
