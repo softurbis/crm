@@ -894,7 +894,7 @@ async function comandoDirecto(texto, opts = {}) {
     }
     if (/pendientes|tareas pend|checklist/.test(t)) {
       const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
-      let qTk = supabase.from('secretary_tasks').select('title, time, secretary:secretaries(full_name)').eq('date', hoyL).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true).order('time')
+      let qTk = supabase.from('secretary_tasks').select('title, time, secretary:secretaries!secretary_tasks_secretary_id_fkey(full_name)').eq('date', hoyL).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true).order('time')
       // quien no es gerencia ve solo lo suyo (la agenda de los demás no es de su incumbencia)
       if (!ger) {
         const p9 = String(opts.phone || '').replace(/\D/g, '').slice(-9)
@@ -911,7 +911,7 @@ async function comandoDirecto(texto, opts = {}) {
     }
     if (/cumplimiento|cumplieron|productividad|reporte sec/.test(t)) {
       const hoyL = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
-      const { data: tk } = await supabase.from('secretary_tasks').select('status, secretary:secretaries(full_name)').eq('date', hoyL)
+      const { data: tk } = await supabase.from('secretary_tasks').select('status, secretary:secretaries!secretary_tasks_secretary_id_fkey(full_name)').eq('date', hoyL)
       if (!tk || !tk.length) return '📊 *CUMPLIMIENTO DE HOY*\nSin tareas registradas hoy.' + PIE_COMANDO
       const bySec = {}; for (const x of tk) { const k = x.secretary?.full_name || '—'; const s = bySec[k] = bySec[k] || { h: 0, t: 0 }; s.t++; if (x.status === 'hecha') s.h++ }
       let out = '📊 *CUMPLIMIENTO DE HOY*\n'
