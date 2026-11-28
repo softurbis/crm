@@ -36,7 +36,9 @@ export default function Visitas() {
   const [form, setForm] = useState(null)
   const [cerrar, setCerrar] = useState(null)  // visita que se está cerrando (modal de resultado)
   const [feedbackTxt, setFeedbackTxt] = useState('')
-  const abrirCierre = v => { setFeedbackTxt(v.resultado_note || ''); setCerrar(v) }
+  // C4 (28 nov 2026, sql/250): lo que el cliente prometió y para cuándo (sale en "llamadas" del bot ese día)
+  const [promesa, setPromesa] = useState({ fecha: '', texto: '' })
+  const abrirCierre = v => { setFeedbackTxt(v.resultado_note || ''); setPromesa({ fecha: v.fecha_prometida || '', texto: v.promesa || '' }); setCerrar(v) }
   const [cfg, setCfg] = useState({ activo: true, diasAntes: 1, diasHora: '09:00', horasAntes: 3, recCliente: true, recAsesor: true, msgCliente: '', msgAsesor: '' })
   const [verCfg, setVerCfg] = useState(false)
   const [cfgMsg, setCfgMsg] = useMsg('')
@@ -147,6 +149,7 @@ export default function Visitas() {
       status: res === 'no_vino' ? 'no_asistio' : 'realizada',
       resultado: res, resultado_note: nota.trim() || null,
       recontacto_date: recontactoDate, closed_at: new Date().toISOString(), admin_avisado_at: null,
+      fecha_prometida: promesa.fecha || null, promesa: (promesa.texto || '').trim().toUpperCase() || null,
     }).eq('id', v.id)
     if (error) { await avisar('ERROR: ' + error.message); return }
     setCerrar(null); savedFx(); cargar()
@@ -228,6 +231,7 @@ export default function Visitas() {
         {v.resultado && <p style={{ fontSize: 10, margin: '2px 0', color: (RESULTADOS.find(r => r.v === v.resultado)?.c) || '#9daab6', fontWeight: 700 }}>
           {RES_LBL[v.resultado] || v.resultado}{v.resultado_note ? <span className="muted" style={{ fontWeight: 400, textTransform: 'none' }}> · {v.resultado_note}</span> : ''}
           {v.recontacto_date && <span className="muted" style={{ fontWeight: 400 }}> · 📅 {v.recontacto_date}</span>}
+          {v.fecha_prometida && <span style={{ fontWeight: 400, color: v.fecha_prometida <= hoy ? '#e0b34c' : undefined }} className={v.fecha_prometida <= hoy ? '' : 'muted'}> · 🤝 {v.promesa || 'PROMETIÓ'} el {v.fecha_prometida.split('-').reverse().slice(0, 2).join('/')}</span>}
         </p>}
         <div className="u-d-f u-g-4 u-fwr u-mt-4">
           {v.status === 'programada' && <>
@@ -325,6 +329,11 @@ export default function Visitas() {
             <textarea value={feedbackTxt} onChange={e => setFeedbackTxt(e.target.value)}
               placeholder="📝 Feedback de la visita: qué pasó, cómo reaccionó el cliente, qué quedó pendiente, próximos pasos…"
               style={{ width: '100%', minHeight: 110, textTransform: 'none', fontSize: 13, marginBottom: 10 }} />
+            <div className="u-d-f u-g-6 u-fwr u-ai-c u-mb-8">
+              <span className="u-fs-11" style={{ color: '#e0b34c', fontWeight: 700 }}>🤝 ¿PROMETIÓ ALGO?</span>
+              <input value={promesa.texto} onChange={e => setPromesa(p => ({ ...p, texto: e.target.value }))} placeholder="Volver a separar, traer la inicial…" style={{ flex: 1, minWidth: 160, fontSize: 12 }} />
+              <input type="date" value={promesa.fecha} min={hoy} onChange={e => setPromesa(p => ({ ...p, fecha: e.target.value }))} title="Para cuándo lo prometió" style={{ fontSize: 12 }} />
+            </div>
             <div style={{ fontSize: 11, color: '#e0b34c', fontWeight: 700, marginBottom: 5 }}>RESULTADO:</div>
             <div className="u-d-g u-g-6">
               {RESULTADOS.map(r => (

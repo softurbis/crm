@@ -582,12 +582,16 @@ async function comandoDirecto(texto, opts = {}) {
       return out
     }
     if (/^llamadas(\s+pendientes)?(\s+de\s+hoy)?$|^a\s+qui[eé]n\s+(llamo|tengo que llamar)/.test(t)) {
-      const { data: ls } = await supabase.from('leads').select('full_name, phone, project_id, next_action, next_action_date, next_action_time')
+      const { data: ls } = await supabase.from('leads').select('full_name, phone, project_id, next_action, next_action_date, next_action_time, next_action_tipo, intentos_sin_respuesta')
         .in('status', ABIERTOS_L).lte('next_action_date', hoyC).or('is_test.is.null,is_test.eq.false').order('next_action_date').order('next_action_time', { nullsFirst: true }).limit(25)
       const { data: rc } = await supabase.from('visits').select('client_name, client_phone, date, encargado_name, project:projects(name)').eq('tipo', 'recontacto').eq('status', 'programada').lte('date', hoyC).order('date').limit(15)
-      if (!(ls || []).length && !(rc || []).length) return '📞 No hay llamadas pendientes para hoy. 🎉'
+      // C4 (sql/250): lo que los clientes prometieron para hoy en una visita
+      const { data: pm } = await supabase.from('visits').select('client_name, client_phone, promesa, encargado_name, project:projects(name)').eq('fecha_prometida', hoyC).limit(15)
+      if (!(ls || []).length && !(rc || []).length && !(pm || []).length) return '📞 No hay llamadas pendientes para hoy. 🎉'
+      const ICP = { llamada: '📞', videollamada: '🎥', whatsapp: '💬', visita: '🚗' }
       let out = '📞 *LLAMADAS PENDIENTES — HOY Y ATRASADAS*\n'
-      if ((ls || []).length) out += '\n*Prospectos (siguiente paso vencido u hoy)*\n' + ls.map(l => '• ' + (l.next_action_date < hoyC ? '⚠️ ' + ddmmE(l.next_action_date) + ' ' : (l.next_action_time ? String(l.next_action_time).slice(0, 5) + ' ' : '')) + (l.full_name || 'SIN NOMBRE') + ' (+' + soloDig(l.phone) + ') — ' + nombreProy(l.project_id) + (l.next_action ? ' · ' + String(l.next_action).slice(0, 50) : '')).join('\n') + '\n'
+      if ((pm || []).length) out += '\n*🤝 Prometieron para hoy*\n' + pm.map(v => '• ' + v.client_name + (v.client_phone ? ' (+' + v.client_phone + ')' : '') + ' — ' + (v.promesa || 'PROMETIÓ VOLVER') + ' · ' + (v.project?.name || '') + (v.encargado_name ? ' · ' + v.encargado_name.split(' ')[0] : '')).join('\n') + '\n'
+      if ((ls || []).length) out += '\n*Prospectos (siguiente paso vencido u hoy)*\n' + ls.map(l => '• ' + (ICP[l.next_action_tipo] ? ICP[l.next_action_tipo] + ' ' : '') + (l.next_action_date < hoyC ? '⚠️ ' + ddmmE(l.next_action_date) + ' ' : (l.next_action_time ? String(l.next_action_time).slice(0, 5) + ' ' : '')) + (l.full_name || 'SIN NOMBRE') + ' (+' + soloDig(l.phone) + ') — ' + nombreProy(l.project_id) + (l.next_action ? ' · ' + String(l.next_action).slice(0, 50) : '') + (l.intentos_sin_respuesta ? ' · 📵×' + l.intentos_sin_respuesta : '')).join('\n') + '\n'
       if ((rc || []).length) out += '\n*Recontactos de visitas*\n' + rc.map(r => '• ' + (r.date < hoyC ? '⚠️ ' + ddmmE(r.date) + ' ' : '') + r.client_name + (r.client_phone ? ' (+' + r.client_phone + ')' : '') + ' — ' + (r.project?.name || '') + (r.encargado_name ? ' · ' + r.encargado_name.split(' ')[0] : '')).join('\n')
       return out
     }
@@ -3172,7 +3176,7 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     // Solo si parece un teléfono real (evita crear "leads" por LIDs de personas registradas).
     if (!lead && /^\d{9,13}$/.test(phone) && phone.length <= 13) {
       await supabase.from('leads').insert({
-        full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
+        full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone, nombre_whatsapp: pushName || null,
         source: 'whatsapp', status: 'nuevo', optin_whatsapp: true, optin_date: new Date().toISOString(),
       }).then(() => {}).catch(() => {})
     }
@@ -3216,9 +3220,12 @@ async function manejarEntrante(ses, jid, jidPN, texto, pushName, media, waId, ji
     // etiquetado con ella. Sin esto todos entraban como 'whatsapp' a secas y
     // era imposible saber que anuncio trajo a quien.
     const camp = await campanaPorMensaje(pr?.id || null, corto)
+    // 28 nov 2026: source es un enum (lead_source): 'campaña:<clave>' no entraba y el lead NO se
+    // creaba. La campaña va en campaign_id; el origen es "anuncio" (ads). El nombre de
+    // WhatsApp queda aparte del real (sql/250): full_name se confirma en el filtro.
     const { data: nuevoLead } = await supabase.from('leads').insert({
-      full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone,
-      source: camp ? 'campaña:' + camp.keyword : 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
+      full_name: (pushName || 'POR CONFIRMAR').toUpperCase(), phone, nombre_whatsapp: pushName || null,
+      source: camp ? 'ads' : 'whatsapp', status: 'nuevo', project_id: pr?.id || null,
       campaign_id: camp ? camp.id : null,
       optin_whatsapp: true, optin_date: new Date().toISOString(),
     }).select().single()

@@ -26,13 +26,20 @@ const ESTADOS = [
 const EST = Object.fromEntries(ESTADOS.map(([v, t, c]) => [v, { t, c }]))
 const TEMPS = [['frio', '❄️ Frío', '#7ba7f7'], ['tibio', '🌤️ Tibio', '#e0b34c'], ['caliente', '🔥 Caliente', '#f2785c']]
 const TEMP = Object.fromEntries(TEMPS.map(([v, t, c]) => [v, { t, c }]))
-const ORIGENES = [['referido', 'Referido'], ['feria', 'Feria o volanteo'], ['walk_in', 'Vino a la oficina'], ['ads', 'Publicidad / redes'], ['whatsapp', 'WhatsApp'], ['otro', 'Otro']]
+// C1 (28 nov 2026, sql/250): la lista completa de orígenes que pidió gerencia
+const ORIGENES = [['ads', 'Anuncio'], ['red_social', 'Red social'], ['web', 'Página web'], ['whatsapp', 'WhatsApp'], ['letrero', 'Letrero'], ['volanteo', 'Volanteo'],
+  ['perifoneo', 'Perifoneo'], ['radio', 'Radio'], ['activacion', 'Activación'], ['convenio', 'Convenio'], ['referido', 'Referido'], ['lista_espera', 'Lista de espera'],
+  ['feria', 'Feria'], ['walk_in', 'Vino a la oficina'], ['otro', 'Otro']]
 const ORIGEN = Object.fromEntries(ORIGENES)
 const TIPOS_NOTA = [['nota', '📝 Nota'], ['llamada', '📞 Llamada'], ['whatsapp', '💬 WhatsApp'], ['visita', '🚗 Visita']]
+// C3: qué tipo de contacto es el siguiente paso (la llamada o videollamada lleva hora pactada)
+const TIPOS_PASO = [['llamada', '📞 Llamada'], ['videollamada', '🎥 Videollamada'], ['whatsapp', '💬 WhatsApp'], ['visita', '🚗 Visita'], ['otro', '• Otro']]
+const ICONO_PASO = Object.fromEntries(TIPOS_PASO.map(([v, t]) => [v, t.split(' ')[0]]))
 const ICONO_NOTA = { nota: '📝', llamada: '📞', whatsapp: '💬', visita: '🚗', sistema: '⚙️' }
 const ABIERTOS = ['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion']
 
 const COLS = 'id, full_name, phone, phone2, source, status, temperature, project_id, assigned_to, interes, budget_estimate, next_action, next_action_date, next_action_time, lost_reason, ultimo_contacto_at, asignado_at, created_at, client_id'
+  + ', nombre_whatsapp, nombre_confirmado, ciudad, bono_vivienda, filtrado_at, proyectos_interes, next_action_tipo, intentos_sin_respuesta, cierre_motivo'
 const PAGINA = 150
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
@@ -97,8 +104,11 @@ export default function Prospectos() {
     q = q.or('is_test.is.null,is_test.eq.false')
     if (fEstado === 'abiertos') q = q.in('status', ABIERTOS)
     else if (fEstado === 'toca') q = q.in('status', ABIERTOS).lte('next_action_date', hoy)
+    else if (fEstado === 'filtrar') q = q.in('status', ABIERTOS).is('filtrado_at', null).is('assigned_to', null)   // C2
+    else if (fEstado === 'silencio') q = q.in('status', ABIERTOS).gte('intentos_sin_respuesta', 3)                 // C3
     else if (fEstado !== 'todos') q = q.eq('status', fEstado)
-    if (fProy) q = q.eq('project_id', fProy)
+    // C2: también los que tienen ese proyecto entre los que les interesan
+    if (fProy) q = q.or('project_id.eq.' + fProy + ',proyectos_interes.cs.{' + fProy + '}')
     if (fVend === 'ninguno') q = q.is('assigned_to', null)
     else if (fVend) q = q.eq('assigned_to', fVend)
     if (fTemp) q = q.eq('temperature', fTemp)
@@ -193,6 +203,8 @@ export default function Prospectos() {
   const chips = [
     ['abiertos', 'En seguimiento', resumen?.abiertos],
     ['toca', '⏰ Toca hoy o está vencido', resumen?.toca],
+    ...(!esVendedor ? [['filtrar', '🧹 Por filtrar']] : []),          // C2: pasan el filtro antes de los asesores
+    ['silencio', '📵 No responden (3+ intentos)'],                      // C3
     ...ESTADOS.map(([v, t]) => [v, t, resumen?.[v]]),
     ['todos', 'Todos'],
   ]
@@ -320,8 +332,8 @@ export default function Prospectos() {
                 <div key={l.id} role="button" tabIndex={0} className={'glass pr-card' + (marcados.includes(l.id) ? ' marcado' : '')} style={{ '--ec': EST[l.status]?.c }} onClick={() => setAbierto(l.id)}>
                   {esJefe && <input type="checkbox" className="pr-card-chk" checked={marcados.includes(l.id)} title="Marcar para asignar" onClick={e => e.stopPropagation()}
                     onChange={e => setMarcados(m => e.target.checked ? [...m, l.id] : m.filter(x => x !== l.id))} />}
-                  <span className="pr-card-n">{l.full_name}</span>
-                  <span className="pr-card-e">{EST[l.status]?.t}{l.temperature && l.temperature !== 'frio' ? ' · ' + TEMP[l.temperature].t : ''}</span>
+                  <span className="pr-card-n">{l.full_name}{!l.nombre_confirmado && <span className="muted small" title="Nombre de WhatsApp, falta confirmar el real"> (WhatsApp)</span>}</span>
+                  <span className="pr-card-e">{EST[l.status]?.t}{l.temperature && l.temperature !== 'frio' ? ' · ' + TEMP[l.temperature].t : ''}{l.intentos_sin_respuesta > 0 ? ' · 📵×' + l.intentos_sin_respuesta : ''}{!l.filtrado_at && !l.assigned_to && !esVendedor ? ' · 🧹' : ''}</span>
                   <span className="muted small">{cel(l.phone)}{nomProy(l.project_id) ? ' · ' + nomProy(l.project_id) : ''}</span>
                   {l.next_action && <span className="pr-card-a">{l.next_action}</span>}
                   {a && <span className="small" style={{ color: a.c, fontWeight: 600 }}>{a.k === 'luego' ? 'Próximo: ' : ''}{a.t}</span>}
@@ -346,7 +358,9 @@ export default function Prospectos() {
                     <tr key={l.id} className="pr-fila" onClick={() => setAbierto(l.id)}>
                       {esJefe && <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={marcados.includes(l.id)}
                         onChange={e => setMarcados(m => e.target.checked ? [...m, l.id] : m.filter(x => x !== l.id))} /></td>}
-                      <td><b>{l.full_name}</b>{l.interes && <div className="muted small">{l.interes}</div>}</td>
+                      <td><b>{l.full_name}</b>{!l.nombre_confirmado && <span className="muted small" title="Nombre de WhatsApp, falta confirmar el real"> (WhatsApp)</span>}
+                        {(l.intentos_sin_respuesta > 0 || (!l.filtrado_at && !l.assigned_to && !esVendedor)) && <div className="small">{l.intentos_sin_respuesta > 0 && <span style={{ color: '#ff8e7a' }}>📵 {l.intentos_sin_respuesta} sin respuesta </span>}{!l.filtrado_at && !l.assigned_to && !esVendedor && <span className="muted">🧹 por filtrar</span>}</div>}
+                        {l.interes && <div className="muted small">{l.interes}</div>}</td>
                       <td className="u-nw">{cel(l.phone)}{l.phone2 && <div className="muted small">{cel(l.phone2)}</div>}</td>
                       <td>{nomProy(l.project_id) || <span className="muted">—</span>}</td>
                       <td className="u-nw">
@@ -354,7 +368,7 @@ export default function Prospectos() {
                         {l.temperature && l.temperature !== 'frio' && <span title={TEMP[l.temperature].t}> {TEMP[l.temperature].t.split(' ')[0]}</span>}
                       </td>
                       <td>
-                        {l.next_action && <div>{l.next_action}</div>}
+                        {l.next_action && <div>{l.next_action_tipo ? ICONO_PASO[l.next_action_tipo] + ' ' : ''}{l.next_action}</div>}
                         {a && <span className="small" style={{ color: a.c, fontWeight: a.k === 'luego' ? 400 : 700 }}>{a.t}</span>}
                         {l.status === 'perdido' && l.lost_reason && <span className="muted small">{l.lost_reason}</span>}
                       </td>
@@ -469,7 +483,17 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
   const [ocupado, setOcupado] = useState(false)
   const [error, setError] = useState('')
   const [pidePaso, setPidePaso] = useState(false)   // acaba de anotar y no tiene siguiente paso a futuro
+  const [resultado, setResultado] = useState(null)  // C3: ¿respondió? (llamada / WhatsApp / visita)
+  const [cfgSil, setCfgSil] = useState({ max: 5, secuencia: [1, 2, 3, 5, 7] })
   const hoy = hoyISO()
+  useEffect(() => {
+    supabase.from('bot_settings').select('key, value').in('key', ['lead_intentos_max', 'lead_secuencia']).then(({ data }) => {
+      const kv = Object.fromEntries((data || []).map(r => [r.key, r.value]))
+      let sec = [1, 2, 3, 5, 7]; try { const s = JSON.parse(kv.lead_secuencia || '[]'); if (Array.isArray(s) && s.length) sec = s.map(Number).filter(n => n > 0) } catch { /* por defecto */ }
+      setCfgSil({ max: parseInt(kv.lead_intentos_max) || 5, secuencia: sec })
+    })
+  }, [])
+  const masDias = n => { const d = new Date(hoy + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 
   const cargar = useCallback(async () => {
     const [a, b, c] = await Promise.all([
@@ -504,13 +528,21 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
     guardar({ status: st })
   }
   async function agregarNota() {
-    const t = nota.trim()
+    const t = nota.trim() || (resultado === 'no_respondio' ? 'NO RESPONDIÓ' : '')
     if (!t) return
     setOcupado(true)
-    const { error } = await supabase.from('lead_activities').insert({ lead_id: id, note: t, created_by: profile.id, tipo })
+    const res = tipo !== 'nota' ? resultado : null
+    const { error } = await supabase.from('lead_activities').insert({ lead_id: id, note: t, created_by: profile.id, tipo, resultado: res })
     setOcupado(false)
     if (error) { avisar('No se guardó la nota: ' + (falta190(error) ? FALTA : error.message)); return }
-    setNota(''); setTipo('nota'); savedFx()
+    setNota(''); setTipo('nota'); setResultado(null); savedFx()
+    // C3: si no respondió, el próximo intento se agenda solo según la secuencia (1, 2, 3, 5, 7 días…)
+    if (res === 'no_respondio' && ABIERTOS.includes(l.status)) {
+      const n = (l.intentos_sin_respuesta || 0) + 1
+      const dias = cfgSil.secuencia[Math.min(n - 1, cfgSil.secuencia.length - 1)] || 2
+      await supabase.from('leads').update({ next_action: 'VOLVER A INTENTAR (' + n + '° SIN RESPUESTA)', next_action_date: masDias(dias), next_action_tipo: tipo === 'whatsapp' ? 'whatsapp' : 'llamada', aviso_enviado_at: null }).eq('id', id)
+      cargar(); onCambio(); return
+    }
     // ningún prospecto se queda sin siguiente paso: si no tiene uno a futuro, se le pide
     if (ABIERTOS.includes(l.status) && (!l.next_action_date || l.next_action_date <= hoy)) {
       setPidePaso(true)
@@ -519,6 +551,23 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
     // quien recién le habló a un "nuevo" ya lo contactó
     if (l.status === 'nuevo' && tipo !== 'nota') await supabase.from('leads').update({ status: 'contactado' }).eq('id', id)
     cargar(); onCambio()
+  }
+  // C3: cierre después de N intentos sin respuesta — se despidió · lo pensará · no responde
+  async function cerrarSilencio(motivo) {
+    if (motivo === 'pensara') {
+      await guardar({ temperature: 'frio', cierre_motivo: 'LO PENSARÁ', intentos_sin_respuesta: 0, next_action: 'VOLVER A ESCRIBIRLE (LO PENSARÁ)', next_action_tipo: 'whatsapp', next_action_date: masDias(30), next_action_time: null })
+    } else {
+      const txt = motivo === 'despidio' ? 'SE DESPIDIÓ' : 'NO RESPONDE (' + (l.intentos_sin_respuesta || 0) + ' INTENTOS)'
+      await guardar({ status: 'perdido', lost_reason: txt, cierre_motivo: txt, next_action: null, next_action_date: null, next_action_time: null })
+    }
+    await supabase.from('lead_activities').insert({ lead_id: id, note: 'CIERRE TRAS ' + (l.intentos_sin_respuesta || 0) + ' INTENTOS SIN RESPUESTA: ' + (motivo === 'pensara' ? 'LO PENSARÁ (se le vuelve a escribir en 30 días)' : motivo === 'despidio' ? 'SE DESPIDIÓ' : 'NO RESPONDE'), created_by: profile.id, tipo: 'nota' })
+    cargar()
+  }
+  // C2: el filtro antes de los asesores — nombre real, proyecto y temperatura
+  async function pasarFiltro() {
+    const falta = [!l.nombre_confirmado && 'confirmar su nombre real', !l.project_id && 'el proyecto', !l.temperature && 'la temperatura'].filter(Boolean)
+    if (falta.length) { avisar('Para pasar el filtro falta: ' + falta.join(', ') + '.'); return }
+    await guardar({ filtrado_at: new Date().toISOString(), filtrado_por: profile.id })
   }
   async function reasignar(v) {
     const { error } = await supabase.rpc('asignar_leads', { p_ids: [id], p_vendedor: v || null })
@@ -538,10 +587,34 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
           : !l ? <p className="muted">Cargando…</p> : (
             <>
               <div className="modal-head">
-                <input className="pr-nombre" defaultValue={l.full_name} readOnly={soloVer}
-                  onBlur={e => { const v = e.target.value.trim().toUpperCase(); if (v && v !== l.full_name) guardar({ full_name: v }) }} />
+                <input className="pr-nombre" defaultValue={l.full_name} readOnly={soloVer} title="Su nombre real (no el de WhatsApp)"
+                  onBlur={e => { const v = e.target.value.trim().toUpperCase(); if (v && v !== l.full_name) guardar({ full_name: v, nombre_confirmado: true }) }} />
                 <button type="button" className="btn-ghost" onClick={onCerrar}>✕</button>
               </div>
+              {/* C1: el nombre real aparte del de WhatsApp */}
+              <p className="muted small u-tt-n" style={{ margin: '-.2rem 0 .5rem' }}>
+                {l.nombre_whatsapp ? 'En WhatsApp: «' + l.nombre_whatsapp + '» · ' : ''}
+                {l.nombre_confirmado ? '✔ nombre real confirmado'
+                  : <>⚠️ falta confirmar su nombre real {!soloVer && <button type="button" className="link-btn" onClick={() => guardar({ nombre_confirmado: true })}>es este, confirmar</button>}</>}
+              </p>
+              {/* C2: el filtro antes de llegar a los asesores */}
+              {!esVendedor && !soloVer && !l.filtrado_at && ABIERTOS.includes(l.status) && (
+                <div className="glass u-p-8 u-mb-8 u-d-f u-g-8 u-ai-c u-fwr" style={{ borderLeft: '3px solid #e0b34c' }}>
+                  <span className="small u-f1">🧹 <b>Por filtrar:</b> confirma su nombre real, el proyecto y qué tan interesado está antes de pasárselo a un vendedor.</span>
+                  <button type="button" className="btn-act" onClick={pasarFiltro}>✅ Pasa el filtro</button>
+                </div>
+              )}
+              {/* C3: muchos intentos sin respuesta → se propone cerrarlo con motivo */}
+              {!soloVer && ABIERTOS.includes(l.status) && (l.intentos_sin_respuesta || 0) >= cfgSil.max && (
+                <div className="glass u-p-8 u-mb-8" style={{ borderLeft: '3px solid #ff8e7a' }}>
+                  <p className="small u-m0">📵 <b>{l.intentos_sin_respuesta} intentos seguidos sin respuesta.</b> ¿Cómo lo cerramos?</p>
+                  <div className="pr-chips u-mt-4 u-m0">
+                    <button type="button" className="chip" onClick={() => cerrarSilencio('despidio')}>👋 Se despidió</button>
+                    <button type="button" className="chip" onClick={() => cerrarSilencio('pensara')}>🤔 Lo pensará (volver en 30 días)</button>
+                    <button type="button" className="chip" onClick={() => cerrarSilencio('no_responde')}>📵 No responde</button>
+                  </div>
+                </div>
+              )}
 
               <div className="pr-tel">
                 {[l.phone, l.phone2].filter(Boolean).map(n => (
@@ -573,6 +646,10 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
               <p className="pr-sub" id="pr-paso">Siguiente paso {a && a.k !== 'luego' && <span style={{ color: a.c }}>· {a.t}</span>}</p>
               {pidePaso && <p className="pr-pide">Nota guardada. ¿Cuándo lo vuelves a contactar? Ponle fecha y hora y te llega el aviso por Telegram.</p>}
               <div className={'pr-paso' + (pidePaso ? ' pide' : '')}>
+                <select value={l.next_action_tipo || ''} disabled={soloVer} title="Qué tipo de contacto es (la llamada o videollamada con hora pactada te avisa antes)" onChange={e => guardar({ next_action_tipo: e.target.value || null })}>
+                  <option value="">— Tipo —</option>
+                  {TIPOS_PASO.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                </select>
                 <input defaultValue={l.next_action || ''} key={'na' + (l.next_action || '')} readOnly={soloVer} placeholder="Llamarlo, mandarle el plano, llevarlo al terreno…"
                   onBlur={e => { const v = e.target.value.trim().toUpperCase() || null; if (v !== (l.next_action || null)) guardar({ next_action: v }) }} />
                 <input type="date" value={l.next_action_date || ''} readOnly={soloVer} min={hoy} title="Qué día"
@@ -583,7 +660,7 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
                   <button key={t} type="button" className="chip" onClick={() => { const d = new Date(hoy + 'T12:00:00'); d.setDate(d.getDate() + n); setPidePaso(false); guardar({ next_action_date: d.toLocaleDateString('en-CA') }) }}>{t}</button>
                 ))}
               </div>
-              {!soloVer && l.next_action_date && <p className="muted small" style={{ margin: '.4rem 0 0', textTransform: 'none' }}>⏰ Aviso por Telegram el {fecha(l.next_action_date)} a las {hora12(l.next_action_time || '09:00')}</p>}
+              {!soloVer && l.next_action_date && <p className="muted small" style={{ margin: '.4rem 0 0', textTransform: 'none' }}>⏰ Aviso por Telegram el {fecha(l.next_action_date)} {l.next_action_time ? '30 min antes de las ' + hora12(l.next_action_time) + ' (la hora pactada)' : 'a las ' + hora12('09:00')}</p>}
 
               <p className="pr-sub">Sus datos</p>
               <div className="form-grid">
@@ -610,6 +687,21 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
                       if ((d || null) !== (l.phone2 || null)) guardar({ phone2: d || null })
                     }} />
                 </label>
+                {/* C1: origen, ciudad y bono de vivienda */}
+                <label>Cómo llegó
+                  <select value={l.source || 'otro'} disabled={soloVer} onChange={e => guardar({ source: e.target.value })}>
+                    {ORIGENES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                  </select>
+                </label>
+                <label>De qué ciudad viene
+                  <input defaultValue={l.ciudad || ''} readOnly={soloVer} placeholder="Pucallpa, Lima, Aguaytía…"
+                    onBlur={e => { const v = e.target.value.trim().toUpperCase() || null; if (v !== (l.ciudad || null)) guardar({ ciudad: v }) }} />
+                </label>
+                <label>¿Bono de vivienda?
+                  <select value={l.bono_vivienda || ''} disabled={soloVer} onChange={e => guardar({ bono_vivienda: e.target.value || null })}>
+                    <option value="">No se sabe</option><option value="posible">Podría calificar</option><option value="no">No califica</option>
+                  </select>
+                </label>
                 {esJefe && (
                   <label>Vendedor
                     <select value={l.assigned_to || ''} onChange={e => reasignar(e.target.value)}>
@@ -619,8 +711,21 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
                   </label>
                 )}
               </div>
+              {/* C2: proyectos parecidos que también le interesan (ej. Praderas y Brisas) */}
+              {projects.length > 1 && (
+                <div className="u-mt-8">
+                  <span className="muted small">También le interesa: </span>
+                  <span className="pr-chips u-m0" style={{ display: 'inline-flex' }}>
+                    {projects.filter(p => p.id !== l.project_id).map(p => {
+                      const on = (l.proyectos_interes || []).includes(p.id)
+                      return <button key={p.id} type="button" disabled={soloVer} className={'chip' + (on ? ' on' : '')}
+                        onClick={() => guardar({ proyectos_interes: on ? l.proyectos_interes.filter(x => x !== p.id) : [...(l.proyectos_interes || []), p.id] })}>{p.name}</button>
+                    })}
+                  </span>
+                </div>
+              )}
               <p className="muted small" style={{ marginTop: '.5rem' }}>
-                {ORIGEN[l.source] || 'Otro'} · registrado el {fecha(l.created_at)}
+                {ORIGEN[l.source] || 'Otro'} · registrado el {fecha(l.created_at)}{l.filtrado_at ? ' · filtrado el ' + fecha(l.filtrado_at) : ''}{l.cierre_motivo ? ' · ' + l.cierre_motivo : ''}
                 {l.asignado_at ? ' · asignado el ' + fecha(l.asignado_at) : ''}
                 {l.client_id ? ' · ya es cliente' : ''}
               </p>
@@ -631,9 +736,16 @@ function Ficha({ id, onCerrar, onCambio, projects, vendedores, esVendedor, esJef
                   <div className="pr-chips u-m0">
                     {TIPOS_NOTA.map(([v, t]) => <button key={v} type="button" className={'chip' + (tipo === v ? ' on' : '')} onClick={() => setTipo(v)}>{t}</button>)}
                   </div>
-                  <textarea rows={2} value={nota} onChange={e => setNota(e.target.value)} placeholder="Qué pasó, qué dijo, qué quedó pendiente…"
+                  {/* C3: ¿respondió? cuenta los intentos seguidos sin respuesta */}
+                  {tipo !== 'nota' && (
+                    <div className="pr-chips u-m0">
+                      <button type="button" className={'chip' + (resultado === 'respondio' ? ' on' : '')} onClick={() => setResultado(resultado === 'respondio' ? null : 'respondio')}>✅ Respondió</button>
+                      <button type="button" className={'chip' + (resultado === 'no_respondio' ? ' on' : '')} onClick={() => setResultado(resultado === 'no_respondio' ? null : 'no_respondio')}>📵 No respondió{l.intentos_sin_respuesta ? ' (' + (l.intentos_sin_respuesta + 1) + '° seguido)' : ''}</button>
+                    </div>
+                  )}
+                  <textarea rows={2} value={nota} onChange={e => setNota(e.target.value)} placeholder={resultado === 'no_respondio' ? 'Opcional: apagado, buzón, lo dejó en visto…' : 'Qué pasó, qué dijo, qué quedó pendiente…'}
                     onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) agregarNota() }} />
-                  <button type="button" className="btn-primary" disabled={ocupado || !nota.trim()} onClick={agregarNota}>{ocupado ? 'Guardando…' : 'Guardar nota'}</button>
+                  <button type="button" className="btn-primary" disabled={ocupado || (!nota.trim() && resultado !== 'no_respondio')} onClick={agregarNota}>{ocupado ? 'Guardando…' : 'Guardar nota'}</button>
                 </div>
               )}
               <div className="pr-notas">

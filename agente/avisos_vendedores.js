@@ -35,8 +35,11 @@ const porVendedor = filas => {
 function armar({ recordatorios = [], asignaciones = [], resumenes = [] }, panel) {
   const mensajes = []
   for (const [vid, fs] of porVendedor(recordatorios)) {
+    // 28 nov 2026 (sql/250): el tipo de contacto (📞 llamada, 🎥 videollamada…); con hora pactada
+    // el aviso llega antes de esa hora, así que se dice la hora, no "ahora"
+    const ICONO = { llamada: '📞 ', videollamada: '🎥 ', whatsapp: '💬 ', visita: '🚗 ', otro: '' }
     const lineas = fs.map(f => '• *' + f.prospecto + '* · ' + cel(f.celular) + (f.proyecto ? ' · ' + f.proyecto : '') +
-      '\n   ' + (f.paso || 'Volver a contactarlo') + (f.hora ? ' · ' + horaTexto(f.hora) : ''))
+      '\n   ' + (ICONO[f.tipo] || '') + (f.paso || 'Volver a contactarlo') + (f.hora ? ' · a las ' + horaTexto(f.hora) : ''))
     mensajes.push({
       vendedorId: vid, vendedor: fs[0].vendedor, tel: telDe(fs[0].tel), tipo: 'recordatorio', leadIds: fs.map(f => f.lead_id),
       texto: '⏰ *' + (fs.length === 1 ? 'RECORDATORIO' : 'TIENES ' + fs.length + ' RECORDATORIOS') + '*\n' + lineas.join('\n') +
