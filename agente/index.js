@@ -361,7 +361,7 @@ async function feedbackPendiente(phone) {
 // comandos; todo lo demás es la respuesta al checklist (aunque diga "lote" o "cliente").
 function empiezaConComando(texto) {
   const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
-  return /^\/?(ayuda|comandos|menu|opciones|resumen|reporte|panorama|lotes\b|lote\s+\w|cliente\s+\w|contratos?\b|comisiones?\b|gastos?\b|visitas\b|vencidas\b|morosos\b|cobranza\b|ventas\b|ingresos\b|caja\b|separaciones\b|clientes\b|cartera\b|leads\b|prospectos\b|pagos de hoy|entregados\b|top asesor|pendientes\b|cumplimiento\b|migracion\b|tarea\s+\w|aprende:)/.test(t)
+  return /^\/?(ayuda|comandos|menu|opciones|resumen|reporte|panorama|lotes\b|lote\s+\w|cliente\s+\w|contratos?\b|comisiones?\b|gastos?\b|visitas\b|vencidas\b|morosos\b|cobranza\b|ventas\b|ingresos\b|caja\b|separaciones\b|clientes\b|cartera\b|leads\b|prospectos\b|pagos de hoy|entregados\b|top asesor|pendientes\b|cumplimiento\b|migracion\b|tarea\s+\w|aprende:|agenda\b|mi agenda|que tengo hoy|llamadas\b|morosos?\s+de\b|leads? sin atender|sin atender\b)/.test(t)
 }
 
 // ¿el mensaje parece una PREGUNTA/consulta (no una respuesta de checklist)?
@@ -493,7 +493,12 @@ async function comandoDirecto(texto, opts = {}) {
         '• *lote V-1* — ficha completa de un lote\n' +
         '• *cliente Percy* — estado de cuenta de un cliente\n\n' +
         '📋 *TUS TAREAS*\n' +
-        '• *pendientes* — lo tuyo sin cerrar hoy'
+        '• *agenda* — tu día por hora\n' +
+        '• *pendientes* — lo tuyo sin cerrar hoy\n\n' +
+        '📞 *SEGUIMIENTO*\n' +
+        '• *llamadas* — a quién llamar hoy\n' +
+        '• *leads sin atender*\n' +
+        '• *morosos de Praderas* — los atrasados de un proyecto'
     }
 
     if (/^(ayuda|comandos|menu|men[uú]|opciones|help|hola|buenas|buenos dias|buenas tardes|buenas noches|hey|que tal|qu[eé] tal)[!.\s]*$/.test(t)) {
@@ -521,8 +526,104 @@ async function comandoDirecto(texto, opts = {}) {
         '• *lote V-1* — ficha completa de un lote\n' +
         '• *cliente Percy* — estado de cuenta de un cliente\n\n' +
         '📋 *EQUIPO*\n' +
+        '• *agenda* — el día del equipo (*mi agenda* = solo lo tuyo)\n' +
         '• *pendientes* — tareas sin cerrar\n' +
-        '• *cumplimiento* — productividad del equipo' + PIE_COMANDO
+        '• *pendientes de Cami* — lo abierto de una persona\n' +
+        '• *cumplimiento* — productividad del equipo\n\n' +
+        '📞 *SEGUIMIENTO*\n' +
+        '• *llamadas* — prospectos y recontactos de hoy\n' +
+        '• *leads sin atender* — por proyecto y sin vendedor\n' +
+        '• *morosos de Praderas* — los atrasados de un proyecto' + PIE_COMANDO
+    }
+
+    // ---- B5 (28 nov 2026): agenda, pendientes de una persona, llamadas, leads sin atender, morosos ----
+    const hoyC = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
+    const ICO = { pendiente: '⏳', en_proceso: '◐', pausada: '⏸', no_hecha: '❌', sin_respuesta: '😶', hecha: '✅' }
+    const lineaT = x => (ICO[x.status] || '⏳') + ' ' + (x.time ? String(x.time).slice(0, 5) + ' ' : '') + x.title + (x.arrastres ? ' ↪×' + x.arrastres : '')
+    const ordenT = (a, b) => String(a.time || (a.slot === 'tarde' ? '13:00~' : '12:00~')).localeCompare(String(b.time || (b.slot === 'tarde' ? '13:00~' : '12:00~')))
+    if (/^(mi\s+)?agenda(\s+de\s+hoy)?$|^qu[eé]\s+tengo\s+hoy$/.test(t)) {
+      const yo = opts.phone ? await fichaPorTelefono(opts.phone) : null
+      const soloYo = !ger || /^mi\s+agenda|^qu[eé]\s+tengo/.test(t)
+      if (soloYo && !yo) return '📋 No figuras en Tareas del equipo.'
+      let q = supabase.from('secretary_tasks').select('title, time, slot, status, arrastres, secretary_id, creada_por_sec, visibilidad, visible_para').eq('date', hoyC).neq('cancelada', true).neq('status', 'hecha')
+      if (soloYo) q = q.eq('secretary_id', yo.id)
+      let { data: tk } = await q
+      if (!soloYo && opts.phone) { const v = await visorDe(opts.phone); tk = (tk || []).filter(x => puedeVerTarea(x, v)) }
+      const { data: secsA } = await supabase.from('secretaries').select('id, full_name').eq('active', true)
+      const { data: vis } = await supabase.from('visits').select('time, client_name, encargado_name, encargado_phone, project:projects(name)').eq('date', hoyC).eq('status', 'programada').eq('tipo', 'visita').order('time')
+      const misVis = (vis || []).filter(v => !soloYo || (yo && soloDig(v.encargado_phone).slice(-9) === soloDig(yo.phone).slice(-9)))
+      let out = '📋 *' + (soloYo ? 'TU AGENDA' : 'AGENDA DEL EQUIPO') + ' — HOY*\n'
+      if (!(tk || []).length) out += '\nNada pendiente para hoy. 🎉\n'
+      else if (soloYo) out += '\n' + tk.sort(ordenT).map(lineaT).join('\n') + '\n'
+      else for (const s of (secsA || [])) { const ts = tk.filter(x => x.secretary_id === s.id).sort(ordenT); if (ts.length) out += '\n*' + s.full_name.split(' ')[0] + '* (' + ts.length + ')\n' + ts.map(lineaT).join('\n') + '\n' }
+      if (misVis.length) out += '\n🚗 *VISITAS*\n' + misVis.map(v => '• ' + String(v.time).slice(0, 5) + ' ' + v.client_name + ' — ' + (v.project?.name || '')).join('\n')
+      return out
+    }
+    const mPend = t.match(/^pendientes\s+de\s+(.{2,})$/)
+    if (mPend) {
+      const nombreB = mPend[1].trim().split(/\s+/)[0]
+      const { data: cand } = await supabase.from('secretaries').select('id, full_name, phone').eq('active', true).ilike('full_name', '%' + nombreB + '%').limit(1)
+      const s = (cand || [])[0]
+      if (!s) return '🔎 No encontré a *' + mPend[1] + '* en Tareas del equipo.'
+      if (!ger && soloDig(s.phone).slice(-9) !== soloDig(opts.phone).slice(-9)) return '🔒 Solo puedes ver tus propios pendientes. Escribe *pendientes*.'
+      let { data: tk } = await supabase.from('secretary_tasks').select('title, time, slot, date, status, arrastres, motivo, reanudar_el, secretary_id, creada_por_sec, visibilidad, visible_para')
+        .eq('secretary_id', s.id).in('status', ['pendiente', 'en_proceso', 'no_hecha', 'sin_respuesta', 'pausada']).neq('cancelada', true).or('date.is.null,date.lte.' + masDias(hoyC, 3)).order('date', { nullsFirst: false })
+      if (opts.phone) { const v = await visorDe(opts.phone); tk = (tk || []).filter(x => puedeVerTarea(x, v)) }
+      if (!(tk || []).length) return '📋 *' + s.full_name + '* no tiene pendientes. 🎉'
+      const hoyT = tk.filter(x => x.date === hoyC && x.status !== 'pausada').sort(ordenT), luego = tk.filter(x => x.date > hoyC && x.status !== 'pausada')
+      const atras = tk.filter(x => x.date && x.date < hoyC && x.status !== 'pausada')
+      const paus = tk.filter(x => x.status === 'pausada'), sinF = tk.filter(x => !x.date && x.status !== 'pausada')
+      let out = '📋 *PENDIENTES DE ' + s.full_name + '*\n'
+      if (atras.length) out += '\n*Atrasadas, de días anteriores (' + atras.length + ')*\n' + atras.map(x => '⚠️ ' + ddmmE(x.date) + ' ' + x.title).join('\n') + '\n'
+      if (hoyT.length) out += '\n*Hoy (' + hoyT.length + ')*\n' + hoyT.map(lineaT).join('\n') + '\n'
+      if (luego.length) out += '\n*Próximos 3 días (' + luego.length + ')*\n' + luego.map(x => '• ' + diaCorto(x.date) + ' ' + x.title).join('\n') + '\n'
+      if (paus.length) out += '\n*Pausadas (' + paus.length + ')*\n' + paus.map(x => '⏸ ' + x.title + ' (' + (x.motivo || '—') + (x.reanudar_el ? ' → ' + ddmmE(x.reanudar_el) : '') + ')').join('\n') + '\n'
+      if (sinF.length) out += '\n*Sin fecha (' + sinF.length + ')*\n' + sinF.map(x => '📥 ' + x.title).join('\n')
+      return out
+    }
+    if (/^llamadas(\s+pendientes)?(\s+de\s+hoy)?$|^a\s+qui[eé]n\s+(llamo|tengo que llamar)/.test(t)) {
+      const { data: ls } = await supabase.from('leads').select('full_name, phone, project_id, next_action, next_action_date, next_action_time')
+        .in('status', ABIERTOS_L).lte('next_action_date', hoyC).or('is_test.is.null,is_test.eq.false').order('next_action_date').order('next_action_time', { nullsFirst: true }).limit(25)
+      const { data: rc } = await supabase.from('visits').select('client_name, client_phone, date, encargado_name, project:projects(name)').eq('tipo', 'recontacto').eq('status', 'programada').lte('date', hoyC).order('date').limit(15)
+      if (!(ls || []).length && !(rc || []).length) return '📞 No hay llamadas pendientes para hoy. 🎉'
+      let out = '📞 *LLAMADAS PENDIENTES — HOY Y ATRASADAS*\n'
+      if ((ls || []).length) out += '\n*Prospectos (siguiente paso vencido u hoy)*\n' + ls.map(l => '• ' + (l.next_action_date < hoyC ? '⚠️ ' + ddmmE(l.next_action_date) + ' ' : (l.next_action_time ? String(l.next_action_time).slice(0, 5) + ' ' : '')) + (l.full_name || 'SIN NOMBRE') + ' (+' + soloDig(l.phone) + ') — ' + nombreProy(l.project_id) + (l.next_action ? ' · ' + String(l.next_action).slice(0, 50) : '')).join('\n') + '\n'
+      if ((rc || []).length) out += '\n*Recontactos de visitas*\n' + rc.map(r => '• ' + (r.date < hoyC ? '⚠️ ' + ddmmE(r.date) + ' ' : '') + r.client_name + (r.client_phone ? ' (+' + r.client_phone + ')' : '') + ' — ' + (r.project?.name || '') + (r.encargado_name ? ' · ' + r.encargado_name.split(' ')[0] : '')).join('\n')
+      return out
+    }
+    if (/leads?\s+sin\s+atender|^sin\s+atender$/.test(t)) {
+      const sinP = q => q.or('is_test.is.null,is_test.eq.false')
+      const filas = await Promise.all((proys || []).map(async p => ({ p: p.name,
+        n: (await sinP(supabase.from('leads').select('id', { count: 'exact', head: true }).eq('project_id', p.id).eq('status', 'nuevo').is('ultimo_contacto_at', null))).count || 0 })))
+      const { count: sinV } = await sinP(supabase.from('leads').select('id', { count: 'exact', head: true }).in('status', ABIERTOS_L).is('assigned_to', null))
+      const { count: tot } = await sinP(supabase.from('leads').select('id', { count: 'exact', head: true }).eq('status', 'nuevo').is('ultimo_contacto_at', null))
+      const { data: viejos } = await sinP(supabase.from('leads').select('full_name, created_at, project_id').eq('status', 'nuevo').is('ultimo_contacto_at', null)).order('created_at').limit(8)
+      const sinProy = (tot || 0) - filas.reduce((s, x) => s + x.n, 0)
+      return '🙋 *LEADS SIN ATENDER* (en "nuevo", nadie los contactó)\nTotal: *' + (tot || 0) + '*\n' + filas.filter(x => x.n).sort((a, b) => b.n - a.n).map(x => '• ' + x.p + ': ' + x.n).join('\n')
+        + (sinProy > 0 ? '\n• Sin proyecto: ' + sinProy : '')
+        + '\n\n👤 Sin vendedor asignado: *' + (sinV ?? 0) + '* (se reparten en Prospectos)'
+        + ((viejos || []).length ? '\n\n⏳ *Los que más esperan*\n' + viejos.map(l => '• ' + (l.full_name || 'SIN NOMBRE') + (l.project_id ? ' — ' + nombreProy(l.project_id) : '') + ' · hace ' + Math.floor((Date.now() - new Date(l.created_at)) / 86400000) + ' días').join('\n') : '')
+    }
+    const mMor = t.match(/^morosos?\s+de\s+(.{3,})$/)
+    if (mMor) {
+      const pq = mMor[1].trim()
+      const p = (proys || []).find(x => x.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(pq))
+      if (!p) return '🔎 No encontré el proyecto *' + pq + '*. Proyectos: ' + (proys || []).map(x => x.name).join(', ')
+      const { data: qs } = await supabase.from('installments').select('amount, amount_paid, due_date, sales!inner(status, client:clients!sales_client_id_fkey(full_name, phone), lot:lots!inner(mz, lt, project_id))')
+        .neq('status', 'pagado').lt('due_date', hoyC).eq('sales.status', 'en_proceso').eq('sales.lot.project_id', p.id).limit(1000)
+      if (!(qs || []).length) return '✅ *' + p.name + '*: nadie tiene cuotas vencidas.'
+      const porC = {}
+      for (const q of qs) {
+        const k = (q.sales?.client?.full_name || 'SIN NOMBRE') + '|' + (q.sales?.lot ? q.sales.lot.mz + '-' + q.sales.lot.lt : '')
+        const c = porC[k] = porC[k] || { n: 0, s: 0, desde: q.due_date, phone: q.sales?.client?.phone }
+        c.n++; c.s += Number(q.amount || 0) - Number(q.amount_paid || 0); if (q.due_date < c.desde) c.desde = q.due_date
+      }
+      const lista = Object.entries(porC).sort((a, b) => b[1].s - a[1].s)
+      const tot = lista.reduce((s, [, c]) => s + c.s, 0)
+      return '⚠️ *MOROSOS DE ' + p.name + '*\n' + lista.length + ' cliente(s) · ' + qs.length + ' cuota(s) · *' + soles(Math.round(tot)) + '*\n\n'
+        + lista.slice(0, 20).map(([k, c]) => { const [n, l] = k.split('|'); return '• ' + n + (l ? ' (' + l + ')' : '') + ': ' + c.n + ' cuota(s) · ' + soles(Math.round(c.s)) + ' · desde ' + ddmmE(c.desde) }).join('\n')
+        + (lista.length > 20 ? '\n… y ' + (lista.length - 20) + ' más (ver Deudores en el panel)' : '')
+        + (qs.length >= 1000 ? '\n⚠️ Hay más de 1000 cuotas vencidas: el total puede quedarse corto, revísalo en el panel.' : '')
     }
 
     // ---- BUSCAR UN LOTE: "lote V-1", "lote mz V lt 1" ----
@@ -1559,6 +1660,169 @@ async function aplicarAusencias(hoy) {
   }
 }
 
+// A10 (1.3): guarda en R2 (o, si no está, en el almacenamiento del servidor) el archivo que
+// mandaron al bot y lo adjunta a la(s) tarea(s) de hoy cuyo número viene en el texto.
+async function adjuntarDesdeTelegram(chatId, phone, texto, a) {
+  const sec = await fichaPorTelefono(phone)
+  if (!sec) { await TG.tgEnviar(chatId, '📎 No figuras en Tareas del equipo: no tengo dónde guardar el archivo.'); return false }
+  const { data: deHoy } = await supabase.from('secretary_tasks').select('id, title, ask_index, time, status').eq('secretary_id', sec.id).eq('date', secHoy()).neq('cancelada', true)
+    .order('ask_index', { ascending: true, nullsFirst: false }).order('time', { ascending: true, nullsFirst: false })
+  let max = Math.max(0, ...(deHoy || []).map(x => x.ask_index || 0))
+  const lst = (deHoy || []).map(x => ({ ...x, n: x.ask_index || ++max }))
+  const nums = [...String(texto || '').matchAll(/\b(\d{1,2})\b/g)].map(m => +m[1]).filter(n => lst.some(x => x.n === n))
+  let destino = lst.filter(x => nums.includes(x.n))
+  if (!destino.length && lst.length === 1) destino = lst
+  if (!destino.length) {
+    await TG.tgEnviar(chatId, '📎 Recibí el archivo pero no sé de qué tarea es. Vuelve a mandarlo con el número en el texto, por ejemplo: *3 listo*.'
+      + (lst.length ? '\n\nTus tareas de hoy:\n' + lst.slice(0, 15).map(x => x.n + '. ' + x.title).join('\n') : ''))
+    return false
+  }
+  if ((a.tam || 0) > 19.5e6) { await TG.tgEnviar(chatId, '📎 El archivo pesa más de 20 MB y Telegram no me deja bajarlo. Súbelo desde el panel (📎 en la tarea).'); return false }
+  const baj = await TG.tgBajarArchivo(a.file_id)
+  if (baj.error) { log('EVIDENCIA TG: no se pudo bajar: ' + baj.error); await TG.tgEnviar(chatId, '⚠️ No pude bajar el archivo de Telegram. Inténtalo otra vez o súbelo desde el panel.'); return false }
+  const ext = (String(baj.ruta).split('.').pop() || String(a.nombre).split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'bin'
+  const R2 = require('./r2')
+  const hechos = []
+  for (const tk of destino) {
+    const ruta = 'tareas/' + tk.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '.' + ext
+    let url = await R2.subirAR2(ruta, baj.buffer, a.mime, log)
+    if (!url) {
+      const { error } = await supabase.storage.from('urbis-files').upload(ruta, baj.buffer, { contentType: a.mime, upsert: true })
+      if (!error) url = supabase.storage.from('urbis-files').getPublicUrl(ruta).data.publicUrl
+    }
+    if (!url) { log('EVIDENCIA TG: no se pudo guardar ' + ruta); continue }
+    const { error } = await supabase.from('tarea_adjuntos').insert({ task_id: tk.id, url, nombre: a.nombre, tipo: a.tipo, via: 'telegram', autor_nombre: sec.full_name })
+    if (!error) hechos.push(tk)
+  }
+  const que = { foto: '📷 Foto', pdf: '📄 PDF', audio: '🎙 Audio', video: '🎬 Video' }[a.tipo] || '📎 Archivo'
+  await TG.tgEnviar(chatId, hechos.length ? que + ' guardado como evidencia de ' + hechos.map(x => 'la ' + x.n + ' (' + x.title.slice(0, 50) + ')').join(' y ') + '.' : '⚠️ No pude guardar el archivo. Súbelo desde el panel.')
+  // si el texto trae palabras ("3 listo"), sigue: también actualiza el estado de la tarea
+  return hechos.length > 0 && /[a-záéíóúñ]{2,}/i.test(String(texto || ''))
+}
+
+// ---------------------------------------------------------------------------------------
+// ENTREGA 1.3 (28 nov 2026): resumen de la mañana (B1), lo comercial del cierre (B2),
+// dependencias (A8) y recursos.
+const ABIERTOS_L = ['nuevo', 'contactado', 'interesado', 'visita_agendada', 'negociacion']
+const desdeLima = dia => new Date(dia + 'T00:00:00-05:00').toISOString()
+const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
+const DSEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
+const diaCorto = iso => DSEM[new Date(iso + 'T12:00:00').getDay()] + ' ' + ddmmE(iso)
+// A8: tareas que esperan a otra que no está hecha (el bot no las pregunta)
+async function bloqueadasDe(tareas) {
+  const ids = [...new Set((tareas || []).map(t => t.depende_de).filter(Boolean))]
+  if (!ids.length) return new Map()
+  const { data } = await supabase.from('secretary_tasks').select('id, title, status').in('id', ids)
+  const m = new Map(); for (const d of (data || [])) if (d.status !== 'hecha') m.set(d.id, d)
+  return m
+}
+let _recursos = { t: 0, m: new Map() }
+async function nombreRecurso(id) {
+  if (!id) return ''
+  if (Date.now() - _recursos.t > 300000) { const { data } = await supabase.from('recursos').select('id, nombre'); _recursos = { t: Date.now(), m: new Map((data || []).map(r => [r.id, r.nombre])) } }
+  return _recursos.m.get(id) || ''
+}
+
+// B1: a las 7:30, a cada uno lo suyo (hoy por hora, lo urgente, lo que espera respuesta
+// hace 3+ días hábiles, los próximos 3 días y lo sin fecha) y a gerencia el día del equipo.
+async function resumenManana(secs, hoy, md) {
+  const fin3 = masDias(hoy, 3)
+  const [{ data: deHoy }, { data: prox }, { data: pausadas }, { data: sinAcuse }, { data: bandeja }, { data: visitas }] = await Promise.all([
+    supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true),
+    supabase.from('secretary_tasks').select('id, title, date, time, secretary_id, creada_por_sec, visibilidad, visible_para').gt('date', hoy).lte('date', fin3).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true),
+    supabase.from('secretary_tasks').select('*').eq('status', 'pausada').neq('cancelada', true),
+    supabase.from('secretary_tasks').select('id, title, secretary_id, creada_por_sec, creada_por_nombre, visibilidad, visible_para').is('acuse_at', null).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true),
+    supabase.from('secretary_tasks').select('id, secretary_id, creada_por_sec, visibilidad, visible_para').is('date', null).in('status', ['pendiente', 'en_proceso', 'pausada']).neq('cancelada', true),
+    supabase.from('visits').select('time, client_name, encargado_name, project:projects(name)').eq('date', hoy).eq('status', 'programada').eq('tipo', 'visita').order('time'),
+  ])
+  const bloq = await bloqueadasDe(deHoy)
+  const espera = (pausadas || []).filter(t => /espera/i.test(t.motivo || '') && diasHabilesDesde(t, hoy) >= 3)
+  const urgente = t => resaltada(t, hoy)
+  const linea = async t => '• ' + (t.time ? String(t.time).slice(0, 5) + ' — ' : '') + t.title
+    + (t.recurso_id ? ' 🚚 ' + await nombreRecurso(t.recurso_id) : '') + (t.depende_de && bloq.has(t.depende_de) ? ' ⛓ (espera: ' + bloq.get(t.depende_de).title.slice(0, 40) + ')' : '')
+  const orden = (a, b) => String(a.time || (a.slot === 'tarde' ? '13:00~' : '12:00~')).localeCompare(String(b.time || (b.slot === 'tarde' ? '13:00~' : '12:00~')))
+  // a cada persona, lo suyo
+  for (const sec of secs) {
+    const mias = (deHoy || []).filter(t => t.secretary_id === sec.id).sort(orden)
+    const misEsp = espera.filter(t => t.secretary_id === sec.id)
+    const misProx = (prox || []).filter(t => t.secretary_id === sec.id)
+    const misAcuse = (sinAcuse || []).filter(t => t.secretary_id === sec.id && t.creada_por_sec !== t.secretary_id)
+    const misBand = (bandeja || []).filter(t => t.secretary_id === sec.id).length
+    if (!mias.length && !misEsp.length && !misProx.length && !misAcuse.length) continue   // nada: silencio
+    const nombre = (sec.full_name || '').split(' ')[0]
+    let lista = mias.length ? (await Promise.all(mias.map(linea))).join('\n') : '• Hoy no tienes nada programado.'
+    const urg = mias.filter(urgente)
+    if (urg.length || misAcuse.length) lista += '\n\n🔥 *URGENTE*\n' + [...urg.map(t => '• ' + t.title + (t.arrastres ? ' ↪×' + t.arrastres : ' ⚠️ sin novedad')), ...misAcuse.map(t => '• ' + t.title + ' 📭 falta tu "Recibido"')].join('\n')
+    if (misEsp.length) lista += '\n\n⏳ *ESPERANDO RESPUESTA (3+ días)*\n' + misEsp.map(t => '• ' + t.title).join('\n')
+    if (misProx.length) {
+      const porDia = {}; for (const t of misProx) (porDia[t.date] = porDia[t.date] || []).push(t)
+      const corto = s => s.length > 45 ? s.slice(0, 44).trim() + '…' : s
+      lista += '\n\n📅 *PRÓXIMOS 3 DÍAS*\n' + Object.keys(porDia).sort().map(d => '• ' + diaCorto(d) + ': ' + porDia[d].map(t => corto(t.title)).join(' · ')).join('\n')
+    }
+    if (misBand) lista += '\n\n📥 Tienes ' + misBand + ' tarea(s) sin fecha en el panel.'
+    await enviar(sec.phone, secTpl(md, 'SALUDO', { nombre, lista }, '¡Buenos días {nombre}! ☀️ Tu día:\n\n{lista}\n\n¡Que tengas un gran día! 💪'), { tipo: 'secretaria', interno: true })
+  }
+  // a gerencia (los mismos destinatarios del resumen de las 18:00), cada uno con lo que puede ver
+  let destinos = []
+  try { const d = JSON.parse(await ajuste('sec_resumen_destinos', '[]')); if (Array.isArray(d)) destinos = d.map(x => soloDig(x)).filter(x => x.length >= 9) } catch {}
+  if (!destinos.length && ADMIN) destinos = [ADMIN]
+  const nom = id => (secs.find(s => s.id === id)?.full_name || '').split(' ')[0]
+  for (const dest of new Set(destinos)) {
+    const v = await visorDe(dest)
+    const ve = t => puedeVerTarea(t, v)
+    const hoyV = (deHoy || []).filter(ve)
+    if (!hoyV.length && !(sinAcuse || []).some(ve)) continue
+    let m = '☀️ *EL DÍA DEL EQUIPO — ' + diaCorto(hoy).toUpperCase() + '*\n'
+    for (const sec of secs) {
+      const ts = hoyV.filter(t => t.secretary_id === sec.id)
+      if (ts.length) m += '\n• *' + nom(sec.id) + '*: ' + ts.length + ' tarea(s)' + (ts.filter(t => t.time).length ? ' · ' + ts.filter(t => t.time).length + ' con hora' : '') + (ts.filter(urgente).length ? ' · 🔥 ' + ts.filter(urgente).length : '')
+    }
+    const urg = hoyV.filter(urgente)
+    if (urg.length) m += '\n\n🔥 *URGENTE (' + urg.length + ')*\n' + urg.slice(0, 15).map(t => '• ' + nom(t.secretary_id) + ': ' + t.title + (t.arrastres ? ' ↪×' + t.arrastres : '')).join('\n')
+    const esp = espera.filter(ve)
+    if (esp.length) m += '\n\n⏳ *ESPERANDO RESPUESTA 3+ DÍAS (' + esp.length + ')*\n' + esp.slice(0, 15).map(t => '• ' + nom(t.secretary_id) + ': ' + t.title).join('\n')
+    const sa = (sinAcuse || []).filter(t => ve(t) && t.creada_por_sec !== t.secretary_id)
+    if (sa.length) m += '\n\n📭 *SIN ACUSE (' + sa.length + ')*\n' + sa.slice(0, 15).map(t => '• ' + nom(t.secretary_id) + ': ' + t.title).join('\n')
+    const pv = (prox || []).filter(ve)
+    if (pv.length) { const c = {}; for (const t of pv) c[t.date] = (c[t.date] || 0) + 1; m += '\n\n📅 *PRÓXIMOS 3 DÍAS:* ' + [1, 2, 3].map(n => diaCorto(masDias(hoy, n)) + ': ' + (c[masDias(hoy, n)] || 0)).join(' · ') }
+    if ((visitas || []).length) m += '\n\n🚗 *VISITAS DE HOY (' + visitas.length + ')*\n' + visitas.slice(0, 10).map(x => '• ' + String(x.time).slice(0, 5) + ' ' + x.client_name + ' — ' + (x.project?.name || '') + (x.encargado_name ? ' (' + x.encargado_name.split(' ')[0] + ')' : '')).join('\n')
+    await enviar(dest, m, { tipo: 'secretaria', interno: true })
+  }
+}
+
+// B2: lo comercial del día para el cierre de las 18:00 (solo gerencia y superusuario)
+async function comercialDelDia(hoy) {
+  const desde = desdeLima(hoy)
+  const sinPrueba = q => q.or('is_test.is.null,is_test.eq.false')
+  const [proys, leadsHoy, sinAtender, sinVend, acts, cerradas, sinCerrar, seps, ventas, pagos, gastos] = await Promise.all([
+    supabase.from('projects').select('id, name'),
+    sinPrueba(supabase.from('leads').select('project_id').gte('created_at', desde)),
+    sinPrueba(supabase.from('leads').select('id', { count: 'exact', head: true }).eq('status', 'nuevo').is('ultimo_contacto_at', null)),
+    sinPrueba(supabase.from('leads').select('id', { count: 'exact', head: true }).in('status', ABIERTOS_L).is('assigned_to', null)),
+    supabase.from('lead_activities').select('tipo').gte('created_at', desde).not('created_by', 'is', null),
+    supabase.from('visits').select('resultado').gte('closed_at', desde),
+    supabase.from('visits').select('id', { count: 'exact', head: true }).eq('status', 'programada').eq('tipo', 'visita').lt('date', hoy),
+    supabase.from('separations').select('amount').gte('created_at', desde),
+    supabase.from('sales').select('id').gte('created_at', desde).neq('status', 'anulado'),
+    supabase.from('daily_income').select('amount').eq('origin', 'sistema').gte('created_at', desde),
+    supabase.from('expenses').select('amount').eq('status', 'solicitado'),
+  ])
+  const soles = n => 'S/ ' + Math.round(Number(n || 0)).toLocaleString('es-PE')
+  const suma = r => (r.data || []).reduce((s, x) => s + Number(x.amount || 0), 0)
+  const porProy = {}; for (const l of (leadsHoy.data || [])) { const n = (proys.data || []).find(p => p.id === l.project_id)?.name || 'SIN PROYECTO'; porProy[n] = (porProy[n] || 0) + 1 }
+  const tipos = {}; for (const a of (acts.data || [])) tipos[a.tipo || 'nota'] = (tipos[a.tipo || 'nota'] || 0) + 1
+  const RES = { pago_inicial: 'pagó inicial', separacion: 'separó', interesado: 'interesado', recontacto: 'recontacto', no_interesado: 'no interesado', no_vino: 'no vino' }
+  const res = {}; for (const v of (cerradas.data || [])) res[v.resultado] = (res[v.resultado] || 0) + 1
+  return '\n💼 *LO COMERCIAL DE HOY*\n'
+    + '• Leads nuevos: ' + (leadsHoy.data || []).length + (Object.keys(porProy).length ? ' (' + Object.entries(porProy).sort((a, b) => b[1] - a[1]).map(([k, n]) => k.split(' ').slice(-2).join(' ') + ' ' + n).join(', ') + ')' : '') + '\n'
+    + '• Sin atender: ' + (sinAtender.count ?? 0) + ' en "nuevo" sin contacto · ' + (sinVend.count ?? 0) + ' sin vendedor\n'
+    + '• Seguimiento registrado: ' + (Object.keys(tipos).length ? Object.entries(tipos).map(([k, n]) => n + ' ' + (k === 'nota' ? 'nota(s)' : k === 'llamada' ? 'llamada(s)' : k)).join(' · ') : 'nada') + '\n'
+    + '• Visitas cerradas: ' + (cerradas.data || []).length + (Object.keys(res).length ? ' (' + Object.entries(res).map(([k, n]) => n + ' ' + (RES[k] || k)).join(', ') + ')' : '') + ((sinCerrar.count || 0) ? ' · ⚠️ ' + sinCerrar.count + ' pasada(s) sin cerrar' : '') + '\n'
+    + '• Separaciones: ' + (seps.data || []).length + ((seps.data || []).length ? ' (' + soles(suma(seps)) + ')' : '') + ' · Ventas: ' + (ventas.data || []).length + '\n'
+    + '• Pagos recibidos: ' + (pagos.data || []).length + ' por ' + soles(suma(pagos)) + '\n'
+    + '• Gastos por aprobar: ' + (gastos.data || []).length + ((gastos.data || []).length ? ' por ' + soles(suma(gastos)) : '') + '\n'
+}
+
 async function secretariaTick() {
   try {
     if (!(await flag('bot_activo'))) return
@@ -1596,17 +1860,8 @@ async function secretariaTick() {
       const saludoHora = String(await ajuste('sec_saludo_hora', '07:30')).slice(0, 5)
       if (hhmm >= saludoHora && (await ajuste('sec_saludo', '')) !== hoy) {
         await setAjuste('sec_saludo', hoy)
-        const { data: hoyTasks } = await supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).neq('cancelada', true)
-        const porSec = {}
-        for (const tk of (hoyTasks || [])) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
-        for (const sec of secs) {
-          const tareas = (porSec[sec.id] || []).sort((a, b) => String(a.time || '99').localeCompare(String(b.time || '99')))
-          if (!tareas.length) continue   // sin actividades configuradas para hoy = NO se saluda (silencio)
-          const nombre = (sec.full_name || '').split(' ')[0]
-          const lista = tareas.map(tk => '• ' + (tk.time ? String(tk.time).slice(0, 5) + ' — ' : '') + tk.title).join('\n')
-          const msj = secTpl(md, 'SALUDO', { nombre, lista }, '¡Buenos días {nombre}! ☀️ Estos son tus pendientes de hoy:\n\n{lista}\n\n¡Que tengas un gran día! 💪')
-          await enviar(sec.phone, msj, { tipo: 'secretaria', interno: true })
-        }
+        // B1 (28 nov 2026): lo de hoy + urgente + esperando respuesta + próximos 3 días, y el día del equipo a gerencia
+        await resumenManana(secs, hoy, md).catch(e => log('RESUMEN MAÑANA:', String(e.message || e)))
       }
     }
 
@@ -1623,8 +1878,10 @@ async function secretariaTick() {
       // el pase de la MAÑANA pregunta solo lo de la mañana (lo que dice la pantalla de Tareas:
       // 🌅 / 🌇 = cuándo pasa lista); desde la 1 p. m. pregunta todo lo que siga abierto
       const deTurno = tk => hora >= '13:00' || (tk.time ? String(tk.time).slice(0, 5) < '13:00' : tk.slot !== 'tarde')
+      // A8 (1.3): lo que espera a otra tarea sin terminar no se pregunta todavía
+      const bloqP = await bloqueadasDe(pend)
       const porSec = {}
-      for (const tk of (pend || []).filter(deTurno)) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
+      for (const tk of (pend || []).filter(deTurno).filter(tk => !(tk.depende_de && bloqP.has(tk.depende_de)))) (porSec[tk.secretary_id] = porSec[tk.secretary_id] || []).push(tk)
       const momento = hhmm < '12:00' ? 'la mañana' : hhmm < '18:00' ? 'la tarde' : 'hoy'
       for (const [sid, tareas] of Object.entries(porSec)) {
         const sec = secs.find(s => s.id === sid)
@@ -1639,16 +1896,25 @@ async function secretariaTick() {
       }
     }
 
-    // 2b) aviso puntual de tareas con hora exacta (configurable: se puede apagar)
+    // 2b) A9 (28 nov 2026): aviso X minutos ANTES de la hora de cada tarea (sec_aviso_antes_min,
+    //     30 por defecto; 0 = a la hora exacta). Configurable: se puede apagar.
     const { data: conHora } = (await ajuste('sec_aviso_hora', '1')) === '0' ? { data: [] }
-      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).eq('status', 'pendiente').is('notified_at', null).not('time', 'is', null).neq('cancelada', true)
+      : await supabase.from('secretary_tasks').select('*').eq('date', hoy).in('status', ['pendiente', 'en_proceso']).is('notified_at', null).not('time', 'is', null).neq('cancelada', true)
+    const antes = Math.max(0, Math.min(240, parseInt(await ajuste('sec_aviso_antes_min', '30')) || 0))
+    const aMin = h => { const [a, b] = String(h).slice(0, 5).split(':').map(Number); return a * 60 + b }
+    const bloqH = await bloqueadasDe(conHora)
     for (const tk of (conHora || [])) {
-      if (hhmm < String(tk.time).slice(0, 5)) continue
+      const faltan = aMin(tk.time) - aMin(hhmm)
+      if (faltan > antes) continue
+      if (tk.depende_de && bloqH.has(tk.depende_de)) continue   // A8: espera a otra tarea
       const sec = secs.find(s => s.id === tk.secretary_id)
       if (!sec) continue
       await supabase.from('secretary_tasks').update({ notified_at: new Date().toISOString() }).eq('id', tk.id)
-      const nombre = (sec.full_name || '').split(' ')[0]
-      await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora: String(tk.time).slice(0, 5) }, '📌 {nombre}, recordatorio: *{titulo}* — programado para las {hora} de hoy. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria', interno: true })
+      if (faltan < -60) continue   // la hora ya pasó hace rato (el agente estuvo caído): no se avisa tarde
+      const nombre = (sec.full_name || '').split(' ')[0], hora = String(tk.time).slice(0, 5)
+      const rec = tk.recurso_id ? await nombreRecurso(tk.recurso_id) : ''
+      await enviar(sec.phone, secTpl(md, 'AVISO_HORA', { nombre, titulo: tk.title, hora, minutos: String(Math.max(0, faltan)) },
+        (faltan > 0 ? '⏰ {nombre}, en {minutos} min: *{titulo}* ({hora})' : '📌 {nombre}, ahora: *{titulo}* ({hora})') + (rec ? ' · 🚚 ' + rec : '') + '. Cuando esté, respóndeme *LISTO*. 🙌'), { tipo: 'secretaria', interno: true })
     }
 
     // 3) recordatorio unico a los 45 min sin respuesta (configurable: se puede apagar)
@@ -1781,9 +2047,11 @@ async function secretariaTick() {
         let destinos = []
         try { const d = JSON.parse(await ajuste('sec_resumen_destinos', '[]')); if (Array.isArray(d)) destinos = d.map(x => String(x).replace(/\D/g, '')).filter(x => x.length >= 9) } catch {}
         if (!destinos.length && ADMIN) destinos = [ADMIN]
+        // B2 (1.3): lo comercial del día, solo para gerencia y superusuario (lleva montos)
+        const comercial = await comercialDelDia(hoy).catch(e => { log('COMERCIAL DEL DÍA:', String(e.message || e)); return '' })
         for (const dest of new Set(destinos)) {
           const v = await visorDe(dest)
-          let detalle = armarDetalle(todas.filter(tk => puedeVerTarea(tk, v)))
+          let detalle = armarDetalle(todas.filter(tk => puedeVerTarea(tk, v))) + ((v.superuser || v.gerencia) ? comercial : '')
           const sa = (sinAcuse || []).filter(tk => puedeVerTarea(tk, v))
           if (sa.length) detalle += '\n📭 *ASIGNADAS SIN ACUSE* (hace más de un día nadie confirmó que las recibió):\n'
             + sa.map(tk => '  • ' + nomSec(tk.secretary_id) + ': ' + tk.title + (tk.creada_por_nombre ? ' (de ' + tk.creada_por_nombre.split(' ')[0] + ')' : '')).join('\n') + '\n'
@@ -4628,6 +4896,12 @@ async function manejarTelegram(chatId, texto, info) {
   }
 
   await supabase.from('telegram_links').update({ last_seen: new Date().toISOString() }).eq('chat_id', chatId).then(() => {}, () => {})
+  // A10 (1.3): una foto, PDF o audio es EVIDENCIA de una tarea; el número va en el texto
+  // ("3 listo"). Si además trae palabras, el texto sigue su camino y actualiza la tarea.
+  if (info?.archivo) {
+    const sigue = await adjuntarDesdeTelegram(chatId, phone, t, info.archivo).catch(e => { log('EVIDENCIA TG:', String(e.message || e)); return false })
+    if (!sigue) return
+  }
   // ---- MANTENIMIENTO desde Telegram: SOLO el admin ----
   // Nace del latido: si el aviso deja de llegar o avisa que un numero se cayo,
   // hay que poder actuar desde el celular, sin abrir una consola. `git pull` y

@@ -435,6 +435,7 @@ export default function Whatsapp() {
         feedback: kv.sec_feedback !== '0',
         feedbackHora: (kv.hora_feedback_sec || '17:30').slice(0, 5),
         segIA: kv.seg_ia !== '0',
+        avisoAntes: kv.sec_aviso_antes_min ?? '30',
         motivos: (() => { try { const m = JSON.parse(kv.tarea_motivos || '[]'); return Array.isArray(m) && m.length ? m.join(', ') : '' } catch { return '' } })(),
         saludoActivo: kv.sec_saludo_activo !== '0',
         saludoHora: (kv.sec_saludo_hora || '07:30').slice(0, 5),
@@ -696,6 +697,7 @@ export default function Whatsapp() {
       { key: 'sec_recordatorio', value: secCfg.recordatorio ? '1' : '0', updated_at: now },
       { key: 'sec_aviso_hora', value: secCfg.avisoHora ? '1' : '0', updated_at: now },
       { key: 'seg_ia', value: secCfg.segIA === false ? '0' : '1', updated_at: now },
+      { key: 'sec_aviso_antes_min', value: String(Math.max(0, Math.min(240, parseInt(secCfg.avisoAntes) || 0))), updated_at: now },
       ...(String(secCfg.motivos || '').trim() ? [{ key: 'tarea_motivos', value: JSON.stringify(String(secCfg.motivos).split(',').map(x => x.trim()).filter(Boolean).slice(0, 15)), updated_at: now }] : []),
       { key: 'sec_feedback', value: secCfg.feedback ? '1' : '0', updated_at: now },
       { key: 'hora_feedback_sec', value: String(secCfg.feedbackHora).slice(0, 5), updated_at: now },
@@ -1165,7 +1167,9 @@ export default function Whatsapp() {
                     <input type="checkbox" checked={secCfg.recordatorio} onChange={e => setSecCfg(c => ({ ...c, recordatorio: e.target.checked }))} /> Recordar si no responde (45 min)
                   </label>
                   <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={secCfg.avisoHora} onChange={e => setSecCfg(c => ({ ...c, avisoHora: e.target.checked }))} /> Aviso por hora exacta de una tarea
+                    <input type="checkbox" checked={secCfg.avisoHora} onChange={e => setSecCfg(c => ({ ...c, avisoHora: e.target.checked }))} /> Avisar
+                    <input type="number" min="0" max="240" value={secCfg.avisoAntes ?? '30'} onChange={e => setSecCfg(c => ({ ...c, avisoAntes: e.target.value }))} style={{ width: 56, fontSize: 12, padding: '2px 4px' }} title="0 = a la hora exacta" />
+                    min antes de la hora de cada tarea
                   </label>
                   <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
                     <input type="checkbox" checked={secCfg.feedback} onChange={e => setSecCfg(c => ({ ...c, feedback: e.target.checked }))} /> Preguntar “¿algo extra?” al cerrar
@@ -1211,7 +1215,7 @@ export default function Whatsapp() {
                     ))
                   })()}
                 </div>
-                <p className="muted u-fs-10 u-mt-4">Llega por Telegram. Si no marcas a nadie, va al administrador. Quien no vinculó su Telegram no lo recibe.</p>
+                <p className="muted u-fs-10 u-mt-4">Llega por Telegram, con lo comercial del día (leads, visitas, separaciones, ventas, pagos y gastos por aprobar) para gerencia. Los mismos reciben a la hora del saludo matutino "el día del equipo". Cada uno ve solo lo que le permite la privacidad de las tareas (el superusuario, todo). Si no marcas a nadie, va al administrador. Quien no vinculó su Telegram no lo recibe.</p>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, marginTop: 8 }}>
                   <button className="btn" onClick={guardarSecCfg}>💾 GUARDAR HORARIOS</button>
                   {secMsg && <span className="u-fs-12">{secMsg}</span>}

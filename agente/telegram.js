@@ -223,10 +223,17 @@ function escuchar(onMensaje, log = () => {}, onBoton = null) {
         const texto = String(m.text || m.caption || '').trim()
         // el botón "📱 Compartir mi número" llega como contacto, sin texto
         const contacto = m.contact ? { phone: String(m.contact.phone_number || ''), user_id: m.contact.user_id || null } : null
-        if (!texto && !contacto) { log('TELEGRAM <- chat ' + m.chat.id + ' sin texto (' + Object.keys(m).filter(k => !['message_id', 'from', 'chat', 'date'].includes(k)).join(',') + '), descartado'); continue }
-        log('TELEGRAM <- chat ' + m.chat.id + ': ' + (contacto ? '[compartió un número]' : texto.slice(0, 60)))
+        // 28 nov 2026: foto, PDF, audio o video = posible EVIDENCIA de una tarea (sql/249)
+        const foto = Array.isArray(m.photo) && m.photo.length ? m.photo[m.photo.length - 1] : null
+        const archivo = foto ? { file_id: foto.file_id, tipo: 'foto', nombre: 'foto.jpg', mime: 'image/jpeg', tam: foto.file_size || 0 }
+          : m.document ? { file_id: m.document.file_id, tipo: /pdf/i.test(m.document.mime_type || '') ? 'pdf' : /^image\//.test(m.document.mime_type || '') ? 'foto' : 'otro', nombre: m.document.file_name || 'archivo', mime: m.document.mime_type || 'application/octet-stream', tam: m.document.file_size || 0 }
+          : (m.voice || m.audio) ? { file_id: (m.voice || m.audio).file_id, tipo: 'audio', nombre: m.audio?.file_name || 'audio.ogg', mime: (m.voice || m.audio).mime_type || 'audio/ogg', tam: (m.voice || m.audio).file_size || 0 }
+          : m.video ? { file_id: m.video.file_id, tipo: 'video', nombre: m.video.file_name || 'video.mp4', mime: m.video.mime_type || 'video/mp4', tam: m.video.file_size || 0 }
+          : null
+        if (!texto && !contacto && !archivo) { log('TELEGRAM <- chat ' + m.chat.id + ' sin texto (' + Object.keys(m).filter(k => !['message_id', 'from', 'chat', 'date'].includes(k)).join(',') + '), descartado'); continue }
+        log('TELEGRAM <- chat ' + m.chat.id + ': ' + (contacto ? '[compartió un número]' : (archivo ? '[' + archivo.tipo + '] ' : '') + texto.slice(0, 60)))
         const nombre = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(' ')
-        try { await onMensaje(m.chat.id, texto, { nombre, usuario: m.from?.username || null, contacto, from_id: m.from?.id || null }) }
+        try { await onMensaje(m.chat.id, texto, { nombre, usuario: m.from?.username || null, contacto, archivo, from_id: m.from?.id || null }) }
         catch (e) { log('TG onMensaje:', String(e.message || e)) }
       }
     }
@@ -240,4 +247,15 @@ function escuchar(onMensaje, log = () => {}, onBoton = null) {
   return () => { vivo = false }
 }
 
-module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, tgBorrar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog, BOTON_NUMERO, SIN_TECLADO }
+// baja un archivo que mandaron al bot (foto, PDF, audio). Telegram deja bajar hasta 20 MB.
+async function tgBajarArchivo(fileId) {
+  const f = await tgApi('getFile', { file_id: fileId })
+  if (!f || f.error || !f.file_path) return { error: (f && f.error) || 'Telegram no dio el archivo' }
+  try {
+    const r = await fetch(`https://api.telegram.org/file/bot${TOKEN()}/${f.file_path}`)
+    if (!r.ok) return { error: 'descarga ' + r.status }
+    return { buffer: Buffer.from(await r.arrayBuffer()), ruta: f.file_path }
+  } catch (e) { return { error: String(e.message || e) } }
+}
+
+module.exports = { activo, tgEnviar, tgEnviarBotones, tgEditar, tgBorrar, escuchar, crearRegistro, aHtml, estadoEscucha, tgApi, setLog, tgBajarArchivo, BOTON_NUMERO, SIN_TECLADO }

@@ -4,6 +4,7 @@ import { savedFx } from '../lib/saveFx'
 import { avisar, confirmar, pedirDatos } from '../lib/dialogos'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
+import { useEsCelular } from '../lib/useEsCelular'
 
 const DIAS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']]
 // 28 nov 2026 (sql/246): EN PROCESO (con avance "4 de 6") y PAUSADA (motivo + fecha para retomarla)
@@ -67,6 +68,12 @@ export default function Secretarias() {
   const [areas, setAreas] = useState(['Administración', 'Ventas', 'Cobranza', 'Obras', 'Legal', 'Marketing', 'Contabilidad'])
   const [fProy, setFProy] = useState('')
   const [fArea, setFArea] = useState('')
+  // entrega 1.3 (sql/249): evidencia, revisión por muestreo, dependencias y recursos
+  const [adjuntos, setAdjuntos] = useState({})   // task_id -> [tarea_adjuntos]
+  const [recursos, setRecursos] = useState([])
+  const [muestra, setMuestra] = useState(null)   // tareas hechas sin revisar (muestreo de gerencia)
+  const [subiendo, setSubiendo] = useState(null)
+  const celular = useEsCelular()   // en celular el título va solo en su línea y los botones debajo
 
   // registro propio: la persona del equipo vinculada a este usuario del sistema
   const mia = secs.find(s => s.user_id && profile?.id && s.user_id === profile.id)
@@ -102,14 +109,19 @@ export default function Secretarias() {
     setSecs(a.data || []); setRutinas(b.data || []); setTareas(c.data || []); setUsuarios(u.data || []); setAccesos(sa.data || [])
     try { const m = JSON.parse(mo.data?.value || '[]'); if (Array.isArray(m) && m.length) setMotivos(m.map(String)) } catch { /* lista por defecto */ }
   }
-  // historial de las tareas del día elegido (se recarga con las tareas)
-  const idsDia = tareas.filter(t => t.date === diaSel).map(t => t.id).join(',')
+  // historial y evidencia de lo que está en pantalla (día elegido, hoy, sin fecha, sin acuse)
+  const idsDia = [...new Set([...tareas.filter(t => t.date === diaSel || t.date === hoyISO()), ...bandeja, ...sinAcuseL, ...(muestra || [])].map(t => t.id))].join(',')
   useEffect(() => {
-    if (!idsDia) { setNotas({}); return }
-    supabase.from('tarea_notas').select('*').in('task_id', idsDia.split(',')).order('created_at').then(({ data }) => {
+    if (!idsDia) { setNotas({}); setAdjuntos({}); return }
+    const ids = idsDia.split(',')
+    supabase.from('tarea_notas').select('*').in('task_id', ids).order('created_at').then(({ data }) => {
       const m = {}; for (const n of (data || [])) (m[n.task_id] = m[n.task_id] || []).push(n); setNotas(m)
     })
+    supabase.from('tarea_adjuntos').select('*').in('task_id', ids).order('created_at').then(({ data }) => {
+      const m = {}; for (const a of (data || [])) (m[a.task_id] = m[a.task_id] || []).push(a); setAdjuntos(m)
+    })
   }, [idsDia, tareas])
+  useEffect(() => { supabase.from('recursos').select('*').order('nombre').then(({ data }) => setRecursos(data || [])) }, [])
   useEffect(() => { cargar() }, [mes])
   useEffect(() => { const t = setInterval(() => { if (!document.hidden) cargar() }, 15000); return () => clearInterval(t) }, [mes])
 
@@ -159,9 +171,11 @@ export default function Secretarias() {
     if (!extra?.title?.trim() || !extra.sid) return
     if (extra.visibilidad === 'personas' && !(extra.para || []).length) { await avisar('Elige al menos una persona que pueda ver la tarea (o cambia la privacidad).', { tono: 'error' }); return }
     const slot = extra.time ? (extra.time < '13:00' ? 'manana' : 'tarde') : extra.slot || 'manana'
+    if (!(await choqueRecurso({ recurso_id: extra.recurso_id, date: extra.sinFecha ? null : diaSel, time: extra.time, duracion_min: extra.duracion }))) return
     // 1.2: sin fecha (bandeja), proyecto, área, duración y privacidad. Si es para otra persona,
-    // el agente le avisa por Telegram y le pide el acuse (sql/247)
+    // el agente le avisa por Telegram y le pide el acuse (sql/247). 1.3: recurso y dependencia.
     const { error } = await supabase.from('secretary_tasks').insert({
+      recurso_id: extra.recurso_id || null, depende_de: extra.depende_de || null,
       secretary_id: extra.sid, title: extra.title.trim().toUpperCase(), date: extra.sinFecha ? null : diaSel, time: extra.sinFecha ? null : (extra.time || null), slot,
       category: extra.category || 'administrativa', project_id: extra.project_id || null, area: extra.area || null,
       duracion_min: Number(extra.duracion) > 0 ? Math.min(1440, Math.round(Number(extra.duracion))) : null,
@@ -169,6 +183,63 @@ export default function Secretarias() {
     })
     if (error) { await avisar('ERROR: ' + error.message); return }
     setExtra(null); savedFx(); cargar()
+  }
+  // A10 (1.3): evidencia (foto, PDF, audio) — al R2, como el resto de archivos del panel
+  const subirEvidencia = async (t, file) => {
+    if (!file) return
+    if (file.size > 25e6) { await avisar('El archivo pesa más de 25 MB.', { tono: 'error' }); return }
+    setSubiendo(t.id)
+    try {
+      const { subirRuta } = await import('../lib/archivos')
+      const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
+      const url = await subirRuta('tareas/' + t.id + '/' + Date.now() + '.' + ext, file)
+      const tipo = /^image\//.test(file.type) ? 'foto' : /pdf/.test(file.type) ? 'pdf' : /^audio\//.test(file.type) ? 'audio' : /^video\//.test(file.type) ? 'video' : 'otro'
+      const { error } = await supabase.from('tarea_adjuntos').insert({ task_id: t.id, url, nombre: file.name, tipo, via: 'panel' })
+      if (error) throw new Error(error.message)
+      savedFx(); cargar()
+    } catch (e) { await avisar('No se subió: ' + (e.message || e), { tono: 'error' }) }
+    finally { setSubiendo(null) }
+  }
+  // A10: gerencia revisa POR MUESTREO lo que se marcó hecho (no una por una)
+  const cargarMuestra = async () => {
+    const desde = new Date(Date.now() - 7 * 86400000).toISOString()
+    const { data } = await supabase.from('secretary_tasks').select('*').eq('status', 'hecha').is('revision', null).neq('category', 'extra').gte('answered_at', desde).limit(300)
+    const lista = [...(data || [])]
+    for (let i = lista.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [lista[i], lista[j]] = [lista[j], lista[i]] }
+    setMuestra(lista.slice(0, 6))
+  }
+  const revisar = async (t, revision) => {
+    const r = revision === 'sin_prueba'
+      ? await pedirDatos({ titulo: '✖ SIN PRUEBA', mensaje: t.title + '\n\nQueda la constancia del incumplimiento en la tarea.', aceptar: 'Dejar constancia', peligro: true, campos: [{ clave: 'nota', etiqueta: '¿Qué faltaba?', tipo: 'largo' }] })
+      : {}
+    if (!r) return
+    const { error } = await supabase.from('secretary_tasks').update({ revision, revisada_at: new Date().toISOString(), revisada_por: profile?.full_name || role }).eq('id', t.id)
+    if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); return }
+    await nota(t, revision === 'ok' ? 'Revisada por gerencia: con prueba ✔' : 'Revisada por gerencia: SIN PRUEBA ✖ (incumplimiento)' + (r.nota ? ' — ' + r.nota : ''), 'sistema')
+    setMuestra(m => (m || []).filter(x => x.id !== t.id)); savedFx(); cargar()
+  }
+  // A8 (1.3): recursos compartidos (motokar, camioneta…). Se editan como una lista separada por comas.
+  const editarRecursos = async () => {
+    const r = await pedirDatos({ titulo: '🚚 RECURSOS COMPARTIDOS', mensaje: 'Lo que una tarea puede reservar en su horario. Escribe la lista separada por comas; lo que quites deja de ofrecerse (no se borra de las tareas que ya lo tienen).', aceptar: 'Guardar',
+      campos: [{ clave: 'lista', etiqueta: 'Recursos', tipo: 'largo', valor: recursos.filter(x => x.activo).map(x => x.nombre).join(', ') }] })
+    if (!r) return
+    const nuevos = [...new Set(String(r.lista || '').split(',').map(x => x.trim().toUpperCase()).filter(Boolean))]
+    for (const x of recursos) if (x.activo !== nuevos.includes(x.nombre)) await supabase.from('recursos').update({ activo: nuevos.includes(x.nombre) }).eq('id', x.id)
+    const faltan = nuevos.filter(n => !recursos.some(x => x.nombre === n))
+    if (faltan.length) { const { error } = await supabase.from('recursos').insert(faltan.map(nombre => ({ nombre }))); if (error) { await avisar('ERROR: ' + error.message, { tono: 'error' }); return } }
+    const { data } = await supabase.from('recursos').select('*').order('nombre'); setRecursos(data || []); savedFx()
+  }
+  // ¿el recurso ya está reservado en ese horario? (misma fecha, horas que se cruzan; 60 min si no dice duración)
+  const choqueRecurso = async ({ id, recurso_id, date, time, duracion_min }) => {
+    if (!recurso_id || !date || !time) return true
+    const aMin = h => { const [a, b] = String(h).slice(0, 5).split(':').map(Number); return a * 60 + b }
+    const ini = aMin(time), fin = ini + (Number(duracion_min) || 60)
+    const { data } = await supabase.from('secretary_tasks').select('id, title, time, duracion_min, secretary_id').eq('recurso_id', recurso_id).eq('date', date).not('time', 'is', null).neq('cancelada', true).neq('status', 'hecha')
+    const cruce = (data || []).filter(x => x.id !== id).find(x => { const a = aMin(x.time), b = a + (x.duracion_min || 60); return a < fin && ini < b })
+    if (!cruce) return true
+    const rn = recursos.find(x => x.id === recurso_id)?.nombre || 'El recurso'
+    const a = aMin(cruce.time), b = a + (cruce.duracion_min || 60), hh = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0')
+    return confirmar(`⚠️ ${rn} ya está reservado de ${hh(a)} a ${hh(b)} para "${cruce.title}" (${(secs.find(s => s.id === cruce.secretary_id)?.full_name || '').split(' ')[0]}).\n\n¿Guardar igual?`, { aceptar: 'Guardar igual', cancelar: 'Cambiar la hora' })
   }
   // A6: el responsable confirma desde el panel que la recibió (si no usa Telegram)
   const recibir = async t => {
@@ -291,7 +362,10 @@ export default function Secretarias() {
     if (editT.time) upd.slot = editT.time < '13:00' ? 'manana' : 'tarde'
     if (editT.id) {   // 1.2: proyecto, área, duración y privacidad (no aplica a una rutina proyectada)
       if (editT.visibilidad === 'personas' && !(editT.para || []).length) { await avisar('Elige al menos una persona que pueda ver la tarea (o cambia la privacidad).', { tono: 'error' }); return }
+      const orig = tareas.find(x => x.id === editT.id) || bandeja.find(x => x.id === editT.id) || {}
+      if (!(await choqueRecurso({ id: editT.id, recurso_id: editT.recurso_id, date: orig.date, time: editT.time, duracion_min: editT.duracion }))) return
       Object.assign(upd, {
+        recurso_id: editT.recurso_id || null, depende_de: editT.depende_de || null,
         project_id: editT.project_id || null, area: editT.area || null,
         duracion_min: Number(editT.duracion) > 0 ? Math.min(1440, Math.round(Number(editT.duracion))) : null,
         visibilidad: editT.visibilidad || 'equipo', visible_para: editT.visibilidad === 'personas' ? (editT.para || []) : [],
@@ -359,6 +433,18 @@ export default function Secretarias() {
   )
   const VIS = { equipo: '👥 TODO EL EQUIPO', gerencia: '🔒 SOLO GERENCIA', personas: '🔒 PERSONAS ELEGIDAS' }
 
+  // A8: "no empieza hasta terminar…" — las tareas abiertas de esa persona que están a la vista
+  const selectDepende = (sid, propia, valor, cambiar) => {
+    const ops = [...tareas, ...bandeja].filter((x, i, a) => a.findIndex(y => y.id === x.id) === i)
+      .filter(x => x.secretary_id === sid && x.id !== propia && !['hecha'].includes(x.status) && !x.cancelada)
+    if (!ops.length && !valor) return null
+    return (
+      <select className="u-fs-11" value={valor || ''} onChange={e => cambiar(e.target.value || null)} title="No empieza hasta que la otra tarea esté hecha: el bot no la pregunta antes" style={{ maxWidth: 260 }}>
+        <option value="">⛓ SIN DEPENDENCIA</option>
+        {ops.map(x => <option key={x.id} value={x.id}>⛓ DESPUÉS DE: {(x.date ? ddmm(x.date) + ' ' : '') + String(x.title).slice(0, 50)}</option>)}
+      </select>
+    )
+  }
   // "+ PROGRAMAR": se usa en el calendario y en la bandeja sin fecha
   const formExtra = extra && (esJefe || mia) && (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, padding: 8, border: '1px dashed rgba(156,203,134,.4)', borderRadius: 8 }}>
@@ -396,6 +482,12 @@ export default function Secretarias() {
         </select>
       </div>
       {extra.visibilidad === 'personas' && chipsPersonas(extra.para, para => setExtra({ ...extra, para }))}
+      <div className="u-d-f u-g-6 u-fwr u-ai-c">
+        {recursos.some(r => r.activo) && <select value={extra.recurso_id || ''} onChange={e => setExtra({ ...extra, recurso_id: e.target.value })} title="Reserva un recurso compartido en el horario de la tarea">
+          <option value="">🚚 SIN RECURSO</option>{recursos.filter(r => r.activo).map(r => <option key={r.id} value={r.id}>🚚 {r.nombre}</option>)}
+        </select>}
+        {selectDepende(extra.sid, null, extra.depende_de, v => setExtra({ ...extra, depende_de: v }))}
+      </div>
       <div className="u-d-f u-g-6">
         <button className="btn" onClick={crearTarea}>CREAR</button>
         <button className="btn-ghost" onClick={() => setExtra(null)}>✕</button>
@@ -448,12 +540,20 @@ export default function Secretarias() {
                 </div>
               )}
               {editT.id && editT.visibilidad === 'personas' && chipsPersonas(editT.para, para => setEditT({ ...editT, para }))}
+              {editT.id && (
+                <div className="u-d-f u-g-6 u-ai-c u-fwr">
+                  {recursos.some(r => r.activo || r.id === editT.recurso_id) && <select className="u-fs-11" value={editT.recurso_id || ''} onChange={ev => setEditT({ ...editT, recurso_id: ev.target.value })}>
+                    <option value="">🚚 SIN RECURSO</option>{recursos.filter(r => r.activo || r.id === editT.recurso_id).map(r => <option key={r.id} value={r.id}>🚚 {r.nombre}</option>)}
+                  </select>}
+                  {selectDepende(t.secretary_id, t.id, editT.depende_de, v => setEditT({ ...editT, depende_de: v }))}
+                </div>
+              )}
               {esRutina && <span className="muted u-fs-9">Aplica SOLO a este día. Para cambiar toda la rutina usa ⚙ RUTINA arriba.</span>}
             </div>
           ) : (<>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', rowGap: 4 }}>
               <span title={proj ? 'Proyectada' : e.t}>{proj ? '📌' : e.i}</span>
-              <span style={{ flex: 1, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
+              <span style={{ flex: celular ? '1 1 calc(100% - 30px)' : '1 1 240px', minWidth: 0, fontSize: 13, textDecoration: t.status === 'hecha' ? 'line-through' : 'none', opacity: t.status === 'hecha' ? .75 : 1 }}>
                 {t.ask_index ? <b style={{ color: '#9ccb86' }}>{t.ask_index}. </b> : null}{t.title}
               </span>
               {editable && !proj && t.status !== 'hecha' && <button className="btn-ghost u-p-1-7 u-fs-11" title="Marcar hecha" onClick={() => cambiarEstado(t, 'hecha')}>✓</button>}
@@ -468,7 +568,13 @@ export default function Secretarias() {
               {!proj && !t.acuse_at && ['pendiente', 'en_proceso'].includes(t.status) && (esJefe || (mia && t.secretary_id === mia.id)) && (
                 <button className="btn-ghost u-p-1-7 u-fs-11" style={{ borderColor: '#e0b34c88', color: '#e0b34c' }} title="Confirmar que la recibiste y para cuándo la entregas" onClick={() => recibir(t)}>📥 RECIBIDA</button>
               )}
-              {editable && <button className="btn-ghost u-p-1-7 u-fs-11" title="Editar (este día)" onClick={() => setEditT(proj ? { routine: t.routine, date: diaSel, title: t.title, time: '', note: '' } : { id: t.id, title: t.title, time: t.time ? String(t.time).slice(0, 5) : '', note: t.note || '', project_id: t.project_id || '', area: t.area || '', duracion: t.duracion_min || '', visibilidad: t.visibilidad || 'equipo', para: t.visible_para || [] })}>✎</button>}
+              {editable && <button className="btn-ghost u-p-1-7 u-fs-11" title="Editar (este día)" onClick={() => setEditT(proj ? { routine: t.routine, date: diaSel, title: t.title, time: '', note: '' } : { id: t.id, title: t.title, time: t.time ? String(t.time).slice(0, 5) : '', note: t.note || '', project_id: t.project_id || '', area: t.area || '', duracion: t.duracion_min || '', visibilidad: t.visibilidad || 'equipo', para: t.visible_para || [], recurso_id: t.recurso_id || '', depende_de: t.depende_de || null })}>✎</button>}
+              {editable && !proj && (
+                <label className="btn-ghost u-p-1-7 u-fs-11" style={{ cursor: 'pointer', flexDirection: 'row' }} title="Adjuntar evidencia (foto, PDF, audio)">
+                  {subiendo === t.id ? '⏳' : '📎'}
+                  <input type="file" accept="image/*,application/pdf,audio/*,video/*" style={{ display: 'none' }} onChange={ev => { subirEvidencia(t, ev.target.files?.[0]); ev.target.value = '' }} />
+                </label>
+              )}
               {editable && !proj && <button className="btn-ghost u-p-1-7 u-fs-11" title="Mover de fecha" onClick={() => setMover({ id: t.id, date: t.date, time: t.time ? String(t.time).slice(0, 5) : '' })}>📅</button>}
               {editable && !proj && <button className="btn-ghost u-p-1-7 u-fs-11" title="Reasignar" onClick={() => setReasig(t)}>👤</button>}
               {editable && <button className="btn-ghost u-p-1-7 u-fs-11" title="Eliminar" onClick={() => esRutina ? setScope({ action: 'delete', task: proj ? null : t, routine: proj ? t.routine : rutinas.find(r => r.id === t.routine_id), date: diaSel }) : quitarTarea(t)}>✕</button>}
@@ -490,12 +596,33 @@ export default function Secretarias() {
               {!proj && t.reasignada_de && <span className="u-fs-10" style={{ color: '#7ba7f7' }}>✈ REEMPLAZA A {(secs.find(s => s.id === t.reasignada_de)?.full_name || '').split(' ')[0]}</span>}
               {!proj && !t.acuse_at && ['pendiente', 'en_proceso'].includes(t.status) && <span className="u-fs-10" style={{ color: '#e0b34c', fontWeight: 700 }}>📭 SIN ACUSE</span>}
               {!proj && t.acuse_at && t.compromiso_fecha && <span className="muted u-fs-10">✅ RECIBIDA · ENTREGA {ddmm(t.compromiso_fecha)}</span>}
+              {/* 1.3: recurso, dependencia y revisión de gerencia */}
+              {t.recurso_id && <span className="u-fs-10" style={{ color: '#56c7d6' }}>🚚 {recursos.find(r => r.id === t.recurso_id)?.nombre || 'RECURSO'}</span>}
+              {t.depende_de && (() => {
+                const d = [...tareas, ...bandeja].find(x => x.id === t.depende_de)
+                const bloq = !d || d.status !== 'hecha'
+                return <span className="u-fs-10" style={{ color: bloq && t.status !== 'hecha' ? '#ff8e7a' : 'var(--muted)' }} title={d ? 'Espera a: ' + d.title : 'Espera a otra tarea'}>⛓ {bloq && t.status !== 'hecha' ? 'BLOQUEADA · ' : ''}DESPUÉS DE {d ? String(d.title).slice(0, 30) : 'OTRA TAREA'}</span>
+              })()}
+              {t.revision === 'ok' && <span className="u-fs-10" style={{ color: '#6fdd9b' }} title={'Revisada por ' + (t.revisada_por || '')}>🔍 REVISADA ✔</span>}
+              {t.revision === 'sin_prueba' && <span className="u-fs-10" style={{ color: '#ff8e7a', fontWeight: 700 }} title={'Revisada por ' + (t.revisada_por || '')}>🔍 SIN PRUEBA ✖</span>}
               {t.resultado && <span className="u-fs-10 u-tt-n" style={{ color: '#6fdd9b' }}>🏁 {t.resultado}</span>}
             </div>
             {/* A2: la última nota completa + su historial; una línea para escribir otra */}
-            {!proj && (t.note || hist.length > 0 || editable) && (
+            {!proj && (t.note || hist.length > 0 || editable || (adjuntos[t.id] || []).length > 0) && (
               <div style={{ marginLeft: 26, marginTop: 3 }}>
                 {t.note && <div className="muted u-fs-11 u-tt-n" style={{ whiteSpace: 'pre-wrap' }}>📝 {t.note}</div>}
+                {/* A10: la evidencia (fotos en miniatura; PDF y audios como enlace) */}
+                {(adjuntos[t.id] || []).length > 0 && (
+                  <div className="u-d-f u-g-6 u-fwr u-ai-c u-mt-4">
+                    {(adjuntos[t.id] || []).map(a => a.tipo === 'foto'
+                      ? <a key={a.id} href={a.url} target="_blank" rel="noreferrer" title={(a.autor_nombre || '') + ' · ' + horaLima(a.created_at) + (a.via === 'telegram' ? ' (por Telegram)' : '')}>
+                          <img src={a.url} alt="evidencia" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(255,255,255,.15)' }} />
+                        </a>
+                      : <a key={a.id} className="u-fs-10" href={a.url} target="_blank" rel="noreferrer" title={(a.autor_nombre || '') + ' · ' + horaLima(a.created_at)}>
+                          {a.tipo === 'pdf' ? '📄' : a.tipo === 'audio' ? '🎙' : a.tipo === 'video' ? '🎬' : '📎'} {String(a.nombre || a.tipo).slice(0, 24)}
+                        </a>)}
+                  </div>
+                )}
                 <div className="u-d-f u-g-6 u-ai-c u-mt-4">
                   {editable && <input className="u-f1 u-fs-11 u-tt-n" style={{ padding: '2px 6px', minWidth: 120 }} placeholder="Escribe una nota y Enter…" value={notaTxt[t.id] || ''}
                     onChange={ev => setNotaTxt(n => ({ ...n, [t.id]: ev.target.value }))} onKeyDown={ev => { if (ev.key === 'Enter') guardarNotaRapida(t) }} />}
@@ -589,6 +716,23 @@ export default function Secretarias() {
         <p className="muted u-fs-10 u-mb-8">Para agendar una, usa 📅 y elige el día. El bot no las pregunta en el pase de lista hasta que tengan fecha.</p>
         {lista(bandeja.filter(filtroSec), 'No hay tareas sin fecha.')}
       </>}
+      {vista === 'revisar' && <>
+        <div className="u-d-f u-ai-c u-g-8 u-mb-8">
+          <b className="u-f1">🔍 REVISIÓN POR MUESTREO — tareas hechas en los últimos 7 días, al azar</b>
+          <button className="btn-ghost u-fs-12" onClick={cargarMuestra}>🎲 OTRA MUESTRA</button>
+        </div>
+        <p className="muted u-fs-10 u-mb-8">Mira la evidencia (📎 fotos, PDF, audios) o el reporte del responsable (📝 nota). ✔ si alcanza como prueba; ✖ si falta: queda la constancia del incumplimiento en la tarea.</p>
+        {muestra === null ? <p className="muted u-fs-12">Cargando…</p> : !muestra.length ? <p className="muted u-fs-12">No queda nada por revisar de esta semana. ✅</p> : muestra.map(t => (
+          <div key={t.id} className="u-mb-8" style={{ borderBottom: '1px dashed rgba(255,255,255,.1)', paddingBottom: 6 }}>
+            <span className="muted u-fs-10">{nombreDe(t.secretary_id)} · {t.date ? ddmm(t.date) : 'sin fecha'} · {(adjuntos[t.id] || []).length ? (adjuntos[t.id] || []).length + ' archivo(s)' : 'SIN ARCHIVOS'}{t.note ? ' · con nota' : ''}</span>
+            {renderTarea(t)}
+            <div className="u-d-f u-g-6 u-mt-4" style={{ marginLeft: 26 }}>
+              <button className="btn u-fs-11" onClick={() => revisar(t, 'ok')}>✔ CON PRUEBA</button>
+              <button className="btn-ghost bad u-fs-11" onClick={() => revisar(t, 'sin_prueba')}>✖ SIN PRUEBA</button>
+            </div>
+          </div>
+        ))}
+      </>}
       {vista === 'sinacuse' && <>
         <b className="u-d-b u-mb-8">📭 ASIGNADAS QUE NADIE CONFIRMÓ — el responsable todavía no tocó "Recibido"</b>
         <p className="muted u-fs-10 u-mb-8">El aviso le llega por Telegram con botones. Quien no usa Telegram la confirma aquí con 📥 RECIBIDA. Para reasignarla usa 👤.</p>
@@ -628,6 +772,8 @@ export default function Secretarias() {
         {[['calendario', '📅 CALENDARIO'], ['midia', '☀️ MI DÍA'], ['semana', '🗓 SEMANA'], ['bandeja', '📥 SIN FECHA · ' + bandeja.filter(filtroSec).length], ['sinacuse', '📭 SIN ACUSE · ' + sinAcuseL.filter(t => filtroSec(t) && t.creada_por_sec !== t.secretary_id).length]].map(([v, l]) => (
           <button key={v} className={`chip ${vista === v ? 'on' : ''}`} onClick={() => setVista(v)}>{l}</button>
         ))}
+        {(esJefe || mia?.tipo === 'gerencia') && <button className={`chip ${vista === 'revisar' ? 'on' : ''}`} title="Revisar por muestreo lo que se marcó hecho" onClick={() => { setVista('revisar'); cargarMuestra() }}>🔍 REVISAR</button>}
+        {esJefe && <button className="chip" title="Motokar, camioneta, maquinaria…" onClick={editarRecursos}>🚚 RECURSOS</button>}
         <span className="u-f1" />
         {projects.length > 0 && <select className="u-fs-12" value={fProy} onChange={e => setFProy(e.target.value)} title="Filtrar por proyecto">
           <option value="">TODOS LOS PROYECTOS</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
