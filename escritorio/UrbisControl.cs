@@ -17,6 +17,9 @@
 //  · Sin internet muestra una pantalla en español con "Reintentar" y "Abrir en el
 //    navegador", en vez del error en inglés.
 //  · Guarda la contraseña si la persona quiere (como Chrome).
+//  · TAMAÑO DE LA PANTALLA (v1.3): zoom automático según la resolución y la escala de
+//    Windows de cada computadora, para que el panel se vea igual en todas. Ctrl + / Ctrl −
+//    / Ctrl + rueda lo cambian a mano; Ctrl 0 vuelve a automático.
 //
 // Se compila con compilar.ps1 (usa el compilador de C# que trae Windows; C# 5:
 // nada de $"", ?. ni nameof).
@@ -30,6 +33,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -46,8 +50,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyProduct("Urbis Control")]
 [assembly: AssemblyCompany("Urbis Group")]
 [assembly: AssemblyCopyright("Urbis Group")]
-[assembly: AssemblyVersion("1.2.1.0")]
-[assembly: AssemblyFileVersion("1.2.1.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace UrbisEscritorio
 {
@@ -55,7 +59,7 @@ namespace UrbisEscritorio
     {
         // al cambiar la versión, cambiar también AssemblyFileVersion (arriba): con ella
         // el .exe nuevo sabe que tiene que actualizar al instalado
-        public const string VERSION = "1.2.1";
+        public const string VERSION = "1.3.0";
         public const string NOMBRE = "Urbis Control";
         public const string HOST = "panel.urbisgroupinmobiliaria.com";
         public const string PANEL = "https://" + HOST + "/";
@@ -267,11 +271,17 @@ namespace UrbisEscritorio
             web = new WebView2();
             web.Dock = DockStyle.Fill;
             web.DefaultBackgroundColor = BackColor;
+            web.KeyDown += TeclaZoom;                         // Ctrl + / Ctrl − / Ctrl 0 (v1.3)
             Controls.Add(web);
 
+            LeerZoom();
             CrearBandeja();
             FormClosing += (s, e) => GuardarPosicion();
             FormClosed += (s, e) => { bandeja.Visible = false; bandeja.Dispose(); };   // sin ícono fantasma junto al reloj
+            // tamaño automático: se recalcula al pasar la ventana a otra pantalla o al cambiar la resolución
+            Move += (s, e) => RevisarPantalla();
+            SystemEvents.DisplaySettingsChanged += PantallasCambiaron;
+            FormClosed += (s, e) => SystemEvents.DisplaySettingsChanged -= PantallasCambiaron;
             // la que arrancó minimizada (al prender la PC) vuelve maximizada si así se usaba
             Resize += (s, e) => { if (maximizarAlVolver && WindowState == FormWindowState.Normal) { maximizarAlVolver = false; WindowState = FormWindowState.Maximized; } };
         }
@@ -294,6 +304,10 @@ namespace UrbisEscritorio
             itemAlPrender = new ToolStripMenuItem("Abrir al prender la PC") { Checked = AlPrender.Activo };
             itemAlPrender.Click += (s, e) => CambiarAlPrender();
             menu.Items.Add(itemAlPrender);
+            itemZoom = new ToolStripMenuItem("Tamaño de la pantalla");
+            ArmarMenuZoom();                                       // con algo adentro para que salga la flechita
+            itemZoom.DropDownOpening += (s, e) => ArmarMenuZoom();
+            menu.Items.Add(itemZoom);
             itemActualizar = new ToolStripMenuItem("Actualizar") { Visible = false };
             itemActualizar.Click += (s, e) => Actualizar();
             menu.Items.Add(itemActualizar);
@@ -382,6 +396,12 @@ namespace UrbisEscritorio
             if (!Programa.EsDelPanel(e.Source)) return;            // solo el panel puede pedir avisos
             Dictionary<string, object> m;
             try { m = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson); } catch { return; }
+            if (Texto(m, "tipo") == "zoom")                       // del SCRIPT_ZOOM de la app (Ctrl + rueda, teclas)
+            {
+                if (Texto(m, "via") == "tecla" && unchecked(Environment.TickCount - ultimaTeclaZoom) < 300) return;   // ya la atendió TeclaZoom
+                AccionZoom(Texto(m, "accion"));
+                return;
+            }
             if (m == null || Texto(m, "tipo") != "aviso") return;
             // mirando la ventana no hace falta: el panel ya lo muestra en pantalla
             if (ActiveForm == this && WindowState != FormWindowState.Minimized) return;
@@ -424,6 +444,7 @@ namespace UrbisEscritorio
             bienvenida = b; contexto = ctx; empezarMinimizada = minimizada;
             // la ventana existe pero no se ve: el panel carga mientras tanto
             CreateControl();
+            IntPtr propia = Handle;       // v1.3: la ventana ya existe (escondida) para saber en qué pantalla está (zoom)
             IntPtr asa = web.Handle;
             Timer tope = new Timer { Interval = MAXIMO_ESPERA_MS };
             tope.Tick += (s, e) => { tope.Stop(); Mostrar(); };
@@ -481,8 +502,16 @@ namespace UrbisEscritorio
             st.UserAgent = st.UserAgent + " UrbisEscritorio/" + Programa.VERSION;   // el panel puede saber que es la app
             st.IsPasswordAutosaveEnabled = true;
             st.IsGeneralAutofillEnabled = true;
-            st.IsZoomControlEnabled = true;
+            st.IsZoomControlEnabled = false;       // v1.3: el zoom lo maneja la app ("tamaño de la pantalla")
             st.AreDevToolsEnabled = true;          // F12 > Red: sirve para medir la velocidad
+            web.ZoomFactorChanged += (s, e) =>
+            {
+                // solo la app lo cambia: si cambió por otra cosa (p. ej. al navegar), vuelve el que toca
+                if (Math.Abs(web.ZoomFactor - zoomPuesto) > 0.001)
+                    BeginInvoke(new Action(() => { try { if (Math.Abs(web.ZoomFactor - zoomPuesto) > 0.001) web.ZoomFactor = zoomPuesto; } catch { } }));
+            };
+            try { await cw.AddScriptToExecuteOnDocumentCreatedAsync(SCRIPT_ZOOM); } catch { }
+            AplicarZoom(false);
 
             cw.DocumentTitleChanged += (s, e) =>
             {
@@ -561,6 +590,245 @@ namespace UrbisEscritorio
             alPrender.IsChecked = AlPrender.Activo;
             alPrender.CustomItemSelected += (a, b) => BeginInvoke(new Action(CambiarAlPrender));
             e.MenuItems.Add(alPrender);
+
+            // Tamaño de la pantalla (v1.3): automático, los tamaños fijos, agrandar y achicar
+            CoreWebView2ContextMenuItem tam = env.CreateContextMenuItem("Tamaño de la pantalla (" + Pct(zoomPuesto) + ")", null, CoreWebView2ContextMenuItemKind.Submenu);
+            CoreWebView2ContextMenuItem auto = env.CreateContextMenuItem("Automático: " + Pct(ZoomAutomatico()) + " (recomendado)", null, CoreWebView2ContextMenuItemKind.Radio);
+            auto.IsChecked = zoomManual <= 0;
+            auto.CustomItemSelected += (a, b) => BeginInvoke(new Action(() => PonerZoom(0)));
+            tam.Children.Add(auto);
+            tam.Children.Add(env.CreateContextMenuItem("", null, CoreWebView2ContextMenuItemKind.Separator));
+            foreach (double o in OPCIONES)
+            {
+                double v = o;
+                CoreWebView2ContextMenuItem fijo = env.CreateContextMenuItem(Pct(v), null, CoreWebView2ContextMenuItemKind.Radio);
+                fijo.IsChecked = zoomManual > 0 && Math.Abs(zoomManual - v) < 0.001;
+                fijo.CustomItemSelected += (a, b) => BeginInvoke(new Action(() => PonerZoom(v)));
+                tam.Children.Add(fijo);
+            }
+            tam.Children.Add(env.CreateContextMenuItem("", null, CoreWebView2ContextMenuItemKind.Separator));
+            CoreWebView2ContextMenuItem mas = env.CreateContextMenuItem("Agrandar   (Ctrl +)", null, CoreWebView2ContextMenuItemKind.Command);
+            mas.CustomItemSelected += (a, b) => BeginInvoke(new Action(() => PasoZoom(1)));
+            tam.Children.Add(mas);
+            CoreWebView2ContextMenuItem menos = env.CreateContextMenuItem("Achicar   (Ctrl −)", null, CoreWebView2ContextMenuItemKind.Command);
+            menos.CustomItemSelected += (a, b) => BeginInvoke(new Action(() => PasoZoom(-1)));
+            tam.Children.Add(menos);
+            e.MenuItems.Add(tam);
+        }
+
+        // ------------------------------------------------ TAMAÑO DE LA PANTALLA: zoom (v1.3)
+        // El panel se armó mirándolo en una laptop 1920×1080 con Windows al 150 %, o sea 1280 × 672
+        // "puntos" útiles. En AUTOMÁTICO la app calcula el zoom para que en cualquier pantalla entre
+        // lo mismo y se vea igual de proporcionado. Ejemplos: 1366×768 al 100 % → 105 %;
+        // 1920×1080 al 125 % → 120 %; 1920×1080 al 100 % → 150 %; 1920×1080 al 150 % → 100 %.
+        // Se recalcula al pasar la ventana a otra pantalla, al cambiar la resolución o la escala.
+        // A mano: Ctrl + / Ctrl − / Ctrl + rueda del mouse, o clic derecho / ícono del reloj →
+        // "Tamaño de la pantalla". Ctrl 0 vuelve a automático. Se recuerda en
+        // %LOCALAPPDATA%\UrbisControl\zoom.txt ("auto" o el número, p. ej. 1.25).
+        // El zoom propio del navegador está apagado (IsZoomControlEnabled): así nada lo cambia solo.
+        const double REF_ANCHO = 1280, REF_ALTO = 672, ZOOM_MIN = 0.8, ZOOM_MAX = 1.5;
+        static readonly double[] PASOS = { 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0 };
+        static readonly double[] OPCIONES = { 0.8, 0.9, 1.0, 1.1, 1.25, 1.5 };
+        double zoomManual;                 // 0 = automático
+        double zoomPuesto = 1;             // el que tiene el panel ahora
+        int ultimaTeclaZoom;               // para no contar dos veces la misma tecla (TeclaZoom + script)
+        ToolStripMenuItem itemZoom;
+        Label cartel;
+        Timer cartelReloj;
+
+        // Ctrl + rueda del mouse (y el "pellizco" del touchpad) y las teclas, desde adentro del panel.
+        // La rueda es pasiva: no frena el desplazamiento normal de la página.
+        const string SCRIPT_ZOOM = @"(function () {
+  if (window.top !== window || !window.chrome || !window.chrome.webview) return;
+  var w = window.chrome.webview, suma = 0, antes = 0;
+  function pedir(a, via) { try { w.postMessage({ tipo: 'zoom', accion: a, via: via }); } catch (e) { } }
+  window.addEventListener('keydown', function (e) {
+    if (!e.ctrlKey || e.altKey) return;
+    var k = e.key, c = e.code, a = null;
+    if (k === '+' || k === '=' || c === 'NumpadAdd') a = 'mas';
+    else if (k === '-' || c === 'NumpadSubtract') a = 'menos';
+    else if (k === '0' || c === 'Numpad0') a = 'auto';
+    if (!a) return;
+    e.preventDefault();
+    pedir(a, 'tecla');
+  }, true);
+  window.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey) return;
+    var t = Date.now();
+    if (t - antes > 500) suma = 0;
+    antes = t;
+    suma += e.deltaY;
+    if (suma <= -60) { suma = 0; pedir('mas', 'rueda'); }
+    else if (suma >= 60) { suma = 0; pedir('menos', 'rueda'); }
+  }, { passive: true, capture: true });
+})();";
+
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int tipo, out uint dpiX, out uint dpiY);
+
+        string ArchivoZoom { get { return Path.Combine(Programa.CarpetaDatos, "zoom.txt"); } }
+
+        void LeerZoom()
+        {
+            zoomManual = 0;
+            try
+            {
+                double z;
+                string t = File.ReadAllText(ArchivoZoom).Trim();
+                if (double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out z) && z >= PASOS[0] && z <= PASOS[PASOS.Length - 1]) zoomManual = z;
+            }
+            catch { }
+        }
+
+        void GuardarZoom()
+        {
+            try
+            {
+                Directory.CreateDirectory(Programa.CarpetaDatos);
+                File.WriteAllText(ArchivoZoom, zoomManual > 0 ? zoomManual.ToString("0.##", CultureInfo.InvariantCulture) : "auto");
+            }
+            catch { }
+        }
+
+        // el que le toca a la pantalla donde está la ventana, medida en puntos de Windows (sin la escala)
+        double ZoomAutomatico()
+        {
+            if (!IsHandleCreated) return 1;
+            Rectangle area = Screen.FromHandle(Handle).WorkingArea;          // sin la barra de tareas
+            double escala = 1;
+            try
+            {
+                uint dx, dy;
+                if (GetDpiForMonitor(MonitorFromWindow(Handle, 2), 0, out dx, out dy) == 0 && dx > 0) escala = dx / 96.0;
+            }
+            catch { }
+            double z = Math.Min(area.Width / escala / REF_ANCHO, area.Height / escala / REF_ALTO);
+            z = Math.Floor(z * 20 + 0.001) / 20;              // de 5 en 5 %, hacia abajo: que siempre entre
+            return Math.Max(ZOOM_MIN, Math.Min(ZOOM_MAX, z));
+        }
+
+        static string Pct(double z) { return Math.Round(z * 100).ToString(CultureInfo.InvariantCulture) + " %"; }
+
+        // pone el zoom que toca; avisar = mostrar el cartelito con el %
+        void AplicarZoom(bool avisar)
+        {
+            double z = zoomManual > 0 ? zoomManual : ZoomAutomatico();
+            bool cambio = Math.Abs(z - zoomPuesto) > 0.001;
+            zoomPuesto = z;                                   // antes de tocar el panel: ZoomFactorChanged lo compara
+            try { if (web.CoreWebView2 != null && Math.Abs(web.ZoomFactor - z) > 0.001) web.ZoomFactor = z; } catch { }
+            if (avisar || (cambio && mostrada)) MostrarCartel();
+        }
+
+        // la ventana pasó a otra pantalla o cambió la resolución / la escala
+        void RevisarPantalla()
+        {
+            if (zoomManual > 0 || web.CoreWebView2 == null || WindowState == FormWindowState.Minimized) return;
+            if (Math.Abs(ZoomAutomatico() - zoomPuesto) > 0.001) AplicarZoom(false);
+        }
+
+        void PantallasCambiaron(object s, EventArgs e)
+        {
+            try { if (IsHandleCreated) BeginInvoke(new Action(RevisarPantalla)); } catch { }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x02E0) BeginInvoke(new Action(RevisarPantalla));   // WM_DPICHANGED: cambió la escala de Windows
+        }
+
+        // Ctrl + / Ctrl − : el paso siguiente de la lista, como en Chrome
+        void PasoZoom(int sentido)
+        {
+            double actual = zoomPuesto, nuevo = actual;
+            if (sentido > 0) { foreach (double p in PASOS) if (p > actual + 0.001) { nuevo = p; break; } }
+            else for (int i = PASOS.Length - 1; i >= 0; i--) if (PASOS[i] < actual - 0.001) { nuevo = PASOS[i]; break; }
+            PonerZoom(nuevo);
+        }
+
+        // 0 = automático
+        void PonerZoom(double z)
+        {
+            zoomManual = z;
+            GuardarZoom();
+            AplicarZoom(true);
+        }
+
+        void AccionZoom(string a)
+        {
+            if (a == "mas") PasoZoom(1);
+            else if (a == "menos") PasoZoom(-1);
+            else if (a == "auto") PonerZoom(0);
+        }
+
+        // las teclas con Ctrl: el control WebView2 las avisa como KeyDown (también con el foco en un
+        // cuadro del panel o en un visor); Handled = true hace que no sigan hasta la página
+        void TeclaZoom(object s, KeyEventArgs e)
+        {
+            if (!e.Control || e.Alt) return;                  // con Alt sería AltGr
+            Keys k = e.KeyCode;
+            string a = k == Keys.Oemplus || k == Keys.Add ? "mas"
+                : k == Keys.OemMinus || k == Keys.Subtract ? "menos"
+                : k == Keys.D0 || k == Keys.NumPad0 ? "auto" : null;
+            if (a == null) return;
+            e.Handled = true;
+            ultimaTeclaZoom = Environment.TickCount;
+            AccionZoom(a);
+        }
+
+        void ArmarMenuZoom()
+        {
+            itemZoom.DropDownItems.Clear();
+            ToolStripMenuItem auto = new ToolStripMenuItem("Automático: " + Pct(ZoomAutomatico()) + " (recomendado)") { Checked = zoomManual <= 0 };
+            auto.Click += (s, e) => PonerZoom(0);
+            itemZoom.DropDownItems.Add(auto);
+            itemZoom.DropDownItems.Add(new ToolStripSeparator());
+            foreach (double o in OPCIONES)
+            {
+                double v = o;
+                ToolStripMenuItem fijo = new ToolStripMenuItem(Pct(v)) { Checked = zoomManual > 0 && Math.Abs(zoomManual - v) < 0.001 };
+                fijo.Click += (s, e) => PonerZoom(v);
+                itemZoom.DropDownItems.Add(fijo);
+            }
+            itemZoom.DropDownItems.Add(new ToolStripSeparator());
+            ToolStripMenuItem mas = new ToolStripMenuItem("Agrandar") { ShortcutKeyDisplayString = "Ctrl +" };
+            mas.Click += (s, e) => PasoZoom(1);
+            itemZoom.DropDownItems.Add(mas);
+            ToolStripMenuItem menos = new ToolStripMenuItem("Achicar") { ShortcutKeyDisplayString = "Ctrl −" };
+            menos.Click += (s, e) => PasoZoom(-1);
+            itemZoom.DropDownItems.Add(menos);
+        }
+
+        // cartelito arriba al centro con el tamaño, que se va solo en 2 s
+        void MostrarCartel()
+        {
+            if (cartel == null)
+            {
+                cartel = new Label
+                {
+                    AutoSize = false, UseMnemonic = false, Visible = false, TextAlign = ContentAlignment.MiddleCenter,
+                    BackColor = Color.FromArgb(0xBF, 0xE3, 0xA6), ForeColor = Color.FromArgb(0x12, 0x1E, 0x16),   // el verde claro del panel
+                    Font = new Font("Segoe UI", 10.5f, FontStyle.Bold)
+                };
+                Controls.Add(cartel);
+                cartelReloj = new Timer { Interval = 2200 };
+                cartelReloj.Tick += (s, e) => { cartelReloj.Stop(); cartel.Visible = false; };
+            }
+            string texto = zoomManual > 0
+                ? "Tamaño de la pantalla: " + Pct(zoomPuesto) + "     Ctrl 0 = automático"
+                : "Tamaño automático: " + Pct(zoomPuesto);
+            int h = cartel.Font.Height;
+            Size t = TextRenderer.MeasureText(texto, cartel.Font);
+            cartel.Text = texto;
+            cartel.Size = new Size(t.Width + h * 2, t.Height + h);
+            Region antes = cartel.Region;
+            using (GraphicsPath p = Bienvenida.Redondeado(0, 0, cartel.Width, cartel.Height, h * 0.7f)) cartel.Region = new Region(p);
+            if (antes != null) antes.Dispose();
+            cartel.Location = new Point((ClientSize.Width - cartel.Width) / 2, h);
+            cartel.Visible = true;
+            cartel.BringToFront();
+            cartelReloj.Stop();
+            cartelReloj.Start();
         }
 
         void MotorCaido(object s, CoreWebView2ProcessFailedEventArgs e)
@@ -726,7 +994,7 @@ namespace UrbisEscritorio
 
         protected override void OnFormClosed(FormClosedEventArgs e) { reloj.Stop(); reloj.Dispose(); base.OnFormClosed(e); }
 
-        static GraphicsPath Redondeado(float x, float y, float w, float h, float r)
+        internal static GraphicsPath Redondeado(float x, float y, float w, float h, float r)   // también el cartel del zoom
         {
             GraphicsPath p = new GraphicsPath();
             float d = Math.Min(r * 2, Math.Min(w, h));

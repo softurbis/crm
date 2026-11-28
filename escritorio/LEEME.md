@@ -48,6 +48,31 @@ con todo adentro. El código está en `UrbisControl.cs` (C# 5: nada de `$""`, `?
 - Ícono junto al reloj: abrir, **Abrir al prender la PC** (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` con `--minimizada`), salir.
 - Una sola copia abierta: abrirla otra vez trae al frente la que ya está.
 
+## Tamaño de la pantalla: zoom adaptativo (v1.3)
+El panel se armó mirándolo en una laptop 1920×1080 con Windows al 150 %, o sea **1280 × 672 puntos**
+útiles. En **Automático** (lo normal) la app calcula el zoom para que en cualquier computadora entre
+lo mismo y se vea igual de proporcionado:
+
+| Pantalla | Zoom automático |
+|---|---|
+| 1920×1080 al 150 % (la del dueño) | 100 % |
+| 1920×1080 al 125 % | 120 % |
+| 1366×768 al 100 % | 105 % |
+| 1600×900 al 100 % | 125 % |
+| 1920×1080 al 100 % o 2560×1440 | 150 % (tope) |
+| 1920×1080 al 175 % | 80 % (piso) |
+
+- Se mide la pantalla (sin la barra de tareas) donde está la ventana, no el tamaño de la ventana.
+  Se recalcula al pasarla a otro monitor o al cambiar la resolución o la escala de Windows.
+- **A mano:** `Ctrl +` / `Ctrl −` / `Ctrl + rueda del mouse` (o pellizco del touchpad), o clic derecho
+  / ícono del reloj → *Tamaño de la pantalla* (Automático, 80 %…150 %, Agrandar, Achicar).
+  **`Ctrl 0` vuelve a Automático.** Al cambiarlo sale un cartelito arriba con el %.
+- Se recuerda por computadora en `%LOCALAPPDATA%\UrbisControl\zoom.txt` (`auto` o el número, p. ej. `1.25`).
+- El zoom propio del motor está apagado (`IsZoomControlEnabled = false`): solo la app lo cambia.
+  Las teclas llegan por `web.KeyDown` (el control WebView2 manda ahí las teclas con Ctrl; **no** pasan por
+  `ProcessCmdKey`) y, de respaldo, por un script que la app inyecta (`SCRIPT_ZOOM`, Ctrl + rueda incluida).
+- Para cambiar la referencia o los topes: `REF_ANCHO`, `REF_ALTO`, `ZOOM_MIN`, `ZOOM_MAX` en `UrbisControl.cs`.
+
 ## Sacar una versión nueva (se actualiza sola desde la 1.2)
 Solo hace falta si cambia la app en sí; los cambios del panel llegan solos.
 1. Subir `VERSION`, `AssemblyVersion` y `AssemblyFileVersion` en `UrbisControl.cs`.
